@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react"
 import { Edit2, Trash2, Mail, Clock, Copy } from "lucide-react"
 import { useDebounce } from "@/hooks/use-debounce"
+import { VirtualizedList } from "@/components/ui/virtualized-list"
+import { EmptyState } from "@/components/ui/empty-state"
 
 export default function SubscriptionsPage({
   subscriptions = [],
@@ -76,21 +78,20 @@ export default function SubscriptionsPage({
 
   if (hasNoSubscriptions) {
     return (
-      <div className="flex flex-col items-center justify-center py-20">
-        <div className="text-6xl mb-4">📦</div>
-        <h3 className={`text-2xl font-bold ${darkMode ? "text-white" : "text-gray-900"} mb-2`}>No subscriptions yet</h3>
-        <p className={`text-sm ${darkMode ? "text-gray-400" : "text-gray-600"} mb-6 text-center max-w-md`}>
-          Start tracking your subscriptions by connecting your email or adding them manually.
-        </p>
-        <button
-          onClick={() => {}}
-          className="bg-[#FFD166] text-[#1E2A35] px-6 py-3 rounded-lg font-semibold hover:bg-[#FFD166]/90 transition-colors"
-        >
-          Add your first subscription
-        </button>
-      </div>
+      <EmptyState
+        icon="📦"
+        title="No subscriptions yet"
+        description="Start tracking your subscriptions by connecting your email or adding them manually."
+        action={{
+          label: "Add your first subscription",
+          onClick: () => {},
+        }}
+        darkMode={darkMode}
+      />
     )
   }
+
+  const shouldVirtualize = filtered.length > 100
 
   return (
     <div>
@@ -254,136 +255,167 @@ export default function SubscriptionsPage({
 
       {/* Subscriptions List */}
       {!hasNoResults && (
-        <div className="space-y-3">
-          {filtered.map((sub) => {
-            const isDuplicate = duplicates.some((dup) => dup.subscriptions.some((s) => s.id === sub.id))
-            const unusedInfo = unusedSubscriptions.find((unused) => unused.id === sub.id)
-
-            return (
-              <div
-                key={sub.id}
-                className={`${darkMode ? "bg-[#2D3748] border-[#374151]" : "bg-white border-gray-200"} border rounded-xl p-5 flex items-center justify-between`}
-              >
-                <div className="flex items-center gap-4 flex-1">
-                  {selectedSubscriptions && onToggleSelect && (
-                    <input
-                      type="checkbox"
-                      checked={selectedSubscriptions.has(sub.id)}
-                      onChange={() => onToggleSelect(sub.id)}
-                      className="w-4 h-4 rounded"
-                    />
-                  )}
-                  <div
-                    className={`w-12 h-12 ${darkMode ? "bg-[#1E2A35]" : "bg-black"} rounded-lg flex items-center justify-center text-2xl`}
-                  >
-                    {sub.icon}
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <h4 className={`font-semibold ${darkMode ? "text-white" : "text-gray-900"}`}>{sub.name}</h4>
-                      {sub.isTrial && (
-                        <span className="bg-[#007A5C] text-white text-xs px-2 py-0.5 rounded-full font-semibold">
-                          Trial
-                        </span>
-                      )}
-                      {isDuplicate && (
-                        <span className="bg-[#FFD166] text-[#1E2A35] text-xs px-2 py-0.5 rounded-full font-semibold flex items-center gap-1">
-                          <Copy className="w-3 h-3" />
-                          Duplicate
-                        </span>
-                      )}
-                      {unusedInfo && sub.category === "AI Tools" && sub.hasApiKey && (
-                        <span className="bg-[#E86A33] text-white text-xs px-2 py-0.5 rounded-full font-semibold flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          Unused {unusedInfo.daysSinceLastUse}d
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <p className={`text-xs ${darkMode ? "text-gray-400" : "text-gray-500"}`}>{sub.category}</p>
-                      {sub.email && (
-                        <>
-                          <span className={`text-xs ${darkMode ? "text-gray-600" : "text-gray-300"}`}>•</span>
-                          <div className="flex items-center gap-1">
-                            <Mail className={`w-3 h-3 ${darkMode ? "text-gray-500" : "text-gray-400"}`} />
-                            <p className={`text-xs ${darkMode ? "text-gray-500" : "text-gray-400"}`}>{sub.email}</p>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                    {sub.isTrial && sub.trialEndsAt && (
-                      <p className={`text-xs ${darkMode ? "text-[#007A5C]" : "text-green-600"} mt-1`}>
-                        Trial ends in {Math.ceil((sub.trialEndsAt - new Date()) / (1000 * 60 * 60 * 24))} days - $
-                        {sub.priceAfterTrial}/month after
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-8">
-                  <div className="text-right">
-                    <p className={`font-bold ${darkMode ? "text-white" : "text-gray-900"}`}>${sub.price}</p>
-                    <p className={`text-xs ${darkMode ? "text-gray-400" : "text-gray-500"}`}>/Month</p>
-                  </div>
-
-                  <div className="text-right min-w-32">
-                    <p className={`text-sm ${darkMode ? "text-gray-400" : "text-gray-600"}`}>
-                      {sub.status === "expiring"
-                        ? `Expires in ${sub.renewsIn} days`
-                        : `Renewal in ${sub.renewsIn} days`}
-                    </p>
-                    <span
-                      className={`text-xs font-semibold ${sub.status === "expiring" ? "text-[#E86A33]" : "text-[#007A5C]"}`}
-                    >
-                      {sub.status === "expiring" ? "Expiring" : "Active"}
-                    </span>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => onManage && onManage(sub)}
-                      className={`p-2 rounded-lg ${darkMode ? "hover:bg-[#374151] text-gray-400" : "hover:bg-gray-100 text-gray-600"}`}
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => onDelete(sub.id)}
-                      className={`p-2 rounded-lg ${darkMode ? "hover:bg-[#E86A33]/20 text-[#E86A33]" : "hover:bg-red-50 text-red-600"}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
+        <>
+          {shouldVirtualize ? (
+            <VirtualizedList
+              items={filtered}
+              itemHeight={80}
+              containerHeight={600}
+              renderItem={(sub, index) => (
+                <SubscriptionCard
+                  key={sub.id}
+                  subscription={sub}
+                  onDelete={onDelete}
+                  onManage={onManage}
+                  selectedSubscriptions={selectedSubscriptions}
+                  onToggleSelect={onToggleSelect}
+                  darkMode={darkMode}
+                  isDuplicate={duplicates.some((dup) => dup.subscriptions.some((s) => s.id === sub.id))}
+                  unusedInfo={unusedSubscriptions.find((unused) => unused.id === sub.id)}
+                />
+              )}
+            />
+          ) : (
+            <div className="space-y-3">
+              {filtered.map((sub) => (
+                <SubscriptionCard
+                  key={sub.id}
+                  subscription={sub}
+                  onDelete={onDelete}
+                  onManage={onManage}
+                  selectedSubscriptions={selectedSubscriptions}
+                  onToggleSelect={onToggleSelect}
+                  darkMode={darkMode}
+                  isDuplicate={duplicates.some((dup) => dup.subscriptions.some((s) => s.id === sub.id))}
+                  unusedInfo={unusedSubscriptions.find((unused) => unused.id === sub.id)}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {hasNoResults && (
-        <div className="flex flex-col items-center justify-center py-12">
-          <div className="text-4xl mb-3">🔍</div>
-          <h3 className={`text-lg font-semibold ${darkMode ? "text-white" : "text-gray-900"} mb-2`}>
-            No subscriptions found
-          </h3>
-          <p className={`text-sm ${darkMode ? "text-gray-400" : "text-gray-600"} mb-4`}>
-            Try adjusting your filters or search term
-          </p>
-          <button
-            onClick={() => {
+        <EmptyState
+          icon="🔍"
+          title="No subscriptions found"
+          description="Try adjusting your filters or search term to find what you're looking for."
+          action={{
+            label: "Clear all filters",
+            onClick: () => {
               setSearchTerm("")
               setFilterEmail("all")
               setFilterCategory("all")
               setFilterStatus("all")
               setShowDuplicatesOnly(false)
               setShowUnusedOnly(false)
-            }}
-            className={`text-sm ${darkMode ? "text-[#FFD166] hover:text-[#FFD166]/80" : "text-blue-600 hover:text-blue-700"}`}
+            },
+          }}
+          darkMode={darkMode}
+        />
+      )}
+    </div>
+  )
+}
+
+function SubscriptionCard({
+  subscription: sub,
+  onDelete,
+  onManage,
+  selectedSubscriptions,
+  onToggleSelect,
+  darkMode,
+  isDuplicate,
+  unusedInfo,
+}) {
+  return (
+    <div
+      className={`${darkMode ? "bg-[#2D3748] border-[#374151]" : "bg-white border-gray-200"} border rounded-xl p-5 flex items-center justify-between`}
+    >
+      <div className="flex items-center gap-4 flex-1">
+        {selectedSubscriptions && onToggleSelect && (
+          <input
+            type="checkbox"
+            checked={selectedSubscriptions.has(sub.id)}
+            onChange={() => onToggleSelect(sub.id)}
+            className="w-4 h-4 rounded"
+          />
+        )}
+        <div
+          className={`w-12 h-12 ${darkMode ? "bg-[#1E2A35]" : "bg-black"} rounded-lg flex items-center justify-center text-2xl`}
+        >
+          {sub.icon}
+        </div>
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <h4 className={`font-semibold ${darkMode ? "text-white" : "text-gray-900"}`}>{sub.name}</h4>
+            {sub.isTrial && (
+              <span className="bg-[#007A5C] text-white text-xs px-2 py-0.5 rounded-full font-semibold">Trial</span>
+            )}
+            {isDuplicate && (
+              <span className="bg-[#FFD166] text-[#1E2A35] text-xs px-2 py-0.5 rounded-full font-semibold flex items-center gap-1">
+                <Copy className="w-3 h-3" />
+                Duplicate
+              </span>
+            )}
+            {unusedInfo && sub.category === "AI Tools" && sub.hasApiKey && (
+              <span className="bg-[#E86A33] text-white text-xs px-2 py-0.5 rounded-full font-semibold flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                Unused {unusedInfo.daysSinceLastUse}d
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <p className={`text-xs ${darkMode ? "text-gray-400" : "text-gray-500"}`}>{sub.category}</p>
+            {sub.email && (
+              <>
+                <span className={`text-xs ${darkMode ? "text-gray-600" : "text-gray-300"}`}>•</span>
+                <div className="flex items-center gap-1">
+                  <Mail className={`w-3 h-3 ${darkMode ? "text-gray-500" : "text-gray-400"}`} />
+                  <p className={`text-xs ${darkMode ? "text-gray-500" : "text-gray-400"}`}>{sub.email}</p>
+                </div>
+              </>
+            )}
+          </div>
+          {sub.isTrial && sub.trialEndsAt && (
+            <p className={`text-xs ${darkMode ? "text-[#007A5C]" : "text-green-600"} mt-1`}>
+              Trial ends in {Math.ceil((sub.trialEndsAt - new Date()) / (1000 * 60 * 60 * 24))} days - $
+              {sub.priceAfterTrial}/month after
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-8">
+        <div className="text-right">
+          <p className={`font-bold ${darkMode ? "text-white" : "text-gray-900"}`}>${sub.price}</p>
+          <p className={`text-xs ${darkMode ? "text-gray-400" : "text-gray-500"}`}>/Month</p>
+        </div>
+
+        <div className="text-right min-w-32">
+          <p className={`text-sm ${darkMode ? "text-gray-400" : "text-gray-600"}`}>
+            {sub.status === "expiring" ? `Expires in ${sub.renewsIn} days` : `Renewal in ${sub.renewsIn} days`}
+          </p>
+          <span className={`text-xs font-semibold ${sub.status === "expiring" ? "text-[#E86A33]" : "text-[#007A5C]"}`}>
+            {sub.status === "expiring" ? "Expiring" : "Active"}
+          </span>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            onClick={() => onManage && onManage(sub)}
+            className={`p-2 rounded-lg ${darkMode ? "hover:bg-[#374151] text-gray-400" : "hover:bg-gray-100 text-gray-600"}`}
           >
-            Clear all filters
+            <Edit2 className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => onDelete(sub.id)}
+            className={`p-2 rounded-lg ${darkMode ? "hover:bg-[#E86A33]/20 text-[#E86A33]" : "hover:bg-red-50 text-red-600"}`}
+          >
+            <Trash2 className="w-4 h-4" />
           </button>
         </div>
-      )}
+      </div>
     </div>
   )
 }

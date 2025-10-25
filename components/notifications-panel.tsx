@@ -12,6 +12,7 @@ import {
   Search,
   Info,
 } from "lucide-react"
+import { EmptyState } from "@/components/ui/empty-state"
 
 export default function NotificationsPanel({
   notifications,
@@ -44,7 +45,35 @@ export default function NotificationsPanel({
         return <Info className={iconClass} />
     }
   }
-  // </CHANGE>
+
+  if (!notifications || notifications.length === 0) {
+    return (
+      <div
+        className={`fixed right-0 top-0 h-full w-96 ${darkMode ? "bg-[#2D3748] border-[#374151]" : "bg-white border-gray-200"} border-l shadow-lg z-40 flex flex-col`}
+      >
+        <div
+          className={`flex items-center justify-between p-6 border-b ${darkMode ? "border-[#374151]" : "border-gray-200"}`}
+        >
+          <h3 className={`text-lg font-semibold ${darkMode ? "text-white" : "text-gray-900"}`}>Notifications</h3>
+          <button
+            onClick={onClose}
+            className={`p-1 ${darkMode ? "hover:bg-[#374151]" : "hover:bg-gray-100"} rounded-lg`}
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="flex-1 flex items-center justify-center">
+          <EmptyState
+            icon="🔔"
+            title="No notifications"
+            description="You're all caught up! We'll notify you when there's something new."
+            darkMode={darkMode}
+          />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div

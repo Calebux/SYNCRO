@@ -1,8 +1,17 @@
 "use client"
-import { LogOut, Bell, AlertCircle, Key, Plus, Eye, EyeOff, Trash2, Mail } from "lucide-react"
+import { LogOut, Bell, AlertCircle, Key, Plus, Eye, EyeOff, Trash2, Mail, DollarSign } from "lucide-react"
 import { useState } from "react"
+import { type Currency, CURRENCY_NAMES, CURRENCY_SYMBOLS } from "@/lib/currency-utils"
 
-export default function SettingsPage({ currentPlan, onUpgrade, budgetLimit, onBudgetChange, darkMode }) {
+export default function SettingsPage({
+  currentPlan,
+  onUpgrade,
+  budgetLimit,
+  onBudgetChange,
+  darkMode,
+  currency,
+  onCurrencyChange,
+}) {
   const [alertThreshold, setAlertThreshold] = useState(80)
   const [emailAlerts, setEmailAlerts] = useState(true)
   const [weeklyReports, setWeeklyReports] = useState(true)
@@ -152,6 +161,40 @@ export default function SettingsPage({ currentPlan, onUpgrade, budgetLimit, onBu
         </div>
       </div>
 
+      {/* Currency & Localization */}
+      <div className={`border rounded-xl p-6 ${darkMode ? "bg-gray-900 border-gray-800" : "bg-white border-gray-200"}`}>
+        <h3
+          className={`text-lg font-semibold mb-4 flex items-center gap-2 ${darkMode ? "text-white" : "text-gray-900"}`}
+        >
+          <DollarSign className="w-5 h-5" />
+          Currency & Localization
+        </h3>
+        <div className="space-y-4">
+          <div>
+            <label className={`block text-sm font-medium mb-2 ${darkMode ? "text-gray-300" : "text-gray-700"}`}>
+              Display Currency
+            </label>
+            <select
+              value={currency}
+              onChange={(e) => onCurrencyChange(e.target.value as Currency)}
+              className={`w-full px-4 py-2 border rounded-lg ${
+                darkMode ? "bg-gray-800 border-gray-700 text-white" : "bg-white border-gray-300 text-gray-900"
+              }`}
+            >
+              {Object.entries(CURRENCY_NAMES).map(([code, name]) => (
+                <option key={code} value={code}>
+                  {CURRENCY_SYMBOLS[code as Currency]} {name} ({code})
+                </option>
+              ))}
+            </select>
+            <p className={`text-xs mt-1 ${darkMode ? "text-gray-400" : "text-gray-500"}`}>
+              All prices will be displayed in your selected currency
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Connected Email Accounts */}
       <div className={`border rounded-xl p-6 ${darkMode ? "bg-gray-900 border-gray-800" : "bg-white border-gray-200"}`}>
         <div className="flex items-center justify-between mb-4">
           <h3 className={`text-lg font-semibold flex items-center gap-2 ${darkMode ? "text-white" : "text-gray-900"}`}>
@@ -287,7 +330,9 @@ export default function SettingsPage({ currentPlan, onUpgrade, budgetLimit, onBu
             </label>
             <div className="flex gap-2">
               <div className="flex-1 relative">
-                <span className={`absolute left-3 top-2.5 ${darkMode ? "text-gray-400" : "text-gray-500"}`}>$</span>
+                <span className={`absolute left-3 top-2.5 ${darkMode ? "text-gray-400" : "text-gray-500"}`}>
+                  {CURRENCY_SYMBOLS[currency]}
+                </span>
                 <input
                   type="number"
                   value={budgetLimit}

@@ -37,6 +37,19 @@ import { ConfirmationDialog } from "@/components/ui/confirmation-dialog"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
 import { validateSubscriptionData } from "@/lib/validation"
 import { generateSafeCSV, downloadCSV } from "@/lib/csv-utils"
+import { useUndoManager } from "@/hooks/use-undo-manager"
+import { EmptyState } from "@/components/ui/empty-state"
+import {
+  fetchSubscriptions,
+  createSubscription,
+  updateSubscription,
+  deleteSubscription,
+  bulkDeleteSubscriptions,
+  type Subscription as DBSubscription,
+} from "@/lib/supabase/subscriptions"
+import { retryWithBackoff, getErrorMessage, isOnline } from "@/lib/network-utils"
+import type { Currency } from "@/lib/currency-utils"
+import { ErrorBoundary } from "@/components/ui/error-boundary"
 
 export default function SubsyncApp() {
   const [mode, setMode] = useState<"welcome" | "individual" | "enterprise" | "enterprise-setup">("welcome")
@@ -54,8 +67,8 @@ export default function SubsyncApp() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [selectedSubscriptions, setSelectedSubscriptions] = useState(new Set())
   const [budgetLimit, setBudgetLimit] = useState(500)
-  const [history, setHistory] = useState([])
-  const [historyIndex, setHistoryIndex] = useState(-1)
+  // const [history, setHistory] = useState([]) // REMOVED
+  // const [historyIndex, setHistoryIndex] = useState(-1) // REMOVED
   const [showInsightsPage, setShowInsightsPage] = useState(false)
   const [showEditSubscription, setShowEditSubscription] = useState(false) // Declare the variable here
 
@@ -112,7 +125,7 @@ export default function SubsyncApp() {
     },
   ])
 
-  const [subscriptions, setSubscriptions] = useState([
+  const initialSubscriptions: DBSubscription[] = [
     {
       id: 1,
       name: "ChatGPT Plus",
@@ -124,9 +137,9 @@ export default function SubsyncApp() {
       color: "#10A37F",
       renewalUrl: "https://platform.openai.com/account/billing/overview",
       tags: ["ai", "chat"],
-      dateAdded: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+      dateAdded: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
       emailAccountId: 1,
-      lastUsedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+      lastUsedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
       hasApiKey: true,
       isTrial: false,
       source: "auto_detected",
@@ -146,7 +159,7 @@ export default function SubsyncApp() {
       color: "#E50914",
       renewalUrl: "https://www.netflix.com/account",
       tags: ["streaming", "entertainment"],
-      dateAdded: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000),
+      dateAdded: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString(),
       emailAccountId: 1,
       isTrial: false,
       source: "auto_detected",
@@ -166,7 +179,7 @@ export default function SubsyncApp() {
       color: "#1DB954",
       renewalUrl: "https://www.spotify.com/account/subscription/",
       tags: ["streaming", "music"],
-      dateAdded: new Date(Date.now() - 200 * 24 * 60 * 60 * 1000),
+      dateAdded: new Date(Date.now() - 200 * 24 * 60 * 60 * 1000).toISOString(),
       emailAccountId: 1,
       isTrial: false,
       source: "auto_detected",
@@ -186,7 +199,7 @@ export default function SubsyncApp() {
       color: "#000000",
       renewalUrl: "https://www.notion.so/account/settings",
       tags: ["productivity", "notes"],
-      dateAdded: new Date(Date.now() - 120 * 24 * 60 * 60 * 1000),
+      dateAdded: new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString(),
       emailAccountId: 2,
       isTrial: false,
       source: "auto_detected",
@@ -206,7 +219,7 @@ export default function SubsyncApp() {
       color: "#FF0000",
       renewalUrl: "https://account.adobe.com/plans",
       tags: ["design", "creative"],
-      dateAdded: new Date(Date.now() - 150 * 24 * 60 * 60 * 1000),
+      dateAdded: new Date(Date.now() - 150 * 24 * 60 * 60 * 1000).toISOString(),
       emailAccountId: 2,
       isTrial: false,
       source: "auto_detected",
@@ -226,12 +239,12 @@ export default function SubsyncApp() {
       color: "#000000",
       renewalUrl: "https://github.com/settings/billing/summary",
       tags: ["ai", "code", "development"],
-      dateAdded: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000),
+      dateAdded: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
       emailAccountId: 2,
-      lastUsedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
+      lastUsedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
       hasApiKey: false,
       isTrial: true,
-      trialEndsAt: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+      trialEndsAt: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
       priceAfterTrial: 10,
       source: "auto_detected",
       manuallyEdited: false,
@@ -250,9 +263,9 @@ export default function SubsyncApp() {
       color: "#000000",
       renewalUrl: "https://www.midjourney.com/account/billing/manage",
       tags: ["ai", "image", "creative"],
-      dateAdded: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000),
+      dateAdded: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString(),
       emailAccountId: 1,
-      lastUsedAt: new Date(Date.now() - 35 * 24 * 60 * 60 * 1000),
+      lastUsedAt: new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toISOString(),
       hasApiKey: true,
       isTrial: false,
       source: "auto_detected",
@@ -272,7 +285,7 @@ export default function SubsyncApp() {
       color: "#0078D4",
       renewalUrl: "https://account.microsoft.com/services/",
       tags: ["productivity", "office"],
-      dateAdded: new Date(Date.now() - 300 * 24 * 60 * 60 * 1000),
+      dateAdded: new Date(Date.now() - 300 * 24 * 60 * 60 * 1000).toISOString(),
       emailAccountId: 2,
       isTrial: false,
       source: "auto_detected",
@@ -292,7 +305,7 @@ export default function SubsyncApp() {
       color: "#113CCF",
       renewalUrl: "https://www.disneyplus.com/account",
       tags: ["streaming", "entertainment"],
-      dateAdded: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+      dateAdded: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
       emailAccountId: 1,
       isTrial: false,
       source: "auto_detected",
@@ -312,10 +325,10 @@ export default function SubsyncApp() {
       color: "#F24E1E",
       renewalUrl: "https://www.figma.com/settings",
       tags: ["design", "ui", "collaboration"],
-      dateAdded: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000),
+      dateAdded: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
       emailAccountId: 2,
       isTrial: true,
-      trialEndsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      trialEndsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       priceAfterTrial: 12,
       source: "auto_detected",
       manuallyEdited: false,
@@ -334,7 +347,7 @@ export default function SubsyncApp() {
       color: "#000000",
       renewalUrl: "https://vercel.com/account/billing",
       tags: ["development", "hosting"],
-      dateAdded: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+      dateAdded: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
       emailAccountId: 2,
       isTrial: false,
       source: "manual",
@@ -343,13 +356,13 @@ export default function SubsyncApp() {
       pricingType: "variable",
       priceRange: { min: 15, max: 50 },
       priceHistory: [
-        { date: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000), amount: 18 },
-        { date: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000), amount: 22 },
-        { date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), amount: 20 },
+        { date: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(), amount: 18 },
+        { date: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString(), amount: 22 },
+        { date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), amount: 20 },
       ],
       billingCycle: "monthly",
-      cancelledAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
-      activeUntil: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+      cancelledAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+      activeUntil: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
     },
     {
       id: 13,
@@ -362,9 +375,9 @@ export default function SubsyncApp() {
       color: "#10A37F",
       renewalUrl: "https://platform.openai.com/account/billing/overview",
       tags: ["ai", "chat"],
-      dateAdded: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000),
+      dateAdded: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString(),
       emailAccountId: 2,
-      lastUsedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+      lastUsedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
       hasApiKey: true,
       isTrial: false,
       source: "auto_detected",
@@ -384,7 +397,7 @@ export default function SubsyncApp() {
       color: "#1DB954",
       renewalUrl: "https://www.spotify.com/account/subscription/",
       tags: ["streaming", "music"],
-      dateAdded: new Date(Date.now() - 200 * 24 * 60 * 60 * 1000),
+      dateAdded: new Date(Date.now() - 200 * 24 * 60 * 60 * 1000).toISOString(),
       emailAccountId: 1,
       isTrial: false,
       source: "auto_detected",
@@ -392,8 +405,8 @@ export default function SubsyncApp() {
       editedFields: [],
       pricingType: "fixed",
       billingCycle: "monthly",
-      pausedAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000),
-      resumesAt: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000),
+      pausedAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(),
+      resumesAt: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString(),
     },
     {
       id: 15,
@@ -406,7 +419,7 @@ export default function SubsyncApp() {
       color: "#000000",
       renewalUrl: null,
       tags: ["productivity", "notes"],
-      dateAdded: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
+      dateAdded: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString(),
       emailAccountId: 1,
       isTrial: false,
       source: "manual",
@@ -415,7 +428,109 @@ export default function SubsyncApp() {
       pricingType: "fixed",
       billingCycle: "lifetime",
     },
-  ])
+  ]
+
+  const {
+    currentState: subscriptions,
+    addToHistory,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    historySize,
+  } = useUndoManager(initialSubscriptions)
+
+  const [isLoadingSubscriptions, setIsLoadingSubscriptions] = useState(true)
+
+  const [currency, setCurrency] = useState<Currency>("USD")
+  const [isOffline, setIsOffline] = useState(false)
+
+  useEffect(() => {
+    async function loadSubscriptions() {
+      try {
+        setIsLoadingSubscriptions(true)
+        const dbSubscriptions = await fetchSubscriptions()
+
+        if (dbSubscriptions.length > 0) {
+          // Convert database subscriptions to app format
+          const formattedSubs = dbSubscriptions.map((sub) => ({
+            ...sub,
+            renewsIn: sub.renews_in,
+            dateAdded: sub.date_added,
+            emailAccountId: sub.email_account_id,
+            lastUsedAt: sub.last_used_at,
+            hasApiKey: sub.has_api_key,
+            isTrial: sub.is_trial,
+            trialEndsAt: sub.trial_ends_at,
+            priceAfterTrial: sub.price_after_trial,
+            manuallyEdited: sub.manually_edited,
+            editedFields: sub.edited_fields,
+            pricingType: sub.pricing_type,
+            billingCycle: sub.billing_cycle,
+            cancelledAt: sub.cancelled_at,
+            activeUntil: sub.active_until,
+            pausedAt: sub.paused_at,
+            resumesAt: sub.resumes_at,
+            priceRange: sub.price_range,
+            priceHistory: sub.price_history,
+            renewalUrl: sub.renewal_url,
+          }))
+
+          addToHistory(formattedSubs)
+        }
+      } catch (error) {
+        console.error("[v0] Error loading subscriptions:", error)
+        showToast({
+          title: "Error loading subscriptions",
+          description: "Failed to load your subscriptions from the database",
+          variant: "error",
+        })
+      } finally {
+        setIsLoadingSubscriptions(false)
+      }
+    }
+
+    loadSubscriptions()
+  }, [])
+
+  useEffect(() => {
+    function handleOnline() {
+      setIsOffline(false)
+      showToast({
+        title: "Back online",
+        description: "Your connection has been restored",
+        variant: "success",
+      })
+    }
+
+    function handleOffline() {
+      setIsOffline(true)
+      showToast({
+        title: "You're offline",
+        description: "Some features may not work until you reconnect",
+        variant: "error",
+      })
+    }
+
+    window.addEventListener("online", handleOnline)
+    window.addEventListener("offline", handleOffline)
+
+    setIsOffline(!isOnline())
+
+    return () => {
+      window.removeEventListener("online", handleOnline)
+      window.removeEventListener("offline", handleOffline)
+    }
+  }, [])
+
+  // Update subscriptions and add to history
+  const updateSubscriptions = useCallback(
+    (newSubs: any[]) => {
+      // setSubscriptions(newSubs) // REMOVED
+      addToHistory(newSubs)
+    },
+    [addToHistory],
+  )
 
   const [notifications, setNotifications] = useState([
     {
@@ -505,29 +620,30 @@ export default function SubsyncApp() {
       return sum + sub.price
     }, 0)
 
-  const addToHistory = useCallback(
-    (newState) => {
-      const newHistory = history.slice(0, historyIndex + 1)
-      newHistory.push(newState)
-      setHistory(newHistory)
-      setHistoryIndex(newHistory.length - 1)
-    },
-    [history, historyIndex],
-  )
+  // REMOVED: addToHistory, undo, redo
+  // const addToHistory = useCallback(
+  //   (newState) => {
+  //     const newHistory = history.slice(0, historyIndex + 1)
+  //     newHistory.push(newState)
+  //     setHistory(newHistory)
+  //     setHistoryIndex(newHistory.length - 1)
+  //   },
+  //   [history, historyIndex],
+  // )
 
-  const undo = useCallback(() => {
-    if (historyIndex > 0) {
-      setHistoryIndex(historyIndex - 1)
-      setSubscriptions(history[historyIndex - 1])
-    }
-  }, [history, historyIndex])
+  // const undo = useCallback(() => {
+  //   if (historyIndex > 0) {
+  //     setHistoryIndex(historyIndex - 1)
+  //     setSubscriptions(history[historyIndex - 1])
+  //   }
+  // }, [history, historyIndex])
 
-  const redo = useCallback(() => {
-    if (historyIndex < history.length - 1) {
-      setHistoryIndex(historyIndex + 1)
-      setSubscriptions(history[historyIndex + 1])
-    }
-  }, [history, historyIndex])
+  // const redo = useCallback(() => {
+  //   if (historyIndex < history.length - 1) {
+  //     setHistoryIndex(historyIndex + 1)
+  //     setSubscriptions(history[historyIndex + 1])
+  //   }
+  // }, [history, historyIndex])
 
   const checkRenewalReminders = () => {
     const reminders = subscriptions
@@ -633,25 +749,60 @@ export default function SubsyncApp() {
     setLoading(true)
 
     try {
-      await withTimeout(new Promise((resolve) => setTimeout(resolve, 500)), 30000)
-
-      const updatedSubs = [
-        ...subscriptions,
-        {
-          ...newSub,
-          id: Math.max(...subscriptions.map((s) => s.id), 0) + 1,
+      const dbSubscription = await retryWithBackoff(async () => {
+        return await createSubscription({
+          name: newSub.name,
+          category: newSub.category,
+          price: newSub.price,
+          icon: newSub.icon || "🔗",
+          renews_in: newSub.renewsIn || 30,
+          status: newSub.status || "active",
+          color: newSub.color || "#000000",
+          renewal_url: newSub.renewalUrl || null,
           tags: newSub.tags || [],
-          dateAdded: new Date(),
-          emailAccountId: emailAccounts.find((acc) => acc.isPrimary)?.id || 1,
+          date_added: new Date().toISOString(),
+          email_account_id: emailAccounts.find((acc) => acc.isPrimary)?.id || 1,
+          last_used_at: undefined,
+          has_api_key: false,
+          isTrial: newSub.isTrial || false,
+          trialEndsAt: newSub.trialEndsAt,
+          priceAfterTrial: newSub.priceAfterTrial,
           source: "manual",
           manuallyEdited: false,
           editedFields: [],
           pricingType: "fixed",
           billingCycle: "monthly",
-        },
-      ]
-      setSubscriptions(updatedSubs)
-      addToHistory(updatedSubs)
+        })
+      })
+
+      // Convert to app format and add to local state
+      const formattedSub = {
+        id: dbSubscription.id,
+        name: dbSubscription.name,
+        category: dbSubscription.category,
+        price: dbSubscription.price,
+        icon: dbSubscription.icon,
+        renewsIn: dbSubscription.renews_in,
+        status: dbSubscription.status,
+        color: dbSubscription.color,
+        renewalUrl: dbSubscription.renewal_url,
+        tags: dbSubscription.tags,
+        dateAdded: dbSubscription.date_added,
+        emailAccountId: dbSubscription.email_account_id,
+        lastUsedAt: dbSubscription.last_used_at,
+        hasApiKey: dbSubscription.has_api_key,
+        isTrial: dbSubscription.is_trial,
+        trialEndsAt: dbSubscription.trial_ends_at,
+        priceAfterTrial: dbSubscription.price_after_trial,
+        source: dbSubscription.source,
+        manuallyEdited: dbSubscription.manually_edited,
+        editedFields: dbSubscription.edited_fields,
+        pricingType: dbSubscription.pricing_type,
+        billingCycle: dbSubscription.billing_cycle,
+      }
+
+      const updatedSubs = [...subscriptions, formattedSub]
+      updateSubscriptions(updatedSubs)
       setShowAddSubscription(false)
 
       showToast({
@@ -660,21 +811,35 @@ export default function SubsyncApp() {
         variant: "success",
         action: {
           label: "Undo",
-          onClick: () => {
-            undo()
-            showToast({
-              title: "Undone",
-              description: "Subscription addition has been undone",
-              variant: "default",
-            })
+          onClick: async () => {
+            try {
+              await deleteSubscription(dbSubscription.id)
+              undo()
+              showToast({
+                title: "Undone",
+                description: "Subscription addition has been undone",
+                variant: "default",
+              })
+            } catch (error) {
+              showToast({
+                title: "Error",
+                description: "Failed to undo subscription addition",
+                variant: "error",
+              })
+            }
           },
         },
       })
     } catch (error) {
+      const errorMessage = getErrorMessage(error)
       showToast({
         title: "Error",
-        description: error.message || "Failed to add subscription",
+        description: errorMessage,
         variant: "error",
+        action: {
+          label: "Retry",
+          onClick: () => handleAddSubscription(newSub),
+        },
       })
     } finally {
       setLoading(false)
@@ -690,28 +855,26 @@ export default function SubsyncApp() {
       description: `Are you sure you want to delete ${sub.name}? This action cannot be undone.`,
       variant: "danger",
       confirmLabel: "Delete",
-      onConfirm: () => {
-        const updatedSubs = subscriptions.filter((s) => s.id !== id)
-        setSubscriptions(updatedSubs)
-        addToHistory(updatedSubs)
-        setConfirmDialog(null)
+      onConfirm: async () => {
+        try {
+          await deleteSubscription(id)
 
-        showToast({
-          title: "Subscription deleted",
-          description: `${sub.name} has been removed`,
-          variant: "success",
-          action: {
-            label: "Undo",
-            onClick: () => {
-              undo()
-              showToast({
-                title: "Undone",
-                description: "Subscription has been restored",
-                variant: "default",
-              })
-            },
-          },
-        })
+          const updatedSubs = subscriptions.filter((s) => s.id !== id)
+          updateSubscriptions(updatedSubs)
+          setConfirmDialog(null)
+
+          showToast({
+            title: "Subscription deleted",
+            description: `${sub.name} has been removed`,
+            variant: "success",
+          })
+        } catch (error) {
+          showToast({
+            title: "Error",
+            description: "Failed to delete subscription",
+            variant: "error",
+          })
+        }
       },
       onCancel: () => setConfirmDialog(null),
     })
@@ -736,62 +899,30 @@ export default function SubsyncApp() {
         setBulkActionLoading(true)
         setConfirmDialog(null)
 
-        const results = []
-        const selectedIds = Array.from(selectedSubscriptions)
+        try {
+          const selectedIds = Array.from(selectedSubscriptions) as number[]
 
-        for (const id of selectedIds) {
-          try {
-            // Simulate async operation with potential failure
-            await new Promise((resolve, reject) => {
-              setTimeout(() => {
-                // Simulate 10% failure rate for demo
-                if (Math.random() < 0.1) {
-                  reject(new Error("Failed to delete"))
-                } else {
-                  resolve(true)
-                }
-              }, 100)
-            })
-            results.push({ id, success: true })
-          } catch (error) {
-            results.push({ id, success: false, error: error.message })
-          }
-        }
+          await bulkDeleteSubscriptions(selectedIds)
 
-        const successCount = results.filter((r) => r.success).length
-        const failureCount = results.filter((r) => !r.success).length
+          const updatedSubs = subscriptions.filter((sub) => !selectedIds.includes(sub.id))
+          updateSubscriptions(updatedSubs)
+          addToHistory(updatedSubs)
 
-        const successfulIds = results.filter((r) => r.success).map((r) => r.id)
-        const updatedSubs = subscriptions.filter((sub) => !successfulIds.includes(sub.id))
-        setSubscriptions(updatedSubs)
-        addToHistory(updatedSubs)
+          setSelectedSubscriptions(new Set())
 
-        setSelectedSubscriptions(new Set())
-        setBulkActionLoading(false)
-
-        if (failureCount === 0) {
           showToast({
             title: "All subscriptions deleted",
-            description: `Successfully deleted ${successCount} subscription(s)`,
+            description: `Successfully deleted ${selectedIds.length} subscription(s)`,
             variant: "success",
-            action: {
-              label: "Undo",
-              onClick: () => {
-                undo()
-                showToast({
-                  title: "Undone",
-                  description: "Subscriptions have been restored",
-                  variant: "default",
-                })
-              },
-            },
           })
-        } else {
+        } catch (error) {
           showToast({
-            title: "Partial deletion",
-            description: `${successCount} succeeded, ${failureCount} failed. Please try again for failed items.`,
-            variant: "warning",
+            title: "Error",
+            description: "Failed to delete subscriptions",
+            variant: "error",
           })
+        } finally {
+          setBulkActionLoading(false)
         }
       },
       onCancel: () => setConfirmDialog(null),
@@ -862,35 +993,57 @@ export default function SubsyncApp() {
         setBulkActionLoading(true)
         setConfirmDialog(null)
 
-        // Simulate async operation
-        await new Promise((resolve) => setTimeout(resolve, 800))
+        try {
+          const selectedIds = Array.from(selectedSubscriptions) as number[]
 
-        const updatedSubs = subscriptions.map((sub) => {
-          if (selectedSubscriptions.has(sub.id)) {
-            const daysUntilRenewal = sub.renewsIn || 0
-            const activeUntil = new Date(Date.now() + daysUntilRenewal * 24 * 60 * 60 * 1000)
-            return {
-              ...sub,
-              status: "cancelled",
-              cancelledAt: new Date(),
-              activeUntil,
+          for (const id of selectedIds) {
+            const sub = subscriptions.find((s) => s.id === id)
+            if (sub) {
+              const daysUntilRenewal = sub.renewsIn || 0
+              const activeUntil = new Date(Date.now() + daysUntilRenewal * 24 * 60 * 60 * 1000)
+
+              await updateSubscription(id, {
+                status: "cancelled",
+                cancelled_at: new Date().toISOString(),
+                active_until: activeUntil.toISOString(),
+              })
             }
           }
-          return sub
-        })
 
-        setSubscriptions(updatedSubs)
-        addToHistory(updatedSubs)
+          const updatedSubs = subscriptions.map((sub) => {
+            if (selectedSubscriptions.has(sub.id)) {
+              const daysUntilRenewal = sub.renewsIn || 0
+              const activeUntil = new Date(Date.now() + daysUntilRenewal * 24 * 60 * 60 * 1000)
+              return {
+                ...sub,
+                status: "cancelled",
+                cancelledAt: new Date().toISOString(),
+                activeUntil: activeUntil.toISOString(),
+              }
+            }
+            return sub
+          })
 
-        const count = selectedSubscriptions.size
-        setSelectedSubscriptions(new Set())
-        setBulkActionLoading(false)
+          updateSubscriptions(updatedSubs)
+          addToHistory(updatedSubs)
 
-        showToast({
-          title: "Subscriptions cancelled",
-          description: `${count} subscription(s) have been cancelled`,
-          variant: "success",
-        })
+          const count = selectedSubscriptions.size
+          setSelectedSubscriptions(new Set())
+
+          showToast({
+            title: "Subscriptions cancelled",
+            description: `${count} subscription(s) have been cancelled`,
+            variant: "success",
+          })
+        } catch (error) {
+          showToast({
+            title: "Error",
+            description: "Failed to cancel subscriptions",
+            variant: "error",
+          })
+        } finally {
+          setBulkActionLoading(false)
+        }
       },
       onCancel: () => setConfirmDialog(null),
     })
@@ -908,33 +1061,49 @@ export default function SubsyncApp() {
         setBulkActionLoading(true)
         setConfirmDialog(null)
 
-        // Simulate async operation
-        await new Promise((resolve) => setTimeout(resolve, 800))
+        try {
+          const selectedIds = Array.from(selectedSubscriptions) as number[]
 
-        const updatedSubs = subscriptions.map((sub) => {
-          if (selectedSubscriptions.has(sub.id)) {
-            return {
-              ...sub,
+          for (const id of selectedIds) {
+            await updateSubscription(id, {
               status: "paused",
-              pausedAt: new Date(),
-              resumesAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-            }
+              paused_at: new Date().toISOString(),
+              resumes_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            })
           }
-          return sub
-        })
 
-        setSubscriptions(updatedSubs)
-        addToHistory(updatedSubs)
+          const updatedSubs = subscriptions.map((sub) => {
+            if (selectedSubscriptions.has(sub.id)) {
+              return {
+                ...sub,
+                status: "paused",
+                pausedAt: new Date().toISOString(),
+                resumesAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+              }
+            }
+            return sub
+          })
 
-        const count = selectedSubscriptions.size
-        setSelectedSubscriptions(new Set())
-        setBulkActionLoading(false)
+          updateSubscriptions(updatedSubs)
+          addToHistory(updatedSubs)
 
-        showToast({
-          title: "Subscriptions paused",
-          description: `${count} subscription(s) have been paused for 30 days`,
-          variant: "success",
-        })
+          const count = selectedSubscriptions.size
+          setSelectedSubscriptions(new Set())
+
+          showToast({
+            title: "Subscriptions paused",
+            description: `${count} subscription(s) have been paused for 30 days`,
+            variant: "success",
+          })
+        } catch (error) {
+          showToast({
+            title: "Error",
+            description: "Failed to pause subscriptions",
+            variant: "error",
+          })
+        } finally {
+          setBulkActionLoading(false)
+        }
       },
       onCancel: () => setConfirmDialog(null),
     })
@@ -956,7 +1125,7 @@ export default function SubsyncApp() {
       {
         ...subscription,
         id: Math.max(...subscriptions.map((s) => s.id), 0) + 1,
-        dateAdded: new Date(),
+        dateAdded: new Date().toISOString(), // Store dates in UTC
         emailAccountId: subscription.emailAccountId || emailAccounts.find((acc) => acc.isPrimary)?.id || 1,
         source: "manual",
         manuallyEdited: false,
@@ -965,8 +1134,9 @@ export default function SubsyncApp() {
         billingCycle: "monthly",
       },
     ]
-    setSubscriptions(updatedSubs)
-    addToHistory(updatedSubs)
+    // setSubscriptions(updatedSubs) // REMOVED
+    updateSubscriptions(updatedSubs) // USING NEW HELPER
+    addToHistory(updatedSubs) // Add this action to history
   }
 
   const handleRemoveEmailAccount = (id: number) => {
@@ -998,17 +1168,18 @@ export default function SubsyncApp() {
       if (!confirmDelete) return
 
       // Update subscriptions to mark as source_removed
-      setSubscriptions(
-        subscriptions.map((sub) =>
-          sub.emailAccountId === id
-            ? {
-                ...sub,
-                status: "source_removed",
-                statusNote: `Email ${emailToRemove.email} was disconnected on ${new Date().toLocaleDateString()}`,
-              }
-            : sub,
-        ),
+      const updatedSubs = subscriptions.map((sub) =>
+        sub.emailAccountId === id
+          ? {
+              ...sub,
+              status: "source_removed",
+              statusNote: `Email ${emailToRemove.email} was disconnected on ${new Date().toLocaleDateString()}`, // Use timezone-aware formatting
+            }
+          : sub,
       )
+      // setSubscriptions(updatedSubs) // REMOVED
+      updateSubscriptions(updatedSubs) // USING NEW HELPER
+      addToHistory(updatedSubs) // Add this action to history
     }
 
     setEmailAccounts(emailAccounts.filter((acc) => acc.id !== id))
@@ -1030,12 +1201,15 @@ export default function SubsyncApp() {
 
     if (!confirmChange) return
 
-    setEmailAccounts(
-      emailAccounts.map((acc) => ({
-        ...acc,
-        isPrimary: acc.id === id,
-      })),
-    )
+    const updatedEmailAccounts = emailAccounts.map((acc) => ({
+      ...acc,
+      isPrimary: acc.id === id,
+    }))
+    setEmailAccounts(updatedEmailAccounts)
+
+    // Update the emailAccountId for all subscriptions to point to the new primary if necessary
+    // This might be complex and require user confirmation if a subscription is linked to a non-primary email.
+    // For now, we'll just update the isPrimary flag.
   }
 
   const handleRescanEmail = (id: number) => {
@@ -1080,11 +1254,11 @@ export default function SubsyncApp() {
         // Only check AI tools that have API keys connected
         if (sub.category !== "AI Tools" || !sub.hasApiKey) return false
         if (!sub.lastUsedAt) return false
-        const daysSinceLastUse = Math.floor((now - sub.lastUsedAt) / (1000 * 60 * 60 * 24))
+        const daysSinceLastUse = Math.floor((now - new Date(sub.lastUsedAt)) / (1000 * 60 * 60 * 24)) // Use date parsing
         return daysSinceLastUse >= 30
       })
       .map((sub) => {
-        const daysSinceLastUse = Math.floor((now - sub.lastUsedAt) / (1000 * 60 * 60 * 24))
+        const daysSinceLastUse = Math.floor((now - new Date(sub.lastUsedAt)) / (1000 * 60 * 60 * 24)) // Use date parsing
         return {
           ...sub,
           daysSinceLastUse,
@@ -1104,9 +1278,26 @@ export default function SubsyncApp() {
     return subscriptions.filter((sub) => sub.status === "paused")
   }
 
-  const handleEditSubscription = (id: number, updates: any) => {
-    setSubscriptions(
-      subscriptions.map((sub) => {
+  const handleEditSubscription = async (id: number, updates: any) => {
+    try {
+      const dbUpdates = {
+        name: updates.name,
+        category: updates.category,
+        price: updates.price,
+        icon: updates.icon,
+        renews_in: updates.renewsIn,
+        status: updates.status,
+        color: updates.color,
+        renewal_url: updates.renewalUrl,
+        tags: updates.tags,
+        billing_cycle: updates.billingCycle,
+        pricing_type: updates.pricingType,
+        manually_edited: true,
+      }
+
+      await updateSubscription(id, dbUpdates)
+
+      const updatedSubs = subscriptions.map((sub) => {
         if (sub.id !== id) return sub
 
         const editedFields = Object.keys(updates).filter((key) => updates[key] !== sub[key])
@@ -1118,53 +1309,120 @@ export default function SubsyncApp() {
           editedFields: [...new Set([...sub.editedFields, ...editedFields])],
           source: sub.source === "auto_detected" ? "manual" : sub.source,
         }
-      }),
-    )
-    setShowEditSubscription(false)
+      })
+
+      updateSubscriptions(updatedSubs)
+      addToHistory(updatedSubs)
+      setShowEditSubscription(false)
+
+      showToast({
+        title: "Subscription updated",
+        description: "Your changes have been saved",
+        variant: "success",
+      })
+    } catch (error) {
+      showToast({
+        title: "Error",
+        description: "Failed to update subscription",
+        variant: "error",
+      })
+    }
   }
 
-  const handleCancelSubscription = (id: number) => {
+  const handleCancelSubscription = async (id: number) => {
     const sub = subscriptions.find((s) => s.id === id)
     if (!sub) return
 
     const daysUntilRenewal = sub.renewsIn || 0
     const activeUntil = new Date(Date.now() + daysUntilRenewal * 24 * 60 * 60 * 1000)
 
-    setSubscriptions(
-      subscriptions.map((s) =>
+    try {
+      await updateSubscription(id, {
+        status: "cancelled",
+        cancelled_at: new Date().toISOString(),
+        active_until: activeUntil.toISOString(),
+      })
+
+      const updatedSubs = subscriptions.map((s) =>
         s.id === id
           ? {
               ...s,
               status: "cancelled",
-              cancelledAt: new Date(),
-              activeUntil,
+              cancelledAt: new Date().toISOString(),
+              activeUntil: activeUntil.toISOString(),
             }
           : s,
-      ),
-    )
+      )
+
+      updateSubscriptions(updatedSubs)
+      addToHistory(updatedSubs)
+
+      showToast({
+        title: "Subscription cancelled",
+        description: "The subscription has been cancelled",
+        variant: "success",
+      })
+    } catch (error) {
+      showToast({
+        title: "Error",
+        description: "Failed to cancel subscription",
+        variant: "error",
+      })
+    }
   }
 
-  const handlePauseSubscription = (id: number, resumeDate?: Date) => {
+  const handlePauseSubscription = async (id: number, resumeDate?: Date) => {
     const sub = subscriptions.find((s) => s.id === id)
     if (!sub) return
 
-    setSubscriptions(
-      subscriptions.map((s) =>
+    try {
+      const resumesAt = resumeDate
+        ? resumeDate.toISOString()
+        : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+
+      await updateSubscription(id, {
+        status: "paused",
+        paused_at: new Date().toISOString(),
+        resumes_at: resumesAt,
+      })
+
+      const updatedSubs = subscriptions.map((s) =>
         s.id === id
           ? {
               ...s,
               status: "paused",
-              pausedAt: new Date(),
-              resumesAt: resumeDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+              pausedAt: new Date().toISOString(),
+              resumesAt: resumesAt,
             }
           : s,
-      ),
-    )
+      )
+
+      updateSubscriptions(updatedSubs)
+      addToHistory(updatedSubs)
+
+      showToast({
+        title: "Subscription paused",
+        description: "The subscription has been paused",
+        variant: "success",
+      })
+    } catch (error) {
+      showToast({
+        title: "Error",
+        description: "Failed to pause subscription",
+        variant: "error",
+      })
+    }
   }
 
-  const handleResumeSubscription = (id: number) => {
-    setSubscriptions(
-      subscriptions.map((s) =>
+  const handleResumeSubscription = async (id: number) => {
+    try {
+      await updateSubscription(id, {
+        status: "active",
+        paused_at: null,
+        resumes_at: null,
+      })
+
+      const updatedSubs = subscriptions.map((s) =>
         s.id === id
           ? {
               ...s,
@@ -1173,8 +1431,23 @@ export default function SubsyncApp() {
               resumesAt: undefined,
             }
           : s,
-      ),
-    )
+      )
+
+      updateSubscriptions(updatedSubs)
+      addToHistory(updatedSubs)
+
+      showToast({
+        title: "Subscription resumed",
+        description: "The subscription has been resumed",
+        variant: "success",
+      })
+    } catch (error) {
+      showToast({
+        title: "Error",
+        description: "Failed to resume subscription",
+        variant: "error",
+      })
+    }
   }
 
   const duplicates = detectDuplicates()
@@ -1307,8 +1580,9 @@ export default function SubsyncApp() {
           onConfirm: () => {
             const idsToRemove = subsToRemove.map((s) => s.id)
             const updatedSubs = subscriptions.filter((sub) => !idsToRemove.includes(sub.id))
-            setSubscriptions(updatedSubs)
-            addToHistory(updatedSubs)
+            // setSubscriptions(updatedSubs) // REMOVED
+            updateSubscriptions(updatedSubs) // USING NEW HELPER
+            addToHistory(updatedSubs) // Add this action to history
             setConfirmDialog(null)
 
             showToast({
@@ -1330,7 +1604,7 @@ export default function SubsyncApp() {
             variant: "warning",
             confirmLabel: "Cancel Subscription",
             onConfirm: () => {
-              handleCancelSubscription(data)
+              handleCancelSubscription(data) // This already uses updateSubscriptions and addToHistory
               setConfirmDialog(null)
               showToast({
                 title: "Subscription cancelled",
@@ -1352,7 +1626,7 @@ export default function SubsyncApp() {
             variant: "warning",
             confirmLabel: "Cancel Trial",
             onConfirm: () => {
-              handleCancelSubscription(data)
+              handleCancelSubscription(data) // This already uses updateSubscriptions and addToHistory
               setConfirmDialog(null)
               showToast({
                 title: "Trial cancelled",
@@ -1395,409 +1669,462 @@ export default function SubsyncApp() {
     )
   }
 
+  if (isLoadingSubscriptions) {
+    return (
+      <div
+        className={`min-h-screen ${darkMode ? "bg-[#1E2A35] text-[#F9F6F2]" : "bg-[#F9F6F2] text-[#1E2A35]"} flex items-center justify-center`}
+      >
+        <LoadingSpinner size="lg" darkMode={darkMode} />
+      </div>
+    )
+  }
+
+  if (subscriptions.length === 0 && mode !== "welcome") {
+    return (
+      <div className={`min-h-screen ${darkMode ? "bg-[#1E2A35] text-[#F9F6F2]" : "bg-[#F9F6F2] text-[#1E2A35]"} `}>
+        <EmptyState
+          icon="📦"
+          title="No subscriptions yet"
+          description="Start tracking your subscriptions by connecting your email or adding them manually."
+          action={{
+            label: "Add your first subscription",
+            onClick: () => setShowAddSubscription(true),
+          }}
+          darkMode={darkMode}
+        />
+      </div>
+    )
+  }
+
   return (
-    <div
-      className={`min-h-screen ${darkMode ? "bg-[#1E2A35] text-[#F9F6F2]" : "bg-[#F9F6F2] text-[#1E2A35]"} flex transition-colors duration-300`}
-    >
-      {/* Mobile Menu Button */}
-      <button
-        onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-        className={`md:hidden fixed top-4 left-4 z-50 p-2 ${darkMode ? "hover:bg-[#2D3748]" : "hover:bg-gray-100"} rounded-lg`}
+    <ErrorBoundary>
+      <div
+        className={`min-h-screen ${darkMode ? "bg-[#1E2A35] text-[#F9F6F2]" : "bg-[#F9F6F2] text-[#1E2A35]"} flex transition-colors duration-300`}
+        role="main"
+        aria-label="Subscription dashboard"
       >
-        {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-      </button>
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-primary focus:text-primary-foreground focus:rounded-lg"
+        >
+          Skip to main content
+        </a>
 
-      {/* Sidebar */}
-      <aside
-        className={`${
-          mobileMenuOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
-        } fixed md:relative w-56 border-r ${darkMode ? "border-[#374151] bg-[#2D3748]" : "border-gray-200 bg-white"} p-6 flex flex-col transition-transform duration-300 z-40 h-screen`}
-      >
-        <div className="mb-12">
-          <h1 className={`text-xl font-bold ${darkMode ? "text-white" : "text-[#1E2A35]"}`}>Subsync.AI</h1>
-        </div>
-
-        <nav className="flex-1 space-y-1">
-          {[
-            { id: "dashboard", label: "Dashboard", icon: Home },
-            { id: "subscriptions", label: "Subscriptions", icon: CreditCard },
-            { id: "analytics", label: "Analytics", icon: BarChart3 },
-            { id: "integrations", label: "Integrations", icon: Plug },
-            ...(mode === "enterprise" ? [{ id: "teams", label: "Teams", icon: Users }] : []),
-            { id: "settings", label: "Settings", icon: Settings },
-          ].map((item) => {
-            const Icon = item.icon
-            const isActive = activeView === item.id
-            return (
-              <button
-                key={item.id}
-                onClick={() => {
-                  setActiveView(item.id)
-                  setMobileMenuOpen(false)
-                }}
-                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-300 ${
-                  isActive
-                    ? darkMode
-                      ? "bg-[#FFD166] text-[#1E2A35]"
-                      : "bg-[#1E2A35] text-white"
-                    : darkMode
-                      ? "text-[#F9F6F2] hover:bg-[#374151]"
-                      : "text-[#1E2A35] hover:bg-[#F9F6F2]"
-                }`}
-              >
-                <Icon className="w-5 h-5" strokeWidth={1.5} />
-                <span className="text-sm">{item.label}</span>
-              </button>
-            )
-          })}
-        </nav>
-
-        <div className={`mt-auto pt-6 border-t ${darkMode ? "border-gray-700" : "border-gray-200"}`}>
-          <div className="flex items-center gap-3">
-            <div
-              className={`w-10 h-10 ${darkMode ? "bg-[#FFD166]" : "bg-[#FFD166]"} rounded-full flex items-center justify-center text-lg text-[#1E2A35]`}
-            >
-              👤
-            </div>
-            <div className="flex-1">
-              <div className={`text-sm font-semibold ${darkMode ? "text-white" : "text-[#1E2A35]"}`}>
-                Caleb Alexhone
-              </div>
-              <button
-                onClick={() => setShowUpgradePlan(true)}
-                className={`text-xs ${darkMode ? "text-gray-400 hover:text-gray-300" : "text-gray-500 hover:text-gray-700"}`}
-              >
-                {currentPlan === "free" ? "Upgrade plan" : `${currentPlan} plan`}
-              </button>
-            </div>
-          </div>
-        </div>
-      </aside>
-
-      {/* Main Content */}
-      <main className="flex-1 overflow-auto w-full">
-        {showInsightsPage ? (
-          <InsightsPage
-            insights={notifications}
-            totalSpend={totalSpend}
-            onClose={() => setShowInsightsPage(false)}
-            darkMode={darkMode}
-          />
-        ) : (
-          <div className="p-4 md:p-8">
-            {/* Header */}
-            <div className="flex items-center justify-between mb-8">
-              <div>
-                <h2 className={`text-2xl font-bold ${darkMode ? "text-white" : "text-[#1E2A35]"}`}>
-                  {activeView === "dashboard" && "Dashboard"}
-                  {activeView === "subscriptions" && "Subscriptions"}
-                  {activeView === "analytics" && "Analytics"}
-                  {activeView === "integrations" && "Integrations"}
-                  {activeView === "teams" && "Teams"}
-                  {activeView === "settings" && "Settings"}
-                </h2>
-                <p className={`text-sm ${darkMode ? "text-gray-400" : "text-gray-500"} mt-1`}>
-                  {activeView === "dashboard" && "Welcome back! Here is your AI subscription overview."}
-                  {activeView === "subscriptions" && "Manage and track all your AI tool subscriptions"}
-                  {activeView === "analytics" && "View detailed analytics and spending insights"}
-                  {activeView === "integrations" && "Central control for all your data connections"}
-                  {activeView === "teams" && "Manage your team members and their subscriptions"}
-                  {activeView === "settings" && "Account management and preferences"}
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setDarkMode(!darkMode)}
-                  className={`p-2 ${darkMode ? "hover:bg-[#2D3748]" : "hover:bg-gray-100"} rounded-lg transition-colors`}
-                >
-                  {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-                </button>
-                <button
-                  onClick={() => setShowNotifications(!showNotifications)}
-                  className={`p-2 ${darkMode ? "hover:bg-[#2D3748]" : "hover:bg-gray-100"} rounded-lg relative transition-colors`}
-                >
-                  <Bell className="w-5 h-5" />
-                  {unreadNotifications > 0 && (
-                    <span className="absolute top-1 right-1 bg-[#E86A33] text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
-                      {unreadNotifications}
-                    </span>
-                  )}
-                </button>
-                {activeView === "subscriptions" && (
-                  <button
-                    onClick={() => setShowAddSubscription(true)}
-                    className={`flex items-center gap-2 ${
-                      darkMode
-                        ? "bg-[#FFD166] text-[#1E2A35] hover:bg-[#FFD166]/90"
-                        : "bg-[#1E2A35] text-white hover:bg-[#2D3748]"
-                    } px-4 py-2 rounded-lg text-sm font-medium transition-colors`}
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span className="hidden sm:inline">Add subscription</span>
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {budgetAlert && (
-              <div
-                className={`mb-6 p-4 ${
-                  budgetAlert.level === "critical"
-                    ? darkMode
-                      ? "bg-[#E86A33]/20 border-[#E86A33]"
-                      : "bg-red-50 border-red-200"
-                    : darkMode
-                      ? "bg-[#FFD166]/20 border-[#FFD166]"
-                      : "bg-yellow-50 border-yellow-200"
-                } border rounded-lg`}
-              >
-                <p
-                  className={`text-sm font-medium ${
-                    budgetAlert.level === "critical"
-                      ? darkMode
-                        ? "text-[#E86A33]"
-                        : "text-red-800"
-                      : darkMode
-                        ? "text-[#FFD166]"
-                        : "text-yellow-800"
-                  }`}
-                >
-                  {budgetAlert.level === "critical" ? "🚨 " : "⚠️ "}
-                  {budgetAlert.message}
-                </p>
-                <div
-                  className={`mt-2 w-full ${
-                    budgetAlert.level === "critical"
-                      ? darkMode
-                        ? "bg-[#E86A33]/30"
-                        : "bg-red-200"
-                      : darkMode
-                        ? "bg-[#FFD166]/30"
-                        : "bg-yellow-200"
-                  } rounded-full h-2`}
-                >
-                  <div
-                    className={budgetAlert.level === "critical" ? "bg-[#E86A33]" : "bg-[#FFD166]"}
-                    style={{
-                      width: `${Math.min(Number.parseFloat(budgetAlert.percentage), 100)}%`,
-                      height: "100%",
-                      borderRadius: "9999px",
-                    }}
-                  ></div>
-                </div>
-              </div>
-            )}
-
-            {selectedSubscriptions.size > 0 && activeView === "subscriptions" && (
-              <div
-                className={`mb-6 p-4 ${darkMode ? "bg-[#007A5C]/20 border-[#007A5C]" : "bg-blue-50 border-blue-200"} border rounded-lg flex items-center justify-between`}
-              >
-                <p className={`text-sm font-medium ${darkMode ? "text-[#007A5C]" : "text-blue-800"}`}>
-                  {selectedSubscriptions.size} subscription(s) selected
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={undo}
-                    disabled={historyIndex <= 0 || bulkActionLoading}
-                    className={`px-3 py-1.5 text-sm ${darkMode ? "bg-[#2D3748] hover:bg-[#374151]" : "bg-gray-200 hover:bg-gray-300"} rounded disabled:opacity-50 flex items-center gap-2`}
-                  >
-                    {bulkActionLoading ? <LoadingSpinner size="sm" darkMode={darkMode} /> : "Undo"}
-                  </button>
-                  <button
-                    onClick={redo}
-                    disabled={historyIndex >= history.length - 1 || bulkActionLoading}
-                    className={`px-3 py-1.5 text-sm ${darkMode ? "bg-[#2D3748] hover:bg-[#374151]" : "bg-gray-200 hover:bg-gray-300"} rounded disabled:opacity-50`}
-                  >
-                    Redo
-                  </button>
-                  <button
-                    onClick={handleBulkExport}
-                    disabled={bulkActionLoading}
-                    className="px-3 py-1.5 text-sm bg-[#007A5C] text-white rounded hover:bg-[#007A5C]/90 disabled:opacity-50 flex items-center gap-2"
-                  >
-                    <Download className="w-4 h-4" />
-                    Export CSV
-                  </button>
-                  <button
-                    onClick={handleBulkPause}
-                    disabled={bulkActionLoading}
-                    className="px-3 py-1.5 text-sm bg-[#FFD166] text-[#1E2A35] rounded hover:bg-[#FFD166]/90 disabled:opacity-50 flex items-center gap-2"
-                  >
-                    {bulkActionLoading && <LoadingSpinner size="sm" />}
-                    Pause Selected
-                  </button>
-                  <button
-                    onClick={handleBulkCancel}
-                    disabled={bulkActionLoading}
-                    className="px-3 py-1.5 text-sm bg-[#FFD166] text-[#1E2A35] rounded hover:bg-[#FFD166]/90 disabled:opacity-50 flex items-center gap-2"
-                  >
-                    {bulkActionLoading && <LoadingSpinner size="sm" />}
-                    Cancel Selected
-                  </button>
-                  <button
-                    onClick={handleBulkDelete}
-                    disabled={bulkActionLoading}
-                    className="px-3 py-1.5 text-sm bg-[#E86A33] text-white rounded hover:bg-[#E86A33]/90 disabled:opacity-50 flex items-center gap-2"
-                  >
-                    {bulkActionLoading && <LoadingSpinner size="sm" darkMode />}
-                    Delete Selected
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Page Content */}
-            {activeView === "dashboard" && (
-              <DashboardPage
-                subscriptions={subscriptions}
-                totalSpend={totalSpend}
-                insights={notifications}
-                onViewInsights={handleViewInsights}
-                onRenew={handleRenewSubscription}
-                onManage={handleManageSubscription}
-                darkMode={darkMode}
-                emailAccounts={emailAccounts}
-                trialSubscriptions={trialSubscriptions}
-                cancelledSubscriptions={cancelledSubscriptions}
-                pausedSubscriptions={pausedSubscriptions}
-              />
-            )}
-            {activeView === "subscriptions" && (
-              <SubscriptionsPage
-                subscriptions={subscriptions}
-                onDelete={handleDeleteSubscription}
-                maxSubscriptions={maxSubscriptions}
-                currentPlan={currentPlan}
-                onManage={handleManageSubscription}
-                onRenew={handleRenewSubscription}
-                selectedSubscriptions={selectedSubscriptions}
-                onToggleSelect={handleToggleSubscriptionSelect}
-                darkMode={darkMode}
-                emailAccounts={emailAccounts}
-                onEdit={handleEditSubscription}
-                onCancel={handleCancelSubscription}
-                onPause={handlePauseSubscription}
-              />
-            )}
-            {activeView === "analytics" && (
-              <AnalyticsPage subscriptions={subscriptions} totalSpend={totalSpend} darkMode={darkMode} />
-            )}
-            {activeView === "integrations" && (
-              <IntegrationsPage integrations={integrations} onToggle={handleToggleIntegration} darkMode={darkMode} />
-            )}
-            {activeView === "teams" && (
-              <TeamsPage
-                workspace={workspace}
-                subscriptions={subscriptions}
-                darkMode={darkMode}
-                emailAccounts={emailAccounts}
-              />
-            )}
-            {activeView === "settings" && (
-              <SettingsPage
-                currentPlan={currentPlan}
-                onUpgrade={handleUpgradePlan}
-                budgetLimit={budgetLimit}
-                onBudgetChange={setBudgetLimit}
-                darkMode={darkMode}
-                emailAccounts={emailAccounts}
-                onAddEmailAccount={handleAddEmailAccount}
-                onRemoveEmailAccount={handleRemoveEmailAccount}
-                onSetPrimaryEmail={handleSetPrimaryEmail}
-                onRescanEmail={handleRescanEmail}
-              />
-            )}
+        {isOffline && (
+          <div className="fixed top-0 left-0 right-0 bg-destructive text-destructive-foreground px-4 py-2 text-center text-sm font-medium z-50">
+            You're currently offline. Some features may not work.
           </div>
         )}
-      </main>
 
-      {/* Notifications Panel */}
-      {showNotifications && (
-        <NotificationsPanel
-          notifications={notifications}
-          onMarkRead={handleMarkNotificationRead}
-          onClose={() => setShowNotifications(false)}
-          onAddSubscription={handleAddFromNotification}
-          onResolveAction={handleResolveNotificationAction}
-          darkMode={darkMode}
-        />
-      )}
+        {/* Mobile Menu Button */}
+        <button
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          className={`md:hidden fixed top-4 left-4 z-50 p-3 ${darkMode ? "hover:bg-[#2D3748]" : "hover:bg-gray-100"} rounded-lg`}
+          aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+          aria-expanded={mobileMenuOpen}
+        >
+          {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+        </button>
 
-      {/* Modals */}
-      {showAddSubscription && (
-        <AddSubscriptionModal
-          onAdd={handleAddSubscription}
-          onClose={() => setShowAddSubscription(false)}
-          darkMode={darkMode}
-        />
-      )}
-      {showUpgradePlan && (
-        <UpgradePlanModal
-          currentPlan={currentPlan}
-          onUpgrade={handleUpgradePlan}
-          onClose={() => setShowUpgradePlan(false)}
-          darkMode={darkMode}
-        />
-      )}
-      {showManageSubscription && selectedSubscription && (
-        <ManageSubscriptionModal
-          subscription={selectedSubscription}
-          onClose={() => setShowManageSubscription(false)}
-          onDelete={() => {
-            handleDeleteSubscription(selectedSubscription.id)
-            setShowManageSubscription(false)
-          }}
-          onEdit={() => {
-            setShowManageSubscription(false)
-            setShowEditSubscription(true)
-          }}
-          onCancel={handleCancelSubscription}
-          onPause={handlePauseSubscription}
-          onResume={handleResumeSubscription}
-          darkMode={darkMode}
-        />
-      )}
-      {showEditSubscription && selectedSubscription && (
-        <EditSubscriptionModal
-          subscription={selectedSubscription}
-          onSave={(updates) => handleEditSubscription(selectedSubscription.id, updates)}
-          onClose={() => setShowEditSubscription(false)}
-          darkMode={darkMode}
-        />
-      )}
-      {showInsights && (
-        <InsightsModal
-          insights={notifications}
-          totalSpend={totalSpend}
-          onClose={() => setShowInsights(false)}
-          darkMode={darkMode}
-        />
-      )}
+        {/* Sidebar */}
+        <aside
+          className={`${
+            mobileMenuOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+          } fixed md:relative w-56 border-r ${darkMode ? "border-[#374151] bg-[#2D3748]" : "border-gray-200 bg-white"} p-6 flex flex-col transition-transform duration-300 z-40 h-screen`}
+          role="navigation"
+          aria-label="Main navigation"
+        >
+          <div className="mb-12">
+            <h1 className={`text-xl font-bold ${darkMode ? "text-white" : "text-[#1E2A35]"}`}>Subsync.AI</h1>
+          </div>
 
-      <ToastContainer>
-        {toasts.map((toast) => (
-          <Toast
-            key={toast.id}
-            title={toast.title}
-            description={toast.description}
-            variant={toast.variant}
-            action={toast.action}
-            onClose={() => removeToast(toast.id)}
+          <nav className="flex-1 space-y-1">
+            {[
+              { id: "dashboard", label: "Dashboard", icon: Home },
+              { id: "subscriptions", label: "Subscriptions", icon: CreditCard },
+              { id: "analytics", label: "Analytics", icon: BarChart3 },
+              { id: "integrations", label: "Integrations", icon: Plug },
+              ...(mode === "enterprise" ? [{ id: "teams", label: "Teams", icon: Users }] : []),
+              { id: "settings", label: "Settings", icon: Settings },
+            ].map((item) => {
+              const Icon = item.icon
+              const isActive = activeView === item.id
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setActiveView(item.id)
+                    setMobileMenuOpen(false)
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
+                    isActive
+                      ? darkMode
+                        ? "bg-[#FFD166] text-[#1E2A35]"
+                        : "bg-[#1E2A35] text-white"
+                      : darkMode
+                        ? "text-[#F9F6F2] hover:bg-[#374151]"
+                        : "text-[#1E2A35] hover:bg-[#F9F6F2]"
+                  }`}
+                  aria-label={`Navigate to ${item.label}`}
+                  aria-current={isActive ? "page" : undefined}
+                >
+                  <Icon className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />
+                  <span className="text-sm">{item.label}</span>
+                </button>
+              )
+            })}
+          </nav>
+
+          <div className={`mt-auto pt-6 border-t ${darkMode ? "border-gray-700" : "border-gray-200"}`}>
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-10 h-10 ${darkMode ? "bg-[#FFD166]" : "bg-[#FFD166]"} rounded-full flex items-center justify-center text-lg text-[#1E2A35]`}
+              >
+                👤
+              </div>
+              <div className="flex-1">
+                <div className={`text-sm font-semibold ${darkMode ? "text-white" : "text-[#1E2A35]"}`}>
+                  Caleb Alexhone
+                </div>
+                <button
+                  onClick={() => setShowUpgradePlan(true)}
+                  className={`text-xs ${darkMode ? "text-gray-400 hover:text-gray-300" : "text-gray-500 hover:text-gray-700"}`}
+                >
+                  {currentPlan === "free" ? "Upgrade plan" : `${currentPlan} plan`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        {/* Main Content */}
+        <main className="flex-1 overflow-y-auto" id="main-content">
+          {showInsightsPage ? (
+            <InsightsPage
+              insights={notifications}
+              totalSpend={totalSpend}
+              onClose={() => setShowInsightsPage(false)}
+              darkMode={darkMode}
+            />
+          ) : (
+            <div className="p-4 md:p-8">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h2 className={`text-2xl font-bold ${darkMode ? "text-white" : "text-[#1E2A35]"}`}>
+                    {activeView === "dashboard" && "Dashboard"}
+                    {activeView === "subscriptions" && "Subscriptions"}
+                    {activeView === "analytics" && "Analytics"}
+                    {activeView === "integrations" && "Integrations"}
+                    {activeView === "teams" && "Teams"}
+                    {activeView === "settings" && "Settings"}
+                  </h2>
+                  <p className={`text-sm ${darkMode ? "text-gray-400" : "text-gray-500"} mt-1`}>
+                    {activeView === "dashboard" && "Welcome back! Here is your AI subscription overview."}
+                    {activeView === "subscriptions" && "Manage and track all your AI tool subscriptions"}
+                    {activeView === "analytics" && "View detailed analytics and spending insights"}
+                    {activeView === "integrations" && "Central control for all your data connections"}
+                    {activeView === "teams" && "Manage your team members and their subscriptions"}
+                    {activeView === "settings" && "Account management and preferences"}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setDarkMode(!darkMode)}
+                    className={`p-2 ${darkMode ? "hover:bg-[#2D3748]" : "hover:bg-gray-100"} rounded-lg transition-colors`}
+                    aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+                  >
+                    {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+                  </button>
+                  <button
+                    onClick={() => setShowNotifications(!showNotifications)}
+                    className={`p-2 ${darkMode ? "hover:bg-[#2D3748]" : "hover:bg-gray-100"} rounded-lg relative transition-colors`}
+                    aria-label={`Notifications (${unreadNotifications} unread)`}
+                  >
+                    <Bell className="w-5 h-5" />
+                    {unreadNotifications > 0 && (
+                      <span className="absolute top-1 right-1 bg-[#E86A33] text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                        {unreadNotifications}
+                      </span>
+                    )}
+                  </button>
+                  {activeView === "subscriptions" && (
+                    <button
+                      onClick={() => setShowAddSubscription(true)}
+                      className={`flex items-center gap-2 ${
+                        darkMode
+                          ? "bg-[#FFD166] text-[#1E2A35] hover:bg-[#FFD166]/90"
+                          : "bg-[#1E2A35] text-white hover:bg-[#2D3748]"
+                      } px-4 py-2 rounded-lg text-sm font-medium transition-colors`}
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span className="hidden sm:inline">Add subscription</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {budgetAlert && (
+                <div
+                  className={`mb-6 p-4 ${
+                    budgetAlert.level === "critical"
+                      ? darkMode
+                        ? "bg-[#E86A33]/20 border-[#E86A33]"
+                        : "bg-red-50 border-red-200"
+                      : darkMode
+                        ? "bg-[#FFD166]/20 border-[#FFD166]"
+                        : "bg-yellow-50 border-yellow-200"
+                  } border rounded-lg`}
+                >
+                  <p
+                    className={`text-sm font-medium ${
+                      budgetAlert.level === "critical"
+                        ? darkMode
+                          ? "text-[#E86A33]"
+                          : "text-red-800"
+                        : darkMode
+                          ? "text-[#FFD166]"
+                          : "text-yellow-800"
+                    }`}
+                  >
+                    {budgetAlert.level === "critical" ? "🚨 " : "⚠️ "}
+                    {budgetAlert.message}
+                  </p>
+                  <div
+                    className={`mt-2 w-full ${
+                      budgetAlert.level === "critical"
+                        ? darkMode
+                          ? "bg-[#E86A33]/30"
+                          : "bg-red-200"
+                        : darkMode
+                          ? "bg-[#FFD166]/30"
+                          : "bg-yellow-200"
+                    } rounded-full h-2`}
+                  >
+                    <div
+                      className={budgetAlert.level === "critical" ? "bg-[#E86A33]" : "bg-[#FFD166]"}
+                      style={{
+                        width: `${Math.min(Number.parseFloat(budgetAlert.percentage), 100)}%`,
+                        height: "100%",
+                        borderRadius: "9999px",
+                      }}
+                    ></div>
+                  </div>
+                </div>
+              )}
+
+              {selectedSubscriptions.size > 0 && activeView === "subscriptions" && (
+                <div
+                  className={`mb-6 p-4 ${darkMode ? "bg-[#007A5C]/20 border-[#007A5C]" : "bg-blue-50 border-blue-200"} border rounded-lg flex items-center justify-between`}
+                >
+                  <p className={`text-sm font-medium ${darkMode ? "text-[#007A5C]" : "text-blue-800"}`}>
+                    {selectedSubscriptions.size} subscription(s) selected
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={undo}
+                      disabled={!canUndo || bulkActionLoading} // Use canUndo from useUndoManager
+                      className={`px-3 py-1.5 text-sm ${darkMode ? "bg-[#2D3748] hover:bg-[#374151]" : "bg-gray-200 hover:bg-gray-300"} rounded disabled:opacity-50 flex items-center gap-2`}
+                    >
+                      {bulkActionLoading ? <LoadingSpinner size="sm" darkMode={darkMode} /> : "Undo"}
+                    </button>
+                    <button
+                      onClick={redo}
+                      disabled={!canRedo || bulkActionLoading} // Use canRedo from useUndoManager
+                      className={`px-3 py-1.5 text-sm ${darkMode ? "bg-[#2D3748] hover:bg-[#374151]" : "bg-gray-200 hover:bg-gray-300"} rounded disabled:opacity-50`}
+                    >
+                      Redo
+                    </button>
+                    <button
+                      onClick={handleBulkExport}
+                      disabled={bulkActionLoading}
+                      className="px-3 py-1.5 text-sm bg-[#007A5C] text-white rounded hover:bg-[#007A5C]/90 disabled:opacity-50 flex items-center gap-2"
+                    >
+                      <Download className="w-4 h-4" />
+                      Export CSV
+                    </button>
+                    <button
+                      onClick={handleBulkPause}
+                      disabled={bulkActionLoading}
+                      className="px-3 py-1.5 text-sm bg-[#FFD166] text-[#1E2A35] rounded hover:bg-[#FFD166]/90 disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {bulkActionLoading && <LoadingSpinner size="sm" />}
+                      Pause Selected
+                    </button>
+                    <button
+                      onClick={handleBulkCancel}
+                      disabled={bulkActionLoading}
+                      className="px-3 py-1.5 text-sm bg-[#FFD166] text-[#1E2A35] rounded hover:bg-[#FFD166]/90 disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {bulkActionLoading && <LoadingSpinner size="sm" />}
+                      Cancel Selected
+                    </button>
+                    <button
+                      onClick={handleBulkDelete}
+                      disabled={bulkActionLoading}
+                      className="px-3 py-1.5 text-sm bg-[#E86A33] text-white rounded hover:bg-[#E86A33]/90 disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {bulkActionLoading && <LoadingSpinner size="sm" darkMode />}
+                      Delete Selected
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Page Content */}
+              {activeView === "dashboard" && (
+                <DashboardPage
+                  subscriptions={subscriptions}
+                  totalSpend={totalSpend}
+                  onViewInsights={handleViewInsights}
+                  onRenew={handleRenewSubscription}
+                  onManage={handleManageSubscription}
+                  darkMode={darkMode}
+                  emailAccounts={emailAccounts}
+                  trialSubscriptions={trialSubscriptions}
+                  cancelledSubscriptions={cancelledSubscriptions}
+                  pausedSubscriptions={pausedSubscriptions}
+                />
+              )}
+              {activeView === "subscriptions" && (
+                <SubscriptionsPage
+                  subscriptions={subscriptions}
+                  onDelete={handleDeleteSubscription}
+                  maxSubscriptions={maxSubscriptions}
+                  currentPlan={currentPlan}
+                  onManage={handleManageSubscription}
+                  onRenew={handleRenewSubscription}
+                  selectedSubscriptions={selectedSubscriptions}
+                  onToggleSelect={handleToggleSubscriptionSelect}
+                  darkMode={darkMode}
+                  emailAccounts={emailAccounts}
+                  onEdit={handleEditSubscription}
+                  onCancel={handleCancelSubscription}
+                  onPause={handlePauseSubscription}
+                />
+              )}
+              {activeView === "analytics" && (
+                <AnalyticsPage subscriptions={subscriptions} totalSpend={totalSpend} darkMode={darkMode} />
+              )}
+              {activeView === "integrations" && (
+                <IntegrationsPage integrations={integrations} onToggle={handleToggleIntegration} darkMode={darkMode} />
+              )}
+              {activeView === "teams" && (
+                <TeamsPage
+                  workspace={workspace}
+                  subscriptions={subscriptions}
+                  darkMode={darkMode}
+                  emailAccounts={emailAccounts}
+                />
+              )}
+              {activeView === "settings" && (
+                <SettingsPage
+                  currentPlan={currentPlan}
+                  onUpgrade={handleUpgradePlan}
+                  budgetLimit={budgetLimit}
+                  onBudgetChange={setBudgetLimit}
+                  darkMode={darkMode}
+                  emailAccounts={emailAccounts}
+                  onAddEmailAccount={handleAddEmailAccount}
+                  onRemoveEmailAccount={handleRemoveEmailAccount}
+                  onSetPrimaryEmail={handleSetPrimaryEmail}
+                  onRescanEmail={handleRescanEmail}
+                  currency={currency}
+                  onCurrencyChange={setCurrency}
+                />
+              )}
+            </div>
+          )}
+        </main>
+
+        {/* Notifications Panel */}
+        {showNotifications && (
+          <NotificationsPanel
+            notifications={notifications}
+            onMarkRead={handleMarkNotificationRead}
+            onClose={() => setShowNotifications(false)}
+            onAddSubscription={handleAddFromNotification}
+            onResolveAction={handleResolveNotificationAction}
+            darkMode={darkMode}
           />
-        ))}
-      </ToastContainer>
+        )}
 
-      {confirmDialog && (
-        <ConfirmationDialog
-          title={confirmDialog.title}
-          description={confirmDialog.description}
-          variant={confirmDialog.variant}
-          confirmLabel={confirmDialog.confirmLabel}
-          onConfirm={confirmDialog.onConfirm}
-          onCancel={confirmDialog.onCancel}
-          darkMode={darkMode}
-        />
-      )}
-    </div>
+        {/* Modals */}
+        {showAddSubscription && (
+          <AddSubscriptionModal
+            onAdd={handleAddSubscription}
+            onClose={() => setShowAddSubscription(false)}
+            darkMode={darkMode}
+          />
+        )}
+        {showUpgradePlan && (
+          <UpgradePlanModal
+            currentPlan={currentPlan}
+            onUpgrade={handleUpgradePlan}
+            onClose={() => setShowUpgradePlan(false)}
+            darkMode={darkMode}
+          />
+        )}
+        {showManageSubscription && selectedSubscription && (
+          <ManageSubscriptionModal
+            subscription={selectedSubscription}
+            onClose={() => setShowManageSubscription(false)}
+            onDelete={() => {
+              handleDeleteSubscription(selectedSubscription.id)
+              setShowManageSubscription(false)
+            }}
+            onEdit={() => {
+              setShowManageSubscription(false)
+              setShowEditSubscription(true)
+            }}
+            onCancel={handleCancelSubscription}
+            onPause={handlePauseSubscription}
+            onResume={handleResumeSubscription}
+            darkMode={darkMode}
+          />
+        )}
+        {showEditSubscription && selectedSubscription && (
+          <EditSubscriptionModal
+            subscription={selectedSubscription}
+            onSave={(updates) => handleEditSubscription(selectedSubscription.id, updates)}
+            onClose={() => setShowEditSubscription(false)}
+            darkMode={darkMode}
+          />
+        )}
+        {showInsights && (
+          <InsightsModal
+            insights={notifications}
+            totalSpend={totalSpend}
+            onClose={() => setShowInsights(false)}
+            darkMode={darkMode}
+          />
+        )}
+
+        <ToastContainer>
+          {toasts.map((toast) => (
+            <Toast
+              key={toast.id}
+              title={toast.title}
+              description={toast.description}
+              variant={toast.variant}
+              action={toast.action}
+              onClose={() => removeToast(toast.id)}
+            />
+          ))}
+        </ToastContainer>
+
+        {confirmDialog && (
+          <ConfirmationDialog
+            title={confirmDialog.title}
+            description={confirmDialog.description}
+            variant={confirmDialog.variant}
+            confirmLabel={confirmDialog.confirmLabel}
+            onConfirm={confirmDialog.onConfirm}
+            onCancel={confirmDialog.onCancel}
+            darkMode={darkMode}
+          />
+        )}
+      </div>
+    </ErrorBoundary>
   )
 }
