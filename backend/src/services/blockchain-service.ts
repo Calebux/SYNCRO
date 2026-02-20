@@ -328,6 +328,130 @@ export class BlockchainService {
       transactionHash: `${operationPrefix}x${Buffer.from(JSON.stringify(eventData)).toString('hex').slice(0, 62)}`,
     };
   }
+
+  // ── Cancellation logging ────────────────────────────────────────────────────
+
+  /**
+   * Log a subscription cancellation event to the database and optionally on-chain.
+   * Mirrors the same non-blocking dual-write pattern used by syncSubscription().
+   *
+   * @param userId           - Authenticated user ID
+   * @param subscriptionId   - UUID of the subscription being cancelled
+   * @param subscriptionData - Full subscription record (for event payload)
+   * @param cancellationUrl  - Optional merchant cancellation redirect URL
+   */
+  async logCancellation(
+    userId: string,
+    subscriptionId: string,
+    subscriptionData: any,
+    cancellationUrl?: string
+  ): Promise<{ success: boolean; transactionHash?: string; error?: string }> {
+    const eventData = {
+      subscriptionId,
+      subscriptionName: subscriptionData.name,
+      price: subscriptionData.price,
+      billingCycle: subscriptionData.billing_cycle,
+      cancellationUrl: cancellationUrl || null,
+      timestamp: new Date().toISOString(),
+    };
+
+    try {
+      // 1. Write to database first (authoritative log)
+      const { data: dbLog, error: dbError } = await supabase
+        .from('blockchain_logs')
+        .insert({
+          user_id: userId,
+          event_type: 'subscription_cancelled',
+          event_data: eventData,
+          status: 'pending',
+        })
+        .select()
+        .single();
+
+      if (dbError) {
+        logger.error('Failed to log cancellation event to database:', dbError);
+        throw dbError;
+      }
+
+      logger.info('Cancellation event logged to database', {
+        logId: dbLog.id,
+        subscriptionId,
+      });
+
+      // 2. Optionally write to Soroban contract (cancel_sub)
+      if (this.contractAddress) {
+        try {
+          const result = await this.writeCancellationToBlockchain(eventData);
+
+          if (result.transactionHash) {
+            await supabase
+              .from('blockchain_logs')
+              .update({
+                transaction_hash: result.transactionHash,
+                status: 'confirmed',
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', dbLog.id);
+
+            logger.info('Cancellation written to blockchain', {
+              logId: dbLog.id,
+              transactionHash: result.transactionHash,
+            });
+          }
+
+          return { success: true, transactionHash: result.transactionHash };
+        } catch (blockchainError) {
+          const errorMessage =
+            blockchainError instanceof Error
+              ? blockchainError.message
+              : String(blockchainError);
+
+          logger.error('Failed to write cancellation to blockchain:', errorMessage);
+
+          await supabase
+            .from('blockchain_logs')
+            .update({
+              status: 'failed',
+              error_message: errorMessage,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', dbLog.id);
+
+          // DB log succeeded – operation is not fully failed
+          return { success: true, error: errorMessage };
+        }
+      }
+
+      // No contract configured – DB-only log is sufficient
+      return { success: true };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error('Failed to log cancellation event:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  /**
+   * Invoke the Soroban contract's `cancel_sub` function.
+   * Placeholder – replace with real @stellar/stellar-sdk calls once the contract is deployed.
+   *
+   * Steps (production):
+   *  1. Build transaction: invoke cancel_sub(sub_id, cancellation_url)
+   *  2. Sign with server keypair / user's own keypair (self-custodial)
+   *  3. Submit & wait for confirmation
+   *  4. Return transaction hash
+   */
+  private async writeCancellationToBlockchain(
+    eventData: Record<string, any>
+  ): Promise<{ transactionHash: string }> {
+    logger.info(
+      'Blockchain cancellation write not fully implemented. Using mock transaction hash.'
+    );
+
+    return {
+      transactionHash: `cx${Buffer.from(JSON.stringify(eventData)).toString('hex').slice(0, 62)}`,
+    };
+  }
 }
 
 export const blockchainService = new BlockchainService();

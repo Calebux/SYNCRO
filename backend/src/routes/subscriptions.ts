@@ -273,6 +273,65 @@ router.post('/:id/retry-sync', validateSubscriptionOwnership, async (req: Authen
 });
 
 /**
+ * POST /api/subscriptions/:id/cancel
+ * Cancel a subscription — marks it cancelled in DB + logs on-chain.
+ *
+ * Body (all optional):
+ *   cancellation_url  — Merchant's own cancellation page to redirect the user to.
+ *   reason            — Human-readable cancellation reason (appended to notes).
+ *
+ * Response:
+ *   200 — Cancelled successfully, blockchain synced.
+ *   207 — Cancelled in DB but blockchain log failed (partial success).
+ *   404 — Subscription not found or not owned by authenticated user.
+ *   409 — Subscription is already cancelled.
+ *   500 — Unexpected server error.
+ */
+router.post('/:id/cancel', validateSubscriptionOwnership, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const result = await subscriptionService.cancelSubscription(
+      req.user!.id,
+      req.params.id,
+      {
+        cancellation_url: req.body.cancellation_url,
+        reason: req.body.reason,
+      }
+    );
+
+    const responseBody = {
+      success: true,
+      data: result.subscription,
+      ...(result.cancellationUrl && { cancellationUrl: result.cancellationUrl }),
+      blockchain: {
+        synced: result.syncStatus === 'synced',
+        transactionHash: result.blockchainResult?.transactionHash,
+        error: result.blockchainResult?.error,
+      },
+    };
+
+    // 207 Multi-Status when DB succeeded but chain logging failed
+    const statusCode = result.syncStatus === 'failed' ? 207 : 200;
+    res.status(statusCode).json(responseBody);
+  } catch (error) {
+    logger.error('Cancel subscription error:', error);
+
+    if (error instanceof Error) {
+      if (error.message.includes('not found') || error.message.includes('access denied')) {
+        return res.status(404).json({ success: false, error: error.message });
+      }
+      if (error.message.includes('already cancelled')) {
+        return res.status(409).json({ success: false, error: error.message });
+      }
+    }
+
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to cancel subscription',
+    });
+  }
+});
+
+/**
  * POST /api/subscriptions/bulk
  * Bulk operations (delete, update status, etc.)
  */

@@ -48,3 +48,26 @@ export interface SubscriptionUpdateInput {
   notes?: string;
   tags?: string[];
 }
+
+// ── Cancellation ─────────────────────────────────────────────────────────────
+
+export interface CancellationInput {
+  /** Optional redirect URL to the merchant's own cancellation page. */
+  cancellation_url?: string;
+  /** Human-readable reason for cancellation (stored in notes/logs). */
+  reason?: string;
+}
+
+export interface CancellationResult {
+  subscription: Subscription;
+  /** Resolved merchant cancellation page URL (if provided). */
+  cancellationUrl?: string;
+  blockchainResult?: {
+    success: boolean;
+    transactionHash?: string;
+    error?: string;
+  };
+  /** 'synced' = both DB + chain OK, 'partial' = DB OK but chain failed, 'failed' = DB failed */
+  syncStatus: 'synced' | 'partial' | 'failed';
+}
+

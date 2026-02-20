@@ -1,0 +1,30 @@
+{
+  "name": "@syncro/sdk",
+  "version": "0.1.0",
+  "description": "Syncro SDK — programmatic subscription management helpers",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "ISC",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest --passWithNoTests",
+    "dev": "tsc --watch"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.0",
+    "@types/node": "^20.14.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.5.0"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "testMatch": ["**/tests/**/*.test.ts"],
+    "globals": {
+      "ts-jest": {
+        "tsconfig": "tsconfig.test.json"
+      }
+    }
+  }
+}
