@@ -2,7 +2,12 @@ import { supabase } from '../config/database';
 import { blockchainService } from './blockchain-service';
 import logger from '../config/logger';
 import { DatabaseTransaction } from '../utils/transaction';
-import type { SubscriptionCreateInput, SubscriptionUpdateInput } from '../types/subscription';
+import type {
+  SubscriptionCreateInput,
+  SubscriptionUpdateInput,
+  CancellationInput,
+  CancellationResult,
+} from '../types/subscription';
 
 export interface SubscriptionSyncResult {
   subscription: any;
@@ -340,6 +345,124 @@ export class SubscriptionService {
       'update',
       subscription
     );
+  }
+
+  // ── Cancellation ──────────────────────────────────────────────────────────
+
+  /**
+   * Cancel a subscription.
+   *
+   * - Marks the subscription status as 'cancelled' in the database.
+   * - Stores optional cancellation URL and reason.
+   * - Logs the cancellation on-chain via blockchainService.logCancellation().
+   * - Returns a typed CancellationResult (events available via blockchain fields).
+   *
+   * @param userId           - Authenticated user ID
+   * @param subscriptionId   - UUID of the subscription to cancel
+   * @param input            - Optional { cancellation_url, reason }
+   */
+  async cancelSubscription(
+    userId: string,
+    subscriptionId: string,
+    input: CancellationInput = {}
+  ): Promise<CancellationResult> {
+    return await DatabaseTransaction.execute(async (client) => {
+      try {
+        // 1. Fetch subscription + verify ownership
+        const { data: existing, error: fetchError } = await client
+          .from('subscriptions')
+          .select('*')
+          .eq('id', subscriptionId)
+          .eq('user_id', userId)
+          .single();
+
+        if (fetchError || !existing) {
+          throw new Error('Subscription not found or access denied');
+        }
+
+        // 2. Guard: already cancelled
+        if (existing.status === 'cancelled') {
+          throw new Error('Subscription is already cancelled');
+        }
+
+        // 3. Persist cancellation in the database
+        const now = new Date().toISOString();
+        const updatePayload: Record<string, any> = {
+          status: 'cancelled',
+          cancelled_at: now,
+          updated_at: now,
+        };
+        if (input.cancellation_url) {
+          updatePayload.cancellation_url = input.cancellation_url;
+        }
+        if (input.reason) {
+          // Append reason to notes (non-destructive)
+          updatePayload.notes = existing.notes
+            ? `${existing.notes}\n[Cancellation reason: ${input.reason}]`
+            : `[Cancellation reason: ${input.reason}]`;
+        }
+
+        const { data: subscription, error: updateError } = await client
+          .from('subscriptions')
+          .update(updatePayload)
+          .eq('id', subscriptionId)
+          .eq('user_id', userId)
+          .select()
+          .single();
+
+        if (updateError) {
+          throw new Error(`Cancellation update failed: ${updateError.message}`);
+        }
+
+        // 4. Log on-chain (non-blocking — blockchain failure must not roll back DB)
+        let blockchainResult: CancellationResult['blockchainResult'];
+        let syncStatus: CancellationResult['syncStatus'] = 'synced';
+
+        try {
+          blockchainResult = await blockchainService.logCancellation(
+            userId,
+            subscriptionId,
+            subscription,
+            input.cancellation_url
+          );
+
+          if (!blockchainResult.success) {
+            syncStatus = 'partial';
+            logger.warn('Blockchain log failed for cancellation', {
+              subscriptionId,
+              error: blockchainResult.error,
+            });
+          }
+        } catch (blockchainError) {
+          syncStatus = 'partial';
+          logger.error('Blockchain log error (non-fatal):', blockchainError);
+          blockchainResult = {
+            success: false,
+            error:
+              blockchainError instanceof Error
+                ? blockchainError.message
+                : String(blockchainError),
+          };
+        }
+
+        logger.info('Subscription cancelled successfully', {
+          subscriptionId,
+          userId,
+          syncStatus,
+          cancellationUrl: input.cancellation_url,
+        });
+
+        return {
+          subscription,
+          cancellationUrl: input.cancellation_url,
+          blockchainResult,
+          syncStatus,
+        };
+      } catch (error) {
+        logger.error('Subscription cancellation failed:', error);
+        throw error;
+      }
+    });
   }
 }
 

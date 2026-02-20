@@ -34,6 +34,7 @@ pub enum SubscriptionState {
     Active,
     Retrying,
     Failed,
+    Cancelled,
 }
 
 /// Core subscription data stored on-chain
@@ -84,6 +85,15 @@ pub struct ApprovalRejected {
     pub sub_id: u64,
     pub approval_id: u64,
     pub reason: u32, // 1=expired, 2=used, 3=amount_exceeded, 4=not_found
+}
+
+/// Emitted when a subscription is cancelled on-chain
+#[contractevent]
+pub struct SubscriptionCancelled {
+    pub sub_id: u64,
+    pub owner: Address,
+    /// Optional merchant cancellation URL provided by the SDK caller
+    pub cancellation_url: soroban_sdk::String,
 }
 
 #[contract]
@@ -338,6 +348,57 @@ impl SubscriptionRenewalContract {
             .persistent()
             .get(&sub_id)
             .expect("Subscription not found")
+    }
+
+    // ── Cancellation ──────────────────────────────────────────────
+
+    /// Cancel a subscription on-chain.
+    ///
+    /// - Requires authentication from the subscription owner.
+    /// - Panics if the subscription is already cancelled.
+    /// - Emits `SubscriptionCancelled` on success.
+    ///
+    /// # Arguments
+    /// * `sub_id`           – The numeric subscription identifier.
+    /// * `cancellation_url` – Optional redirect URL to the merchant's
+    ///                        cancellation page (empty string = none).
+    pub fn cancel_sub(
+        env: Env,
+        sub_id: u64,
+        cancellation_url: soroban_sdk::String,
+    ) {
+        let key = sub_id;
+        let mut data: SubscriptionData = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .expect("Subscription not found");
+
+        // Authenticate the owner – self-custodial guarantee
+        data.owner.require_auth();
+
+        if data.state == SubscriptionState::Cancelled {
+            panic!("Subscription is already cancelled");
+        }
+
+        // Transition to Cancelled
+        data.state = SubscriptionState::Cancelled;
+        env.storage().persistent().set(&key, &data);
+
+        // Emit cancellation event (on-chain log)
+        SubscriptionCancelled {
+            sub_id,
+            owner: data.owner.clone(),
+            cancellation_url,
+        }
+        .publish(&env);
+
+        // Emit generic state transition for indexers
+        StateTransition {
+            sub_id,
+            new_state: SubscriptionState::Cancelled,
+        }
+        .publish(&env);
     }
 }
 
