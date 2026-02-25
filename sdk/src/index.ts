@@ -1,6 +1,11 @@
 import axios, { type AxiosInstance } from "axios";
 import { EventEmitter } from "node:events";
 import type { GiftCardEvent, GiftCardEventType } from "./types";
+import {
+  validateSubscriptionCreateInput,
+  validateSubscriptionUpdateInput,
+  validateGiftCardHash,
+} from "./validators.js";
 
 export interface Subscription {
   id: string;
@@ -225,6 +230,86 @@ export class SyncroSDK extends EventEmitter {
     }
     return null;
   }
+
+  /**
+   * Create a subscription with pre-flight validation.
+   * Invalid payloads are rejected before any network request.
+   */
+  async createSubscription(
+    input: unknown,
+  ): Promise<Subscription> {
+    const validated = validateSubscriptionCreateInput(input);
+
+    this.emit("creating", validated);
+
+    const response = await this.client.post("/subscriptions", validated);
+    const subscription = this.normalizeSubscription(response.data.data);
+
+    this.emit("created", subscription);
+    return subscription;
+  }
+
+  /**
+   * Update a subscription with pre-flight validation.
+   * Invalid payloads are rejected before any network request.
+   */
+  async updateSubscription(
+    subscriptionId: string,
+    input: unknown,
+  ): Promise<Subscription> {
+    if (!subscriptionId || typeof subscriptionId !== "string") {
+      throw new Error("Validation failed: subscriptionId must be a non-empty string.");
+    }
+
+    const validated = validateSubscriptionUpdateInput(input);
+
+    this.emit("updating", { subscriptionId, updates: validated });
+
+    const response = await this.client.patch(
+      `/subscriptions/${subscriptionId}`,
+      validated,
+    );
+    const subscription = this.normalizeSubscription(response.data.data);
+
+    this.emit("updated", subscription);
+    return subscription;
+  }
+
+  /**
+   * Attach a gift card to a subscription with hash validation.
+   * Invalid hashes are rejected before any network request.
+   */
+  async attachGiftCard(
+    subscriptionId: string,
+    giftCardHash: unknown,
+    provider?: string,
+  ): Promise<GiftCardEvent> {
+    if (!subscriptionId || typeof subscriptionId !== "string") {
+      throw new Error("Validation failed: subscriptionId must be a non-empty string.");
+    }
+
+    const validatedHash = validateGiftCardHash(giftCardHash);
+
+    const payload = { giftCardHash: validatedHash, provider };
+
+    this.emit("giftcard:attaching", { subscriptionId, ...payload });
+
+    const response = await this.client.post(
+      `/subscriptions/${subscriptionId}/giftcard`,
+      payload,
+    );
+
+    const event: GiftCardEvent = {
+      type: "attached",
+      subscriptionId,
+      giftCardHash: validatedHash,
+      provider,
+      data: response.data.data,
+    };
+
+    this.emit("giftcard:attached", event);
+    return event;
+  }
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -327,3 +412,16 @@ export function init(config: SyncroSDKInitConfig): SyncroSDK {
 
 export default SyncroSDK;
 export type { GiftCardEvent, GiftCardEventType } from "./types";
+export {
+  validateSubscriptionCreateInput,
+  validateSubscriptionUpdateInput,
+  validateGiftCardHash,
+  SubscriptionCreateSchema,
+  SubscriptionUpdateSchema,
+  GiftCardHashSchema,
+} from "./validators.js";
+export type {
+  ValidationResult,
+  ValidationSuccess,
+  ValidationFailure,
+} from "./validators.js";
