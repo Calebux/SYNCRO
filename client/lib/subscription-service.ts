@@ -12,6 +12,10 @@ export interface Subscription {
 }
 
 import { apiGet, apiPost, apiDelete, apiPatch } from "./api";
+import {
+  validateSubscriptionCreateInput,
+  validateSubscriptionUpdateInput,
+} from "./client-validators";
 
 export class SubscriptionService {
   async getSubscriptions(userId: string): Promise<Subscription[]> {
@@ -22,6 +26,8 @@ export class SubscriptionService {
   async createSubscription(
     subscription: Omit<Subscription, "id" | "createdAt">
   ): Promise<Subscription> {
+    // Fail fast: validate before network call
+    validateSubscriptionCreateInput(subscription);
     const data = await apiPost("/api/subscriptions", subscription);
     return data.subscription;
   }
@@ -34,6 +40,8 @@ export class SubscriptionService {
     id: number,
     updates: Partial<Subscription>
   ): Promise<Subscription> {
+    // Fail fast: validate before network call
+    validateSubscriptionUpdateInput(updates);
     const data = await apiPatch(`/api/subscriptions/${id}`, updates);
     return data.subscription;
   }
