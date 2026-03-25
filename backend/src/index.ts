@@ -15,6 +15,7 @@ import simulationRoutes from './routes/simulation';
 import merchantRoutes from './routes/merchants';
 import teamRoutes from './routes/team';
 import auditRoutes from './routes/audit';
+import { authLimiter, keyCreationLimiter } from './middleware/rateLimit';
 import { monitoringService } from './services/monitoring-service';
 import { healthService } from './services/health-service';
 import { eventListener } from './services/event-listener';
@@ -62,6 +63,15 @@ app.use('/api/simulation', simulationRoutes);
 app.use('/api/merchants', merchantRoutes);
 app.use('/api/team', teamRoutes);
 app.use('/api/audit', auditRoutes);
+
+// Rate limit auth endpoints (covers /api/auth/login, /api/auth/refresh etc)
+app.use('/api/auth', authLimiter);
+
+// Rate limit API key creation
+app.post('/api/keys', keyCreationLimiter, (req, res) => {
+  // This is a placeholder for the /api/keys endpoint if it's implemented here or elsewhere
+  res.status(404).json({ error: 'Not implemented' });
+});
 
 // API Routes (Public/Standard)
 app.get('/api/reminders/status', (req, res) => {

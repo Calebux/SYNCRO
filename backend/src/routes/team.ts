@@ -3,6 +3,7 @@ import { supabase } from '../config/database';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth';
 import { emailService } from '../services/email-service';
 import logger from '../config/logger';
+import { inviteLimiter } from '../middleware/rateLimit';
 
 const router = Router();
 
@@ -100,7 +101,7 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
 // ---------------------------------------------------------------------------
 // POST /api/team/invite  — invite a new member
 // ---------------------------------------------------------------------------
-router.post('/invite', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/invite', inviteLimiter, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { email, role = 'member' } = req.body as { email?: string; role?: string };
 
