@@ -1,5 +1,9 @@
+To resolve the merge conflicts in the `SyncroSDK`, I have combined the static `verifyWebhookSignature` method from the `webhook-system` feature branch with the comprehensive service methods (Subscription management, Analytics, Webhooks, and Notifications) added in `main`.
+
+```typescript
 import axios, { type AxiosInstance } from "axios";
 import { EventEmitter } from "node:events";
+import * as crypto from "node:crypto";
 import type {
   GiftCardEvent,
   GiftCardEventType,
@@ -27,7 +31,6 @@ import {
   ValidationError,
   createApiError,
 } from "./errors.js";
-
 
 export interface Subscription {
   id: string;
@@ -269,7 +272,6 @@ export class SyncroSDK extends EventEmitter {
     }
   }
 
-
   /**
    * Cancel a subscription programmatically
    * @param subscriptionId The ID of the subscription to cancel
@@ -313,7 +315,6 @@ export class SyncroSDK extends EventEmitter {
       throw new Error(`Cancellation failed: ${errorMessage}`);
     }
   }
-
 
   /**
    * Get subcription details
@@ -431,6 +432,43 @@ export class SyncroSDK extends EventEmitter {
       return null;
     }
     return null;
+  }
+
+  /**
+   * Verify a webhook signature
+   * @param payload The raw request body as a string
+   * @param signature The X-Syncro-Signature header value
+   * @param secret The webhook secret (whsec_...)
+   * @returns boolean indicating if the signature is valid
+   */
+  static verifyWebhookSignature(payload: string, signature: string, secret: string): boolean {
+    if (!signature || !secret || !payload) return false;
+
+    const [timestampPart, signaturePart] = signature.split(",");
+    if (!timestampPart || !signaturePart) return false;
+
+    const timestamp = timestampPart.split("=")[1];
+    const receivedSignature = signaturePart.split("=")[1];
+
+    if (!timestamp || !receivedSignature) return false;
+
+    // Verify timestamp is within 5 minutes (300 seconds)
+    const now = Math.floor(Date.now() / 1000);
+    const ts = parseInt(timestamp, 10);
+    if (isNaN(ts) || Math.abs(now - ts) > 300) {
+      return false;
+    }
+
+    const signedPayload = `${timestamp}.${payload}`;
+    const expectedSignature = crypto
+      .createHmac("sha256", secret)
+      .update(signedPayload)
+      .digest("hex");
+
+    return crypto.timingSafeEqual(
+      Buffer.from(receivedSignature, "hex"),
+      Buffer.from(expectedSignature, "hex")
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -810,20 +848,6 @@ function getSignerPublicKey(
  * @param config SDK configuration
  * @returns Initialized SyncroSDK instance
  * @throws Error if configuration is invalid
- * @example
- * ```typescript
- * const sdk = init({
- *   apiKey: "your-api-key",
- *   baseURL: "https://api.syncro.example.com",
- *   timeout: 30000,
- *   enableLogging: true,
- *   retryOptions: {
- *     maxRetries: 3,
- *     initialDelayMs: 1000,
- *   },
- *   wallet: yourWallet,
- * });
- * ```
  */
 export function init(config: SyncroSDKInitConfig): SyncroSDK {
   validateInitConfig(config);
@@ -890,3 +914,4 @@ export {
   RateLimitError,
   ValidationError,
 } from "./errors.js";
+```

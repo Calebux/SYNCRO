@@ -47,7 +47,14 @@ backend/
 - Telegram bot integration
 - Error handling middleware
 - Request validation
-- Rate limiting
+
+### ✅ Security Features
+- **Rate Limiting**: Comprehensive rate limiting on authentication endpoints
+  - Team invitations: 20/hour per user
+  - MFA operations: 10/15min per user  
+  - Admin endpoints: 100/hour per IP
+  - Redis-backed with memory fallback
+  - Standard HTTP headers and security logging
 - CORS configuration
 - Environment variable management
 
@@ -102,6 +109,22 @@ TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 
 # Encryption (for API keys)
 ENCRYPTION_KEY=your_32_byte_encryption_key
+
+# Rate Limiting (optional)
+RATE_LIMIT_REDIS_URL=redis://localhost:6379
+RATE_LIMIT_REDIS_ENABLED=true
+RATE_LIMIT_TEAM_INVITE_MAX=20
+RATE_LIMIT_TEAM_INVITE_WINDOW_HOURS=1
+RATE_LIMIT_MFA_MAX=10
+RATE_LIMIT_MFA_WINDOW_MINUTES=15
+RATE_LIMIT_ADMIN_MAX=100
+RATE_LIMIT_ADMIN_WINDOW_HOURS=1
+
+# Soroban / Stellar (Blockchain)
+SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
+SOROBAN_CONTRACT_ADDRESS=YOUR_DEPLOYED_CONTRACT_ADDRESS
+STELLAR_SECRET_KEY=SB.........................YOUR_TESTNET_SECRET
+STELLAR_NETWORK_PASSPHRASE=Test SDF Network ; September 2015
 ```
 
 ## Development
@@ -217,6 +240,13 @@ npm test
 npm run test:coverage
 ```
 
+### Blockchain Fallback Behavior
+
+- When `SOROBAN_CONTRACT_ADDRESS` or `STELLAR_SECRET_KEY` is not configured, blockchain writes are skipped and events are stored only in the `blockchain_logs` table with `status="pending"` (later updated to `confirmed` only if an on-chain write occurs).
+- If Soroban RPC is unavailable or repeated submission attempts fail, the service retries with exponential backoff (3 attempts by default). After exhausting retries:
+  - If `REDIS_URL` is set, the failed payload is pushed to a Redis DLQ list `dlq:blockchain_tx` for later reprocessing.
+  - If Redis is not available, a dead letter entry is recorded in `blockchain_logs` with `event_type="blockchain_dead_letter"` and `status="dead_letter"`.
+
 ## Deployment
 
 ### Recommended Platforms
@@ -250,6 +280,7 @@ Additional dependencies to be added:
 
 - See `/client/BACKEND_DOCUMENTATION.md` for detailed API specifications
 - See `/client/New_Backend_Api_documentation.md` for API endpoint details
+- See `/backend/docs/RATE_LIMITING.md` for comprehensive rate limiting documentation
 - See main `/README.md` for project overview
 
 ## Notes

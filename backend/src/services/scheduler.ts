@@ -5,6 +5,7 @@ import { riskDetectionService } from './risk-detection/risk-detection-service';
 import { expiryService } from './expiry-service';
 import { renewalLockService } from './renewal-lock-service';
 import { digestService } from './digest-service';
+import { webhookService } from './webhook-service';
 
 export class SchedulerService {
   private jobs: cron.ScheduledTask[] = [];
@@ -86,6 +87,18 @@ export class SchedulerService {
           await renewalLockService.releaseExpiredLocks();
         } catch (error) {
           logger.error('Error in scheduled renewal lock cleanup:', error);
+        }
+      }),
+    );
+
+    // ── Every 5 minutes: webhook retry processing ───────────────────────
+    this.jobs.push(
+      cron.schedule('*/5 * * * *', async () => {
+        logger.info('Running scheduled webhook retry processing');
+        try {
+          await webhookService.processRetries();
+        } catch (error) {
+          logger.error('Error in scheduled webhook retry processing:', error);
         }
       }),
     );

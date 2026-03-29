@@ -1,8 +1,39 @@
 import { Router, Response, Request } from 'express';
+import { z } from 'zod';
 import { merchantService } from '../services/merchant-service';
 import logger from '../config/logger';
 import { adminAuth } from '../middleware/admin';
-//import { renewalRateLimiter } from '../middleware/rate-limiter'; // Added Import
+
+// ─── Validation schemas ───────────────────────────────────────────────────────
+
+const safeUrlSchema = z
+  .string()
+  .max(2000, 'URL must not exceed 2000 characters')
+  .url('Must be a valid URL')
+  .refine(
+    (val) => {
+      try {
+        const { protocol } = new URL(val);
+        return protocol === 'http:' || protocol === 'https:';
+      } catch {
+        return false;
+      }
+    },
+    { message: 'URL must use http or https protocol' }
+  );
+
+const createMerchantSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(100, 'Name must not exceed 100 characters'),
+  description: z.string().max(500, 'Description must not exceed 500 characters').optional(),
+  category: z.string().max(50, 'Category must not exceed 50 characters').optional(),
+  website_url: safeUrlSchema.optional(),
+  logo_url: safeUrlSchema.optional(),
+  support_email: z.string().email('Must be a valid email').max(254, 'Email must not exceed 254 characters').optional(),
+  country: z.string().max(2, 'Country must be a 2-letter ISO code').optional(),
+});
+
+const updateMerchantSchema = createMerchantSchema.partial();
+
 
 const router = Router();
 
@@ -66,15 +97,15 @@ router.get('/:id', async (req: Request, res: Response) => {
  */
 router.post('/', adminAuth, async (req: Request, res: Response) => {
     try {
-        const { name } = req.body;
-        if (!name) {
+        const validation = createMerchantSchema.safeParse(req.body);
+        if (!validation.success) {
             return res.status(400).json({
                 success: false,
-                error: 'Missing required field: name',
+                error: validation.error.errors.map((e) => e.message).join(', '),
             });
         }
 
-        const merchant = await merchantService.createMerchant(req.body);
+        const merchant = await merchantService.createMerchant(validation.data);
 
         res.status(201).json({
             success: true,
@@ -94,9 +125,17 @@ router.post('/', adminAuth, async (req: Request, res: Response) => {
  * Update merchant (Admin only)
  * NOTE: Rate limiter applied here to prevent mass renewal/update congestion per merchant.
  */
-router.patch('/:id', adminAuth, /*renewalRateLimiter,*/ async (req: Request, res: Response) => {
+router.patch('/:id', adminAuth, async (req: Request, res: Response) => {
     try {
-        const merchant = await merchantService.updateMerchant(req.params.id as string, req.body);
+        const validation = updateMerchantSchema.safeParse(req.body);
+        if (!validation.success) {
+            return res.status(400).json({
+                success: false,
+                error: validation.error.errors.map((e) => e.message).join(', '),
+            });
+        }
+
+        const merchant = await merchantService.updateMerchant(req.params.id as string, validation.data);
 
         res.json({
             success: true,

@@ -33,6 +33,8 @@ export interface Subscription {
   price_range?: { min: number; max: number }
   price_history?: Array<{ date: string; amount: number }>
   expired_at?: string
+  notes?: string
+  custom_tag_ids?: string[]
 }
 
 export async function fetchSubscriptions(): Promise<Subscription[]> {

@@ -33,6 +33,7 @@ export interface RiskAssessment {
   risk_level: RiskLevel;
   risk_factors: RiskFactor[];
   computed_at: string;
+  skipped?: boolean;
 }
 
 /**

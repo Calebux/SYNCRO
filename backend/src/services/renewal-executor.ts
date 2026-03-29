@@ -2,6 +2,7 @@ import logger from '../config/logger';
 import { supabase } from '../config/database';
 import { blockchainService } from './blockchain-service';
 import { DatabaseTransaction } from '../utils/transaction';
+import { webhookService } from './webhook-service';
 
 interface RenewalRequest {
   subscriptionId: string;
@@ -211,6 +212,14 @@ export class RenewalExecutor {
     });
 
     logger.info('Renewal executed successfully', { subscriptionId, transactionHash });
+
+    // Dispatch webhook event
+    webhookService.dispatchEvent(userId, 'subscription.renewed', {
+      subscription_id: subscriptionId,
+      transaction_hash: transactionHash
+    }).catch(err => {
+      logger.error('Failed to dispatch subscription.renewed webhook:', err);
+    });
   }
 
   private async logFailure(
@@ -229,6 +238,15 @@ export class RenewalExecutor {
     });
 
     logger.error('Renewal failed', { subscriptionId, failureReason, errorMessage });
+
+    // Dispatch webhook event
+    webhookService.dispatchEvent(userId, 'subscription.renewal_failed', {
+      subscription_id: subscriptionId,
+      failure_reason: failureReason,
+      error_message: errorMessage
+    }).catch(err => {
+      logger.error('Failed to dispatch subscription.renewal_failed webhook:', err);
+    });
 
     return {
       success: false,

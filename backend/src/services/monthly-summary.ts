@@ -20,6 +20,15 @@ export async function buildMonthlySummary(
     .eq("id", userId)
     .single();
 
+  // get user profile for display currency
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("currency")
+    .eq("id", userId)
+    .single();
+
+  const displayCurrency = profile?.currency || "USD";
+
   // get subscriptions
   const { data: subscriptions } = await supabase
     .from("subscriptions")
@@ -55,6 +64,6 @@ export async function buildMonthlySummary(
 
     yearToDateSpend: totalMonthlySpend,
 
-    currency: "USD",
+    currency: displayCurrency,
   };
 }

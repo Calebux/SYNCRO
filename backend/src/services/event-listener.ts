@@ -329,42 +329,7 @@ export class EventListener {
     };
   }
 
-  private async handleDuplicateRenewalRejected(event: ContractEvent): Promise<ProcessedEvent | null> {
-    const { sub_id, cycle_id } = event.value;
-
-    logger.warn('Duplicate renewal rejected', { sub_id, cycle_id });
-
-    return {
-      sub_id,
-      event_type: 'duplicate_renewal_rejected',
-      ledger: event.ledger,
-      tx_hash: event.txHash,
-      event_data: event.value,
-    };
-  }
-
-  private async handleLifecycleTimestampUpdated(event: ContractEvent): Promise<ProcessedEvent | null> {
-    const { sub_id, event_kind, timestamp } = event.value;
-
-    const column = LIFECYCLE_COLUMN_MAP[event_kind];
-    if (!column) {
-      logger.warn('Unknown lifecycle event_kind', { event_kind });
-      return null;
-    }
-
-    await supabase
-      .from('subscriptions')
-      .update({ [column]: timestamp })
-      .eq('blockchain_sub_id', sub_id);
-
-    return {
-      sub_id,
-      event_type: 'lifecycle_timestamp_updated',
-      ledger: event.ledger,
-      tx_hash: event.txHash,
-      event_data: event.value,
-    };
-  }
+  // Duplicate handlers removed below in favor of consolidated implementations later in the file
 
   private async saveEvents(events: ProcessedEvent[]) {
     const { error } = await supabase

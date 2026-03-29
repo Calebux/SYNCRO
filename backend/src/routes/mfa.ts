@@ -3,6 +3,7 @@ import { supabase } from '../config/database';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth';
 import { recoveryCodeService } from '../services/mfa-service';
 import { TotpRateLimiter } from '../lib/totp-rate-limiter';
+import { createMfaLimiter } from '../middleware/rate-limit-factory';
 import { emailService } from '../services/email-service';
 import logger from '../config/logger';
 
@@ -16,7 +17,7 @@ router.use(authenticate);
 // POST /api/2fa/recovery-codes/generate
 // Generate 10 recovery codes for the authenticated user
 // ---------------------------------------------------------------------------
-router.post('/2fa/recovery-codes/generate', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/2fa/recovery-codes/generate', createMfaLimiter(), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user!.id;
     const codes = await recoveryCodeService.generate(userId);
@@ -34,7 +35,7 @@ router.post('/2fa/recovery-codes/generate', async (req: AuthenticatedRequest, re
 // POST /api/2fa/recovery-codes/verify
 // Verify a recovery code — rate-limited per session
 // ---------------------------------------------------------------------------
-router.post('/2fa/recovery-codes/verify', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/2fa/recovery-codes/verify', createMfaLimiter(), async (req: AuthenticatedRequest, res: Response) => {
   const sessionId = req.user!.id;
 
   if (totpRateLimiter.isLocked(sessionId)) {

@@ -86,30 +86,9 @@ export const rateLimiters = {
   export: new RateLimiter(10, 60000), // 10 exports per minute
 }
 
-// CSRF token generation and validation
-export function generateCSRFToken(): string {
-  const array = new Uint8Array(32)
-  crypto.getRandomValues(array)
-  return Array.from(array, (byte) => byte.toString(16).padStart(2, "0")).join("")
-}
-
-export function storeCSRFToken(token: string): void {
-  if (typeof window !== "undefined") {
-    sessionStorage.setItem("csrf_token", token)
-  }
-}
-
-export function getCSRFToken(): string | null {
-  if (typeof window !== "undefined") {
-    return sessionStorage.getItem("csrf_token")
-  }
-  return null
-}
-
-export function validateCSRFToken(token: string): boolean {
-  const storedToken = getCSRFToken()
-  return storedToken === token
-}
+// CSRF protection is not needed here: all API requests authenticate via Supabase
+// JWT Bearer tokens in the Authorization header, not cookies. Browser CSRF attacks
+// rely on cookies being sent automatically — they cannot read or forge Bearer tokens.
 
 // Content Security Policy helpers
 export function generateNonce(): string {

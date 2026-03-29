@@ -30,7 +30,10 @@ router.get('/:subscriptionId', async (req: AuthenticatedRequest, res: Response) 
     }
 
     // Verify subscription belongs to user and get risk score
-    const riskScore = await riskDetectionService.getRiskScore(subscriptionId, userId);
+    const riskScore = await riskDetectionService.getRiskScore(
+      Array.isArray(subscriptionId) ? subscriptionId[0] : subscriptionId,
+      userId
+    );
 
     return res.status(200).json({
       success: true,
@@ -149,7 +152,9 @@ router.post('/:subscriptionId/calculate', async (req: AuthenticatedRequest, res:
     }
 
     // Compute risk
-    const assessment = await riskDetectionService.computeRiskLevel(subscriptionId);
+    const assessment = await riskDetectionService.computeRiskLevel(
+      Array.isArray(subscriptionId) ? subscriptionId[0] : subscriptionId
+    );
     
     // Save risk score
     const riskScore = await riskDetectionService.saveRiskScore(assessment, userId);

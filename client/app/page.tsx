@@ -1,7 +1,6 @@
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { AppClient } from "@/components/app/app-client";
-import { initialSubscriptions, initialEmailAccounts } from "@/lib/initial-data";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 
 // Helper to transform DB subscription (snake_case) to app format (camelCase)
@@ -46,10 +45,10 @@ async function getInitialData() {
         } = await supabase.auth.getUser();
 
         if (!user) {
-            // Not authenticated - return mock data for demo
+            // Not authenticated - return empty data
             return {
-                subscriptions: initialSubscriptions,
-                emailAccounts: initialEmailAccounts,
+                subscriptions: [],
+                emailAccounts: [],
                 priceChanges: [],
                 consolidationSuggestions: [],
             };
@@ -66,9 +65,8 @@ async function getInitialData() {
         ]);
 
         const subscriptions =
-            subscriptionsResult.data?.map(transformSubscription) ||
-            initialSubscriptions;
-        const emailAccounts = emailAccountsResult.data || initialEmailAccounts;
+            subscriptionsResult.data?.map(transformSubscription) || [];
+        const emailAccounts = emailAccountsResult.data || [];
 
         return {
             subscriptions,
@@ -78,10 +76,10 @@ async function getInitialData() {
         };
     } catch (error) {
         console.error("Error fetching initial data:", error);
-        // Fallback to mock data on error
+        // Fallback to empty data on error
         return {
-            subscriptions: initialSubscriptions,
-            emailAccounts: initialEmailAccounts,
+            subscriptions: [],
+            emailAccounts: [],
             priceChanges: [],
             consolidationSuggestions: [],
         };

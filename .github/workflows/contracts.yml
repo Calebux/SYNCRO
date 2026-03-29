@@ -1,0 +1,67 @@
+name: Contracts
+
+on:
+    push:
+        branches: [main]
+        paths:
+            - "contracts/**"
+    pull_request:
+        branches: [main]
+        paths:
+            - "contracts/**"
+
+permissions:
+    contents: read
+
+concurrency:
+    group: contracts-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    build-contracts:
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        defaults:
+            run:
+                working-directory: contracts
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: wasm32-unknown-unknown
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: contracts
+
+            - name: Build contracts
+              run: cargo build --target wasm32-unknown-unknown --release
+
+            - name: Run contract tests
+              run: cargo test
+
+            - name: Check contract sizes
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  shopt -s nullglob
+
+                  wasm_files=(target/wasm32-unknown-unknown/release/*.wasm)
+
+                  if [ ${#wasm_files[@]} -eq 0 ]; then
+                    echo "No WASM artifacts found in target/wasm32-unknown-unknown/release"
+                    exit 1
+                  fi
+
+                  for wasm in "${wasm_files[@]}"; do
+                    size=$(wc -c < "$wasm")
+                    echo "$wasm: ${size} bytes"
+
+                    if [ "$size" -gt 65536 ]; then
+                      echo "WARNING: Contract exceeds 64KB limit"
+                    fi
+                  done

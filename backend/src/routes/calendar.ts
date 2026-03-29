@@ -24,7 +24,8 @@ export function generateCalendarToken(userId: string): string {
  */
 router.get('/feed/:userId/:token.ics', async (req: Request, res: Response) => {
   try {
-    const { userId, token } = req.params;
+    const userId = Array.isArray(req.params.userId) ? req.params.userId[0] : req.params.userId;
+    const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
 
     // Verify token
     const expectedToken = generateCalendarToken(userId);

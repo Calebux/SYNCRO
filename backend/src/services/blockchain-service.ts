@@ -1,6 +1,15 @@
 import logger from "../config/logger";
 import { supabase } from "../config/database";
 import { NotificationPayload } from "../types/reminder";
+import {
+  Contract,
+  Keypair,
+  Networks,
+  TransactionBuilder,
+  xdr,
+} from "@stellar/stellar-sdk";
+import { rpc as SorobanRpc } from "@stellar/stellar-sdk";
+import { createClient, RedisClientType } from "redis";
 
 export interface BlockchainLogEntry {
   user_id: string;
@@ -14,17 +23,41 @@ export interface BlockchainLogEntry {
  */
 export class BlockchainService {
   private contractAddress: string | null;
-  private networkUrl: string;
+  private rpcUrl: string;
+  private sourceSecret?: string;
+  private networkPassphrase: string;
+  private redisClient: RedisClientType | null = null;
+  private readonly maxRetries = 3;
+  private readonly baseRetryDelayMs = 750;
 
   constructor() {
     this.contractAddress = process.env.SOROBAN_CONTRACT_ADDRESS || null;
-    this.networkUrl =
-      process.env.STELLAR_NETWORK_URL || "https://soroban-testnet.stellar.org";
+    this.rpcUrl =
+      process.env.SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
+    this.sourceSecret = process.env.STELLAR_SECRET_KEY;
+    this.networkPassphrase =
+      process.env.STELLAR_NETWORK_PASSPHRASE || Networks.TESTNET;
 
     if (!this.contractAddress) {
       logger.warn(
         "Blockchain contract address not configured. Events will be logged to database only.",
       );
+    }
+
+    // Initialize optional Redis client for DLQ if REDIS_URL present
+    const redisUrl = process.env.REDIS_URL;
+    if (redisUrl) {
+      try {
+        this.redisClient = createClient({ url: redisUrl });
+        // Connect lazily; fire-and-forget
+        this.redisClient.connect().catch((err) => {
+          logger.warn("Redis DLQ connection failed; DLQ disabled:", err);
+          this.redisClient = null;
+        });
+      } catch (err) {
+        logger.warn("Redis DLQ initialization failed; DLQ disabled:", err);
+        this.redisClient = null;
+      }
     }
   }
 
@@ -138,31 +171,11 @@ export class BlockchainService {
 
   /**
    * Write event data to Soroban contract
-   * This is a placeholder implementation - actual implementation depends on your Soroban contract
    */
   private async writeToBlockchain(
     eventData: Record<string, any>,
   ): Promise<{ transactionHash: string }> {
-    // TODO: Implement actual Soroban contract interaction
-    // This would typically use @stellar/stellar-sdk or a Soroban SDK
-    // Example structure:
-    //
-    // 1. Initialize Soroban client
-    // 2. Load contract
-    // 3. Invoke contract method to log event
-    // 4. Submit transaction
-    // 5. Wait for confirmation
-    // 6. Return transaction hash
-
-    logger.info(
-      "Blockchain write not fully implemented. Using mock transaction hash.",
-    );
-
-    // For now, return a mock transaction hash
-    // In production, implement actual Soroban contract interaction
-    return {
-      transactionHash: `0x${Buffer.from(JSON.stringify(eventData)).toString("hex").slice(0, 64)}`,
-    };
+    return this.invokeContractWithRetry("log_reminder", this.encodeReminderArgs(eventData));
   }
 
   /**
@@ -305,51 +318,13 @@ export class BlockchainService {
 
   /**
    * Write subscription operation to Soroban contract
-   * This is a placeholder implementation - actual implementation depends on your Soroban contract
    */
   private async writeSubscriptionToBlockchain(
     operation: "create" | "update" | "delete" | "cancel" | "pause" | "unpause",
     eventData: Record<string, any>,
   ): Promise<{ transactionHash: string }> {
-    // TODO: Implement actual Soroban contract interaction
-    // This would typically use @stellar/stellar-sdk or a Soroban SDK
-    // Example structure:
-    //
-    // 1. Initialize Soroban client
-    // 2. Load contract
-    // 3. Invoke contract method based on operation:
-    //    - create: contract.createSubscription(subscriptionData)
-    //    - update: contract.updateSubscription(subscriptionId, updates)
-    //    - delete: contract.deleteSubscription(subscriptionId)
-    //    - cancel: contract.cancelSubscription(subscriptionId)
-    // 4. Submit transaction
-    // 5. Wait for confirmation
-    // 6. Return transaction hash
-
-    logger.info(
-      "Blockchain write not fully implemented. Using mock transaction hash.",
-      {
-        operation,
-      },
-    );
-
-    // For now, return a mock transaction hash
-    // In production, implement actual Soroban contract interaction
-    const operationPrefix =
-      operation === "create"
-        ? "c"
-        : operation === "update"
-          ? "u"
-          : operation === "delete"
-            ? "d"
-            : operation === "pause"
-              ? "p"
-              : operation === "unpause"
-                ? "r" // 'r' for resume/unpause
-                : "x"; // 'x' for cancel
-    return {
-      transactionHash: `${operationPrefix}x${Buffer.from(JSON.stringify(eventData)).toString("hex").slice(0, 62)}`,
-    };
+    const method = `subscription_${operation}`;
+    return this.invokeContractWithRetry(method, this.encodeSubscriptionArgs(eventData));
   }
 
   /**
@@ -441,10 +416,165 @@ export class BlockchainService {
   private async writeGiftCardToBlockchain(
     eventData: Record<string, any>
   ): Promise<{ transactionHash: string }> {
-    logger.info('Gift card blockchain write (mock)');
-    return {
-      transactionHash: `gcx${Buffer.from(JSON.stringify(eventData)).toString('hex').slice(0, 61)}`,
-    };
+    return this.invokeContractWithRetry("gift_card_attached", this.encodeGiftCardArgs(eventData));
+  }
+
+  /**
+   * Core Soroban invocation with retry & optional DLQ
+   */
+  private async invokeContractWithRetry(
+    method: string,
+    args: xdr.ScVal[],
+  ): Promise<{ transactionHash: string }> {
+    if (!this.contractAddress) {
+      throw new Error("SOROBAN_CONTRACT_ADDRESS not configured");
+    }
+    if (!this.sourceSecret) {
+      throw new Error("STELLAR_SECRET_KEY not configured");
+    }
+
+    const rpc = new SorobanRpc.Server(this.rpcUrl);
+    const sourceKeypair = Keypair.fromSecret(this.sourceSecret);
+    const contract = new Contract(this.contractAddress);
+
+    let lastErr: unknown = null;
+    for (let attempt = 0; attempt < this.maxRetries; attempt++) {
+      try {
+        const account = await rpc.getAccount(sourceKeypair.publicKey());
+        const tx = new TransactionBuilder(account, {
+          fee: "100",
+          networkPassphrase: this.networkPassphrase,
+        })
+          .addOperation(contract.call(method, ...args))
+          .setTimeout(30)
+          .build();
+
+        const sim = await rpc.simulateTransaction(tx);
+        if (SorobanRpc.Api.isSimulationError(sim)) {
+          throw new Error(`Simulation failed: ${sim.error}`);
+        }
+
+        const assembled = SorobanRpc.assembleTransaction(tx, sim).build();
+        assembled.sign(sourceKeypair);
+
+        const send = await rpc.sendTransaction(assembled);
+        if (send.status === "ERROR") {
+          throw new Error(`Send failed: ${send.errorResult}`);
+        }
+
+        // Wait for confirmation
+        const getTx = await rpc.getTransaction(send.hash);
+        if (getTx.status === "NOT_FOUND") {
+          // brief wait+retry fetch
+          await this.sleep(500);
+        }
+
+        return { transactionHash: send.hash };
+      } catch (err) {
+        lastErr = err;
+        const delay = this.baseRetryDelayMs * Math.pow(2, attempt);
+        logger.warn(
+          `Soroban tx attempt ${attempt + 1}/${this.maxRetries} failed for method ${method}: ${
+            err instanceof Error ? err.message : String(err)
+          } — retrying in ${delay}ms`,
+        );
+        await this.sleep(delay);
+      }
+    }
+
+    // After all retries failed, enqueue to DLQ if available
+    await this.enqueueDeadLetter({
+      method,
+      argsJson: this.previewArgs(args),
+      contractAddress: this.contractAddress,
+      rpcUrl: this.rpcUrl,
+      error: lastErr instanceof Error ? lastErr.message : String(lastErr),
+      createdAt: new Date().toISOString(),
+    });
+
+    throw new Error(
+      `Soroban transaction failed after ${this.maxRetries} attempts: ${
+        lastErr instanceof Error ? lastErr.message : String(lastErr)
+      }`,
+    );
+  }
+
+  private encodeReminderArgs(eventData: Record<string, any>): xdr.ScVal[] {
+    return [
+      xdr.ScVal.scvString(eventData.subscriptionId),
+      xdr.ScVal.scvString(eventData.subscriptionName ?? ""),
+      xdr.ScVal.scvString(eventData.reminderType ?? ""),
+      xdr.ScVal.scvString(String(eventData.renewalDate ?? "")),
+      xdr.ScVal.scvVec(
+        (eventData.deliveryChannels ?? []).map((c: string) =>
+          xdr.ScVal.scvString(c),
+        ),
+      ),
+      xdr.ScVal.scvString(eventData.billingCycle ?? ""),
+      xdr.ScVal.scvString(eventData.timestamp ?? new Date().toISOString()),
+    ];
+  }
+
+  private encodeSubscriptionArgs(eventData: Record<string, any>): xdr.ScVal[] {
+    return [
+      xdr.ScVal.scvString(eventData.subscriptionId),
+      xdr.ScVal.scvString(eventData.operation ?? ""),
+      xdr.ScVal.scvString(eventData.subscriptionName ?? ""),
+      xdr.ScVal.scvString(String(eventData.price ?? "")),
+      xdr.ScVal.scvString(eventData.billingCycle ?? ""),
+      xdr.ScVal.scvString(eventData.status ?? ""),
+      xdr.ScVal.scvString(eventData.timestamp ?? new Date().toISOString()),
+    ];
+  }
+
+  private encodeGiftCardArgs(eventData: Record<string, any>): xdr.ScVal[] {
+    return [
+      xdr.ScVal.scvString(eventData.subscriptionId),
+      xdr.ScVal.scvString(eventData.giftCardHash),
+      xdr.ScVal.scvString(eventData.provider ?? ""),
+      xdr.ScVal.scvString(eventData.timestamp ?? new Date().toISOString()),
+    ];
+  }
+
+  private async enqueueDeadLetter(payload: Record<string, any>): Promise<void> {
+    const dlqKey = "dlq:blockchain_tx";
+    try {
+      if (this.redisClient) {
+        await this.redisClient.lPush(dlqKey, JSON.stringify(payload));
+        logger.error("Enqueued to DLQ (Redis) for blockchain tx", { dlqKey });
+        return;
+      }
+    } catch (err) {
+      logger.warn("Failed to push to Redis DLQ, will fallback to DB flag:", err);
+    }
+
+    try {
+      // Fallback: write to a DB log row for observability; consumers could reprocess later
+      await supabase.from("blockchain_logs").insert({
+        user_id: "system",
+        event_type: "blockchain_dead_letter",
+        event_data: payload,
+        status: "dead_letter",
+      });
+      logger.error("Recorded blockchain dead letter in database");
+    } catch (dbErr) {
+      logger.error("Failed to record dead letter in database:", dbErr);
+    }
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private previewArgs(args: xdr.ScVal[]): string {
+    try {
+      // Provide a light-weight, non-sensitive preview
+      return JSON.stringify(
+        args.map((a) => a.switch().name),
+      );
+    } catch {
+      return "[unavailable]";
+    }
   }
 }
 

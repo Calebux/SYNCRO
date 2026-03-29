@@ -1,7 +1,39 @@
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
 import { auditService, AuditEntry, AuditEventBatch } from '../services/audit-service';
 import { adminAuth } from '../middleware/admin';
 import logger from '../config/logger';
+
+// ─── Validation schemas ───────────────────────────────────────────────────────
+
+const auditEventSchema = z.object({
+  // Core identity fields
+  action: z.string().min(1).max(100, 'action must not exceed 100 characters'),
+  resource_type: z.string().min(1).max(100, 'resource_type must not exceed 100 characters'),
+  resource_id: z.string().max(255, 'resource_id must not exceed 255 characters').optional(),
+
+  // Actor / session info
+  user_id: z.string().max(128, 'user_id must not exceed 128 characters').optional(),
+  session_id: z.string().max(128, 'session_id must not exceed 128 characters').optional(),
+
+  // Contextual metadata (free-form but bounded)
+  metadata: z.record(z.unknown()).optional(),
+
+  // Status / severity
+  status: z.enum(['success', 'failure', 'pending']).optional(),
+  severity: z.enum(['info', 'warn', 'error', 'critical']).optional(),
+
+  // Timestamps — caller may supply; enrichment happens server-side
+  timestamp: z.string().datetime({ offset: true }).optional(),
+});
+
+const auditBatchSchema = z.object({
+  events: z
+    .array(auditEventSchema)
+    .min(1, 'events array must not be empty')
+    .max(100, 'maximum 100 events per batch'),
+});
+
 
 const router = Router();
 
@@ -12,36 +44,22 @@ const router = Router();
  */
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const body = req.body as AuditEventBatch;
-
-    // Validate request body
-    if (!body.events || !Array.isArray(body.events)) {
+    const bodyValidation = auditBatchSchema.safeParse(req.body);
+    if (!bodyValidation.success) {
       return res.status(400).json({
-        error: 'Invalid request: events must be an array',
-      });
-    }
-
-    if (body.events.length === 0) {
-      return res.status(400).json({
-        error: 'Invalid request: events array cannot be empty',
-      });
-    }
-
-    if (body.events.length > 100) {
-      return res.status(400).json({
-        error: 'Invalid request: maximum 100 events per batch',
+        error: 'Invalid request: ' + bodyValidation.error.errors.map((e) => e.message).join(', '),
       });
     }
 
     // Enrich events with request metadata
-    const enrichedEvents = body.events.map((event) => ({
+    const enrichedEvents = bodyValidation.data.events.map((event) => ({
       ...event,
       ipAddress: req.ip || req.connection.remoteAddress,
       userAgent: req.get('user-agent') || undefined,
     }));
 
     // Insert batch into database
-    const result = await auditService.insertBatch(enrichedEvents);
+    const result = await auditService.insertBatch(enrichedEvents as AuditEntry[]);
 
     if (!result.success) {
       logger.warn(`Audit batch insertion failed: ${result.errors.join(', ')}`);
@@ -70,6 +88,7 @@ router.post('/', async (req: Request, res: Response) => {
     });
   }
 });
+
 
 /**
  * GET /api/admin/audit

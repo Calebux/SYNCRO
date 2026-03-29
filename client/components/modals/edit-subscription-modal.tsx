@@ -20,6 +20,7 @@ export default function EditSubscriptionModal({ subscription, onSave, onClose, d
     category: subscription.category,
     tags: subscription.tags?.join(", ") || "",
     renewalUrl: subscription.renewalUrl || "",
+    notes: subscription.notes || "",
   })
 
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -44,6 +45,7 @@ export default function EditSubscriptionModal({ subscription, onSave, onClose, d
       price: Number.parseFloat(formData.price),
       renewsIn: Number.parseInt(formData.renewsIn),
       tags: tagsArray,
+      notes: formData.notes,
     })
   }
 
@@ -201,6 +203,25 @@ export default function EditSubscriptionModal({ subscription, onSave, onClose, d
                   darkMode
                     ? "bg-[#1E2A35] border-[#374151] text-white focus:ring-[#FFD166]"
                     : "bg-white border-gray-300 text-gray-900 focus:ring-black"
+                }`}
+              />
+            </div>
+
+            {/* Notes */}
+            <div>
+              <label htmlFor="edit-notes" className={`block text-sm font-medium mb-2 ${darkMode ? "text-gray-300" : "text-gray-700"}`}>
+                Notes (optional)
+              </label>
+              <textarea
+                id="edit-notes"
+                rows={3}
+                value={formData.notes}
+                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                placeholder="e.g. cancel if price goes above $20, shared with roommate…"
+                className={`w-full px-4 py-2 border rounded-lg resize-none focus:outline-none focus:ring-2 text-sm ${
+                  darkMode
+                    ? "bg-[#1E2A35] border-[#374151] text-white focus:ring-[#FFD166] placeholder:text-gray-600"
+                    : "bg-white border-gray-300 text-gray-900 focus:ring-black placeholder:text-gray-400"
                 }`}
               />
             </div>

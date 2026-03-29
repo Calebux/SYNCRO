@@ -1,10 +1,16 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Edit2, Trash2, Mail, Clock, Copy, Lock, Users, Calendar, Check } from "lucide-react"
+import { useState, useEffect, useRef } from "react"
+import { Edit2, Trash2, Mail, Clock, Copy, Lock, Users, Calendar, Check, Download, FileText, Upload } from "lucide-react"
+import { exportAllCSV, exportActiveCSV, exportDateRangeCSV } from "@/lib/csv-export"
+import { downloadSubscriptionPDF } from "@/lib/pdf-report"
+import CSVImportModal from "@/components/modals/csv-import-modal"
+
 import { useDebounce } from "@/hooks/use-debounce"
 import { VirtualizedList } from "@/components/ui/virtualized-list"
 import { EmptyState } from "@/components/ui/empty-state"
+import CancellationGuideModal from "@/components/modals/cancellation-guide-modal"
+import { fetchAllCancellationGuides, type CancellationGuide } from "@/lib/supabase/cancellation-guides"
 
 interface SubscriptionsPageProps {
   subscriptions?: any[]
@@ -19,6 +25,7 @@ interface SubscriptionsPageProps {
   emailAccounts?: any[]
   duplicates?: any[]
   unusedSubscriptions?: any[]
+  onImportComplete?: () => void
 }
 
 export default function SubscriptionsPage({
@@ -34,6 +41,7 @@ export default function SubscriptionsPage({
   emailAccounts = [],
   duplicates = [],
   unusedSubscriptions = [],
+  onImportComplete,
 }: SubscriptionsPageProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const debouncedSearchTerm = useDebounce(searchTerm, 300)
@@ -44,6 +52,46 @@ export default function SubscriptionsPage({
   const [sortBy, setSortBy] = useState("name")
   const [showDuplicatesOnly, setShowDuplicatesOnly] = useState(false)
   const [showUnusedOnly, setShowUnusedOnly] = useState(false)
+  const [showExportMenu, setShowExportMenu] = useState(false)
+  const [exportingPDF, setExportingPDF] = useState(false)
+  const [showCSVImport, setShowCSVImport] = useState(false)
+  const exportMenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setShowExportMenu(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
+
+  const handleExportPDF = async () => {
+    setShowExportMenu(false)
+    setExportingPDF(true)
+    try {
+      await downloadSubscriptionPDF(filtered)
+    } finally {
+      setExportingPDF(false)
+    }
+  }
+
+  const [guides, setGuides] = useState<CancellationGuide[]>([])
+  const [selectedSubForCancel, setSelectedSubForCancel] = useState<any | null>(null)
+
+  useEffect(() => {
+    async function loadGuides() {
+      try {
+        const data = await fetchAllCancellationGuides()
+        setGuides(data)
+      } catch (error) {
+        console.error("Failed to load all cancellation guides:", error)
+      }
+    }
+    loadGuides()
+  }, [])
+
   const [calendarToken, setCalendarToken] = useState<string | null>(null)
   const [calendarUserId, setCalendarUserId] = useState<string | null>(null)
   const [showCalendarModal, setShowCalendarModal] = useState(false)
@@ -218,6 +266,90 @@ export default function SubscriptionsPage({
           <Calendar className="w-4 h-4" />
           Sync to Calendar
         </button>
+
+        {/* Export dropdown */}
+        <div className="relative" ref={exportMenuRef}>
+          <button
+            onClick={() => setShowExportMenu(!showExportMenu)}
+            disabled={exportingPDF}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              darkMode ? "bg-[#2D3748] text-gray-400 hover:text-white" : "bg-gray-100 text-gray-600 hover:text-gray-900"
+            }`}
+          >
+            <Download className="w-4 h-4" />
+            {exportingPDF ? "Generating…" : "Export"}
+          </button>
+
+          {showExportMenu && (
+            <div
+              className={`absolute left-0 top-full mt-1 w-56 rounded-lg border shadow-lg z-50 ${
+                darkMode ? "bg-[#2D3748] border-[#374151]" : "bg-white border-gray-200"
+              }`}
+            >
+              <p className={`px-3 pt-2 pb-1 text-xs font-semibold uppercase tracking-wide ${darkMode ? "text-gray-500" : "text-gray-400"}`}>
+                CSV
+              </p>
+              <button
+                onClick={() => { exportAllCSV(filtered); setShowExportMenu(false) }}
+                className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors ${
+                  darkMode ? "text-gray-300 hover:bg-[#374151]" : "text-gray-700 hover:bg-gray-50"
+                }`}
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export current view
+              </button>
+              <button
+                onClick={() => { exportActiveCSV(subscriptions); setShowExportMenu(false) }}
+                className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors ${
+                  darkMode ? "text-gray-300 hover:bg-[#374151]" : "text-gray-700 hover:bg-gray-50"
+                }`}
+              >
+                <Download className="w-3.5 h-3.5" />
+                Active subscriptions only
+              </button>
+              <button
+                onClick={() => {
+                  const now = new Date()
+                  const endOfYear = new Date(now.getFullYear(), 11, 31)
+                  exportDateRangeCSV(subscriptions, now, endOfYear)
+                  setShowExportMenu(false)
+                }}
+                className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors ${
+                  darkMode ? "text-gray-300 hover:bg-[#374151]" : "text-gray-700 hover:bg-gray-50"
+                }`}
+              >
+                <Download className="w-3.5 h-3.5" />
+                Renewals this year
+              </button>
+
+              <hr className={`my-1 ${darkMode ? "border-[#374151]" : "border-gray-100"}`} />
+
+              <p className={`px-3 pt-1 pb-1 text-xs font-semibold uppercase tracking-wide ${darkMode ? "text-gray-500" : "text-gray-400"}`}>
+                PDF
+              </p>
+              <button
+                onClick={handleExportPDF}
+                className={`w-full flex items-center gap-2 px-3 py-2 pb-3 text-sm text-left transition-colors rounded-b-lg ${
+                  darkMode ? "text-gray-300 hover:bg-[#374151]" : "text-gray-700 hover:bg-gray-50"
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5" />
+                Full subscription report
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Import CSV */}
+        <button
+          onClick={() => setShowCSVImport(true)}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            darkMode ? "bg-[#2D3748] text-gray-400 hover:text-white" : "bg-gray-100 text-gray-600 hover:text-gray-900"
+          }`}
+        >
+          <Upload className="w-4 h-4" />
+          Import CSV
+        </button>
       </div>
 
       {/* Search and Filters */}
@@ -354,11 +486,39 @@ export default function SubscriptionsPage({
                   darkMode={darkMode}
                   isDuplicate={duplicates.some((dup: any) => dup.subscriptions.some((s: any) => s.id === sub.id))}
                   unusedInfo={unusedSubscriptions.find((unused: any) => unused.id === sub.id)}
+                  onCancel={(s) => setSelectedSubForCancel(s)}
+                  guide={guides.find((g) => g.service_name.toLowerCase() === sub.name.toLowerCase())}
                 />
               ))}
             </div>
           )}
         </>
+      )}
+
+      {showCSVImport && (
+        <CSVImportModal
+          darkMode={darkMode}
+          onClose={() => setShowCSVImport(false)}
+          onImportComplete={() => {
+            setShowCSVImport(false)
+            onImportComplete?.()
+          }}
+        />
+      )}
+
+      {selectedSubForCancel && (
+        <CancellationGuideModal
+          subscription={selectedSubForCancel}
+          darkMode={darkMode}
+          onClose={() => setSelectedSubForCancel(null)}
+          onCancelled={() => {
+            // In a real app, you would refresh the subscription list here
+            // For now, we'll just show a success toast or manually update the local state if possible
+            // But since subscriptions props are passed down, the parent should handle it.
+            // For the sake of this demo, we'll just close it.
+            setSelectedSubForCancel(null)
+          }}
+        />
       )}
 
       {hasNoResults && (
@@ -436,9 +596,11 @@ interface SubscriptionCardProps {
   darkMode?: boolean
   isDuplicate?: boolean
   unusedInfo?: any
+  onCancel?: (subscription: any) => void
+  guide?: CancellationGuide
 }
 
-function SubscriptionCard({
+export function SubscriptionCard({
   subscription: sub,
   onDelete,
   onManage,
@@ -447,13 +609,23 @@ function SubscriptionCard({
   darkMode,
   isDuplicate,
   unusedInfo,
+  onCancel,
+  guide,
 }: SubscriptionCardProps) {
   const statusLabel =
     sub.status === "expiring"
       ? `expiring in ${sub.renewsIn} days`
       : sub.status === "trial"
         ? "trial"
-        : "active"
+        : sub.status === "cancelled"
+          ? "cancelled"
+          : "active"
+
+  const difficultyColors = {
+    easy: "text-green-500 bg-green-500/10",
+    medium: "text-yellow-500 bg-yellow-500/10",
+    hard: "text-red-500 bg-red-500/10",
+  }
 
   return (
     <div
@@ -510,6 +682,19 @@ function SubscriptionCard({
               </>
             )}
           </div>
+          <div className="flex items-center gap-2 mt-1">
+            {guide && (
+              <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${difficultyColors[guide.difficulty]}`}>
+                {guide.difficulty} to cancel
+              </span>
+            )}
+             {sub.status === "cancelled" && (
+              <span className="bg-gray-100 dark:bg-[#1E2A35] text-gray-500 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full flex items-center gap-1">
+                <CheckCircle className="w-2.5 h-2.5" />
+                Cancelled
+              </span>
+            )}
+          </div>
           {sub.isTrial && sub.trialEndsAt && (
             <p className={`text-xs ${darkMode ? "text-[#007A5C]" : "text-green-600"} mt-1`}>
               Trial ends in {Math.ceil((new Date(sub.trialEndsAt).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))} days - $
@@ -551,13 +736,30 @@ function SubscriptionCard({
           <p className={`text-xs ${darkMode ? "text-gray-400" : "text-gray-500"}`}>/Month</p>
         </div>
 
-        <div className="text-right min-w-32">
-          <p className={`text-sm ${darkMode ? "text-gray-400" : "text-gray-600"}`}>
-            {sub.status === "expiring" ? `Expires in ${sub.renewsIn} days` : `Renewal in ${sub.renewsIn} days`}
-          </p>
-          <span className={`text-xs font-semibold ${sub.status === "expiring" ? "text-[#E86A33]" : "text-[#007A5C]"}`}>
-            {sub.status === "expiring" ? "Expiring" : "Active"}
-          </span>
+        <div className="flex items-center gap-4">
+          <div className="flex flex-col items-end gap-1">
+            <button
+              onClick={() => onManage && onManage({ ...sub, toggleVisibility: true })}
+              className={`flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md transition-colors ${
+                sub.visibility === 'team'
+                  ? "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+              title={sub.visibility === 'team' ? "Visible to Team" : "Private"}
+            >
+              {sub.visibility === 'team' ? <Users className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+              {sub.visibility === 'team' ? "Team" : "Private"}
+            </button>
+          </div>
+
+          <div className="text-right min-w-32">
+            <p className={`text-sm ${darkMode ? "text-gray-400" : "text-gray-600"}`}>
+              {sub.status === "expiring" ? `Expires in ${sub.renewsIn} days` : `Renewal in ${sub.renewsIn} days`}
+            </p>
+            <span className={`text-xs font-semibold ${sub.status === "expiring" ? "text-[#E86A33]" : "text-[#007A5C]"}`}>
+              {sub.status === "expiring" ? "Expiring" : "Active"}
+            </span>
+          </div>
         </div>
 
         <div className="flex gap-2" role="group" aria-label={`Actions for ${sub.name}`}>
@@ -568,6 +770,16 @@ function SubscriptionCard({
           >
             <Edit2 aria-hidden="true" className="w-4 h-4" />
           </button>
+          {sub.status !== "cancelled" && (
+            <button
+              onClick={() => onCancel && onCancel(sub)}
+              aria-label={`Cancel ${sub.name}`}
+              className={`p-2 rounded-lg ${darkMode ? "hover:bg-red-500/20 text-red-500" : "hover:bg-red-50 text-red-600"} flex items-center gap-1 group`}
+            >
+              <ShieldAlert aria-hidden="true" className="w-4 h-4" />
+              <span className="text-xs font-semibold hidden group-hover:inline">Cancel</span>
+            </button>
+          )}
           <button
             onClick={() => onDelete(sub.id)}
             aria-label={`Delete ${sub.name}`}

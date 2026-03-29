@@ -146,6 +146,47 @@ export class PushService {
   getVapidPublicKey(): string {
     return this.vapidPublicKey;
   }
+  /**
+   * Generic send method for custom notifications
+   */
+  async send(
+    pushSubscription: PushSubscription,
+    payload: { title: string; body: string; url?: string }
+  ): Promise<DeliveryResult> {
+    if (!this.vapidPublicKey || !this.vapidPrivateKey) {
+      return {
+        success: false,
+        error: 'Push service not configured',
+        metadata: { retryable: false },
+      };
+    }
+
+    try {
+      const notificationPayload = JSON.stringify({
+        title: payload.title,
+        body: payload.body,
+        icon: '/icon.svg',
+        badge: '/icon.svg',
+        data: {
+          url: payload.url || '/dashboard',
+        },
+      });
+
+      await webpush.sendNotification(pushSubscription, notificationPayload);
+
+      return {
+        success: true,
+        metadata: { timestamp: new Date().toISOString() },
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: errorMessage,
+        metadata: { retryable: this.isRetryableError(error) },
+      };
+    }
+  }
 }
 
 export const pushService = new PushService();

@@ -90,6 +90,7 @@ export interface UserPreferences {
     auto_renew: boolean;
     auto_retry: boolean;
   };
+  risk_notification_threshold?: 'LOW' | 'MEDIUM' | 'HIGH';
   updated_at: string;
 }
 

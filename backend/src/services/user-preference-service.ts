@@ -15,6 +15,7 @@ export class UserPreferenceService {
             auto_renew: false,
             auto_retry: true,
         },
+        risk_notification_threshold: 'HIGH',
     };
 
     /**

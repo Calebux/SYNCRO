@@ -381,6 +381,98 @@ This is an automated reminder from Synchro.
       return { success: false, error: errorMessage, metadata: { retryable: this.isRetryableError(error) } };
     }
   }
+  /**
+   * Send risk alert email
+   */
+  async sendRiskAlert(payload: {
+    to: string;
+    subscriptionName: string;
+    riskFactors: any[];
+    renewalDate: string;
+    recommendedAction: string;
+  }): Promise<DeliveryResult> {
+    try {
+      return await withRetry(async () => {
+        if (!this.transporter) {
+          throw new NonRetryableError('Email transporter not configured');
+        }
+
+        const subject = `⚠️ ${payload.subscriptionName} renewal at risk`;
+        const factorsText = payload.riskFactors.map(f => `- ${this.getFactorDescription(f)}`).join('\n');
+        
+        const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Risk Alert</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background: #e53e3e; padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
+    <h1 style="color: white; margin: 0; font-size: 28px;">Risk Alert</h1>
+  </div>
+  <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px;">
+    <h2 style="color: #c53030;">${payload.subscriptionName} renewal at risk</h2>
+    <p>We've detected that your subscription for <strong>${payload.subscriptionName}</strong> may fail to renew soon.</p>
+    
+    <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #e53e3e;">
+      <p><strong>Risk Factors:</strong></p>
+      <ul>
+        ${payload.riskFactors.map(f => `<li>${this.getFactorDescription(f)}</li>`).join('')}
+      </ul>
+      <p><strong>Recommendation:</strong> ${payload.recommendedAction}</p>
+    </div>
+
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard" style="background: #e53e3e; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">
+        Review Subscription
+      </a>
+    </div>
+  </div>
+</body>
+</html>`.trim();
+
+
+        const text = `Risk Alert: ${payload.subscriptionName} renewal at risk\n\nFactors:\n${factorsText}\n\nRecommendation: ${payload.recommendedAction}`;
+
+        const info = await this.transporter.sendMail({
+          from: this.fromEmail,
+          to: payload.to,
+          subject,
+          html,
+          text,
+        });
+
+        logger.info(`Risk alert email sent to ${payload.to}`, { messageId: info.messageId });
+
+        return {
+          success: true,
+          metadata: { messageId: info.messageId },
+        };
+      }, { maxAttempts: 3 });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(`Failed to send risk alert email to ${payload.to}:`, errorMessage);
+      return { success: false, error: errorMessage, metadata: { retryable: this.isRetryableError(error) } };
+    }
+  }
+
+  /**
+   * Helper to get human-readable factor description
+   */
+  private getFactorDescription(factor: any): string {
+    switch (factor.factor_type) {
+      case 'consecutive_failures':
+        return `${factor.details?.count || 0} consecutive payment failures detected`;
+      case 'balance_projection':
+        return 'Projected account balance is insufficient for next renewal';
+      case 'approval_expiration':
+        return `Payment approval expires on ${new Date(factor.details?.expires_at).toLocaleDateString()}`;
+      default:
+        return String(factor.factor_type).replace(/_/g, ' ');
+    }
+  }
 }
 
 export const emailService = new EmailService();

@@ -673,7 +673,7 @@ describe('SubscriptionService', () => {
       // Make the last eq call resolve
       mockQuery.eq
         .mockReturnValueOnce(mockQuery) // user_id eq
-        .mockResolvedValueOnce(resolvedValue); // status eq
+        .mockReturnValueOnce(mockQuery); // status eq
 
       (supabase.from as jest.Mock).mockReturnValue(mockQuery);
 
@@ -702,7 +702,7 @@ describe('SubscriptionService', () => {
       };
       mockQuery.eq
         .mockReturnValueOnce(mockQuery) // user_id eq
-        .mockResolvedValueOnce(resolvedValue); // category eq
+        .mockReturnValueOnce(mockQuery); // category eq
 
       (supabase.from as jest.Mock).mockReturnValue(mockQuery);
 

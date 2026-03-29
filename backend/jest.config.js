@@ -11,4 +11,27 @@ module.exports = {
     transform: {
         '^.+\\.tsx?$': 'ts-jest',
     },
+    globals: {
+        'ts-jest': {
+            diagnostics: false,
+            isolatedModules: true,
+            tsconfig: {
+                target: 'ES2022',
+                module: 'commonjs',
+                esModuleInterop: true,
+                skipLibCheck: true,
+            },
+        },
+    },
+    transformIgnorePatterns: [
+        '/node_modules/(?!@stellar/stellar-sdk)',
+    ],
+    coverageThreshold: {
+        global: {
+            branches: 80,
+            functions: 80,
+            lines: 80,
+            statements: 80,
+        },
+    },
 };

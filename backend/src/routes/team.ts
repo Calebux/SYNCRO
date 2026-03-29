@@ -1,8 +1,31 @@
 import { Router, Response } from 'express';
+import { z } from 'zod';
 import { supabase } from '../config/database';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth';
 import { emailService } from '../services/email-service';
+import { createTeamInviteLimiter } from '../middleware/rate-limit-factory';
 import logger from '../config/logger';
+
+// ─── Validation schemas ───────────────────────────────────────────────────────
+
+const VALID_ROLES = ['admin', 'member', 'viewer'] as const;
+
+const inviteSchema = z.object({
+  email: z
+    .string()
+    .email('Must be a valid email address')
+    .max(254, 'Email must not exceed 254 characters'),
+  role: z.enum(VALID_ROLES, {
+    errorMap: () => ({ message: `role must be one of: ${VALID_ROLES.join(', ')}` }),
+  }).default('member'),
+});
+
+const updateRoleSchema = z.object({
+  role: z.enum(VALID_ROLES, {
+    errorMap: () => ({ message: `role must be one of: ${VALID_ROLES.join(', ')}` }),
+  }),
+});
+
 
 const router = Router();
 
@@ -100,18 +123,17 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
 // ---------------------------------------------------------------------------
 // POST /api/team/invite  — invite a new member
 // ---------------------------------------------------------------------------
-router.post('/invite', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/invite', createTeamInviteLimiter(), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { email, role = 'member' } = req.body as { email?: string; role?: string };
-
-    if (!email) {
-      return res.status(400).json({ success: false, error: 'email is required' });
+    const bodyValidation = inviteSchema.safeParse(req.body);
+    if (!bodyValidation.success) {
+      return res.status(400).json({
+        success: false,
+        error: bodyValidation.error.errors.map((e) => e.message).join(', '),
+      });
     }
 
-    const validRoles = ['admin', 'member', 'viewer'];
-    if (!validRoles.includes(role)) {
-      return res.status(400).json({ success: false, error: `role must be one of: ${validRoles.join(', ')}` });
-    }
+    const { email, role } = bodyValidation.data;
 
     // Ensure user has (or creates) a team
     let ctx = await resolveUserTeam(req.user!.id);
@@ -152,7 +174,7 @@ router.post('/invite', async (req: AuthenticatedRequest, res: Response) => {
       .from('team_members')
       .select('id')
       .eq('team_id', ctx.teamId)
-      .eq('user_id', (await supabase.auth.admin.getUserByEmail(email))?.data?.user?.id ?? '')
+      .eq('user_id', (await (supabase.auth.admin as any)?.getUserByEmail?.(email))?.data?.user?.id ?? '')
       .limit(1)
       .single();
 
@@ -326,12 +348,16 @@ router.post('/accept/:token', async (req: AuthenticatedRequest, res: Response) =
 router.put('/:memberId/role', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { memberId } = req.params;
-    const { role } = req.body as { role?: string };
 
-    const validRoles = ['admin', 'member', 'viewer'];
-    if (!role || !validRoles.includes(role)) {
-      return res.status(400).json({ success: false, error: `role must be one of: ${validRoles.join(', ')}` });
+    const bodyValidation = updateRoleSchema.safeParse(req.body);
+    if (!bodyValidation.success) {
+      return res.status(400).json({
+        success: false,
+        error: bodyValidation.error.errors.map((e) => e.message).join(', '),
+      });
     }
+
+    const { role } = bodyValidation.data;
 
     const ctx = await resolveUserTeam(req.user!.id);
 

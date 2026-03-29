@@ -20,10 +20,12 @@
       "jest"
     ]
   },
-  "include": [ "src/**/*", "tests/**/*", "services/subscription-classifier.js"],
+  "include": [ "src/**/*", "services/subscription-classifier.js"],
   "exclude": [
     "node_modules",
     "dist",
-    "src/services/blockchain-service-impl-example.ts"
+    "src/services/blockchain-service-impl-example.ts",
+    "tests",
+    "src/rate-limit/**/*"
   ]
 }

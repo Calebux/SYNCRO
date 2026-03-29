@@ -21,11 +21,18 @@ export default async function DashboardPage() {
     { data: notifications },
     { data: profile },
   ] = await Promise.all([
-    supabase.from("subscriptions").select("*").order("created_at", { ascending: false }),
-    supabase.from("email_accounts").select("*"),
-    supabase.from("team_members").select("*"),
-    supabase.from("notifications").select("*").order("created_at", { ascending: false }),
-    supabase.from("profiles").select("*").eq("id", user.id).single(),
+    supabase
+      .from("subscriptions")
+      .select("id, name, price, status, billing_cycle, next_renewal, category")
+      .order("created_at", { ascending: false }),
+    supabase.from("email_accounts").select("id, email, provider, last_synced"),
+    supabase.from("team_members").select("id, user_id, role, invited_at"),
+    supabase
+      .from("notifications")
+      .select("id, message, type, read, created_at")
+      .order("created_at", { ascending: false })
+      .limit(50),
+    supabase.from("profiles").select("id, full_name, avatar_url, plan").eq("id", user.id).single(),
   ])
 
   return (
