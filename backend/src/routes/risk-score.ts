@@ -6,6 +6,7 @@ import express, { Response } from 'express';
 import { riskDetectionService } from '../services/risk-detection/risk-detection-service';
 import { riskNotificationService } from '../services/risk-detection/risk-notification-service';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { adminAuth } from '../middleware/admin';
 import logger from '../config/logger';
 
 const router = express.Router();
@@ -155,8 +156,10 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
  *         description: Recalculation result
  *       401:
  *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - Admin access required
  */
-router.post('/recalculate', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/recalculate', adminAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.id;
 
@@ -166,9 +169,6 @@ router.post('/recalculate', async (req: AuthenticatedRequest, res: Response) => 
         error: 'Unauthorized',
       });
     }
-
-    // TODO: Add admin check
-    // For now, allow any authenticated user to trigger recalculation
 
     logger.info('Manual risk recalculation triggered', { user_id: userId });
 
