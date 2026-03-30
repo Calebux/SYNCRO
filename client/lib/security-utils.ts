@@ -167,13 +167,16 @@ export class SessionManager {
   }
 }
 
-// Secure storage wrapper
-export const secureStorage = {
-  set(key: string, value: any): void {
+// Base64-encoded localStorage wrapper.
+// WARNING: This is NOT encryption. Values can be trivially decoded with atob().
+// Do NOT use for API keys, tokens, passwords, or any sensitive data.
+// For sensitive data, use server-side storage or the Web Crypto API.
+export const encodedStorage = {
+  set(key: string, value: unknown): void {
     if (typeof window === "undefined") return
     try {
-      const encrypted = btoa(JSON.stringify(value))
-      localStorage.setItem(key, encrypted)
+      const encoded = btoa(JSON.stringify(value))
+      localStorage.setItem(key, encoded)
     } catch (error) {
       console.error("Failed to store data:", error)
     }
@@ -182,9 +185,9 @@ export const secureStorage = {
   get<T>(key: string): T | null {
     if (typeof window === "undefined") return null
     try {
-      const encrypted = localStorage.getItem(key)
-      if (!encrypted) return null
-      return JSON.parse(atob(encrypted)) as T
+      const encoded = localStorage.getItem(key)
+      if (!encoded) return null
+      return JSON.parse(atob(encoded)) as T
     } catch (error) {
       console.error("Failed to retrieve data:", error)
       return null
