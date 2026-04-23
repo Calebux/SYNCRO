@@ -219,6 +219,12 @@ export class ReminderEngine {
         return;
       }
 
+      if (subscription.status === 'paused') {
+        logger.info(`Skipping reminder ${reminder.id} — subscription ${reminder.subscription_id} is paused`);
+        await this.markReminderAsFailed(reminder.id, 'Subscription is paused');
+        return;
+      }
+
       const userProfile = await this.getUserProfile(reminder.user_id);
       if (!userProfile) {
         logger.warn(`User profile ${reminder.user_id} not found`);

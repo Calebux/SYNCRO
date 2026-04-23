@@ -16,6 +16,8 @@ export interface CancellationGuide {
   phoneNumber?: string;
 }
 
+export type SubscriptionStatus = 'active' | 'cancelled' | 'paused' | 'trial' | 'expired';
+
 export interface Subscription {
   id: string;
   name: string;
@@ -26,11 +28,15 @@ export interface Subscription {
   renewalDate?: string;
   category?: string;
   visibility?: 'private' | 'team';
+  status?: SubscriptionStatus;
+  paused_at?: string | null;
+  resume_at?: string | null;
+  pause_reason?: string | null;
   /** History of payments/changes kept for merge operations */
   history?: SubscriptionHistoryEntry[];
   createdAt: string;
   updatedAt: string;
-  cancellationGuide?: CancellationGuide; // NEW
+  cancellationGuide?: CancellationGuide;
 }
 
 export interface SubscriptionHistoryEntry {

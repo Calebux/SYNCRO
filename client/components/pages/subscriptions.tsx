@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { Edit2, Trash2, Mail, Clock, Copy, ShieldAlert, CheckCircle, Lock, Users, Calendar, Check } from "lucide-react"
 import { useState, useEffect, useRef } from "react"
-import { Edit2, Trash2, Mail, Clock, Copy, Lock, Users, Calendar, Check, Download, FileText, Upload } from "lucide-react"
+import { Edit2, Trash2, Mail, Clock, Copy, Lock, Users, Calendar, Check, Download, FileText, Upload, PauseCircle, PlayCircle } from "lucide-react"
 import { exportAllCSV, exportActiveCSV, exportDateRangeCSV } from "@/lib/csv-export"
 import { downloadSubscriptionPDF } from "@/lib/pdf-report"
 import CSVImportModal from "@/components/modals/csv-import-modal"
@@ -29,6 +29,8 @@ interface SubscriptionsPageProps {
   duplicates?: any[]
   unusedSubscriptions?: any[]
   onImportComplete?: () => void
+  onPause?: (subscription: any) => void
+  onResume?: (subscription: any) => void
 }
 
 export default function SubscriptionsPage({
@@ -45,6 +47,8 @@ export default function SubscriptionsPage({
   duplicates = [],
   unusedSubscriptions = [],
   onImportComplete,
+  onPause,
+  onResume,
 }: SubscriptionsPageProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const debouncedSearchTerm = useDebounce(searchTerm, 300)
@@ -102,7 +106,7 @@ export default function SubscriptionsPage({
 
   const emailAccountsList = ["all", ...new Set((subscriptions || []).map((s: any) => s.email).filter(Boolean))]
   const categories = ["all", ...new Set((subscriptions || []).map((s: any) => s.category))]
-  const statuses = ["all", "active", "trial", "expiring", "expired"]
+  const statuses = ["all", "active", "paused", "trial", "expiring", "expired"]
 
   useEffect(() => {
     if (searchTerm !== debouncedSearchTerm) {
@@ -476,6 +480,8 @@ export default function SubscriptionsPage({
                     darkMode={darkMode}
                     isDuplicate={duplicates.some((dup: any) => dup.subscriptions.some((s: any) => s.id === sub.id))}
                     unusedInfo={unusedSubscriptions.find((unused: any) => unused.id === sub.id)}
+                    onPause={onPause}
+                    onResume={onResume}
                   />
                 </ErrorBoundary>
               )}
@@ -496,6 +502,8 @@ export default function SubscriptionsPage({
                     darkMode={darkMode}
                     isDuplicate={duplicates.some((dup: any) => dup.subscriptions.some((s: any) => s.id === sub.id))}
                     unusedInfo={unusedSubscriptions.find((unused: any) => unused.id === sub.id)}
+                    onPause={onPause}
+                    onResume={onResume}
                   />
                 </ErrorBoundary>
                   subscription={sub}
@@ -508,6 +516,8 @@ export default function SubscriptionsPage({
                   unusedInfo={unusedSubscriptions.find((unused: any) => unused.id === sub.id)}
                   onCancel={(s) => setSelectedSubForCancel(s)}
                   guide={guides.find((g) => g.service_name.toLowerCase() === sub.name.toLowerCase())}
+                  onPause={onPause}
+                  onResume={onResume}
                 />
               ))}
             </div>
@@ -618,6 +628,8 @@ interface SubscriptionCardProps {
   unusedInfo?: any
   onCancel?: (subscription: any) => void
   guide?: CancellationGuide
+  onPause?: (subscription: any) => void
+  onResume?: (subscription: any) => void
 }
 
 export function SubscriptionCard({
@@ -631,15 +643,21 @@ export function SubscriptionCard({
   unusedInfo,
   onCancel,
   guide,
+  onPause,
+  onResume,
 }: SubscriptionCardProps) {
+  const isPaused = sub.status === "paused"
+
   const statusLabel =
-    sub.status === "expiring"
-      ? `expiring in ${sub.renewsIn} days`
-      : sub.status === "trial"
-        ? "trial"
-        : sub.status === "cancelled"
-          ? "cancelled"
-          : "active"
+    isPaused
+      ? "paused"
+      : sub.status === "expiring"
+        ? `expiring in ${sub.renewsIn} days`
+        : sub.status === "trial"
+          ? "trial"
+          : sub.status === "cancelled"
+            ? "cancelled"
+            : "active"
 
   const difficultyColors = {
     easy: "text-green-500 bg-green-500/10",
@@ -649,7 +667,7 @@ export function SubscriptionCard({
 
   return (
     <div
-      className={`${darkMode ? "bg-[#2D3748] border-[#374151]" : "bg-white border-gray-200"} border rounded-xl p-5 flex items-center justify-between`}
+      className={`${darkMode ? "bg-[#2D3748] border-[#374151]" : "bg-white border-gray-200"} border rounded-xl p-5 flex items-center justify-between${isPaused ? " opacity-50" : ""}`}
       aria-label={`${sub.name}, ${sub.category}, $${sub.price}/month, ${statusLabel}${isDuplicate ? ", duplicate" : ""}${unusedInfo ? ", unused" : ""}`}
     >
       <div className="flex items-center gap-4 flex-1">
@@ -723,6 +741,12 @@ export function SubscriptionCard({
                 Cancelled
               </span>
             )}
+            {isPaused && (
+              <span className="bg-gray-200 dark:bg-[#374151] text-gray-500 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full flex items-center gap-1">
+                <PauseCircle aria-hidden="true" className="w-2.5 h-2.5" />
+                Paused
+              </span>
+            )}
           </div>
           {sub.isTrial && sub.trialEndsAt && (
             <p className={`text-xs ${darkMode ? "text-[#007A5C]" : "text-green-600"} mt-1`}>
@@ -782,6 +806,26 @@ export function SubscriptionCard({
             >
               <ShieldAlert aria-hidden="true" className="w-4 h-4" />
               <span className="text-xs font-semibold hidden group-hover:inline">Cancel</span>
+            </button>
+          )}
+          {!isPaused && sub.status !== "cancelled" && (
+            <button
+              onClick={() => onPause && onPause(sub)}
+              aria-label={`Pause ${sub.name}`}
+              className={`p-2 rounded-lg ${darkMode ? "hover:bg-yellow-500/20 text-yellow-400" : "hover:bg-yellow-50 text-yellow-600"} flex items-center gap-1 group`}
+            >
+              <PauseCircle aria-hidden="true" className="w-4 h-4" />
+              <span className="text-xs font-semibold hidden group-hover:inline">Pause</span>
+            </button>
+          )}
+          {isPaused && (
+            <button
+              onClick={() => onResume && onResume(sub)}
+              aria-label={`Resume ${sub.name}`}
+              className={`p-2 rounded-lg ${darkMode ? "hover:bg-green-500/20 text-green-400" : "hover:bg-green-50 text-green-600"} flex items-center gap-1 group`}
+            >
+              <PlayCircle aria-hidden="true" className="w-4 h-4" />
+              <span className="text-xs font-semibold hidden group-hover:inline">Resume</span>
             </button>
           )}
           <button

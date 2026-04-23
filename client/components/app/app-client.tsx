@@ -568,6 +568,8 @@ export function AppClient({
                                 emailAccounts={emailAccounts}
                                 duplicates={duplicates}
                                 unusedSubscriptions={unusedSubscriptions}
+                                onPause={(sub) => handlePauseSubscription(sub.id)}
+                                onResume={(sub) => handleResumeSubscription(sub.id)}
                             />
                         )}
                         {activeView === "analytics" && (
