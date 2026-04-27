@@ -55,13 +55,13 @@ backend/
 
 ### Prerequisites
 - Node.js 20+ installed
-- npm or yarn package manager
+- pnpm 9+ (`npm install -g pnpm`)
 
 ### Installation
 
 ```bash
 cd backend
-npm install
+pnpm install
 ```
 
 ### Environment Variables

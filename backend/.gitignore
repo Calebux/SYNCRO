@@ -1,5 +1,9 @@
 node_modules/
 dist/
+
+# package manager — project uses pnpm; block npm/yarn lockfiles
+package-lock.json
+yarn.lock
 .env
 .env.local
 *.log

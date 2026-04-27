@@ -86,16 +86,12 @@ client/
 
 ### Prerequisites
 - Node.js 20+
-- npm, yarn, or pnpm
+- pnpm 9+ (`npm install -g pnpm`)
 
 ### Installation
 
 ```bash
 cd client
-npm install
-# or
-yarn install
-# or
 pnpm install
 ```
 
@@ -121,7 +117,7 @@ NEXT_PUBLIC_BACKEND_URL=http://localhost:3001
 ### Development
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000)
