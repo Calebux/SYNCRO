@@ -46,6 +46,7 @@ import { FiatRateProvider } from './services/exchange-rate/fiat-provider';
 import { CryptoRateProvider } from './services/exchange-rate/crypto-provider';
 import { monitoringService } from './services/monitoring-service';
 import { healthService } from './services/health-service';
+import { dependencyHealthService } from './services/dependency-health-service';
 import { eventListener } from './services/event-listener';
 import { expiryService } from './services/expiry-service';
 import { authenticate } from './middleware/auth'
@@ -97,9 +98,32 @@ app.use(express.urlencoded({ extended: true }));
 app.use(requestIdMiddleware);
 app.use(requestLoggerMiddleware);
 
-// Public Endpoints
+// Health & Readiness Endpoints (No Auth Required)
+// Liveness probe - indicates if the process is alive
+app.get('/health/live', (req, res) => {
+  const status = dependencyHealthService.getLiveness();
+  res.status(200).json(status);
+});
+
+// Readiness probe - indicates if the service is ready to accept traffic
+app.get('/health/ready', async (req, res) => {
+  try {
+    const status = await dependencyHealthService.getReadiness();
+    const httpStatus = status.status === 'ready' ? 200 : 503;
+    res.status(httpStatus).json(status);
+  } catch (error) {
+    logger.error('Readiness check failed:', error);
+    res.status(503).json({
+      status: 'not_ready',
+      timestamp: new Date().toISOString(),
+      message: 'Readiness check failed',
+    });
+  }
+});
+
+// Legacy health endpoint (deprecated - use /health/live and /health/ready)
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', timestamp: new Date().toISOString(), deprecated: true });
 });
 
 // Swagger Documentation
