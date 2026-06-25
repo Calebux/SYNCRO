@@ -1,0 +1,44 @@
+name: Validate Documentation Samples
+
+on:
+  pull_request:
+    paths:
+      - 'sdk/README.md'
+      - 'backend/README.md'
+      - 'backend/SUBSCRIPTION_API.md'
+      - '.github/workflows/validate-docs.yml'
+  workflow_dispatch:
+
+jobs:
+  validate-docs:
+    name: Validate Code Samples in Docs
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run doc validation
+        run: node scripts/validate-docs.js
+      
+      - name: Comment on PR if validation fails
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '❌ Documentation code sample validation failed. Please fix the code examples in your markdown files.'
+            })
