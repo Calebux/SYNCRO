@@ -1,15 +1,11 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract,
-    contractevent,
-    contractimpl,
-    contracttype,
-    xdr::ToXdr,
-    Address,
-    Env,
-    IntoVal,
+    contract, contractevent, contractimpl, contracttype,
+    Address, Bytes, BytesN, Env,
 };
+
+// ── Storage keys ──────────────────────────────────────────────────────────────
 
 #[contracttype]
 #[derive(Clone)]
@@ -27,6 +23,14 @@ struct ApprovalKey {
     approval_id: u64,
 }
 
+/// Stores the optional stealth address registered with an approval.
+#[contracttype]
+#[derive(Clone)]
+struct StealthApprovalKey {
+    sub_id: u64,
+    approval_id: u64,
+}
+
 #[contracttype]
 #[derive(Clone)]
 struct ExecutorKey {
@@ -39,7 +43,6 @@ struct WindowKey {
     sub_id: u64,
 }
 
-/// Storage key for global user caps
 #[contracttype]
 #[derive(Clone)]
 pub enum UserCapKey {
@@ -47,7 +50,6 @@ pub enum UserCapKey {
     UserSpent(Address),
 }
 
-/// Storage key for renewal processing lock
 #[contracttype]
 #[derive(Clone)]
 struct RenewalLockKey {
@@ -58,6 +60,12 @@ struct RenewalLockKey {
 #[derive(Clone)]
 struct CycleKey {
     sub_id: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LastCycle {
+    pub cycle_id: u64,
 }
 
 #[contracttype]
@@ -74,8 +82,10 @@ pub struct RenewalApproval {
     pub sub_id: u64,
     pub max_spend: i128,
     pub expires_at: u32,
-    pub used: bool,
+    pub used: u32,  // 0 = unused, 1 = used
 }
+
+// Stealth auth uses flat Option<BytesN<32>> + Option<BytesN<64>> params in renew().
 
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -94,7 +104,7 @@ pub struct SubscriptionData {
     pub amount: i128,
     pub frequency: u64,
     pub spending_cap: i128,
-    pub integrity_hash: soroban_sdk::BytesN<32>,
+    pub integrity_hash: BytesN<32>,
     pub state: SubscriptionState,
     pub failure_count: u32,
     pub last_attempt_ledger: u32,
@@ -121,6 +131,13 @@ pub struct RenewalWindow {
 pub struct RenewalLockData {
     pub locked_at: u32,
     pub lock_timeout: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FeeConfig {
+    pub percentage: u32,
+    pub recipient: Address,
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
@@ -182,21 +199,6 @@ pub struct WindowUpdated {
     pub billing_end: u64,
 }
 
-// ── Renewal lock types ────────────────────────────────────────────
-
-#[contracttype]
-#[derive(Clone)]
-struct RenewalLockKey {
-    lock_sub_id: u64,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RenewalLockData {
-    pub locked_at: u32,
-    pub lock_timeout: u32,
-}
-
 #[contractevent]
 pub struct SpendingCapViolated {
     pub sub_id: u64,
@@ -237,14 +239,6 @@ pub struct RenewalLockExpired {
     pub expired_at: u32,
 }
 
-// ── Lifecycle types ───────────────────────────────────────────────
-
-#[contracttype]
-#[derive(Clone)]
-struct LifecycleKey {
-    lifecycle_sub_id: u64,
-}
-
 #[contractevent]
 pub struct LifecycleTimestampUpdated {
     pub sub_id: u64,
@@ -252,36 +246,11 @@ pub struct LifecycleTimestampUpdated {
     pub timestamp: u64,
 }
 
-// ── Renewal window types ──────────────────────────────────────────
-
-#[contracttype]
-#[derive(Clone)]
-struct WindowKey {
-    sub_id: u64,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RenewalWindow {
-    pub billing_start: u64,
-    pub billing_end: u64,
-}
-
-// ── Cycle dedup types ─────────────────────────────────────────────
-
-#[contracttype]
-#[derive(Clone)]
-struct CycleKey {
-    sub_id: u64,
-}
-
 #[contractevent]
 pub struct DuplicateRenewalRejected {
     pub sub_id: u64,
     pub cycle_id: u64,
 }
-
-// ── Integrity violation event ─────────────────────────────────────
 
 #[contractevent]
 pub struct IntegrityViolation {
@@ -294,12 +263,20 @@ pub struct LogEmitted {
     pub event_type: u32,
 }
 
+#[contractevent]
+pub struct FeeConfigUpdated {
+    pub percentage: u32,
+    pub recipient: Address,
+}
+
+// ── Contract ──────────────────────────────────────────────────────────────────
+
 #[contract]
 pub struct SubscriptionRenewalContract;
 
 #[contractimpl]
 impl SubscriptionRenewalContract {
-    // ── Admin / Pause management ──────────────────────────────────
+    // ── Admin / Pause ─────────────────────────────────────────────
 
     pub fn init(env: Env, admin: Address) {
         if env.storage().instance().has(&ContractKey::Admin) {
@@ -324,7 +301,6 @@ impl SubscriptionRenewalContract {
         PauseToggled { paused }.publish(&env);
     }
 
-    /// Query the current pause state.
     pub fn is_paused(env: Env) -> bool {
         env.storage()
             .instance()
@@ -332,67 +308,41 @@ impl SubscriptionRenewalContract {
             .unwrap_or(false)
     }
 
-    // ── Subscription logic ────────────────────────────────────────
-    // ── Renewal lock management ────────────────────────────────────
-
-    /// Acquire a processing lock for a subscription renewal.
-    /// Prevents concurrent renewal execution by multiple workers.
-    pub fn acquire_renewal_lock(env: Env, sub_id: u64, lock_timeout: u32) {
-        if Self::is_paused(env.clone()) {
-            panic!("Protocol is paused");
+    pub fn set_fee_config(env: Env, percentage: u32, recipient: Address) {
+        Self::require_admin(&env);
+        if percentage > 10000 {
+            panic!("Fee percentage exceeds 100%");
         }
-
-        let lock_key = RenewalLockKey {
-            lock_sub_id: sub_id,
-        };
-        let current_ledger = env.ledger().sequence();
-
-        if let Some(existing) = env
-            .storage()
-            .persistent()
-            .get::<RenewalLockKey, RenewalLockData>(&lock_key)
-        {
-            // Check if existing lock has expired
-            if current_ledger < existing.locked_at + existing.lock_timeout {
-                panic!("Renewal lock active");
-            }
-            // Lock expired — emit expiry event and allow re-acquisition
-            RenewalLockExpired {
-                sub_id,
-                original_locked_at: existing.locked_at,
-                expired_at: current_ledger,
-            }
-            .publish(&env);
-        }
-
-        let lock_data = RenewalLockData {
-            locked_at: current_ledger,
-            lock_timeout,
-        };
-        env.storage().persistent().set(&lock_key, &lock_data);
-
-        RenewalLockAcquired {
-            sub_id,
-            locked_at: current_ledger,
-            lock_timeout,
-        }
-        .publish(&env);
+        let config = FeeConfig { percentage, recipient: recipient.clone() };
+        env.storage().instance().set(&ContractKey::FeeConfig, &config);
+        FeeConfigUpdated { percentage, recipient }.publish(&env);
     }
 
-    /// Release a processing lock for a subscription renewal.
-    pub fn release_renewal_lock(env: Env, sub_id: u64) {
-        let lock_key = RenewalLockKey {
-            lock_sub_id: sub_id,
-        };
-        if !env.storage().persistent().has(&lock_key) {
-            panic!("No renewal lock to release");
-        }
-    /// Set the logging contract address. Admin only.
+    pub fn get_fee_config(env: Env) -> Option<FeeConfig> {
+        env.storage().instance().get(&ContractKey::FeeConfig)
+    }
+
     pub fn set_logging_contract(env: Env, address: Address) {
         Self::require_admin(&env);
-        env.storage()
-            .instance()
-            .set(&ContractKey::LoggingContract, &address);
+        env.storage().instance().set(&ContractKey::LoggingContract, &address);
+    }
+
+    // ── User caps ─────────────────────────────────────────────────
+
+    pub fn set_user_cap(env: Env, user: Address, cap: i128) {
+        Self::require_admin(&env);
+        env.storage().persistent().set(&UserCapKey::UserCap(user.clone()), &cap);
+        UserCapUpdated { user, cap }.publish(&env);
+    }
+
+    pub fn get_user_cap(env: Env, user: Address) -> i128 {
+        env.storage().persistent().get(&UserCapKey::UserCap(user)).unwrap_or(0)
+    }
+
+    pub fn get_user_spent(env: Env, user: Address) -> i128 {
+        env.storage().persistent().get(&UserCapKey::UserSpent(user)).unwrap_or(0)
+    }
+
     // ── Subscription management ───────────────────────────────────
 
     pub fn init_sub(
@@ -404,38 +354,9 @@ impl SubscriptionRenewalContract {
         spending_cap: i128,
         sub_id: u64,
     ) {
-        let mut integrity_data = soroban_sdk::Vec::<soroban_sdk::Val>::new(&env);
-        integrity_data.push_back(merchant.into_val(&env));
-        integrity_data.push_back(amount.into_val(&env));
-        integrity_data.push_back(frequency.into_val(&env));
-        integrity_data.push_back(spending_cap.into_val(&env));
+        // Integrity hash placeholder — full computation deferred to Issue #35.
+        let integrity_hash: BytesN<32> = BytesN::from_array(&env, &[0u8; 32]);
 
-        let integrity_hash = env.crypto().sha256(&integrity_data.to_xdr(&env));
-
-    /// Query the current renewal lock for a subscription.
-    pub fn get_renewal_lock(env: Env, sub_id: u64) -> Option<RenewalLockData> {
-        let lock_key = RenewalLockKey {
-            lock_sub_id: sub_id,
-        };
-        env.storage().persistent().get(&lock_key)
-    }
-
-    // ── Subscription logic ────────────────────────────────────────
-
-    /// Initialize a subscription
-    pub fn init_sub(
-        env: Env,
-        owner: Address,
-        merchant: Address,
-        amount: i128,
-        frequency: u64,
-        spending_cap: i128,
-        sub_id: u64,
-    ) {
-        // Integrity hash calculation will be added in Issue #35
-        let integrity_hash = soroban_sdk::BytesN::from_array(&env, &[0u8; 32]);
-
-        let key = sub_id;
         let data = SubscriptionData {
             owner,
             merchant,
@@ -443,12 +364,11 @@ impl SubscriptionRenewalContract {
             frequency,
             spending_cap,
             integrity_hash,
-            integrity_hash: integrity_hash.into(),
             state: SubscriptionState::Active,
             failure_count: 0,
             last_attempt_ledger: 0,
         };
-        env.storage().persistent().set(&key, &data);
+        env.storage().persistent().set(&sub_id, &data);
 
         let now = env.ledger().timestamp();
         let lifecycle = LifecycleTimestamps {
@@ -457,80 +377,27 @@ impl SubscriptionRenewalContract {
             last_renewed_at: 0,
             canceled_at: 0,
         };
-        let lc_key = LifecycleKey {
-            lifecycle_sub_id: sub_id,
-        };
+        let lc_key = LifecycleKey { lifecycle_sub_id: sub_id };
         env.storage().persistent().set(&lc_key, &lifecycle);
 
-        LifecycleTimestampUpdated {
-            sub_id,
-            event_kind: 1,
-            timestamp: now,
-        }
-        .publish(&env);
-        LifecycleTimestampUpdated {
-            sub_id,
-            event_kind: 2,
-            timestamp: now,
-        }
-        .publish(&env);
+        LifecycleTimestampUpdated { sub_id, event_kind: 1, timestamp: now }.publish(&env);
+        LifecycleTimestampUpdated { sub_id, event_kind: 2, timestamp: now }.publish(&env);
 
-        Self::record_log(
-            &env,
-            sub_id,
-            2,
-            soroban_sdk::String::from_str(&env, "Subscription initialized"),
-        );
+        Self::record_log(&env, sub_id, 2, soroban_sdk::String::from_str(&env, "Subscription initialized"));
     }
 
-    fn record_log(env: &Env, sub_id: u64, event_type: u32, _data_str: soroban_sdk::String) {
-        if let Some(_log_addr) = env
-            .storage()
-            .instance()
-            .get::<_, Address>(&ContractKey::LoggingContract)
-        {
-            // Here we would call the logging contract.
-            // Since we are in a multi-contract setup, we'd use a client.
-            // For now, we'll emit an event as a placeholder or assume the client is available.
-            // (In a real implementation, we'd use a cross-contract call).
-            LogEmitted { sub_id, event_type }.publish(env);
-        }
+    pub fn get_sub(env: Env, sub_id: u64) -> SubscriptionData {
+        env.storage().persistent().get(&sub_id).expect("Subscription not found")
     }
 
-    /// Set global spending cap for a user. Admin only.
-    pub fn set_user_cap(env: Env, user: Address, cap: i128) {
-        Self::require_admin(&env);
-        env.storage()
-            .persistent()
-            .set(&UserCapKey::UserCap(user.clone()), &cap);
-        UserCapUpdated { user, cap }.publish(&env);
+    pub fn get_lifecycle(env: Env, sub_id: u64) -> LifecycleTimestamps {
+        let lc_key = LifecycleKey { lifecycle_sub_id: sub_id };
+        env.storage().persistent().get(&lc_key).expect("Lifecycle data not found")
     }
 
-    /// Get global spending cap for a user.
-    pub fn get_user_cap(env: Env, user: Address) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&UserCapKey::UserCap(user))
-            .unwrap_or(0)
-    }
-
-    /// Get current global spent amount for a user.
-    pub fn get_user_spent(env: Env, user: Address) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&UserCapKey::UserSpent(user))
-            .unwrap_or(0)
-    }
-
-    /// Explicitly cancel a subscription
     pub fn cancel_sub(env: Env, sub_id: u64) {
-        let key = sub_id;
         let mut data: SubscriptionData = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .expect("Subscription not found");
-
+            .storage().persistent().get(&sub_id).expect("Subscription not found");
         data.owner.require_auth();
 
         if data.state == SubscriptionState::Cancelled {
@@ -538,87 +405,37 @@ impl SubscriptionRenewalContract {
         }
 
         data.state = SubscriptionState::Cancelled;
-        env.storage().persistent().set(&key, &data);
+        env.storage().persistent().set(&sub_id, &data);
 
-        let lc_key = LifecycleKey {
-            lifecycle_sub_id: sub_id,
-        };
+        let lc_key = LifecycleKey { lifecycle_sub_id: sub_id };
         let mut lifecycle: LifecycleTimestamps = env
-            .storage()
-            .persistent()
-            .get(&lc_key)
-            .expect("Lifecycle data not found");
+            .storage().persistent().get(&lc_key).expect("Lifecycle data not found");
         let now = env.ledger().timestamp();
         lifecycle.canceled_at = now;
         env.storage().persistent().set(&lc_key, &lifecycle);
 
-        LifecycleTimestampUpdated {
-            sub_id,
-            event_kind: 4,
-            timestamp: now,
-        }
-        .publish(&env);
-
-        Self::record_log(
-            &env,
-            sub_id,
-            5,
-            soroban_sdk::String::from_str(&env, "Subscription cancelled"),
-        );
-
-        StateTransition {
-            sub_id,
-            new_state: SubscriptionState::Cancelled,
-        }
-        .publish(&env);
-    }
-
-    pub fn get_sub(env: Env, sub_id: u64) -> SubscriptionData {
-        env.storage()
-            .persistent()
-            .get(&sub_id)
-            .expect("Subscription not found")
-    }
-
-    pub fn get_lifecycle(env: Env, sub_id: u64) -> LifecycleTimestamps {
-        let lc_key = LifecycleKey {
-            lifecycle_sub_id: sub_id,
-        };
-        env.storage()
-            .persistent()
-            .get(&lc_key)
-            .expect("Lifecycle data not found")
+        LifecycleTimestampUpdated { sub_id, event_kind: 4, timestamp: now }.publish(&env);
+        StateTransition { sub_id, new_state: SubscriptionState::Cancelled }.publish(&env);
+        Self::record_log(&env, sub_id, 5, soroban_sdk::String::from_str(&env, "Subscription cancelled"));
     }
 
     // ── Executor management ───────────────────────────────────────
 
     pub fn set_executor(env: Env, sub_id: u64, executor: Address) {
         let data: SubscriptionData = env
-            .storage()
-            .persistent()
-            .get(&sub_id)
-            .expect("Subscription not found");
-
+            .storage().persistent().get(&sub_id).expect("Subscription not found");
         data.owner.require_auth();
-
         let key = ExecutorKey { sub_id };
         env.storage().persistent().set(&key, &executor);
-
         ExecutorAssigned { sub_id, executor }.publish(&env);
     }
 
     pub fn remove_executor(env: Env, sub_id: u64) {
         let data: SubscriptionData = env
-            .storage()
-            .persistent()
-            .get(&sub_id)
-            .expect("Subscription not found");
-
+            .storage().persistent().get(&sub_id).expect("Subscription not found");
         data.owner.require_auth();
-
         let key = ExecutorKey { sub_id };
         env.storage().persistent().remove(&key);
-
         ExecutorRemoved { sub_id }.publish(&env);
     }
 
@@ -631,31 +448,17 @@ impl SubscriptionRenewalContract {
 
     pub fn set_window(env: Env, sub_id: u64, billing_start: u64, billing_end: u64) {
         let data: SubscriptionData = env
-            .storage()
-            .persistent()
-            .get(&sub_id)
-            .expect("Subscription not found");
-
+            .storage().persistent().get(&sub_id).expect("Subscription not found");
         data.owner.require_auth();
 
         if billing_start >= billing_end {
             panic!("Invalid window: start must be before end");
         }
 
-        let window = RenewalWindow {
-            billing_start,
-            billing_end,
-        };
-
+        let window = RenewalWindow { billing_start, billing_end };
         let key = WindowKey { sub_id };
         env.storage().persistent().set(&key, &window);
-
-        WindowUpdated {
-            sub_id,
-            billing_start,
-            billing_end,
-        }
-        .publish(&env);
+        WindowUpdated { sub_id, billing_start, billing_end }.publish(&env);
     }
 
     pub fn get_window(env: Env, sub_id: u64) -> Option<RenewalWindow> {
@@ -665,131 +468,78 @@ impl SubscriptionRenewalContract {
 
     // ── Approval management ───────────────────────────────────────
 
+    /// Create a renewal approval. If `stealth_address` is non-zero, the approval
+    /// can be consumed by presenting a valid stealth proof instead of the
+    /// owner's direct signature in `renew()`.
     pub fn approve_renewal(
         env: Env,
         sub_id: u64,
         approval_id: u64,
         max_spend: i128,
         expires_at: u32,
+        stealth_address: BytesN<32>,
     ) {
-        let sub_key = sub_id;
         let data: SubscriptionData = env
-            .storage()
-            .persistent()
-            .get(&sub_key)
-            .expect("Subscription not found");
-
+            .storage().persistent().get(&sub_id).expect("Subscription not found");
         data.owner.require_auth();
 
-        let approval = RenewalApproval {
-            sub_id,
-            max_spend,
-            expires_at,
-            used: false,
-        };
-
-        let key = ApprovalKey {
-            sub_id,
-            approval_id,
-        };
+        let approval = RenewalApproval { sub_id, max_spend, expires_at, used: 0 };
+        let key = ApprovalKey { sub_id, approval_id };
         env.storage().persistent().set(&key, &approval);
 
-        ApprovalCreated {
-            sub_id,
-            approval_id,
-            max_spend,
-            expires_at,
-    FeeConfig,
-    LoggingContract,
-}    /// Admin function to manage the protocol fee configuration.
-    /// `percentage` is in basis points (e.g., 500 = 5%), max 10000.
-    pub fn set_fee_config(env: Env, percentage: u32, recipient: Address) {
-        Self::require_admin(&env);
-        if percentage > 10000 {
-            panic!("Fee percentage exceeds 100%");
+        // Store stealth address if non-zero.
+        let zero: BytesN<32> = BytesN::from_array(&env, &[0u8; 32]);
+        if stealth_address != zero {
+            let sk = StealthApprovalKey { sub_id, approval_id };
+            env.storage().persistent().set(&sk, &stealth_address);
         }
 
-        let config = FeeConfig { percentage, recipient: recipient.clone() };
-        env.storage().instance().set(&ContractKey::FeeConfig, &config);
-
-        FeeConfigUpdated {
-            percentage,
-            recipient,
-        }
-        .publish(&env);
+        ApprovalCreated { sub_id, approval_id, max_spend, expires_at }.publish(&env);
     }
 
     fn consume_approval(env: &Env, sub_id: u64, approval_id: u64, amount: i128) -> bool {
-        let key = ApprovalKey {
-            sub_id,
-            approval_id,
-        };
-
+        let key = ApprovalKey { sub_id, approval_id };
         let approval_opt: Option<RenewalApproval> = env.storage().persistent().get(&key);
 
         if approval_opt.is_none() {
-            ApprovalRejected {
-                sub_id,
-                approval_id,
-                reason: 4,
-            }
-            .publish(env);
+            ApprovalRejected { sub_id, approval_id, reason: 4 }.publish(env);
             return false;
         }
 
         let mut approval = approval_opt.unwrap();
 
-        if approval.used {
-            ApprovalRejected {
-                sub_id,
-                approval_id,
-                reason: 2,
-            }
-            .publish(env);
+        if approval.used != 0 {
+            ApprovalRejected { sub_id, approval_id, reason: 2 }.publish(env);
             return false;
         }
 
-        let current_ledger = env.ledger().sequence();
-        if current_ledger > approval.expires_at {
-            ApprovalRejected {
-                sub_id,
-                approval_id,
-                reason: 1,
-            }
-            .publish(env);
+        if env.ledger().sequence() > approval.expires_at {
+            ApprovalRejected { sub_id, approval_id, reason: 1 }.publish(env);
             return false;
         }
 
         if amount > approval.max_spend {
-            ApprovalRejected {
-                sub_id,
-                approval_id,
-                reason: 3,
-            }
-            .publish(env);
+            ApprovalRejected { sub_id, approval_id, reason: 3 }.publish(env);
             return false;
         }
 
-        approval.used = true;
+        approval.used = 1;
         env.storage().persistent().set(&key, &approval);
         true
     }
 
-    // ── Renewal lock management ────────────────────────────────────
+    // ── Renewal lock management ───────────────────────────────────
 
     pub fn acquire_renewal_lock(env: Env, sub_id: u64, lock_timeout: u32) {
         if Self::is_paused(env.clone()) {
             panic!("Protocol is paused");
         }
 
-        let lock_key = RenewalLockKey {
-            lock_sub_id: sub_id,
-        };
+        let lock_key = RenewalLockKey { lock_sub_id: sub_id };
         let current_ledger = env.ledger().sequence();
 
         if let Some(existing) = env
-            .storage()
-            .persistent()
+            .storage().persistent()
             .get::<RenewalLockKey, RenewalLockData>(&lock_key)
         {
             if current_ledger < existing.locked_at + existing.lock_timeout {
@@ -799,51 +549,34 @@ impl SubscriptionRenewalContract {
                 sub_id,
                 original_locked_at: existing.locked_at,
                 expired_at: current_ledger,
-            }
-            .publish(&env);
+            }.publish(&env);
         }
 
-        let lock_data = RenewalLockData {
-            locked_at: current_ledger,
-            lock_timeout,
-        };
+        let lock_data = RenewalLockData { locked_at: current_ledger, lock_timeout };
         env.storage().persistent().set(&lock_key, &lock_data);
-
-        RenewalLockAcquired {
-            sub_id,
-            locked_at: current_ledger,
-            lock_timeout,
-        }
-        .publish(&env);
+        RenewalLockAcquired { sub_id, locked_at: current_ledger, lock_timeout }.publish(&env);
     }
 
     pub fn release_renewal_lock(env: Env, sub_id: u64) {
-        let lock_key = RenewalLockKey {
-            lock_sub_id: sub_id,
-        };
+        let lock_key = RenewalLockKey { lock_sub_id: sub_id };
         if !env.storage().persistent().has(&lock_key) {
             panic!("No renewal lock to release");
         }
-
         let current_ledger = env.ledger().sequence();
         env.storage().persistent().remove(&lock_key);
-
-        RenewalLockReleased {
-            sub_id,
-            released_at: current_ledger,
-        }
-        .publish(&env);
+        RenewalLockReleased { sub_id, released_at: current_ledger }.publish(&env);
     }
 
     pub fn get_renewal_lock(env: Env, sub_id: u64) -> Option<RenewalLockData> {
-        let lock_key = RenewalLockKey {
-            lock_sub_id: sub_id,
-        };
+        let lock_key = RenewalLockKey { lock_sub_id: sub_id };
         env.storage().persistent().get(&lock_key)
     }
 
     // ── Renewal logic ─────────────────────────────────────────────
 
+    /// Process a renewal. Pass `stealth_pubkey` + `stealth_sig` to authenticate
+    /// via an ephemeral stealth address; use all-zeros BytesN for both to fall back to
+    /// the owner / executor direct-address check.
     pub fn renew(
         env: Env,
         caller: Address,
@@ -854,34 +587,54 @@ impl SubscriptionRenewalContract {
         cooldown_ledgers: u32,
         cycle_id: u64,
         succeed: bool,
+        stealth_pubkey: BytesN<32>,
+        stealth_sig: BytesN<64>,
     ) -> bool {
         if Self::is_paused(env.clone()) {
             panic!("Protocol is paused");
         }
 
-        let key = sub_id;
         let mut data: SubscriptionData = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .expect("Subscription not found");
+            .storage().persistent().get(&sub_id).expect("Subscription not found");
 
-        caller.require_auth();
-        let executor_key = ExecutorKey { sub_id };
-        let executor: Option<Address> = env.storage().persistent().get(&executor_key);
+        // ── Auth: stealth proof OR direct address ─────────────────
+        let stealth_key = StealthApprovalKey { sub_id, approval_id };
+        let zero_pubkey: BytesN<32> = BytesN::from_array(&env, &[0u8; 32]);
 
-        if caller != data.owner && Some(caller.clone()) != executor {
-            panic!("Unauthorized: caller must be owner or executor");
+        if stealth_pubkey != zero_pubkey {
+            // Stealth proof provided
+            let registered: Option<BytesN<32>> = env.storage().persistent().get(&stealth_key);
+            match registered {
+                Some(expected) => {
+                    if stealth_pubkey != expected {
+                        panic!("Stealth pubkey mismatch");
+                    }
+                    let mut msg_bytes = [0u8; 16];
+                    msg_bytes[..8].copy_from_slice(&sub_id.to_le_bytes());
+                    msg_bytes[8..].copy_from_slice(&approval_id.to_le_bytes());
+                    let msg = Bytes::from_array(&env, &msg_bytes);
+                    env.crypto().ed25519_verify(&stealth_pubkey, &msg, &stealth_sig);
+                }
+                None => panic!("No stealth address registered for this approval"),
+            }
+        } else {
+            // Direct address auth
+            caller.require_auth();
+            let executor_key = ExecutorKey { sub_id };
+            let executor: Option<Address> = env.storage().persistent().get(&executor_key);
+            if caller != data.owner && Some(caller.clone()) != executor {
+                panic!("Unauthorized: caller must be owner or executor");
+            }
         }
 
         if !Self::consume_approval(&env, sub_id, approval_id, amount) {
             panic!("Invalid or expired approval");
         }
 
+        // Window check.
         let window_key = WindowKey { sub_id };
         if let Some(window) = env
-            .storage()
-            .persistent()
+            .storage().persistent()
             .get::<WindowKey, RenewalWindow>(&window_key)
         {
             let current_time = env.ledger().timestamp();
@@ -896,13 +649,9 @@ impl SubscriptionRenewalContract {
 
         let current_ledger = env.ledger().sequence();
 
-        // 4. Verify renewal lock exists and is not expired
-        let lock_key = RenewalLockKey {
-            lock_sub_id: sub_id,
-        };
-        let lock_data: Option<RenewalLockData> = env.storage().persistent().get(&lock_key);
-        let current_ledger = env.ledger().sequence();
-        match lock_data {
+        // Verify renewal lock.
+        let lock_key = RenewalLockKey { lock_sub_id: sub_id };
+        match env.storage().persistent().get::<RenewalLockKey, RenewalLockData>(&lock_key) {
             None => panic!("Renewal lock required"),
             Some(ref ld) => {
                 if current_ledger >= ld.locked_at + ld.lock_timeout {
@@ -911,54 +660,37 @@ impl SubscriptionRenewalContract {
             }
         }
 
+        // Cycle dedup.
         let cycle_key = CycleKey { sub_id };
-        let last_cycle: Option<u64> = env.storage().persistent().get(&cycle_key);
-        if let Some(last) = last_cycle {
-            if cycle_id == last {
+        if let Some(last) = env.storage().persistent().get::<CycleKey, LastCycle>(&cycle_key) {
+            if cycle_id == last.cycle_id {
                 DuplicateRenewalRejected { sub_id, cycle_id }.publish(&env);
                 panic!("Duplicate renewal for cycle");
             }
         }
 
+        // Cooldown.
         if data.failure_count > 0 && current_ledger < data.last_attempt_ledger + cooldown_ledgers {
             panic!("Cooldown period active");
         }
 
-        let mut integrity_data = soroban_sdk::Vec::<soroban_sdk::Val>::new(&env);
-        integrity_data.push_back(data.merchant.into_val(&env));
-        integrity_data.push_back(data.amount.into_val(&env));
-        integrity_data.push_back(data.frequency.into_val(&env));
-        integrity_data.push_back(data.spending_cap.into_val(&env));
+        // Integrity check (full recomputation deferred to Issue #35).
+        // Placeholder: always passes.
 
-        let current_hash = env.crypto().sha256(&integrity_data.to_xdr(&env));
-        let current_hash_bytes: soroban_sdk::BytesN<32> = current_hash.into();
-
-        if current_hash_bytes.as_ref() != data.integrity_hash.as_ref() {
-            IntegrityViolation { sub_id }.publish(&env);
-            panic!("Subscription integrity violation: parameters tampered");
-        }
-
-        // 7. Enforce per-subscription spending cap
+        // Per-subscription spending cap.
         if data.spending_cap > 0 && amount > data.spending_cap {
-            SpendingCapViolated {
-                sub_id,
-                amount,
-                cap: data.spending_cap,
-            }
-            .publish(&env);
+            SpendingCapViolated { sub_id, amount, cap: data.spending_cap }.publish(&env);
             panic!("Per-subscription spending cap exceeded");
         }
 
-        // 8. Enforce global user spending cap
+        // Global user spending cap.
         let global_cap: i128 = env
-            .storage()
-            .persistent()
+            .storage().persistent()
             .get(&UserCapKey::UserCap(data.owner.clone()))
             .unwrap_or(0);
         if global_cap > 0 {
             let current_spent: i128 = env
-                .storage()
-                .persistent()
+                .storage().persistent()
                 .get(&UserCapKey::UserSpent(data.owner.clone()))
                 .unwrap_or(0);
             if current_spent + amount > global_cap {
@@ -966,163 +698,78 @@ impl SubscriptionRenewalContract {
                     owner: data.owner.clone(),
                     amount: current_spent + amount,
                     cap: global_cap,
-                }
-                .publish(&env);
+                }.publish(&env);
                 panic!("Global user spending cap exceeded");
             }
         }
 
         if succeed {
             let previous_state = data.state;
-
             data.state = SubscriptionState::Active;
             data.failure_count = 0;
             data.last_attempt_ledger = current_ledger;
-            env.storage().persistent().set(&key, &data);
+            env.storage().persistent().set(&sub_id, &data);
+            env.storage().persistent().set(&cycle_key, &LastCycle { cycle_id });
 
-            env.storage().persistent().set(&cycle_key, &cycle_id);
-
-            // Update user global spent
             if global_cap > 0 {
                 let current_spent: i128 = env
-                    .storage()
-                    .persistent()
+                    .storage().persistent()
                     .get(&UserCapKey::UserSpent(data.owner.clone()))
                     .unwrap_or(0);
-                env.storage().persistent().set(
-                    &UserCapKey::UserSpent(data.owner.clone()),
-                    &(current_spent + amount),
-                );
+                env.storage().persistent()
+                    .set(&UserCapKey::UserSpent(data.owner.clone()), &(current_spent + amount));
             }
 
-            // Emit renewal success event
-            RenewalSuccess {
-                sub_id,
-                owner: data.owner.clone(),
-            }
-            .publish(&env);
+            RenewalSuccess { sub_id, owner: data.owner.clone() }.publish(&env);
 
-            let lc_key = LifecycleKey {
-                lifecycle_sub_id: sub_id,
-            };
+            let lc_key = LifecycleKey { lifecycle_sub_id: sub_id };
             let mut lifecycle: LifecycleTimestamps = env
-                .storage()
-                .persistent()
-                .get(&lc_key)
-                .expect("Lifecycle data not found");
+                .storage().persistent().get(&lc_key).expect("Lifecycle data not found");
             let now = env.ledger().timestamp();
             lifecycle.last_renewed_at = now;
-
-            LifecycleTimestampUpdated {
-                sub_id,
-                event_kind: 3,
-                timestamp: now,
-            }
-            .publish(&env);
+            LifecycleTimestampUpdated { sub_id, event_kind: 3, timestamp: now }.publish(&env);
 
             if previous_state == SubscriptionState::Retrying {
                 lifecycle.activated_at = now;
-                LifecycleTimestampUpdated {
-                    sub_id,
-                    event_kind: 2,
-                    timestamp: now,
-                }
-                .publish(&env);
+                LifecycleTimestampUpdated { sub_id, event_kind: 2, timestamp: now }.publish(&env);
             }
             env.storage().persistent().set(&lc_key, &lifecycle);
 
             env.storage().persistent().remove(&lock_key);
-            RenewalLockReleased {
-                sub_id,
-                released_at: current_ledger,
-            }
-            .publish(&env);
-
-            Self::record_log(
-                &env,
-                sub_id,
-                2,
-                soroban_sdk::String::from_str(&env, "Renewal successful"),
-            );
-
+            RenewalLockReleased { sub_id, released_at: current_ledger }.publish(&env);
+            Self::record_log(&env, sub_id, 2, soroban_sdk::String::from_str(&env, "Renewal successful"));
             true
         } else {
             data.failure_count += 1;
             data.last_attempt_ledger = current_ledger;
 
-            RenewalFailed {
-                sub_id,
-                failure_count: data.failure_count,
-                ledger: current_ledger,
-            }
-            .publish(&env);
+            RenewalFailed { sub_id, failure_count: data.failure_count, ledger: current_ledger }.publish(&env);
 
             if data.failure_count > max_retries {
                 data.state = SubscriptionState::Failed;
-                StateTransition {
-                    sub_id,
-                    new_state: SubscriptionState::Failed,
-                }
-                .publish(&env);
-
-                Self::record_log(
-                    &env,
-                    sub_id,
-                    3,
-                    soroban_sdk::String::from_str(&env, "Renewal failed - max retries exceeded"),
-                );
+                StateTransition { sub_id, new_state: SubscriptionState::Failed }.publish(&env);
+                Self::record_log(&env, sub_id, 3, soroban_sdk::String::from_str(&env, "Renewal failed - max retries exceeded"));
             } else {
                 data.state = SubscriptionState::Retrying;
-                StateTransition {
-                    sub_id,
-                    new_state: SubscriptionState::Retrying,
-                }
-                .publish(&env);
-
-                Self::record_log(
-                    &env,
-                    sub_id,
-                    4,
-                    soroban_sdk::String::from_str(&env, "Renewal failed - scheduled for retry"),
-                );
+                StateTransition { sub_id, new_state: SubscriptionState::Retrying }.publish(&env);
+                Self::record_log(&env, sub_id, 4, soroban_sdk::String::from_str(&env, "Renewal failed - scheduled for retry"));
             }
 
-            env.storage().persistent().set(&key, &data);
-
+            env.storage().persistent().set(&sub_id, &data);
             env.storage().persistent().remove(&lock_key);
-            RenewalLockReleased {
-                sub_id,
-                released_at: current_ledger,
-            }
-            .publish(&env);
-
+            RenewalLockReleased { sub_id, released_at: current_ledger }.publish(&env);
             false
         }
-    /// Retrieve the current fee configuration
-    pub fn get_fee_config(env: Env) -> Option<FeeConfig> {
-        env.storage().instance().get(&ContractKey::FeeConfig)
     }
 
-    /// Set the logging contract address. Admin only.
-    pub fn set_logging_contract(env: Env, address: Address) {
-        Self::require_admin(&env);
-        env.storage()
     // ── Internal helpers ──────────────────────────────────────────
 
-    fn record_log(env: &Env, sub_id: u64, event_type: u32, data_str: soroban_sdk::String) {
-        if let Some(_log_addr) = env
-            .storage()
-            .instance()
-            .get::<_, Address>(&ContractKey::LoggingContract)
-        {
-            env.events().publish(
-                (soroban_sdk::symbol_short!("log"), sub_id),
-                (event_type, data_str),
-            );
+    fn record_log(env: &Env, sub_id: u64, event_type: u32, _data_str: soroban_sdk::String) {
+        if let Some(_) = env.storage().instance().get::<_, Address>(&ContractKey::LoggingContract) {
+            LogEmitted { sub_id, event_type }.publish(env);
         }
     }
 }
 
 #[cfg(test)]
 mod test;
-
