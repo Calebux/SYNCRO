@@ -5,9 +5,9 @@ import {
   getGmailProfile,
   scanGmailSubscriptions,
 } from '../../services/gmail-service'
-import { createState, consumeState } from '../../utils/oauth-state'
-import { supabase } from '../../src/config/database'
-import { AuthenticatedRequest } from '../../src/middleware/auth'
+import { createState, consumeState } from '../../../utils/oauth-state'
+import { supabase } from '../../config/database'
+import { AuthenticatedRequest } from '../../middleware/auth'
 
 const router: Router = Router()
 

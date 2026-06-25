@@ -1,5 +1,5 @@
 import logger from '../config/logger';
-import { ExternalServiceClient } from '../src/utils/external-service-client';
+import { ExternalServiceClient } from '../utils/external-service-client';
 
 const paystackClient = new ExternalServiceClient('paystack');
 const PAYSTACK_BASE = 'https://api.paystack.co';

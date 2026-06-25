@@ -12,14 +12,14 @@
  */
 
 const express = require('express');
-const { classifyService, suggestCategory } = require('../services/subscription-classifier');
+const { classifyService, suggestCategory } = require('../../services/subscription-classifier');
 
 const router = express.Router();
 
 // ─── Middleware: auth guard ───────────────────────────────────────────────────
 // Assumes the authenticate middleware attaches req.user and req.supabase
 // (matching the existing pattern in the codebase).
-const { authenticate } = require('../middleware/auth');
+const { authenticate } = require('../../middleware/auth');
 
 router.use(authenticate);
 

@@ -1,6 +1,6 @@
 import { Router, Response, NextFunction } from 'express';
-import { AuthenticatedRequest } from '../../src/middleware/auth';
-import { slackService } from '../../src/services/slack-service';
+import { AuthenticatedRequest } from '../../middleware/auth';
+import { slackService } from '../../services/slack-service';
 
 const router: Router = Router();
 

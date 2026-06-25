@@ -5,8 +5,8 @@ jest.mock('../src/config/logger', () => ({
 }))
 
 // ─── Imports ──────────────────────────────────────────────────────────────────
-import { metadataExtractionOnly, logScanMetadata } from '../services/email-scanner'
-import type { RawScanResult, ReceiptMetadata } from '../services/email-scanner'
+import { metadataExtractionOnly, logScanMetadata } from '../src/services/email-scanner'
+import type { RawScanResult, ReceiptMetadata } from '../src/services/email-scanner'
 import logger from '../src/config/logger'
 
 // ─── Factory helpers ──────────────────────────────────────────────────────────

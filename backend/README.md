@@ -38,8 +38,10 @@ The backend is responsible for:
 backend/
 ├── src/
 │   ├── index.ts                  # Express server entry point, route registration
-│   ├── routes/                   # 24 route modules (see Route Inventory below)
-│   ├── services/                 # 30+ business logic services
+│   ├── routes/                   # Route modules, including routes/integrations/
+│   │                              # (Gmail, Outlook, Slack OAuth routes)
+│   ├── services/                 # Business logic services, including email
+│   │                              # scanning/parsing, Gmail/Outlook, Paystack
 │   ├── middleware/               # Auth, RBAC, rate limiting, validation, error handling
 │   ├── schemas/                  # Zod validation schemas
 │   ├── jobs/                     # Scheduled jobs (reminder, auto-resume, CSP monitoring)
@@ -47,9 +49,8 @@ backend/
 │   ├── lib/                      # Redis store, TOTP rate limiter
 │   ├── types/                    # Shared TypeScript type definitions
 │   └── utils/                    # Cycle ID, expiry, retry, sanitization helpers
-├── routes/
-│   └── integrations/             # Gmail and Outlook OAuth routes (JS/TS hybrid)
-├── services/                     # Legacy service files (email scanner, paystack, etc.)
+├── utils/                        # Pre-src-migration utility helpers still in use
+│                                  # (oauth-state, proof-hashing, merchant-normalizer, etc.)
 ├── tests/                        # Jest test suites (40+ test files)
 ├── migrations/                   # SQL migration files
 ├── scripts/                      # Env validation, Swagger export, DB utilities

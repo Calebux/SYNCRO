@@ -1,8 +1,8 @@
 import { parseSubscriptionEmail } from "./email-parser";
-import { generateProofHash, hashContent } from "../utils/proof-hashing";
+import { generateProofHash, hashContent } from "../../utils/proof-hashing";
 import { metadataExtractionOnly } from "./email-scanner";
 import type { RawScanResult } from "./email-scanner";
-import { ExternalServiceClient } from "../src/utils/external-service-client";
+import { ExternalServiceClient } from "../utils/external-service-client";
 
 const outlookClient = new ExternalServiceClient('outlook');
 const OUTLOOK_SCOPES = ["offline_access", "User.Read", "Mail.Read"];

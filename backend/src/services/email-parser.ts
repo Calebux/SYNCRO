@@ -1,5 +1,5 @@
-import { llmParser } from '../src/services/llm-parser';
-import { normalizeMerchant } from '../utils/merchant-normalizer';
+import { llmParser } from './llm-parser';
+import { normalizeMerchant } from '../../utils/merchant-normalizer';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

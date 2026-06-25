@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getInvoiceSignedUrl } from '@/backend/services/invoice.service'
+import { getInvoiceSignedUrl } from '@/backend/src/services/invoice.service'
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)

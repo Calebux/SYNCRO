@@ -13,7 +13,7 @@
  * is a machine-readable record of that intentional omission.
  */
 
-import logger from '../src/config/logger'
+import logger from '../config/logger'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 // ── Interfaces ────────────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@ import { webhookService } from "./webhook-service";
 import { referralService } from "./referral-service";
 import logger from "../config/logger";
 import { DatabaseTransaction } from "../utils/transaction";
-import SERVICE_CATEGORIES from "../../services/service-categories";
+import SERVICE_CATEGORIES from "./service-categories";
 import { validateCursor, encodeCursor } from "../utils/pagination";
 import type {
   Subscription,

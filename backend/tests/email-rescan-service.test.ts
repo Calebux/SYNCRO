@@ -2,7 +2,7 @@ import { emailRescanService } from '../src/services/email-rescan-service';
 import { supabase } from '../src/config/database';
 import { auditService } from '../src/services/audit-service';
 import { idempotencyService } from '../src/services/idempotency';
-import { parseSubscriptionEmailWithFallback } from '../services/email-parser';
+import { parseSubscriptionEmailWithFallback } from '../src/services/email-parser';
 
 jest.mock('../src/config/database', () => ({
   supabase: {
@@ -22,7 +22,7 @@ jest.mock('../src/services/idempotency', () => ({
   },
 }));
 
-jest.mock('../services/email-parser', () => ({
+jest.mock('../src/services/email-parser', () => ({
   parseSubscriptionEmailWithFallback: jest.fn(),
 }));
 

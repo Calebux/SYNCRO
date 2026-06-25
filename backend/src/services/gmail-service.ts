@@ -1,10 +1,10 @@
 import { google } from "googleapis";
 import type { Credentials } from "google-auth-library";
 import { parseSubscriptionEmail } from "./email-parser";
-import { generateProofHash, hashContent } from "../utils/proof-hashing";
+import { generateProofHash, hashContent } from "../../utils/proof-hashing";
 import { metadataExtractionOnly } from "./email-scanner";
 import type { RawScanResult } from "./email-scanner";
-import { EXTERNAL_SERVICE_POLICIES } from "../src/config/external-services";
+import { EXTERNAL_SERVICE_POLICIES } from "../config/external-services";
 
 const policy = EXTERNAL_SERVICE_POLICIES.gmail;
 const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"];

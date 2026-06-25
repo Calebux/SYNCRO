@@ -4,8 +4,8 @@ import { supabase } from '../config/database';
 import logger from '../config/logger';
 import { idempotencyService } from './idempotency';
 import { auditService } from './audit-service';
-import { parseSubscriptionEmailWithFallback } from '../../services/email-parser';
-import { refreshOutlookToken } from '../../services/outlook-service';
+import { parseSubscriptionEmailWithFallback } from './email-parser';
+import { refreshOutlookToken } from './outlook-service';
 
 export interface RescanOptions {
   userId: string;
