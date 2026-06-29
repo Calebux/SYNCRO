@@ -53,6 +53,21 @@ export interface CspViolationStats {
 }
 
 /**
+ * Browser extension URI prefixes that are known false positives
+ */
+const EXTENSION_PATTERNS = [
+    'chrome-extension://',
+    'moz-extension://',
+    'safari-extension://',
+    'ms-browser-extension://',
+];
+
+function isExtensionFalsePositive(blockedUri?: string): boolean {
+    if (!blockedUri) return false;
+    return EXTENSION_PATTERNS.some((p) => blockedUri.startsWith(p));
+}
+
+/**
  * Alert thresholds for CSP violations
  */
 const ALERT_THRESHOLDS = {
@@ -73,6 +88,11 @@ export async function persistCspViolation(
     report: CspViolationReport,
     context: CspViolationContext
 ): Promise<{ success: boolean; error?: string }> {
+    // Skip false positives from browser extensions before hitting the database
+    if (isExtensionFalsePositive(report['blocked-uri'])) {
+        return { success: true };
+    }
+
     const release = trackDbRequest();
 
     try {
