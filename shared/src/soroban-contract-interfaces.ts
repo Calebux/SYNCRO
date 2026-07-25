@@ -84,6 +84,28 @@ export const SOROBAN_CONTRACT_INTERFACES: SorobanContractInterface[] = [
       },
     ],
   },
+  {
+    contract: 'DeadMansSwitch',
+    source: 'contracts/contracts/dead_mans_switch/src/lib.rs',
+    functions: [
+      {
+        name: 'register_switch',
+        args: ['Address', 'U64', 'U64'],
+      },
+      {
+        name: 'heartbeat',
+        args: ['Address', 'U64'],
+      },
+      {
+        name: 'check_lapse',
+        args: ['U64'],
+      },
+      {
+        name: 'cancel_switch',
+        args: ['Address', 'U64'],
+      },
+    ],
+  },
 ];
 
 /** Lookup a function definition by contract name and Soroban method name. */

@@ -134,8 +134,8 @@ export function createAggregatedTeamProof(
   const aggregateMessage = {
     teamId,
     toolCounts: Object.fromEntries(
-      sortedTools.map(tool => [tool, subscriptionCounts.get(tool)])
-    ),
+      sortedTools.map(tool => [tool, subscriptionCounts.get(tool) ?? 0])
+    ) as Record<string, number>,
     timestamp: new Date().toISOString(),
     memberCount: memberPublicKeys.length,
   };
