@@ -10,7 +10,7 @@ const router = Router();
 // Strict JWT + role gate (admin only)
 router.use(createAdminLimiter());
 router.use(authenticate);
-router.use(requireRole('admin'));
+router.use(requireRole('admin', 'owner'));
 
 type PrivacyMetrics = {
   privacy_mode_enabled_rate_percent: number | null;

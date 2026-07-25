@@ -9,8 +9,10 @@ jest.mock('../src/config/logger', () => ({
 
 jest.mock('../src/middleware/rate-limit-factory', () => ({
   RateLimiterFactory: {
+    createAdminLimiter: () => (_req: unknown, _res: unknown, next: () => void) => next(),
     createCustomLimiter: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   },
+  createAdminLimiter: () => (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
 jest.mock('../src/services/audit-service', () => ({
@@ -56,7 +58,9 @@ jest.mock('../src/config/database', () => ({
     from: jest.fn(() => ({
       select: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
+      not: jest.fn().mockReturnThis(),
       order: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
       maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }),
       single: jest.fn().mockResolvedValue({ data: null, error: null }),
       insert: jest.fn().mockResolvedValue({ data: [], error: null }),
@@ -64,6 +68,15 @@ jest.mock('../src/config/database', () => ({
       upsert: jest.fn().mockReturnThis(),
     })),
     auth: { getUser: jest.fn() },
+  },
+}));
+
+jest.mock('../src/services/agent-wallet-rotation', () => ({
+  agentWalletRotationService: {
+    getAllStates: jest.fn().mockResolvedValue([]),
+    getHistory: jest.fn().mockResolvedValue([]),
+    rotateAll: jest.fn().mockResolvedValue([]),
+    triggerRotation: jest.fn().mockResolvedValue(null),
   },
 }));
 
@@ -95,6 +108,9 @@ import auditRoutes from '../src/routes/audit';
 import complianceRoutes from '../src/routes/compliance';
 import apiKeysRoutes from '../src/routes/api-keys';
 import webhookRoutes from '../src/routes/webhooks';
+import adminDeletionsRoutes from '../src/routes/admin-deletions';
+import privacyMetricsAdminRoutes from '../src/routes/admin/privacy-metrics';
+import agentWalletsRoutes from '../src/routes/agent-wallets';
 import { adminAuth } from '../src/middleware/admin';
 import { errorHandler } from '../src/middleware/errorHandler';
 
@@ -217,6 +233,103 @@ describe('Privileged route RBAC enforcement', () => {
     it('returns 403 for member role', async () => {
       const res = await request(app).get('/api/webhooks').set('x-test-role', 'member');
       expect(res.status).toBe(403);
+    });
+  });
+
+  describe('/api/admin/deletions routes', () => {
+    const app = createApp('/api/admin/deletions', adminDeletionsRoutes);
+
+    it('returns 401 without admin API key', async () => {
+      const res = await request(app).get('/api/admin/deletions');
+      expect(res.status).toBe(401);
+    });
+
+    it('returns 403 with invalid admin API key', async () => {
+      const res = await request(app)
+        .get('/api/admin/deletions')
+        .set('x-admin-api-key', 'invalid');
+      expect(res.status).toBe(403);
+    });
+
+    it('allows valid admin API key', async () => {
+      const res = await request(app)
+        .get('/api/admin/deletions')
+        .set('x-admin-api-key', process.env.ADMIN_API_KEY!);
+      expect(res.status).toBe(200);
+    });
+  });
+
+  describe('/api/admin/privacy-metrics routes (JWT role gate)', () => {
+    const app = createApp('/api/admin', privacyMetricsAdminRoutes);
+
+    it('returns 401 without authentication', async () => {
+      const res = await request(app).get('/api/admin/privacy-metrics');
+      expect(res.status).toBe(401);
+    });
+
+    it('returns 403 for non-admin role (member)', async () => {
+      const res = await request(app)
+        .get('/api/admin/privacy-metrics')
+        .set('x-test-role', 'member');
+      expect(res.status).toBe(403);
+    });
+
+    it('returns 403 for viewer role', async () => {
+      const res = await request(app)
+        .get('/api/admin/privacy-metrics')
+        .set('x-test-role', 'viewer');
+      expect(res.status).toBe(403);
+    });
+
+    it('allows admin role', async () => {
+      const res = await request(app)
+        .get('/api/admin/privacy-metrics')
+        .set('x-test-role', 'admin');
+      expect(res.status).toBe(200);
+    });
+
+    it('allows owner role', async () => {
+      const res = await request(app)
+        .get('/api/admin/privacy-metrics')
+        .set('x-test-role', 'owner');
+      expect(res.status).toBe(200);
+    });
+
+    it('returns 403 for non-admin on CSV export', async () => {
+      const res = await request(app)
+        .get('/api/admin/privacy-metrics.csv')
+        .set('x-test-role', 'member');
+      expect(res.status).toBe(403);
+    });
+
+    it('allows admin on CSV export', async () => {
+      const res = await request(app)
+        .get('/api/admin/privacy-metrics.csv')
+        .set('x-test-role', 'admin');
+      expect(res.status).toBe(200);
+    });
+  });
+
+  describe('/api/admin/agent-wallets routes', () => {
+    const app = createApp('/api/admin/agent-wallets', agentWalletsRoutes);
+
+    it('returns 401 without admin API key', async () => {
+      const res = await request(app).get('/api/admin/agent-wallets');
+      expect(res.status).toBe(401);
+    });
+
+    it('returns 403 with invalid admin API key', async () => {
+      const res = await request(app)
+        .get('/api/admin/agent-wallets')
+        .set('x-admin-api-key', 'invalid');
+      expect(res.status).toBe(403);
+    });
+
+    it('allows valid admin API key on GET', async () => {
+      const res = await request(app)
+        .get('/api/admin/agent-wallets')
+        .set('x-admin-api-key', process.env.ADMIN_API_KEY!);
+      expect(res.status).toBe(200);
     });
   });
 
