@@ -231,6 +231,7 @@ impl ContractUpgradeGovernance {
 
     pub fn set_guardians(env: Env, new_guardians: Vec<Address>) {
         Self::require_admin(&env);
+        Self::require_not_paused(&env);
         let count = new_guardians.len();
         if count < 2 || count > 3 { panic!(UpgradeError::InvalidArgument); }
         for i in 0..count {
@@ -404,6 +405,7 @@ impl ContractUpgradeGovernance {
     /// Cancel a proposal (admin only).
     pub fn cancel_proposal(env: Env, proposal_id: u64) {
         Self::require_admin(&env);
+        Self::require_not_paused(&env);
         let mut proposal: UpgradeProposal = env.storage().persistent()
             .get(&DataKey::Proposal(proposal_id)).expect("proposal not found");
         if proposal.state == ProposalState::Executed
@@ -419,6 +421,7 @@ impl ContractUpgradeGovernance {
     /// Set a custom timelock duration (admin only). Minimum 1 hour.
     pub fn set_timelock(env: Env, duration_seconds: u64) {
         Self::require_admin(&env);
+        Self::require_not_paused(&env);
         if duration_seconds < 3600 { panic!(UpgradeError::InvalidArgument); }
         env.storage().instance().set(&DataKey::TimelockOverride, &duration_seconds);
     }

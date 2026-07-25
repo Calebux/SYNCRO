@@ -70,6 +70,45 @@ async function checkEnvironment(): Promise<DependencyStatus> {
   }
 }
 
+async function checkHorizonRpc(): Promise<DependencyStatus> {
+  const rpcUrl = process.env.NEXT_PUBLIC_SOROBAN_RPC_URL
+  if (!rpcUrl) {
+    return {
+      name: 'horizon_rpc',
+      status: 'degraded' as any,
+      error: 'Soroban RPC not configured',
+    }
+  }
+
+  try {
+    const response = await fetch(rpcUrl.replace(/\/$/, '') + '/health', {
+      method: 'GET',
+      signal: AbortSignal.timeout(5000),
+    })
+    return {
+      name: 'horizon_rpc',
+      status: response.ok ? 'healthy' : 'unhealthy',
+      error: response.ok ? undefined : `HTTP ${response.status}`,
+    }
+  } catch (error) {
+    return {
+      name: 'horizon_rpc',
+      status: 'unhealthy',
+      error: error instanceof Error ? error.message : 'RPC unreachable',
+    }
+  }
+}
+
+async function checkFxProvider(): Promise<DependencyStatus> {
+  // Check if exchange rate configuration is available
+  const hasConfig = !!(process.env.NEXT_PUBLIC_EXCHANGE_RATE_API_KEY || process.env.EXCHANGE_RATE_TTL_MS)
+  return {
+    name: 'fx_provider',
+    status: hasConfig ? 'healthy' : ('degraded' as any),
+    error: hasConfig ? undefined : 'No FX provider configured — using fallback rates',
+  }
+}
+
 export async function GET() {
   const checks: DependencyStatus[] = []
 
@@ -78,6 +117,12 @@ export async function GET() {
 
   // Check database connection
   checks.push(await checkSupabase())
+
+  // Check Stellar Soroban RPC / Horizon
+  checks.push(await checkHorizonRpc())
+
+  // Check FX / exchange rate provider
+  checks.push(await checkFxProvider())
 
   const allHealthy = checks.every((check) => check.status === 'healthy')
   const status = allHealthy ? 'ready' : 'not_ready'

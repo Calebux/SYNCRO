@@ -109,3 +109,6 @@ backend/tests/**/*.js
 backend/tests/**/*.js.map
 backend/tests/**/*.d.ts
 backend/tests/**/*.d.ts.map
+
+# Somzilla issues specification file
+/somzilla.md

@@ -267,6 +267,9 @@ impl SubscriptionRenewalContract {
     /// Set the logging contract address. Admin only.
     pub fn set_logging_contract(env: Env, address: Address) {
         Self::require_admin(&env);
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
         env.storage()
             .instance()
             .set(&ContractKey::LoggingContract, &address);
@@ -357,6 +360,9 @@ impl SubscriptionRenewalContract {
         spending_cap: i128,
         sub_id: u64,
     ) {
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
         let mut integrity_data = soroban_sdk::Vec::<soroban_sdk::Val>::new(&env);
         integrity_data.push_back(merchant.into_val(&env));
         integrity_data.push_back(amount.into_val(&env));
@@ -434,6 +440,9 @@ impl SubscriptionRenewalContract {
 
     /// Explicitly cancel a subscription
     pub fn cancel_sub(env: Env, sub_id: u64) {
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
         let key = sub_id;
         let mut data: SubscriptionData = env
             .storage()
@@ -496,6 +505,9 @@ impl SubscriptionRenewalContract {
         max_spend: i128,
         expires_at: u32,
     ) {
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
         let sub_key = sub_id;
         let data: SubscriptionData = env
             .storage()
@@ -872,6 +884,9 @@ impl SubscriptionRenewalContract {
     /// Set a billing window for a subscription. Admin only.
     pub fn set_window(env: Env, sub_id: u64, billing_start: u64, billing_end: u64) {
         Self::require_admin(&env);
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
         if billing_start >= billing_end {
             panic!("Invalid window: start must be before end");
         }
@@ -898,6 +913,9 @@ impl SubscriptionRenewalContract {
     /// Set global spending cap for a user. Admin only.
     pub fn set_user_cap(env: Env, user: Address, cap: i128) {
         Self::require_admin(&env);
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
         env.storage()
             .persistent()
             .set(&UserCapKey::UserCap(user.clone()), &cap);

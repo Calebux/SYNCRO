@@ -14,6 +14,14 @@ jest.mock('../src/services/dependency-health-service', () => ({
   dependencyHealthService: {
     getLiveness: jest.fn(),
     getReadiness: jest.fn(),
+    checkDatabase: jest.fn(),
+    checkRedis: jest.fn(),
+    checkQueue: jest.fn(),
+    checkHorizonRpc: jest.fn(),
+    checkFxProvider: jest.fn(),
+    checkProviders: jest.fn(),
+    checkScheduler: jest.fn(),
+    checkAllDependencies: jest.fn(),
   },
 }));
 
@@ -85,6 +93,8 @@ describe('GET /health/ready', () => {
         { name: 'database', status: 'healthy', latency_ms: 5 },
         { name: 'redis', status: 'healthy', latency_ms: 2 },
         { name: 'queue', status: 'healthy', latency_ms: 1 },
+        { name: 'horizon_rpc', status: 'healthy', latency_ms: 3 },
+        { name: 'fx_provider', status: 'healthy', latency_ms: 2 },
         { name: 'providers', status: 'healthy', latency_ms: 0 },
         { name: 'scheduler', status: 'healthy' },
       ],
@@ -94,8 +104,10 @@ describe('GET /health/ready', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.status).toBe('ready');
-    expect(response.body.dependencies).toHaveLength(5);
+    expect(response.body.dependencies).toHaveLength(7);
     expect(response.body.dependencies.find((d: { name: string }) => d.name === 'scheduler')).toBeDefined();
+    expect(response.body.dependencies.find((d: { name: string }) => d.name === 'horizon_rpc')).toBeDefined();
+    expect(response.body.dependencies.find((d: { name: string }) => d.name === 'fx_provider')).toBeDefined();
   });
 
   it('returns 503 when a critical dependency is unhealthy', async () => {
