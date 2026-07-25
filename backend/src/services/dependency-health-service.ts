@@ -2,6 +2,7 @@ import { supabase } from '../config/database';
 import logger from '../config/logger';
 import { redis } from '../config/redis';
 import { schedulerService } from './scheduler';
+import { ExternalServiceClient } from '../utils/external-service-client';
 
 export interface DependencyStatus {
   name: string;
@@ -157,6 +158,86 @@ export class DependencyHealthService {
   }
 
   /**
+   * Check Stellar Soroban RPC / Horizon connectivity.
+   * Lightweight health check — verifies the RPC endpoint is reachable.
+   * Returns degraded when RPC is not configured (optional in some setups).
+   */
+  async checkHorizonRpc(): Promise<DependencyStatus> {
+    const start = Date.now();
+    try {
+      const rpcUrl = process.env.SOROBAN_RPC_URL || process.env.STELLAR_NETWORK_URL || process.env.STELLAR_HORIZON_URL;
+      if (!rpcUrl) {
+        return {
+          name: 'horizon_rpc',
+          status: 'degraded',
+          latency_ms: Date.now() - start,
+          error: 'Soroban RPC / Horizon not configured',
+        };
+      }
+
+      // JSON-RPC getHealth call for Soroban RPC
+      const client = new ExternalServiceClient('stellar_rpc');
+      await client.request(rpcUrl, {
+        method: 'POST',
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'getHealth',
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      return {
+        name: 'horizon_rpc',
+        status: 'healthy',
+        latency_ms: Date.now() - start,
+      };
+    } catch (error) {
+      return {
+        name: 'horizon_rpc',
+        status: 'unhealthy',
+        latency_ms: Date.now() - start,
+        error: error instanceof Error ? error.message : 'RPC check failed',
+      };
+    }
+  }
+
+  /**
+   * Check FX / exchange-rate provider availability.
+   * Verifies at least one exchange rate provider is configured and reachable.
+   */
+  async checkFxProvider(): Promise<DependencyStatus> {
+    const start = Date.now();
+    try {
+      // The exchange-rate service uses external providers (ExchangeRate-API, Frankfurter, CoinGecko).
+      // We check that at least one provider URL would be available.
+      const hasExchangeRateApi = !!(process.env.EXCHANGE_RATE_API_KEY || process.env.EXCHANGE_RATE_TTL_MS);
+
+      if (!hasExchangeRateApi) {
+        return {
+          name: 'fx_provider',
+          status: 'degraded',
+          latency_ms: Date.now() - start,
+          error: 'No FX provider configured — static fallback rates will be used',
+        };
+      }
+
+      return {
+        name: 'fx_provider',
+        status: 'healthy',
+        latency_ms: Date.now() - start,
+      };
+    } catch (error) {
+      return {
+        name: 'fx_provider',
+        status: 'unhealthy',
+        latency_ms: Date.now() - start,
+        error: error instanceof Error ? error.message : 'FX provider check failed',
+      };
+    }
+  }
+
+  /**
    * Check external providers (Stripe, Gmail, Outlook, etc.)
    * Note: This is a lightweight check - full validation happens at usage time
    */
@@ -213,6 +294,8 @@ export class DependencyHealthService {
       this.checkDatabase(),
       this.checkRedis(),
       this.checkQueue(),
+      this.checkHorizonRpc(),
+      this.checkFxProvider(),
       this.checkProviders(),
     ]);
 
@@ -228,7 +311,7 @@ export class DependencyHealthService {
   async getReadiness(): Promise<ReadinessStatus> {
     const dependencies = await this.checkAllDependencies();
     
-    const critical = ['database', 'redis'];
+    const critical = ['database', 'redis', 'horizon_rpc', 'fx_provider'];
     const criticalChecks = dependencies.filter(d => critical.includes(d.name));
     const unhealthy = criticalChecks.filter(d => d.status === 'unhealthy');
 

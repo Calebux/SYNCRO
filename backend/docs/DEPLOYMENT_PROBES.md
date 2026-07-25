@@ -113,13 +113,20 @@ livenessProbe:
 ```
 
 **Critical vs. Optional Dependencies**:
-- **Critical** (readiness blocks): Database, Redis
-- **Optional** (degraded allowed): Queue, Providers
+| Dependency | Type | Readiness Impact | Notes |
+|---|---|---|---|
+| `database` | Critical | Blocks readiness | Supabase/Postgres — must be reachable for any DB operation |
+| `redis` | Critical | Blocks readiness | Caching, queues, rate limiting — degraded if unconfigured |
+| `horizon_rpc` | Critical | Blocks readiness | Stellar Soroban RPC / Horizon — required for on-chain operations; degraded if not configured |
+| `fx_provider` | Critical | Blocks readiness | Exchange rate provider (ExchangeRate-API, Frankfurter, CoinGecko) — degraded if unconfigured (falls back to static rates) |
+| `queue` | Optional | Degraded only | Bull/Redis-based job queue — degraded when Redis is absent |
+| `providers` | Optional | Degraded only | Stripe, Gmail, Outlook, Telegram config presence |
+| `scheduler` | Optional | Degraded only | Background cron scheduler — degraded when no jobs registered |
 
 **Behavior**:
-- ✅ Checks critical dependencies (database, Redis)
+- ✅ Checks critical dependencies (database, Redis, Horizon RPC, FX provider)
 - ✅ Returns 503 if critical deps are unhealthy
-- ✅ Allows degraded state for non-critical services
+- ✅ Allows degraded state for non-critical services and unconfigured optional deps
 - ❌ Slightly higher latency than liveness probe
 
 **Deployment Use Case**:
@@ -320,7 +327,7 @@ const readiness = await dependencyHealthService.getReadiness();
 
 // Get individual dependency status
 const allDeps = await dependencyHealthService.checkAllDependencies();
-// includes: database, redis, queue, providers, scheduler
+// includes: database, redis, queue, horizon_rpc, fx_provider, providers, scheduler
 ```
 
 ### Adding New Dependency Checks
@@ -329,7 +336,7 @@ To add a new dependency check:
 
 1. Add a `check<Service>()` method to `DependencyHealthService`
 2. Include it in `checkAllDependencies()`
-3. Classify as critical or optional (only `database` and `redis` block readiness)
+3. Classify as critical or optional (critical deps: `database`, `redis`, `horizon_rpc`, `fx_provider` block readiness)
 4. Update this document with dependency details
 
 Example:

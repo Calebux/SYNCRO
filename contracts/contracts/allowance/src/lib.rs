@@ -196,6 +196,9 @@ impl AllowanceContract {
         absolute_cap: i128,
         period_length: u64,
     ) -> u64 {
+        if Self::is_paused(env.clone()) {
+            panic_with_error!(&env, AllowanceError::Paused);
+        }
         owner.require_auth();
 
         if owner == merchant {
@@ -258,6 +261,9 @@ impl AllowanceContract {
     /// Revoke an allowance, immediately blocking further pulls.
     /// Only the owner may revoke.
     pub fn revoke_allowance(env: Env, allowance_id: u64) {
+        if Self::is_paused(env.clone()) {
+            panic_with_error!(&env, AllowanceError::Paused);
+        }
         let mut allowance = Self::load(&env, allowance_id);
 
         allowance.owner.require_auth();
@@ -285,6 +291,9 @@ impl AllowanceContract {
     /// or in total, respectively), and the per-period cap may not exceed the
     /// absolute cap.
     pub fn update_caps(env: Env, allowance_id: u64, period_cap: i128, absolute_cap: i128) {
+        if Self::is_paused(env.clone()) {
+            panic_with_error!(&env, AllowanceError::Paused);
+        }
         let mut allowance = Self::load(&env, allowance_id);
         allowance.owner.require_auth();
 
