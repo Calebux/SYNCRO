@@ -31,6 +31,7 @@ export interface AnalyticsSummary {
     current_spend: number;
     percentage: number;
   };
+  potential_savings_monthly: number;
 }
 
 export interface Budget {

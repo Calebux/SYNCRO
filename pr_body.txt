@@ -1,0 +1,66 @@
+Closes #835
+Closes #862
+Ref #933
+
+## Summary
+
+Implements the ZK payment-proof circuit for on-chain privacy-preserving subscription verification (#835 / #933), and adds HD wallet derivation with configurable address rotation for all five pipeline agents (Scout, Ledger, Signal, Scribe, Executor) to prevent address clustering (#862).
+
+## Problem
+
+Previously each agent used a single permanent funded testnet wallet (e.g. `SCOUT_SECRET_KEY`). Any observer watching that one address could correlate all Scout transactions across all users indefinitely.
+
+## Solution
+
+### HD Wallet Derivation (`agent-hd-wallet.ts`)
+- Single BIP-39 mnemonic (`AGENT_MASTER_SEED`) stored as a secret — never logged or persisted
+- SLIP-0010 Ed25519 derivation path `m/<role_index>'/<address_index>'` so each agent's namespace is fully isolated
+- Deterministic: same seed + same indices always produce the same keypair (safe to re-derive without storing private keys)
+
+### Address Rotation Service (`agent-wallet-rotation.ts`)
+- Configurable via `AGENT_ROTATION_SCHEDULE`: `per-task` | `daily` (default) | `weekly` | `manual`
+- On rotation: derives next keypair, drains XLM from old address → new address via Stellar payment tx, persists new state to DB
+- Drain is non-fatal — rotation completes even if the on-chain drain fails (logged, null `drain_tx_hash`)
+- In-memory keypair cache for daily/weekly modes to avoid re-deriving on every request
+
+### Database Migration (`024_create_agent_wallet_tables.sql`)
+- `agent_wallet_rotations` — one row per agent, tracks `current_index`, `public_key`, `last_rotated_at`, `rotation_count`
+- `agent_wallet_history` — immutable append-only audit log of every address ever used, with drain tx hash
+- RLS: service_role only (no user-facing access)
+- `increment_rotation_count` stored function for atomic counter updates
+
+### Admin REST API (`GET/POST /api/admin/agent-wallets`)
+- `GET  /api/admin/agent-wallets` — list rotation state for all agents
+- `GET  /api/admin/agent-wallets/:agent` — state + full address history
+- `POST /api/admin/agent-wallets/rotate` — force-rotate all agents
+- `POST /api/admin/agent-wallets/:agent/rotate` — force-rotate one agent
+- Protected by existing `adminAuth` middleware + rate limiter
+
+### Scheduler Integration (`scheduler.ts`)
+- Daily cron at `00:05 UTC` — checks and rotates if schedule is due
+- Weekly cron on Mondays at `00:10 UTC` — belt-and-suspenders for weekly schedule
+
+### Config
+- `AGENT_MASTER_SEED` (optional string) — BIP-39 mnemonic
+- `AGENT_ROTATION_SCHEDULE` (enum, default: `daily`)
+- Both documented in `.env.example` with generation instructions
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `backend/src/services/agent-hd-wallet.ts` | New — SLIP-0010 HD derivation |
+| `backend/src/services/agent-wallet-rotation.ts` | New — rotation lifecycle management |
+| `backend/src/routes/agent-wallets.ts` | New — admin REST endpoints |
+| `backend/scripts/024_create_agent_wallet_tables.sql` | New — DB migration |
+| `backend/src/services/scheduler.ts` | Modified — wired rotation cron jobs |
+| `backend/src/index.ts` | Modified — registered admin route |
+| `backend/src/config/env.ts` | Modified — added new env vars to schema |
+| `backend/\.env.example` | Modified — documented new vars |
+| `backend/tests/agent-hd-wallet.test.ts` | New — unit tests for HD derivation |
+| `backend/tests/agent-wallet-rotation.test.ts` | New — unit tests for rotation service |
+
+## Testing
+
+- `agent-hd-wallet.test.ts`: determinism, per-agent isolation, error cases (missing seed, invalid mnemonic, bad index)
+- `agent-wallet-rotation.test.ts`: schedule resolution, rotation-due logic, force rotation, genesis bootstrap, DB error handling, per-task always-rotates behaviour

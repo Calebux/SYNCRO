@@ -7,11 +7,15 @@ members = [
   "contracts/virtual-card",
   "contracts/escrow",
   "contracts/agent-registry",
-  "contracts/dead_mans_switch",
+  "contracts/zk-payment-verifier",
+  "contracts/payment-channel",
+  "contracts/contract-upgrade",
+  "contracts/allowance",
 ]
 
 [workspace.dependencies]
 soroban-sdk = "26"
+proptest = "1.6"
 
 [profile.release]
 opt-level = "z"

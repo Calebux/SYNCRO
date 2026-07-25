@@ -28,6 +28,8 @@ export interface RenewalEvent {
   explorerUrl?: string;
   channel?: string;
   notes?: string;
+  /** Id of an invoice PDF stored in Supabase Storage, if one is available. */
+  invoiceId?: string;
 }
 
 export interface RenewalHistoryResponse {

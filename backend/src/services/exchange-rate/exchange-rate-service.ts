@@ -1,13 +1,15 @@
 import logger from '../../config/logger';
+import { supabase } from '../../config/database';
 import { STATIC_RATES_USD } from './static-rates';
+import { RedisCacheAdapter } from './redis-cache';
 import type { ExchangeRateProvider, CachedRates, ExchangeRateResponse } from './types';
 
 /**
  * How long a freshly-fetched result is considered "live" before the service
- * will attempt to re-fetch from providers. Defaults to 1 hour.
+ * will attempt to re-fetch from providers. Defaults to 15 minutes.
  * Override via EXCHANGE_RATE_TTL_MS environment variable.
  */
-const DEFAULT_TTL_MS = 3_600_000; // 1 hour
+const DEFAULT_TTL_MS = 900_000; // 15 minutes
 
 function getTtl(): number {
   const env = process.env.EXCHANGE_RATE_TTL_MS;
@@ -27,23 +29,29 @@ type FetchResult =
   | { source: 'stale-cache'; rates: Record<string, number> }
   | { source: 'static-fallback'; rates: Record<string, number> };
 
+const REDIS_KEY_PREFIX = 'exchange-rates:';
+
 export class ExchangeRateService {
   private cache = new Map<string, CachedRates>();
   private readonly ttl: number;
   private providers: ExchangeRateProvider[];
+  private redisCache: RedisCacheAdapter;
 
   constructor(providers: ExchangeRateProvider[], ttlMs?: number) {
     this.providers = providers;
     this.ttl = ttlMs ?? getTtl();
+    // TTL in seconds for Redis (same duration as in-memory TTL)
+    this.redisCache = new RedisCacheAdapter(Math.floor(this.ttl / 1000));
   }
 
   /**
    * Returns exchange rates for the given base currency.
    * Fetch order:
-   *   1. In-memory cache (if within TTL)
-   *   2. Live providers (tried in order; partial results accepted)
-   *   3. Stale in-memory cache (if all providers fail but a prior entry exists)
-   *   4. Static hardcoded rates (last resort)
+   *   1. In-memory cache (fastest path, within TTL)
+   *   2. Redis cache (shared between instances, within TTL)
+   *   3. Live providers (tried in order; partial results accepted)
+   *   4. Stale in-memory cache (if all providers fail but a prior entry exists)
+   *   5. Static hardcoded rates (last resort)
    */
   async getRates(baseCurrency: string): Promise<Record<string, number>> {
     const result = await this.getRatesWithSource(baseCurrency);
@@ -74,12 +82,19 @@ export class ExchangeRateService {
     const result = await this.getRatesWithSource(baseCurrency);
     const cached = this.cache.get(baseCurrency);
 
+    // `cachedAt` reflects the last *successful live fetch*. When rates came from
+    // the static fallback (no cache entry ever existed) there is no meaningful
+    // timestamp, so we report null rather than `now` — reporting `now` would
+    // falsely signal fresh data and defeat the whole staleness mechanism.
+    const hasCacheEntry = cached !== undefined;
+    const cachedAt = hasCacheEntry ? new Date(cached!.fetchedAt).toISOString() : null;
+    const ageMs = hasCacheEntry ? Date.now() - cached!.fetchedAt : null;
+
     return {
       base: baseCurrency,
       rates: result.rates,
-      cachedAt: cached
-        ? new Date(cached.fetchedAt).toISOString()
-        : new Date().toISOString(),
+      cachedAt,
+      ageMs,
       stale: result.source !== 'live',
       source: result.source,
     };
@@ -96,6 +111,7 @@ export class ExchangeRateService {
   // ── Private helpers ────────────────────────────────────────────────────────
 
   private async getRatesWithSource(baseCurrency: string): Promise<FetchResult> {
+    // 1. In-memory cache (fastest path)
     const cached = this.cache.get(baseCurrency);
     const isFresh = cached !== undefined && Date.now() - cached.fetchedAt < this.ttl;
 
@@ -103,14 +119,33 @@ export class ExchangeRateService {
       return { source: 'live', rates: cached!.rates };
     }
 
+    // 2. Redis cache (shared between instances)
+    const redisRates = await this.loadFromRedis(baseCurrency);
+    if (redisRates) {
+      // Warm the in-memory cache from Redis so subsequent calls skip Redis
+      this.cache.set(baseCurrency, { rates: redisRates, fetchedAt: Date.now() });
+      return { source: 'live', rates: redisRates };
+    }
+
+    // 3. Live providers
     try {
       const allRates = await this.fetchFromProviders(baseCurrency);
-      this.cache.set(baseCurrency, { rates: allRates, fetchedAt: Date.now() });
+      const fetchedAt = Date.now();
+      this.cache.set(baseCurrency, { rates: allRates, fetchedAt });
+
+      // Store in Redis (non-blocking)
+      this.redisCache
+        .set(REDIS_KEY_PREFIX + baseCurrency, JSON.stringify({ rates: allRates, fetchedAt }))
+        .catch(() => undefined);
+
+      // Persist to historical table (non-blocking)
+      this.storeHistoricalRate(baseCurrency, allRates, 'live').catch(() => undefined);
+
       return { source: 'live', rates: allRates };
     } catch (error) {
       logger.error('All exchange rate providers failed', { baseCurrency, error });
 
-      // Fallback 1: stale cache
+      // Fallback 1: stale in-memory cache
       if (cached) {
         logger.warn('Returning stale cached rates', {
           baseCurrency,
@@ -124,6 +159,52 @@ export class ExchangeRateService {
         baseCurrency,
       });
       return { source: 'static-fallback', rates: this.buildStaticRates(baseCurrency) };
+    }
+  }
+
+  /**
+   * Attempt to load cached rates from Redis. Returns null on any failure or
+   * if no key exists. The Redis TTL already enforces freshness — if the key
+   * is present the data is still within the configured window.
+   */
+  private async loadFromRedis(baseCurrency: string): Promise<Record<string, number> | null> {
+    try {
+      const raw = await this.redisCache.get(REDIS_KEY_PREFIX + baseCurrency);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { rates: Record<string, number>; fetchedAt: number };
+      if (parsed && typeof parsed.rates === 'object') {
+        return parsed.rates;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Persist rate snapshot to `exchange_rate_history` for analytics.
+   * Failures are swallowed — this is a best-effort write.
+   */
+  private async storeHistoricalRate(
+    baseCurrency: string,
+    rates: Record<string, number>,
+    source: string,
+  ): Promise<void> {
+    try {
+      const { error } = await supabase.from('exchange_rate_history').insert({
+        base_currency: baseCurrency,
+        rates,
+        source,
+        fetched_at: new Date().toISOString(),
+      });
+      if (error) {
+        logger.warn('Failed to store historical exchange rate', {
+          baseCurrency,
+          error: error.message,
+        });
+      }
+    } catch (err) {
+      logger.warn('Failed to store historical exchange rate', { baseCurrency, err });
     }
   }
 

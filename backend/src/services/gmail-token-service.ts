@@ -14,6 +14,7 @@
 import { encrypt, decrypt } from '../utils/encryption';
 import { supabase } from '../config/database';
 import { ExternalServiceClient } from '../utils/external-service-client';
+import logger from '../config/logger';
 
 type TokenResponse = {
   access_token: string;
@@ -105,11 +106,11 @@ export class GmailTokenService {
         }).catch(err => {
           // If revocation fails, we still proceed with local purging
           // to ensure account is disconnected from our side
-          console.warn('Google token revocation failed:', err.message);
+          logger.warn('Google token revocation failed', { error: err?.message });
         });
       }
     } catch (revokeError) {
-      console.warn('Gmail disconnect revocation attempt failed:', revokeError);
+      logger.warn('Gmail disconnect revocation attempt failed', { error: revokeError });
     }
 
     // 2. Purge local credentials

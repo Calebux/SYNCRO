@@ -14,6 +14,7 @@ import {
 import { retryWithBackoff, getErrorMessage } from "@/lib/network-utils";
 import { validateSubscriptionData } from "@/lib/validation";
 import { checkDuplicate } from "@/lib/subscription-utils";
+import { useMutationQueue } from "@/hooks/use-mutation-queue";
 
 const SUBS_KEY = ["subscriptions"] as const;
 
@@ -67,6 +68,7 @@ export function useSubscriptions({
           lastUsedAt: dbSub.last_used_at || dbSub.lastUsedAt,
           hasApiKey: dbSub.has_api_key || dbSub.hasApiKey || false,
           isTrial: dbSub.is_trial || dbSub.isTrial || false,
+          is_encrypted: dbSub.is_encrypted ?? false,
           trialEndsAt: dbSub.trial_ends_at || dbSub.trialEndsAt,
           priceAfterTrial: dbSub.price_after_trial || dbSub.priceAfterTrial,
           source: dbSub.source || "manual",
@@ -162,6 +164,7 @@ export function useSubscriptions({
         editedFields: [],
         pricingType: "fixed",
         billingCycle: "monthly",
+        is_encrypted: false,
         _optimistic: true,
       };
       const previous = subscriptions;
@@ -240,6 +243,8 @@ export function useSubscriptions({
     },
   });
 
+  const { isOnline, queueMutation } = useMutationQueue();
+
   const handleAddSubscription = useCallback(
     async (newSub: any) => {
       const validation = validateSubscriptionData(newSub);
@@ -256,18 +261,79 @@ export function useSubscriptions({
         onUpgradePlan();
         return;
       }
+      // If offline, queue the mutation
+      if (!isOnline) {
+        queueMutation("create", newSub).catch(() => {
+          // Mutation queued for later sync
+        });
+        onToast({
+          title: "Offline mode",
+          description: "Subscription will be created when you're back online",
+          variant: "default",
+        });
+        return;
+      }
       addMutation.mutate(newSub);
     },
-    [subscriptions, maxSubscriptions, onToast, onUpgradePlan, addMutation]
+    [subscriptions, maxSubscriptions, onToast, onUpgradePlan, addMutation, isOnline, queueMutation]
   );
 
   const handleDeleteSubscription = useCallback(
-    (id: number) => { deleteMutation.mutate(id); },
-    [deleteMutation]
+    async (id: number) => {
+      // If offline, queue the mutation
+      if (!isOnline) {
+        queueMutation("delete", { id }).catch(() => {});
+        onToast({
+          title: "Offline mode",
+          description: "Subscription will be deleted when you're back online",
+          variant: "default",
+        });
+        const previous = subscriptions;
+        updateSubscriptions(subscriptions.filter((s: any) => s.id !== id));
+        return;
+      }
+      deleteMutation.mutate(id);
+    },
+    [deleteMutation, isOnline, queueMutation, onToast, subscriptions, updateSubscriptions]
   );
 
   const handleEditSubscription = useCallback(
     async (id: number, updates: any) => {
+      // If offline, queue the mutation
+      if (!isOnline) {
+        queueMutation("update", { id, ...updates }).catch(() => {});
+        onToast({
+          title: "Offline mode",
+          description: "Subscription will be updated when you're back online",
+          variant: "default",
+        });
+        const updatedSubs = subscriptions.map((sub: any) => {
+          if (sub.id !== id) return sub;
+
+          const editedFields = Object.keys(updates).filter(
+            (key: string) =>
+              updates[key as keyof typeof updates] !== (sub as any)[key]
+          );
+
+          return {
+            ...sub,
+            ...updates,
+            manually_edited: true,
+            edited_fields: [
+              ...new Set([
+                ...(sub.edited_fields || sub.editedFields || []),
+                ...editedFields,
+              ]),
+            ],
+            source: sub.source === "auto_detected" ? "manual" : sub.source,
+          };
+        });
+
+        updateSubscriptions(updatedSubs);
+        addToHistory(updatedSubs);
+        return;
+      }
+
       try {
         const dbUpdates = {
           name: updates.name,
@@ -324,11 +390,22 @@ export function useSubscriptions({
         });
       }
     },
-    [subscriptions, updateSubscriptions, addToHistory, onToast]
+    [subscriptions, updateSubscriptions, addToHistory, onToast, isOnline, queueMutation]
   );
 
   const handleCancelSubscription = useCallback(
     async (id: number) => {
+      // If offline, queue the mutation
+      if (!isOnline) {
+        queueMutation("update", { id, status: "cancelled", cancelled_at: new Date().toISOString() }).catch(() => {});
+        onToast({
+          title: "Offline mode",
+          description: "Subscription will be cancelled when you're back online",
+          variant: "default",
+        });
+        return;
+      }
+
       const sub = subscriptions.find((s) => s.id === id);
       if (!sub) return;
 
@@ -371,106 +448,131 @@ export function useSubscriptions({
         });
       }
     },
-    [subscriptions, updateSubscriptions, addToHistory, onToast]
+    [subscriptions, updateSubscriptions, addToHistory, onToast, isOnline, queueMutation]
   );
 
 const handlePauseSubscription = useCallback(
-  async (id: number, resumeDate?: Date) => {
-    const sub = subscriptions.find((s) => s.id === id);
-    if (!sub) return;
-
-    try {
-      const resumeAt = resumeDate
-        ? resumeDate.toISOString()
-        : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-
-      const response = await fetch(`/api/subscriptions/${id}/pause`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resumeAt, reason: "User requested pause" }),
-      });
-
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || "Failed to pause subscription");
+    async (id: number, resumeDate?: Date) => {
+      // If offline, queue the mutation
+      if (!isOnline) {
+        const resumeAt = resumeDate
+          ? resumeDate.toISOString()
+          : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        queueMutation("update", { id, status: "paused", paused_at: new Date().toISOString(), resumes_at: resumeAt }).catch(() => {});
+        onToast({
+          title: "Offline mode",
+          description: "Subscription will be paused when you're back online",
+          variant: "default",
+        });
+        return;
       }
 
-      const updatedSubs = subscriptions.map((s) =>
-        s.id === id
-          ? {
-              ...s,
-              status: "paused",
-              pausedAt: new Date().toISOString(),
-              resumesAt: resumeAt,
-            }
-          : s
-      );
+      const sub = subscriptions.find((s) => s.id === id);
+      if (!sub) return;
 
-      updateSubscriptions(updatedSubs);
-      addToHistory(updatedSubs);
+      try {
+        const resumeAt = resumeDate
+          ? resumeDate.toISOString()
+          : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
-      onToast({
-        title: "Subscription paused",
-        description: "The subscription has been paused",
-        variant: "success",
-      });
-    } catch (error) {
-      onToast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to pause subscription",
-        variant: "error",
-      });
-    }
-  },
-  [subscriptions, updateSubscriptions, addToHistory, onToast]
-);
+        const response = await fetch(`/api/subscriptions/${id}/pause`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ resumeAt, reason: "User requested pause" }),
+        });
 
-const handleResumeSubscription = useCallback(
-  async (id: number) => {
-    const sub = subscriptions.find((s) => s.id === id);
-    if (!sub) return;
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error || "Failed to pause subscription");
+        }
 
-    try {
-      const response = await fetch(`/api/subscriptions/${id}/resume`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
+        const updatedSubs = subscriptions.map((s) =>
+          s.id === id
+            ? {
+                ...s,
+                status: "paused",
+                pausedAt: new Date().toISOString(),
+                resumesAt: resumeAt,
+              }
+            : s
+        );
 
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || "Failed to resume subscription");
+        updateSubscriptions(updatedSubs);
+        addToHistory(updatedSubs);
+
+        onToast({
+          title: "Subscription paused",
+          description: "The subscription has been paused",
+          variant: "success",
+        });
+      } catch (error) {
+        onToast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to pause subscription",
+          variant: "error",
+        });
+      }
+    },
+    [subscriptions, updateSubscriptions, addToHistory, onToast, isOnline, queueMutation]
+  );
+
+  const handleResumeSubscription = useCallback(
+    async (id: number) => {
+      // If offline, queue the mutation
+      if (!isOnline) {
+        queueMutation("update", { id, status: "active" }).catch(() => {});
+        onToast({
+          title: "Offline mode",
+          description: "Subscription will be resumed when you're back online",
+          variant: "default",
+        });
+        return;
       }
 
-      const updatedSubs = subscriptions.map((s) =>
-        s.id === id
-          ? {
-              ...s,
-              status: "active",
-              pausedAt: undefined,
-              resumesAt: undefined,
-            }
-          : s
-      );
+      const sub = subscriptions.find((s) => s.id === id);
+      if (!sub) return;
 
-      updateSubscriptions(updatedSubs);
-      addToHistory(updatedSubs);
+      try {
+        const response = await fetch(`/api/subscriptions/${id}/resume`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
 
-      onToast({
-        title: "Subscription resumed",
-        description: "The subscription has been resumed",
-        variant: "success",
-      });
-    } catch (error) {
-      onToast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to resume subscription",
-        variant: "error",
-      });
-    }
-  },
-  [subscriptions, updateSubscriptions, addToHistory, onToast]
-);
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error || "Failed to resume subscription");
+        }
+
+        const updatedSubs = subscriptions.map((s) =>
+          s.id === id
+            ? {
+                ...s,
+                status: "active",
+                pausedAt: undefined,
+                resumesAt: undefined,
+              }
+            : s
+        );
+
+        updateSubscriptions(updatedSubs);
+        addToHistory(updatedSubs);
+
+        onToast({
+          title: "Subscription resumed",
+          description: "The subscription has been resumed",
+          variant: "success",
+        });
+      } catch (error) {
+        onToast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to resume subscription",
+          variant: "error",
+        });
+      }
+    },
+    [subscriptions, updateSubscriptions, addToHistory, onToast, isOnline, queueMutation]
+  );
 
   const handleToggleSubscriptionSelect = useCallback((id: number) => {
     setSelectedSubscriptions((prev) => {
@@ -492,6 +594,8 @@ const handleResumeSubscription = useCallback(
     selectedSubscription,
     canUndo,
     canRedo,
+    isOnline,
+    pendingMutations: [],
     setSelectedSubscription,
     setBulkActionLoading,
     setSelectedSubscriptions,

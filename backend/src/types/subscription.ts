@@ -31,6 +31,9 @@ export interface Subscription {
   last_interaction_at: string | null;
   last_renewal_attempt_at?: string | null;
   failure_count?: number;
+  stealth_index: number;
+  stealth_address: string | null;
+  is_encrypted: boolean;
 }
 
 export interface SubscriptionCreateInput {
@@ -105,6 +108,7 @@ export interface SubscriptionUpdateAllowlist {
 export interface ListSubscriptionsOptions {
   status?: Subscription["status"];
   category?: string;
+  encryptedOnly?: boolean;
   limit?: number;
   offset?: number;
   cursor?: string;

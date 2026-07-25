@@ -1,5 +1,5 @@
 use soroban_sdk::{
-    contract, contractevent, contractimpl, contracttype, vec, xdr::ToXdr, Address, BytesN, Env,
+    contract, contractevent, contractimpl, contracttype, vec, xdr::ToXdr, Address, Bytes, BytesN, Env,
     String, Vec,
 };
 
@@ -11,6 +11,7 @@ pub struct SubscriptionMetadata {
     pub expected_amount: i128,
     pub next_renewal: u64,
     pub is_active: bool,
+    pub encrypted_blob: Bytes,
 }
 
 #[contracttype]
@@ -30,6 +31,7 @@ pub struct SubscriptionCreatedEvent {
     pub billing_interval: u64,
     pub expected_amount: i128,
     pub next_renewal: u64,
+    pub encrypted_blob: Bytes,
 }
 
 #[contractevent]
@@ -41,6 +43,7 @@ pub struct SubscriptionUpdatedEvent {
     pub billing_interval: u64,
     pub expected_amount: i128,
     pub next_renewal: u64,
+    pub encrypted_blob: Bytes,
 }
 
 #[contractevent]
@@ -64,6 +67,7 @@ impl SubscriptionRegistry {
         billing_interval: u64,
         expected_amount: i128,
         next_renewal: u64,
+        encrypted_blob: Bytes,
     ) -> BytesN<32> {
         user.require_auth();
         if billing_interval == 0 {
@@ -116,6 +120,7 @@ impl SubscriptionRegistry {
             expected_amount,
             next_renewal,
             is_active: true,
+            encrypted_blob: encrypted_blob.clone(),
         };
         env.storage()
             .instance()
@@ -133,6 +138,7 @@ impl SubscriptionRegistry {
             billing_interval,
             expected_amount,
             next_renewal,
+            encrypted_blob: encrypted_blob.clone(),
         }
         .publish(&env);
 
@@ -148,6 +154,7 @@ impl SubscriptionRegistry {
         billing_interval: Option<u64>,
         expected_amount: Option<i128>,
         next_renewal: Option<u64>,
+        encrypted_blob: Option<Bytes>,
     ) {
         user.require_auth();
         let mut metadata: SubscriptionMetadata = env
@@ -181,6 +188,9 @@ impl SubscriptionRegistry {
             }
             metadata.next_renewal = nr;
         }
+        if let Some(eb) = encrypted_blob {
+            metadata.encrypted_blob = eb;
+        }
 
         env.storage()
             .instance()
@@ -193,6 +203,7 @@ impl SubscriptionRegistry {
             billing_interval: metadata.billing_interval,
             expected_amount: metadata.expected_amount,
             next_renewal: metadata.next_renewal,
+            encrypted_blob: metadata.encrypted_blob.clone(),
         }
         .publish(&env);
     }

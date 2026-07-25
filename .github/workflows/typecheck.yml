@@ -23,7 +23,7 @@ jobs:
       root: ${{ steps.filter.outputs.root }}
       force_full_run: ${{ github.event.inputs.force_full_run || 'false' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
         id: filter
         with:
@@ -55,26 +55,46 @@ jobs:
       matrix:
         package: [backend, client, sdk, shared, root]
 
-    if: |
-      needs.changes.outputs.force_full_run == 'true' ||
-      (matrix.package == 'backend' && needs.changes.outputs.backend == 'true') ||
-      (matrix.package == 'client' && needs.changes.outputs.client == 'true') ||
-      (matrix.package == 'sdk' && needs.changes.outputs.sdk == 'true') ||
-      (matrix.package == 'shared' && needs.changes.outputs.shared == 'true') ||
-      (matrix.package == 'root' && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.client == 'true' || needs.changes.outputs.sdk == 'true' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.root == 'true'))
-
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
+        if: |
+          needs.changes.outputs.force_full_run == 'true' ||
+          (matrix.package == 'backend' && needs.changes.outputs.backend == 'true') ||
+          (matrix.package == 'client' && needs.changes.outputs.client == 'true') ||
+          (matrix.package == 'sdk' && needs.changes.outputs.sdk == 'true') ||
+          (matrix.package == 'shared' && needs.changes.outputs.shared == 'true') ||
+          (matrix.package == 'root' && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.client == 'true' || needs.changes.outputs.sdk == 'true' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.root == 'true'))
 
       - uses: actions/setup-node@v6
+        if: |
+          needs.changes.outputs.force_full_run == 'true' ||
+          (matrix.package == 'backend' && needs.changes.outputs.backend == 'true') ||
+          (matrix.package == 'client' && needs.changes.outputs.client == 'true') ||
+          (matrix.package == 'sdk' && needs.changes.outputs.sdk == 'true') ||
+          (matrix.package == 'shared' && needs.changes.outputs.shared == 'true') ||
+          (matrix.package == 'root' && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.client == 'true' || needs.changes.outputs.sdk == 'true' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.root == 'true'))
         with:
           node-version: "20"
           cache: "npm"
 
       - name: Install dependencies
+        if: |
+          needs.changes.outputs.force_full_run == 'true' ||
+          (matrix.package == 'backend' && needs.changes.outputs.backend == 'true') ||
+          (matrix.package == 'client' && needs.changes.outputs.client == 'true') ||
+          (matrix.package == 'sdk' && needs.changes.outputs.sdk == 'true') ||
+          (matrix.package == 'shared' && needs.changes.outputs.shared == 'true') ||
+          (matrix.package == 'root' && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.client == 'true' || needs.changes.outputs.sdk == 'true' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.root == 'true'))
         run: npm install
 
       - name: Run Typecheck
+        if: |
+          needs.changes.outputs.force_full_run == 'true' ||
+          (matrix.package == 'backend' && needs.changes.outputs.backend == 'true') ||
+          (matrix.package == 'client' && needs.changes.outputs.client == 'true') ||
+          (matrix.package == 'sdk' && needs.changes.outputs.sdk == 'true') ||
+          (matrix.package == 'shared' && needs.changes.outputs.shared == 'true') ||
+          (matrix.package == 'root' && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.client == 'true' || needs.changes.outputs.sdk == 'true' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.root == 'true'))
         run: |
           if [ "${{ matrix.package }}" = "root" ]; then
             npm run typecheck:root

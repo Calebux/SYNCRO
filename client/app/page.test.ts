@@ -13,12 +13,15 @@ type SupabaseQuery = {
 }
 
 function makeQuery(result: any) {
-  const query = {
+  const resolved = Promise.resolve(result)
+  const query: any = {
     select: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
-    order: vi.fn().mockResolvedValue(result),
+    order: vi.fn().mockReturnThis(),
+    then: resolved.then.bind(resolved),
+    catch: resolved.catch.bind(resolved),
+    finally: resolved.finally.bind(resolved),
   }
-
   return query as unknown as SupabaseQuery
 }
 
@@ -216,6 +219,56 @@ describe('getInitialData — partial failures', () => {
       annualImpact: 60,
       percentChange: 50,
       changeDate: '2024-02-01T12:00:00Z',
+    })
+  })
+
+  it('returns real consolidation suggestions when subscriptions share a flaggable category', async () => {
+    const subscriptionsResult = {
+      data: [
+        {
+          id: 1, name: 'ChatGPT Plus', category: 'ai_tools', price: 20,
+          icon: '🤖', renews_in: 30, status: 'active', color: '#000000',
+          renewal_url: null, tags: [], date_added: '2024-01-01T00:00:00Z',
+          email_account_id: null, last_used_at: null, has_api_key: false,
+          is_trial: false, trial_ends_at: null, price_after_trial: null,
+          source: 'manual', manually_edited: false, edited_fields: [],
+          pricing_type: 'fixed', billing_cycle: 'monthly', cancelled_at: null,
+          active_until: null, paused_at: null, resumes_at: null,
+          price_range: null, price_history: [],
+        },
+        {
+          id: 2, name: 'Gemini Advanced', category: 'ai_tools', price: 20,
+          icon: '✨', renews_in: 15, status: 'active', color: '#000000',
+          renewal_url: null, tags: [], date_added: '2024-01-01T00:00:00Z',
+          email_account_id: null, last_used_at: null, has_api_key: false,
+          is_trial: false, trial_ends_at: null, price_after_trial: null,
+          source: 'manual', manually_edited: false, edited_fields: [],
+          pricing_type: 'fixed', billing_cycle: 'monthly', cancelled_at: null,
+          active_until: null, paused_at: null, resumes_at: null,
+          price_range: null, price_history: [],
+        },
+      ],
+      error: null,
+    }
+
+    const fromMock = vi.fn((table: string) => {
+      if (table === 'subscriptions') return makeQuery(subscriptionsResult)
+      return makeQuery({ data: [], error: null })
+    })
+
+    vi.mocked(createClient).mockResolvedValue({
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: mockUser }, error: null }) },
+      from: fromMock,
+    } as any)
+
+    const result = await getInitialData()
+
+    expect(result.consolidationSuggestions).toHaveLength(1)
+    expect(result.consolidationSuggestions[0]).toMatchObject({
+      id: 'consolidation_ai_tools',
+      category: 'ai tools',
+      services: expect.arrayContaining(['ChatGPT Plus', 'Gemini Advanced']),
+      suggestedBundle: 'one AI subscription',
     })
   })
 })

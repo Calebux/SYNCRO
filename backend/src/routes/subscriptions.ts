@@ -94,9 +94,14 @@ router.use(authenticate);
  * GET /api/subscriptions
  * List user's subscriptions
  */
+router.get('/encryption-summary', async (req: AuthenticatedRequest, res: Response) => {
+  const summary = await subscriptionService.getSubscriptionEncryptionSummary(req.user!.id);
+  res.json({ success: true, data: summary });
+});
+
 router.get('/', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { status, category, cursor } = req.query;
+    const { status, category, cursor, encrypted_only } = req.query;
     const pagination = validateRequest(cursorPaginationSchema, {
       limit: req.query.limit,
       cursor: req.query.cursor,
@@ -105,6 +110,7 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
     const result = await subscriptionService.listSubscriptions(req.user!.id, {
       status: status as any,
       category: category as string,
+      encryptedOnly: encrypted_only === 'true',
       limit: pagination.limit,
       cursor: pagination.cursor,
     });
@@ -125,6 +131,11 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
     }
     throw error;
   }
+});
+
+router.post('/encrypt-all', async (req: AuthenticatedRequest, res: Response) => {
+  const result = await subscriptionService.encryptAllUnencryptedSubscriptions(req.user!.id);
+  res.json({ success: true, data: { encryptedCount: result.count } });
 });
 
 /**

@@ -5,6 +5,7 @@ import {
   getAtomicWalletGiftCardLink,
   normalizeGiftCardProvider,
   getGiftCardProviderFromSubscription,
+  stripTrackingParams,
 } from "./atomic-wallet"
 
 describe("Atomic Wallet gift card deep links", () => {
@@ -42,5 +43,41 @@ describe("Atomic Wallet gift card deep links", () => {
     expect(getAtomicWalletGiftCardLink(10, "Visa")).toBe(
       "https://atomicwallet.io/buy-gift-cards?amount=10&provider=visa",
     )
+  })
+})
+
+describe("stripTrackingParams", () => {
+  it("strips UTM parameters from URLs", () => {
+    const url = "https://example.com/page?amount=25&utm_source=app&utm_medium=referral&utm_campaign=test"
+    const stripped = stripTrackingParams(url)
+    expect(stripped).toBe("https://example.com/page?amount=25")
+  })
+
+  it("strips fbclid and gclid parameters", () => {
+    const url = "https://example.com/?item=1&fbclid=abc123&gclid=def456"
+    const stripped = stripTrackingParams(url)
+    expect(stripped).toBe("https://example.com/?item=1")
+  })
+
+  it("strips ref and source parameters", () => {
+    const url = "https://example.com/?amount=10&ref=syncro&source=app"
+    const stripped = stripTrackingParams(url)
+    expect(stripped).toBe("https://example.com/?amount=10")
+  })
+
+  it("preserves non-tracking parameters", () => {
+    const url = "https://example.com/buy?amount=25&provider=amazon"
+    const stripped = stripTrackingParams(url)
+    expect(stripped).toBe("https://example.com/buy?amount=25&provider=amazon")
+  })
+
+  it("returns original string for non-URL inputs", () => {
+    const url = "not-a-url"
+    expect(stripTrackingParams(url)).toBe("not-a-url")
+  })
+
+  it("handles URLs with no query params", () => {
+    const url = "https://example.com/page"
+    expect(stripTrackingParams(url)).toBe("https://example.com/page")
   })
 })

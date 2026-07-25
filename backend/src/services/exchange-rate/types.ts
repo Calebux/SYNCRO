@@ -12,8 +12,17 @@ export interface CachedRates {
 export interface ExchangeRateResponse {
   base: string;
   rates: Record<string, number>;
-  /** ISO timestamp of when the rates were last successfully fetched from a live provider. */
-  cachedAt: string;
+  /**
+   * ISO timestamp of when the rates were last successfully fetched from a live
+   * provider, or `null` when no live fetch has ever succeeded (static fallback).
+   */
+  cachedAt: string | null;
+  /**
+   * Age of the returned rates in milliseconds (time since the last successful
+   * live fetch), or `null` when no live fetch has ever succeeded. Consumers can
+   * use this to decide whether a staleness warning should be shown.
+   */
+  ageMs: number | null;
   /**
    * True when the returned rates did not come from a fresh live fetch.
    * This happens when:

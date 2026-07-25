@@ -25,8 +25,8 @@ bash scripts/deploy.sh testnet
 ```
 
 This will:
-1. Build all three contracts to WASM
-2. Deploy `SubscriptionRegistry`, `SubscriptionRenewal`, and `SubscriptionLogging`
+1. Build all five contracts to WASM
+2. Deploy `SubscriptionRegistry`, `SubscriptionRenewal`, `SubscriptionLogging`, `ZkPaymentVerifier`, and `ContractUpgradeGovernance`
 3. Run `init.sh` to initialize each contract and link the logging contract to the renewal contract
 4. Print the contract addresses and save them to `scripts/deployed-addresses-testnet.env`
 
@@ -65,13 +65,17 @@ bash contracts/scripts/init.sh mainnet
 
 ## Contract Upgrade Procedure
 
-Soroban contracts are immutable once deployed — upgrades require deploying a new contract instance and migrating state, or using an upgradeable proxy pattern.
+Soroban contracts are upgraded using the `ContractUpgradeGovernance` contract, which implements a secure multi-sig governance process with timelock and rollback.
 
-1. Deploy the new contract version using `deploy.sh`
-2. Run `init.sh` to initialize the new instance
-3. Update backend env vars with the new contract addresses (see below)
-4. Migrate any on-chain state if required (contract-specific)
-5. Decommission the old contract by removing references from the backend
+See [Contract Upgrade Runbook](../docs/ops/contract-upgrade-runbook.md) for the full upgrade procedure.
+
+The upgrade process:
+1. Build new WASM and compute its SHA-256 hash
+2. A guardian proposes the upgrade via `propose_upgrade()`
+3. 2-of-3 guardians approve via `approve_upgrade()`
+4. A 48-hour timelock period begins (configurable)
+5. After timelock expires, execute via `execute_upgrade()` then deploy new WASM
+6. Rollback is available via `rollback_upgrade()` if needed
 
 ---
 

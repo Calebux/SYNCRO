@@ -3,24 +3,59 @@ import { supabase } from '../config/database';
 import logger from '../config/logger';
 import { buildDigestEmailHtml, buildDigestEmailText } from './digest-template';
 import type { MonthlyDigestSummary, DigestAuditRecord } from '../types/digest';
+import { secretProvider } from './secret-provider';
+
+export interface DigestAuditInput {
+  userId:       string;
+  digestType:   'monthly' | 'test';
+  periodLabel:  string;
+  status:       'sent' | 'failed' | 'skipped';
+  errorMessage: string | null;
+}
+
+export interface DigestSendRequest {
+  recipientEmail: string;
+  summary:        MonthlyDigestSummary;
+  digestType?:    'monthly' | 'test';
+}
+
+export interface DigestSendResult {
+  userId:  string;
+  success: boolean;
+  error?:  string;
+}
+
+/** How many digest emails to have in flight at once during a batch run. */
+const SEND_CONCURRENCY = 5;
 
 export class DigestEmailService {
-  private transporter: nodemailer.Transporter;
+  private transporter: nodemailer.Transporter | null = null;
   private fromEmail: string;
   private dashboardUrl: string;
 
   constructor() {
-    this.fromEmail   = process.env.EMAIL_FROM     ?? 'noreply@synchro.app';
+    this.fromEmail    = process.env.EMAIL_FROM    ?? 'noreply@synchro.app';
     this.dashboardUrl = process.env.FRONTEND_URL  ?? 'https://app.syncro.ai';
+  }
+
+  private async getTransporter(): Promise<nodemailer.Transporter> {
+    if (this.transporter) {
+      return this.transporter;
+    }
 
     if (process.env.SMTP_HOST) {
+      const password =
+        (await secretProvider.getSecret('SMTP_PASSWORD')) ||
+        (await secretProvider.getSecret('SMTP_PASS')) ||
+        '';
+
       this.transporter = nodemailer.createTransport({
         host:   process.env.SMTP_HOST,
         port:   parseInt(process.env.SMTP_PORT ?? '587'),
         secure: process.env.SMTP_SECURE === 'true',
         auth: {
-          user: process.env.SMTP_USER     ?? '',
-          pass: process.env.SMTP_PASSWORD ?? '',
+          user: process.env.SMTP_USER ?? '',
+          pass: password,
         },
       });
     } else {
@@ -28,20 +63,23 @@ export class DigestEmailService {
       this.transporter = nodemailer.createTransport({ jsonTransport: true });
       logger.warn('DigestEmailService: SMTP not configured, using mock transporter.');
     }
+    return this.transporter;
   }
 
   /**
-   * Send the monthly digest email to a user and record the result in the audit log.
+   * Deliver one digest email. Returns the outcome without touching the audit
+   * log, so callers can decide whether to record it one-by-one or in a batch.
    */
-  async sendMonthlyDigest(
+  private async deliver(
     recipientEmail: string,
     summary: MonthlyDigestSummary,
-    digestType: 'monthly' | 'test' = 'monthly',
+    digestType: 'monthly' | 'test',
   ): Promise<{ success: boolean; error?: string }> {
     const subject = `Your SYNCRO Monthly Summary — ${summary.periodLabel}`;
 
     try {
-      const info = await this.transporter.sendMail({
+      const transporter = await this.getTransporter();
+      const info = await transporter.sendMail({
         from:    this.fromEmail,
         to:      recipientEmail,
         subject,
@@ -56,48 +94,95 @@ export class DigestEmailService {
         digestType,
       });
 
-      await this.writeAuditRecord({
-        userId:       summary.userId,
-        digestType,
-        periodLabel:  summary.periodLabel,
-        status:       'sent',
-        errorMessage: null,
-      });
-
       return { success: true };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.error(`Failed to send monthly digest to ${recipientEmail}:`, err);
-
-      await this.writeAuditRecord({
-        userId:       summary.userId,
-        digestType,
-        periodLabel:  summary.periodLabel,
-        status:       'failed',
-        errorMessage: message,
-      });
-
       return { success: false, error: message };
     }
   }
 
+  /**
+   * Send the monthly digest email to a user and record the result in the audit log.
+   */
+  async sendMonthlyDigest(
+    recipientEmail: string,
+    summary: MonthlyDigestSummary,
+    digestType: 'monthly' | 'test' = 'monthly',
+  ): Promise<{ success: boolean; error?: string }> {
+    const outcome = await this.deliver(recipientEmail, summary, digestType);
+
+    await this.writeAuditRecords([
+      {
+        userId:       summary.userId,
+        digestType,
+        periodLabel:  summary.periodLabel,
+        status:       outcome.success ? 'sent' : 'failed',
+        errorMessage: outcome.error ?? null,
+      },
+    ]);
+
+    return outcome;
+  }
+
+  /**
+   * Send digests for many users, writing all audit rows in a single insert
+   * (issue #1095).
+   *
+   * The per-user path wrote one `digest_audit_log` row per send, so a digest run
+   * for N users cost N inserts on top of the sends themselves. Batching leaves
+   * exactly one audit write per call.
+   */
+  async sendMonthlyDigestBatch(requests: readonly DigestSendRequest[]): Promise<DigestSendResult[]> {
+    if (requests.length === 0) return [];
+
+    const results: DigestSendResult[] = new Array(requests.length);
+    const audits: DigestAuditInput[] = new Array(requests.length);
+
+    // Bounded concurrency — SMTP providers throttle aggressive parallel sends.
+    let cursor = 0;
+    const worker = async (): Promise<void> => {
+      while (cursor < requests.length) {
+        const index = cursor++;
+        const { recipientEmail, summary, digestType = 'monthly' } = requests[index];
+        const outcome = await this.deliver(recipientEmail, summary, digestType);
+
+        results[index] = { userId: summary.userId, ...outcome };
+        audits[index] = {
+          userId:       summary.userId,
+          digestType,
+          periodLabel:  summary.periodLabel,
+          status:       outcome.success ? 'sent' : 'failed',
+          errorMessage: outcome.error ?? null,
+        };
+      }
+    };
+
+    await Promise.all(
+      Array.from({ length: Math.min(SEND_CONCURRENCY, requests.length) }, worker),
+    );
+
+    await this.writeAuditRecords(audits);
+
+    return results;
+  }
+
   // ─── Audit ────────────────────────────────────────────────────────────────
 
-  private async writeAuditRecord(record: {
-    userId:       string;
-    digestType:   'monthly' | 'test';
-    periodLabel:  string;
-    status:       'sent' | 'failed' | 'skipped';
-    errorMessage: string | null;
-  }): Promise<void> {
-    const { error } = await supabase.from('digest_audit_log').insert({
-      user_id:       record.userId,
-      digest_type:   record.digestType,
-      period_label:  record.periodLabel,
-      status:        record.status,
-      error_message: record.errorMessage,
-      sent_at:       new Date().toISOString(),
-    });
+  /** Write one or many digest audit rows in a single insert. */
+  async writeAuditRecords(records: readonly DigestAuditInput[]): Promise<void> {
+    if (records.length === 0) return;
+
+    const { error } = await supabase.from('digest_audit_log').insert(
+      records.map((record) => ({
+        user_id:       record.userId,
+        digest_type:   record.digestType,
+        period_label:  record.periodLabel,
+        status:        record.status,
+        error_message: record.errorMessage,
+        sent_at:       new Date().toISOString(),
+      })),
+    );
 
     if (error) {
       logger.error('Failed to write digest audit record:', error);

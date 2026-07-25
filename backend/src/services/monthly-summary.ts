@@ -1,52 +1,55 @@
 import { supabase } from "../config/database";
 import type { MonthlyDigestSummary } from "../types/digest";
+import { uniqueIds } from "../utils/db-query-metrics";
 
-export async function buildMonthlySummary(
+interface UserRow {
+  id: string;
+  email: string | null;
+}
+
+interface ProfileRow {
+  id: string;
+  currency: string | null;
+}
+
+interface SubscriptionRow {
+  user_id: string;
+  price: number | null;
+}
+
+interface Period {
+  periodMonth: number;
+  periodYear: number;
+  periodLabel: string;
+}
+
+function currentPeriod(now = new Date()): Period {
+  return {
+    periodMonth: now.getMonth() + 1,
+    periodYear: now.getFullYear(),
+    periodLabel: now.toLocaleString("default", {
+      month: "long",
+      year: "numeric",
+    }),
+  };
+}
+
+function composeSummary(
   userId: string,
-): Promise<MonthlyDigestSummary> {
-  const now = new Date();
-
-  const periodMonth = now.getMonth() + 1;
-  const periodYear = now.getFullYear();
-  const periodLabel = now.toLocaleString("default", {
-    month: "long",
-    year: "numeric",
-  });
-
-  // get user
-  const { data: user } = await supabase
-    .from("users")
-    .select("email")
-    .eq("id", userId)
-    .single();
-
-  // get user profile for display currency
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("currency")
-    .eq("id", userId)
-    .single();
-
-  const displayCurrency = profile?.currency || "USD";
-
-  // get subscriptions
-  const { data: subscriptions } = await supabase
-    .from("subscriptions")
-    .select("*")
-    .eq("user_id", userId);
-
-  const totalMonthlySpend =
-    subscriptions?.reduce((sum, s) => sum + (s.price ?? 0), 0) ?? 0;
-
+  userEmail: string,
+  displayCurrency: string,
+  totalMonthlySpend: number,
+  period: Period,
+): MonthlyDigestSummary {
   return {
     userId,
-    userEmail: user?.email ?? "",
+    userEmail,
 
     generatedAt: new Date().toISOString(),
 
-    periodMonth,
-    periodYear,
-    periodLabel,
+    periodMonth: period.periodMonth,
+    periodYear: period.periodYear,
+    periodLabel: period.periodLabel,
 
     totalMonthlySpend,
 
@@ -66,4 +69,74 @@ export async function buildMonthlySummary(
 
     currency: displayCurrency,
   };
+}
+
+/**
+ * Build monthly digest summaries for many users using a fixed number of
+ * queries (issue #1095).
+ *
+ * The per-user builder needed three round-trips each (users, profiles,
+ * subscriptions), so composing a digest run for N users cost 3N queries. This
+ * batches all three lookups with `.in(...)` filters and fans the rows back out
+ * in memory, so the cost is three queries no matter how many users are passed.
+ *
+ * Callers are expected to page their user lists (see
+ * `DigestService.runMonthlyDigest`) so the `.in(...)` filters stay a sane size.
+ */
+export async function buildMonthlySummaries(
+  userIds: readonly string[],
+): Promise<Map<string, MonthlyDigestSummary>> {
+  const summaries = new Map<string, MonthlyDigestSummary>();
+  const ids = uniqueIds(userIds);
+  if (ids.length === 0) return summaries;
+
+  const period = currentPeriod();
+
+  // Three batched round-trips, issued in parallel.
+  const [usersRes, profilesRes, subsRes] = await Promise.all([
+    supabase.from("users").select("id, email").in("id", ids),
+    supabase.from("profiles").select("id, currency").in("id", ids),
+    supabase.from("subscriptions").select("user_id, price").in("user_id", ids),
+  ]);
+
+  const emailByUser = new Map<string, string>();
+  for (const row of (usersRes.data ?? []) as UserRow[]) {
+    emailByUser.set(row.id, row.email ?? "");
+  }
+
+  const currencyByUser = new Map<string, string>();
+  for (const row of (profilesRes.data ?? []) as ProfileRow[]) {
+    currencyByUser.set(row.id, row.currency || "USD");
+  }
+
+  const spendByUser = new Map<string, number>();
+  for (const row of (subsRes.data ?? []) as SubscriptionRow[]) {
+    if (!row.user_id) continue;
+    spendByUser.set(row.user_id, (spendByUser.get(row.user_id) ?? 0) + (row.price ?? 0));
+  }
+
+  for (const userId of ids) {
+    summaries.set(
+      userId,
+      composeSummary(
+        userId,
+        emailByUser.get(userId) ?? "",
+        currencyByUser.get(userId) ?? "USD",
+        spendByUser.get(userId) ?? 0,
+        period,
+      ),
+    );
+  }
+
+  return summaries;
+}
+
+export async function buildMonthlySummary(
+  userId: string,
+): Promise<MonthlyDigestSummary> {
+  const summaries = await buildMonthlySummaries([userId]);
+  return (
+    summaries.get(userId) ??
+    composeSummary(userId, "", "USD", 0, currentPeriod())
+  );
 }

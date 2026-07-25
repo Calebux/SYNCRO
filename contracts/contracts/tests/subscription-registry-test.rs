@@ -1,4 +1,4 @@
-use soroban_sdk::{testutils::Address as _, Address, BytesN, Env, String};
+use soroban_sdk::{testutils::Address as _, Address, Bytes, BytesN, Env, String};
 use subscription_registry::{SubscriptionRegistry, SubscriptionRegistryClient};
 
 #[test]
@@ -14,6 +14,7 @@ fn test_create_subscription() {
     let billing_interval = 2592000u64;
     let expected_amount = 1599i128;
     let next_renewal = 1735689600u64;
+    let encrypted_blob = Bytes::from_slice(&env, &[1u8, 2, 3, 4, 5]);
 
     let subscription_id = client.create_subscription(
         &user,
@@ -21,6 +22,7 @@ fn test_create_subscription() {
         &billing_interval,
         &expected_amount,
         &next_renewal,
+        &encrypted_blob,
     );
 
     // Verify subscription metadata was stored correctly
@@ -30,6 +32,7 @@ fn test_create_subscription() {
     assert_eq!(metadata.expected_amount, expected_amount);
     assert_eq!(metadata.next_renewal, next_renewal);
     assert!(metadata.is_active);
+    assert_eq!(metadata.encrypted_blob, encrypted_blob);
 
     // Verify subscription is mapped to user
     let user_subs = client.get_user_subscriptions(&user);
@@ -53,6 +56,7 @@ fn test_create_multiple_subscriptions() {
         &2592000u64,
         &1599i128,
         &1735689600u64,
+        &Bytes::from_slice(&env, &[1u8, 2, 3]),
     );
 
     let sub2_id = client.create_subscription(
@@ -61,6 +65,7 @@ fn test_create_multiple_subscriptions() {
         &2592000u64,
         &999i128,
         &1735689600u64,
+        &Bytes::from_slice(&env, &[4u8, 5, 6]),
     );
 
     let sub3_id = client.create_subscription(
@@ -69,6 +74,7 @@ fn test_create_multiple_subscriptions() {
         &2592000u64,
         &799i128,
         &1735689600u64,
+        &Bytes::from_slice(&env, &[7u8, 8, 9]),
     );
 
     // Verify all subscriptions are associated with the user
@@ -88,17 +94,20 @@ fn test_update_subscription() {
     let client = SubscriptionRegistryClient::new(&env, &contract_id);
 
     let user = Address::generate(&env);
+    let encrypted_blob = Bytes::from_slice(&env, &[1u8, 2, 3, 4, 5]);
     let subscription_id = client.create_subscription(
         &user,
         &String::from_str(&env, "netflix"),
         &2592000u64,
         &1599i128,
         &1735689600u64,
+        &encrypted_blob,
     );
 
     // Update amount and renewal date
     let new_amount = 1799i128;
     let new_renewal = 1738281600u64;
+    let new_encrypted_blob = Bytes::from_slice(&env, &[10u8, 11, 12]);
     client.update_subscription(
         &subscription_id,
         &user,
@@ -106,12 +115,14 @@ fn test_update_subscription() {
         &None,
         &Some(new_amount),
         &Some(new_renewal),
+        &Some(new_encrypted_blob),
     );
 
     // Verify updates were applied
     let metadata = client.get_subscription(&subscription_id).unwrap();
     assert_eq!(metadata.expected_amount, new_amount);
     assert_eq!(metadata.next_renewal, new_renewal);
+    assert_eq!(metadata.encrypted_blob, new_encrypted_blob);
 }
 
 #[test]
@@ -123,12 +134,14 @@ fn test_cancel_subscription() {
     let client = SubscriptionRegistryClient::new(&env, &contract_id);
 
     let user = Address::generate(&env);
+    let encrypted_blob = Bytes::from_slice(&env, &[1u8, 2, 3]);
     let subscription_id = client.create_subscription(
         &user,
         &String::from_str(&env, "netflix"),
         &2592000u64,
         &1599i128,
         &1735689600u64,
+        &encrypted_blob,
     );
 
     client.cancel_subscription(&subscription_id, &user);
@@ -154,6 +167,7 @@ fn test_create_subscription_invalid_billing_interval() {
         &0u64,
         &1599i128,
         &1735689600u64,
+        &Bytes::from_slice(&env, &[1u8, 2, 3]),
     );
 }
 
@@ -173,6 +187,7 @@ fn test_create_subscription_negative_amount() {
         &2592000u64,
         &-100i128,
         &1735689600u64,
+        &Bytes::from_slice(&env, &[1u8, 2, 3]),
     );
 }
 
@@ -188,7 +203,7 @@ fn test_update_nonexistent_subscription() {
     let user = Address::generate(&env);
     let fake_id = BytesN::from_array(&env, &[0u8; 32]);
 
-    client.update_subscription(&fake_id, &user, &None, &None, &Some(1999i128), &None);
+    client.update_subscription(&fake_id, &user, &None, &None, &Some(1999i128), &None, &None);
 }
 
 #[test]
@@ -201,12 +216,14 @@ fn test_cancel_already_cancelled_subscription() {
     let client = SubscriptionRegistryClient::new(&env, &contract_id);
 
     let user = Address::generate(&env);
+    let encrypted_blob = Bytes::from_slice(&env, &[1u8, 2, 3]);
     let subscription_id = client.create_subscription(
         &user,
         &String::from_str(&env, "netflix"),
         &2592000u64,
         &1599i128,
         &1735689600u64,
+        &encrypted_blob,
     );
 
     client.cancel_subscription(&subscription_id, &user);
@@ -223,12 +240,14 @@ fn test_update_cancelled_subscription() {
     let client = SubscriptionRegistryClient::new(&env, &contract_id);
 
     let user = Address::generate(&env);
+    let encrypted_blob = Bytes::from_slice(&env, &[1u8, 2, 3]);
     let subscription_id = client.create_subscription(
         &user,
         &String::from_str(&env, "netflix"),
         &2592000u64,
         &1599i128,
         &1735689600u64,
+        &encrypted_blob,
     );
 
     client.cancel_subscription(&subscription_id, &user);
@@ -238,6 +257,7 @@ fn test_update_cancelled_subscription() {
         &None,
         &None,
         &Some(1999i128),
+        &None,
         &None,
     );
 }
@@ -272,6 +292,7 @@ fn test_multiple_users_independent() {
         &2592000u64,
         &1599i128,
         &1735689600u64,
+        &Bytes::from_slice(&env, &[1u8, 2, 3]),
     );
 
     let sub2_id = client.create_subscription(
@@ -280,6 +301,7 @@ fn test_multiple_users_independent() {
         &2592000u64,
         &999i128,
         &1735689600u64,
+        &Bytes::from_slice(&env, &[4u8, 5, 6]),
     );
 
     // Verify users have separate subscription lists
@@ -308,6 +330,7 @@ fn test_subscription_id_uniqueness() {
         &2592000u64,
         &1599i128,
         &1735689600u64,
+        &Bytes::from_slice(&env, &[1u8, 2, 3]),
     );
     let sub2_id = client.create_subscription(
         &user,
@@ -315,6 +338,7 @@ fn test_subscription_id_uniqueness() {
         &2592000u64,
         &999i128,
         &1735689600u64,
+        &Bytes::from_slice(&env, &[4u8, 5, 6]),
     );
     let sub3_id = client.create_subscription(
         &user,
@@ -322,6 +346,7 @@ fn test_subscription_id_uniqueness() {
         &2592000u64,
         &799i128,
         &1735689600u64,
+        &Bytes::from_slice(&env, &[7u8, 8, 9]),
     );
 
     // Verify all subscription IDs are unique
@@ -347,6 +372,7 @@ fn test_create_duplicate_subscription_fails() {
         &2592000u64,
         &1599i128,
         &1735689600u64,
+        &Bytes::from_slice(&env, &[1u8, 2, 3]),
     );
 
     // This second one should panic
@@ -356,6 +382,7 @@ fn test_create_duplicate_subscription_fails() {
         &2592000u64,
         &1599i128,
         &1735689600u64,
+        &Bytes::from_slice(&env, &[4u8, 5, 6]),
     );
 }
 
@@ -368,12 +395,14 @@ fn test_update_subscription_unauthorized() {
     let client = SubscriptionRegistryClient::new(&env, &contract_id);
 
     let user = Address::generate(&env);
+    let encrypted_blob = Bytes::from_slice(&env, &[1u8, 2, 3]);
     let subscription_id = client.create_subscription(
         &user,
         &String::from_str(&env, "netflix"),
         &2592000u64,
         &1599i128,
         &1735689600u64,
+        &encrypted_blob,
     );
 
     // Clear mock auths to simulate unauthorized user
@@ -386,6 +415,7 @@ fn test_update_subscription_unauthorized() {
         &None,
         &None,
         &Some(1999i128),
+        &None,
         &None,
     );
 }

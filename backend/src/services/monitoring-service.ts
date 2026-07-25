@@ -2,6 +2,9 @@ import { supabase, monitorPool, PoolMetrics } from '../config/database';
 import logger from '../config/logger';
 import { ExternalServiceClient, ServiceMetrics } from '../utils/external-service-client';
 import { apiLatencyService, EndpointLatencyMetrics } from './api-latency-service';
+import { redisDistributedLock, LockMetricsSnapshot } from '../lib/redis-lock';
+import { renewalDeadLetterService } from './renewal-dead-letter-service';
+import { queryCacheService, QueryCacheMetrics } from './query-cache-service';
 import { normalizeToMonthlyAmount } from '@syncro/shared/subscription-math';
 
 // ─── Existing interfaces ────────────────────────────────────────────────────
@@ -108,6 +111,16 @@ export interface FailedItemsResult {
     limit: number;
     offset: number;
     items: FailedItem[];
+}
+
+export interface RenewalLockMetrics {
+    redis_locks: LockMetricsSnapshot;
+    dead_letter: {
+        total: number;
+        last_24h: number;
+        last_7d: number;
+    };
+    generated_at: string;
 }
 
 // ─── Service class ───────────────────────────────────────────────────────────
@@ -657,6 +670,36 @@ export class MonitoringService {
      */
     async getApiLatencyMetrics(): Promise<EndpointLatencyMetrics[]> {
         return apiLatencyService.getLatencyMetrics();
+    }
+
+    /**
+     * Renewal distributed-lock metrics for the ops dashboard (Issue #962).
+     */
+    async getRenewalLockMetrics(): Promise<RenewalLockMetrics> {
+        const [redisLocks, deadLetter] = await Promise.all([
+            redisDistributedLock.getMetrics(),
+            renewalDeadLetterService.getDeadLetterStats(),
+        ]);
+
+        return {
+            redis_locks: redisLocks,
+            dead_letter: deadLetter,
+            generated_at: new Date().toISOString(),
+        };
+    }
+
+    /**
+     * Query cache hit/miss metrics (Issue #941).
+     */
+    async getQueryCacheMetrics(): Promise<QueryCacheMetrics & { hit_rate_pct: number }> {
+        const metrics = await queryCacheService.getMetrics();
+        const total = metrics.hits + metrics.misses;
+        const hitRate = total > 0 ? parseFloat(((metrics.hits / total) * 100).toFixed(2)) : 0;
+
+        return {
+            ...metrics,
+            hit_rate_pct: hitRate,
+        };
     }
 }
 

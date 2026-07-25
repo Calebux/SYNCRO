@@ -11,6 +11,8 @@ import {
   FileText,
   Loader2,
 } from "lucide-react"
+import { useUserSettings } from "@/components/providers/user-settings-provider"
+import { encryptMetadata } from "@syncro/shared/crypto"
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -77,6 +79,34 @@ function StatusBadge({ status }: { status: RowStatus }) {
   )
 }
 
+// ─── CSV Parsing Helper ────────────────────────────────────────────────────
+
+function parseCSV(text: string): { headers: string[]; records: Record<string, string>[] } {
+  const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n")
+  if (lines.length < 1) return { headers: [], records: [] }
+
+  const headers = lines[0]
+    .split(",")
+    .map((h) => h.replace(/^\uFEFF/, "").trim())
+
+  if (lines.length < 2) return { headers, records: [] }
+
+  const records: Record<string, string>[] = []
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (!line) continue
+    const values = line.split(",")
+    const row: Record<string, string> = {}
+    headers.forEach((h, idx) => {
+      row[h] = (values[idx] ?? "").trim()
+    })
+    records.push(row)
+  }
+
+  return { headers, records }
+}
+
 // ─── Main component ──────────────────────────────────────────────────────
 
 export default function CSVImportModal({
@@ -84,6 +114,7 @@ export default function CSVImportModal({
   onImportComplete,
   darkMode,
 }: CSVImportModalProps) {
+  const { settings } = useUserSettings()
   const [step, setStep] = useState<Step>("upload")
   const [dragging, setDragging] = useState(false)
   const [file, setFile] = useState<File | null>(null)
@@ -96,14 +127,15 @@ export default function CSVImportModal({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const [csvData, setCsvData] = useState<{ text: string; parsed: ReturnType<typeof parseCSV> } | null>(null)
 
-  // ── Styles ──
+  // ─── Styles ───
   const card = `${darkMode ? "bg-[#2D3748] text-[#F9F6F2]" : "bg-white text-[#1E2A35]"} rounded-2xl shadow-2xl max-w-3xl w-full overflow-hidden max-h-[90vh] flex flex-col`
   const inputCls = `${darkMode ? "bg-[#1E2A35] border-[#374151] text-white" : "bg-white border-gray-200 text-gray-900"}`
   const btnSecondary = `px-4 py-2 border rounded-lg text-sm font-medium transition-colors ${darkMode ? "border-[#374151] text-gray-300 hover:border-[#FFD166]" : "border-gray-300 text-gray-700 hover:border-[#1E2A35]"}`
 
-  // ── File handling ──
-  const handleFile = useCallback((f: File) => {
+  // ─── File handling ───
+  const handleFile = useCallback(async (f: File) => {
     if (!f.name.endsWith(".csv")) {
       setError("Only CSV files are accepted.")
       return
@@ -114,6 +146,11 @@ export default function CSVImportModal({
     }
     setFile(f)
     setError(null)
+    
+    // Parse CSV immediately for privacy mode
+    const text = await f.text()
+    const parsed = parseCSV(text)
+    setCsvData({ text, parsed })
   }, [])
 
   const handleDrop = (e: any) => {
@@ -123,16 +160,25 @@ export default function CSVImportModal({
     if (f) handleFile(f)
   }
 
-  // ── Preview ──
+  // ─── Preview ───
   const handleUploadOrMapping = async (currentMappings?: Record<string, string>) => {
-    if (!file) return
+    if (!file || !csvData) return
     setLoading(true)
     setError(null)
     try {
       const form = new FormData()
-      form.append("file", file)
-      if (currentMappings) {
-        form.append("mappings", JSON.stringify(currentMappings))
+
+      if (settings.privacyModeEnabled && settings.encryptionKey) {
+        // Privacy mode: encrypt data before sending
+        const encryptedData = await encryptMetadata(csvData.text, settings.encryptionKey)
+        form.append("encrypted", JSON.stringify(encryptedData))
+        form.append("mappings", JSON.stringify(currentMappings || {}))
+      } else {
+        // Normal mode: send raw CSV
+        form.append("file", file)
+        if (currentMappings) {
+          form.append("mappings", JSON.stringify(currentMappings))
+        }
       }
 
       const res = await fetch("/api/subscriptions/import", {
@@ -151,7 +197,7 @@ export default function CSVImportModal({
         const initialMappings: Record<string, string> = {}
         const fields = ["name", "price", "currency", "billing_cycle", "next_renewal", "category", "renewal_url"]
         fields.forEach(f => {
-          const match = json.data.headers.find((h: string) => h.toLowerCase() === f.toLowerCase() || h.toLowerCase() === f.replace("_", " ").toLowerCase())
+          const match = (json.data.headers || csvData.parsed.headers).find((h: string) => h.toLowerCase() === f.toLowerCase() || h.toLowerCase() === f.replace("_", " ").toLowerCase())
           if (match) initialMappings[f] = match
         })
         setMappings(initialMappings)
@@ -168,19 +214,28 @@ export default function CSVImportModal({
     }
   }
 
-  // ── Preview (now calls the shared helper) ──
+  // ─── Preview (now calls the shared helper) ───
   const handlePreview = () => handleUploadOrMapping(mappings)
 
-  // ── Commit ──
+  // ─── Commit ───
   const handleCommit = async () => {
-    if (!file) return
+    if (!file || !csvData) return
     setLoading(true)
     setError(null)
     try {
       const form = new FormData()
-      form.append("file", file)
-      if (mappings) {
+
+      if (settings.privacyModeEnabled && settings.encryptionKey) {
+        // Privacy mode: encrypt data before sending
+        const encryptedData = await encryptMetadata(csvData.text, settings.encryptionKey)
+        form.append("encrypted", JSON.stringify(encryptedData))
         form.append("mappings", JSON.stringify(mappings))
+      } else {
+        // Normal mode: send raw CSV
+        form.append("file", file)
+        if (mappings) {
+          form.append("mappings", JSON.stringify(mappings))
+        }
       }
 
       const url = `/api/subscriptions/import?commit=true&skip_dupes=${skipDupes}`
@@ -199,7 +254,7 @@ export default function CSVImportModal({
     }
   }
 
-  // ── Template download ──
+  // ─── Template download ───
   const handleTemplate = () => {
     window.location.href = "/api/subscriptions/import?template=true"
   }
@@ -255,7 +310,7 @@ export default function CSVImportModal({
 
         {/* Body */}
         <div className="p-6 overflow-y-auto flex-1">
-          {/* ── Upload step ── */}
+          {/* ─── Upload step ─── */}
           {step === "upload" && (
             <div className="space-y-5">
               {/* Drop zone */}
@@ -342,7 +397,7 @@ export default function CSVImportModal({
             </div>
           )}
 
-          {/* ── Mapping step ── */}
+          {/* ─── Mapping step ─── */}
           {step === "mapping" && (
             <div className="space-y-6">
               <div className={`p-4 rounded-xl border ${darkMode ? "bg-[#1E2A35]/50 border-[#374151]" : "bg-gray-50 border-gray-200"}`}>
@@ -412,7 +467,7 @@ export default function CSVImportModal({
             </div>
           )}
 
-          {/* ── Preview step ── */}
+          {/* ─── Preview step ─── */}
           {step === "preview" && preview && (
             <div className="space-y-4">
               {/* Summary chips */}
@@ -533,7 +588,7 @@ export default function CSVImportModal({
             </div>
           )}
 
-          {/* ── Done step ── */}
+          {/* ─── Done step ─── */}
           {step === "done" && result && (
             <div className="text-center py-8 space-y-6">
               <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto">

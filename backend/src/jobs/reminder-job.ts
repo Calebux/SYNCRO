@@ -1,8 +1,7 @@
 import cron from 'node-cron';
 import { reminderEngine } from '../services/reminder-engine';
 import { notificationPreferenceService } from '../services/notification-preference-service';
-import { checkBudgetAlerts } from '../services/budget-alert-service';
-import { supabase } from '../config/database';
+import { checkBudgetAlertsForUsers } from '../services/budget-alert-service';
 import logger from '../config/logger';
 import { runWithCorrelationId } from '../middleware/requestContext';
 
@@ -68,14 +67,9 @@ cron.schedule('0 10 * * *', () =>
   runWithCorrelationId('cron:budget-alerts', async (cid) => {
     logger.info('Cron: checking budget alerts', { correlationId: cid });
     try {
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id')
-        .not('monthly_budget', 'is', null);
-
-      await Promise.allSettled(
-        (profiles ?? []).map((p: { id: string }) => checkBudgetAlerts(p.id))
-      );
+      // Batched: fans out over every user with a budget in a fixed number of
+      // queries rather than one round of queries per user (issue #1095).
+      await checkBudgetAlertsForUsers();
       logger.info('Cron: budget alerts processed');
     } catch (error) {
       logger.error('Cron: failed to process budget alerts:', error);

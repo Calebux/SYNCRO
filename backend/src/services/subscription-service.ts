@@ -4,10 +4,13 @@ import { renewalCooldownService } from "./renewal-cooldown-service";
 import { analyticsService } from "./analytics-service";
 import { webhookService } from "./webhook-service";
 import { referralService } from "./referral-service";
+import { userPreferenceService } from "./user-preference-service";
 import logger from "../config/logger";
 import { DatabaseTransaction } from "../utils/transaction";
-import SERVICE_CATEGORIES from "../../services/service-categories";
+import SERVICE_CATEGORIES from "./service-categories";
 import { validateCursor, encodeCursor } from "../utils/pagination";
+import { deriveStealthAddress } from "../../../shared/src/crypto/stealth-derive";
+import { encryptMetadata } from "../../../shared/src/crypto/metadata-encryption";
 import type {
   Subscription,
   SubscriptionCreateInput,
@@ -15,6 +18,7 @@ import type {
   ListSubscriptionsOptions,
   ListSubscriptionsResult,
 } from "../types/subscription";
+import { queryCacheService } from "./query-cache-service";
 
 export interface BlockchainSyncResult {
   success: boolean;
@@ -36,8 +40,33 @@ export class SubscriptionService {
     userId: string,
     input: SubscriptionCreateInput,
   ): Promise<SubscriptionSyncResult> {
-    return await DatabaseTransaction.execute(async (client) => {
+    const result = await DatabaseTransaction.execute(async (client) => {
       try {
+        // Determine the next stealth derivation index for this user
+        const { data: indexRow } = await client
+          .from("subscriptions")
+          .select("stealth_index")
+          .eq("user_id", userId)
+          .order("stealth_index", { ascending: false })
+          .limit(1)
+          .single();
+
+        const stealthIndex = indexRow ? (indexRow.stealth_index as number) + 1 : 0;
+
+        // Derive stealth address when the user has a stored stealth meta-address.
+        const { data: profile, error: profileError } = await client
+          .from('profiles')
+          .select('stealth_meta_address')
+          .eq('id', userId)
+          .single();
+
+        if (profileError) {
+          throw new Error(`Failed to load user profile: ${profileError.message}`);
+        }
+
+        const metaAddress = profile?.stealth_meta_address ?? null;
+        let stealthAddress: string | null = null;
+
         const { data: subscription, error: dbError } = await client
           .from("subscriptions")
           .insert({
@@ -57,6 +86,8 @@ export class SubscriptionService {
             visibility: input.visibility || "private",
             tags: input.tags || [],
             email_account_id: input.email_account_id || null,
+            stealth_index: stealthIndex,
+            stealth_address: null,
             updated_at: new Date().toISOString(),
           })
           .select()
@@ -64,6 +95,16 @@ export class SubscriptionService {
 
         if (dbError) {
           throw new Error(`Database error: ${dbError.message}`);
+        }
+
+        // Now that we have the subscription id, derive and persist the stealth address
+        if (metaAddress) {
+          stealthAddress = deriveStealthAddress(metaAddress, subscription.id, stealthIndex);
+          await client
+            .from("subscriptions")
+            .update({ stealth_address: stealthAddress })
+            .eq("id", subscription.id);
+          subscription.stealth_address = stealthAddress;
         }
 
         // Attempt blockchain sync (non-blocking)
@@ -117,6 +158,9 @@ export class SubscriptionService {
         throw error;
       }
     });
+
+    await this.invalidateSubscriptionCache(userId);
+    return result;
   }
 
   /**
@@ -127,7 +171,7 @@ export class SubscriptionService {
     userId: string,
     subscriptionId: string,
   ): Promise<SubscriptionSyncResult> {
-    return await DatabaseTransaction.execute(async (client) => {
+    const result = await DatabaseTransaction.execute(async (client) => {
       try {
         // 1. Verify ownership and get subscription details
         const { data: existing, error: fetchError } = await client
@@ -219,6 +263,9 @@ export class SubscriptionService {
         throw error;
       }
     });
+
+    await this.invalidateSubscriptionCache(userId);
+    return result;
   }
 
   async cancelSubscription(
@@ -591,7 +638,7 @@ export class SubscriptionService {
     input: SubscriptionUpdateInput,
     expectedVersion?: number,
   ): Promise<SubscriptionSyncResult> {
-    return await DatabaseTransaction.execute(async (client) => {
+    const result = await DatabaseTransaction.execute(async (client) => {
       try {
         // 1. Fetch and verify ownership
         const { data: existing, error: fetchError } = await client
@@ -673,12 +720,21 @@ export class SubscriptionService {
         throw error;
       }
     });
+
+    await this.invalidateSubscriptionCache(userId);
+    return result;
   }
 
   /**
    * Get subscription by ID (with ownership check)
    */
   async getSubscription(userId: string, subscriptionId: string): Promise<Subscription> {
+    const cacheKey = { subscriptionId };
+    const cached = await queryCacheService.get<Subscription>(userId, 'subscription_detail', cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const { data: subscription, error } = await supabase
       .from("subscriptions")
       .select("*")
@@ -690,6 +746,14 @@ export class SubscriptionService {
       throw new Error("Subscription not found or access denied");
     }
 
+    await queryCacheService.set(
+      userId,
+      'subscription_detail',
+      cacheKey,
+      subscription,
+      queryCacheService.getDefaultSubscriptionListTtl(),
+    );
+
     return subscription;
   }
 
@@ -700,6 +764,16 @@ export class SubscriptionService {
     userId: string,
     options: ListSubscriptionsOptions = {},
   ): Promise<ListSubscriptionsResult> {
+    const cachePayload = { ...options };
+    const cached = await queryCacheService.get<ListSubscriptionsResult>(
+      userId,
+      'subscription_list',
+      cachePayload,
+    );
+    if (cached) {
+      return cached;
+    }
+
     const limit = Math.min(options.limit ?? 20, 100);
 
     const validatedCursor = validateCursor(options.cursor);
@@ -722,6 +796,10 @@ export class SubscriptionService {
       query = query.eq("category", options.category);
     }
 
+    if (options.encryptedOnly) {
+      query = query.eq("is_encrypted", true);
+    }
+
     if (validatedCursor) {
       query = query.lt("created_at", validatedCursor.createdAt);
     }
@@ -741,14 +819,130 @@ if (error) {
         ? encodeCursor({ createdAt: subscriptions[subscriptions.length - 1].created_at })
         : null;
 
-    return {
+    const result = {
       subscriptions,
       total: count ?? 0,
       hasMore,
       nextCursor,
     };
+
+    await queryCacheService.set(
+      userId,
+      'subscription_list',
+      cachePayload,
+      result,
+      queryCacheService.getDefaultSubscriptionListTtl(),
+    );
+
+    return result;
   }
 
+  private async invalidateSubscriptionCache(userId: string): Promise<void> {
+    await Promise.all([
+      queryCacheService.invalidateUserNamespace(userId, 'subscription_list'),
+      queryCacheService.invalidateUserNamespace(userId, 'subscription_detail'),
+      queryCacheService.invalidateUserNamespace(userId, 'analytics_summary'),
+    ]);
+  }
+
+  async getSubscriptionEncryptionSummary(userId: string): Promise<{
+    total: number;
+    encrypted: number;
+    unencrypted: number;
+  }> {
+    const { count: totalCount, error: totalError } = await supabase
+      .from("subscriptions")
+      .select("id", { head: true, count: "exact" })
+      .eq("user_id", userId);
+
+    if (totalError) {
+      throw new Error(`Failed to compute subscription summary: ${totalError.message}`);
+    }
+
+    const { count: encryptedCount, error: encryptedError } = await supabase
+      .from("subscriptions")
+      .select("id", { head: true, count: "exact" })
+      .eq("user_id", userId)
+      .eq("is_encrypted", true);
+
+    if (encryptedError) {
+      throw new Error(`Failed to compute encrypted subscription summary: ${encryptedError.message}`);
+    }
+
+    const total = totalCount ?? 0;
+    const encrypted = encryptedCount ?? 0;
+    return {
+      total,
+      encrypted,
+      unencrypted: Math.max(0, total - encrypted),
+    };
+  }
+
+  async encryptAllUnencryptedSubscriptions(userId: string, encryptionKey?: string): Promise<{ count: number }> {
+    const preferences = await userPreferenceService.getPreferences(userId);
+    const key = encryptionKey?.trim() || preferences.encryption_key;
+
+    if (!key) {
+      throw new Error("Encryption key is required to encrypt subscriptions");
+    }
+
+    const { data: subscriptions, error: fetchError } = await supabase
+      .from("subscriptions")
+      .select("id, name, price, category, renewal_url")
+      .eq("user_id", userId)
+      .eq("is_encrypted", false);
+
+    if (fetchError) {
+      throw new Error(`Failed to load subscriptions for encryption: ${fetchError.message}`);
+    }
+
+    if (!subscriptions || subscriptions.length === 0) {
+      return { count: 0 };
+    }
+
+    const updates = await Promise.all(
+      subscriptions.map(async (subscription: any) => {
+        const updated: Partial<Subscription> & Record<string, unknown> = {
+          is_encrypted: true,
+        };
+
+        if (typeof subscription.name === "string") {
+          updated.encrypted_name = JSON.stringify(await encryptMetadata(subscription.name, key));
+        }
+
+        if (typeof subscription.price === "number") {
+          updated.encrypted_price = JSON.stringify(await encryptMetadata(subscription.price.toString(), key));
+        }
+
+        if (typeof subscription.category === "string" && subscription.category.length > 0) {
+          updated.encrypted_category = JSON.stringify(await encryptMetadata(subscription.category, key));
+        }
+
+        if (typeof subscription.renewal_url === "string" && subscription.renewal_url.length > 0) {
+          updated.encrypted_renewal_url = JSON.stringify(await encryptMetadata(subscription.renewal_url, key));
+        }
+
+        return {
+          id: subscription.id,
+          update: updated,
+        };
+      }),
+    );
+
+    for (const { id, update } of updates) {
+      const { error: updateError } = await supabase
+        .from("subscriptions")
+        .update(update)
+        .eq("id", id)
+        .eq("user_id", userId);
+
+      if (updateError) {
+        throw new Error(`Failed to encrypt subscription ${id}: ${updateError.message}`);
+      }
+    }
+
+    return { count: updates.length };
+  }
 
   /**
    * Check if a renewal can be attempted based on cooldown period.
@@ -876,6 +1070,38 @@ if (error) {
     }
 
     return data || [];
+  }
+
+  /**
+   * Recover all stealth addresses for a user by re-deriving them from their
+   * stored indices. Useful for wallet recovery without on-chain scanning.
+   *
+   * For each subscription with a stealth_index, computes:
+   *   Address = HMAC-SHA256(metaAddress, `${subscription.id}:${stealth_index}`)
+   *
+   * @param userId - Owner whose subscriptions to re-derive.
+   * @param metaAddress - The user's stealth meta-address (wallet-level secret).
+   * @returns Array of { subscriptionId, stealthIndex, stealthAddress }.
+   */
+  async recoverStealthAddresses(
+    userId: string,
+    metaAddress: string,
+  ): Promise<{ subscriptionId: string; stealthIndex: number; stealthAddress: string }[]> {
+    const { data: rows, error } = await supabase
+      .from("subscriptions")
+      .select("id, stealth_index")
+      .eq("user_id", userId)
+      .order("stealth_index", { ascending: true });
+
+    if (error) {
+      throw new Error(`Failed to fetch subscriptions for recovery: ${error.message}`);
+    }
+
+    return (rows ?? []).map((row) => ({
+      subscriptionId: row.id as string,
+      stealthIndex: row.stealth_index as number,
+      stealthAddress: deriveStealthAddress(metaAddress, row.id as string, row.stealth_index as number),
+    }));
   }
 
   /**

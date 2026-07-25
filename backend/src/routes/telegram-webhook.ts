@@ -254,7 +254,7 @@ router.post('/webhook', validateWebhookSecret, async (req: Request, res: Respons
             if (text === '/help') {
                 await telegramBotService.sendSimpleMessage(
                     '',
-                    `<b>SYNCRO Bot Commands</b>\n\n/start - Connect your SYNCRO account\n/disconnect - Disconnect your account\n/help - Show this help message\n\n<b>About SYNCRO</b>\nSYNCRO helps you manage your subscriptions and never miss a renewal.\n\nVisit: https://syncro.app`,
+                    `<b>SYNCRO Bot Commands</b>\n\n/start - Connect your SYNCRO account\n/disconnect - Disconnect your account\n/status - Subscription overview\n/subs - List active subscriptions\n/renewals - Upcoming renewals\n/snooze - Snooze a reminder\n/help - Show this help message\n\n<b>About SYNCRO</b>\nSYNCRO helps you manage your subscriptions and never miss a renewal.\n\nVisit: https://syncro.app`,
                     chatId
                 );
 

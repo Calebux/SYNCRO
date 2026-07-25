@@ -8,6 +8,38 @@ export interface RateLimitConfig {
   legacyHeaders: boolean;
 }
 
+export type SubscriptionTier = 'free' | 'pro' | 'enterprise';
+
+export interface TierRateLimitConfig {
+  windowMs: number;
+  limits: Record<SubscriptionTier, number>;
+  sensitiveMultiplier: number;
+}
+
+export const TIER_RATE_LIMIT_CONFIG: TierRateLimitConfig = {
+  windowMs: 60 * 1000, // 1-minute sliding window
+  limits: {
+    free: 100,
+    pro: 500,
+    enterprise: 2000,
+  },
+  sensitiveMultiplier: 0.1, // 10% of normal limit for sensitive endpoints
+};
+
+export interface PrivacyRateLimitConfig {
+  stealthAddress: RateLimitConfig & { windowHours: number };
+  zkProof: RateLimitConfig & { windowMinutes: number };
+  paymentChannel: {
+    maxOpenChannels: number;
+    maxStateUpdatesPerChannel: number;
+    stateUpdate: RateLimitConfig & { windowHours: number };
+  };
+  settlementBatch: {
+    maxBatchSize: number;
+  };
+  selectiveDisclosure: RateLimitConfig & { windowHours: number };
+}
+
 export interface RateLimitSettings {
   redis: {
     url?: string;
@@ -25,6 +57,7 @@ export interface RateLimitSettings {
   simulation: RateLimitConfig & {
     windowHours: number;
   };
+  privacy: PrivacyRateLimitConfig;
 }
 
 /**
@@ -76,6 +109,23 @@ export function loadRateLimitConfig(): RateLimitSettings {
   const simulationMax = parseIntEnv(process.env.RATE_LIMIT_SIMULATION_MAX, 5);
   const simulationWindowHours = parseIntEnv(process.env.RATE_LIMIT_SIMULATION_WINDOW_HOURS, 1);
 
+  // Privacy feature rate limits
+  const stealthAddressMax = parseIntEnv(process.env.RATE_LIMIT_STEALTH_ADDRESS_MAX, 100);
+  const stealthAddressWindowHours = parseIntEnv(process.env.RATE_LIMIT_STEALTH_ADDRESS_WINDOW_HOURS, 1);
+
+  const zkProofMax = parseIntEnv(process.env.RATE_LIMIT_ZK_PROOF_MAX, 10);
+  const zkProofWindowMinutes = parseIntEnv(process.env.RATE_LIMIT_ZK_PROOF_WINDOW_MINUTES, 1);
+
+  const paymentChannelMaxOpen = parseIntEnv(process.env.RATE_LIMIT_PAYMENT_CHANNEL_MAX_OPEN, 5);
+  const paymentChannelMaxStateUpdates = parseIntEnv(process.env.RATE_LIMIT_PAYMENT_CHANNEL_MAX_STATE_UPDATES, 1000);
+  const paymentChannelStateUpdateMax = parseIntEnv(process.env.RATE_LIMIT_PAYMENT_CHANNEL_STATE_UPDATE_RATE_MAX, 1000);
+  const paymentChannelStateUpdateWindowHours = parseIntEnv(process.env.RATE_LIMIT_PAYMENT_CHANNEL_STATE_UPDATE_WINDOW_HOURS, 1);
+
+  const settlementMaxBatchSize = parseIntEnv(process.env.RATE_LIMIT_SETTLEMENT_MAX_BATCH_SIZE, 50);
+
+  const selectiveDisclosureMax = parseIntEnv(process.env.RATE_LIMIT_SELECTIVE_DISCLOSURE_MAX, 20);
+  const selectiveDisclosureWindowHours = parseIntEnv(process.env.RATE_LIMIT_SELECTIVE_DISCLOSURE_WINDOW_HOURS, 24);
+
   const config: RateLimitSettings = {
     redis: {
       url: redisUrl,
@@ -121,6 +171,55 @@ export function loadRateLimitConfig(): RateLimitSettings {
       standardHeaders: true,
       legacyHeaders: false,
     },
+    privacy: {
+      stealthAddress: {
+        windowMs: stealthAddressWindowHours * 60 * 60 * 1000,
+        windowHours: stealthAddressWindowHours,
+        max: stealthAddressMax,
+        message: {
+          error: `Too many stealth address operations. You can perform up to ${stealthAddressMax} derivations per ${stealthAddressWindowHours} hour${stealthAddressWindowHours > 1 ? 's' : ''}. Please try again later.`,
+        },
+        standardHeaders: true,
+        legacyHeaders: false,
+      },
+      zkProof: {
+        windowMs: zkProofWindowMinutes * 60 * 1000,
+        windowMinutes: zkProofWindowMinutes,
+        max: zkProofMax,
+        message: {
+          error: `Too many ZK proof verification requests. You can verify up to ${zkProofMax} proofs per ${zkProofWindowMinutes} minute${zkProofWindowMinutes > 1 ? 's' : ''}. Please try again later.`,
+        },
+        standardHeaders: true,
+        legacyHeaders: false,
+      },
+      paymentChannel: {
+        maxOpenChannels: paymentChannelMaxOpen,
+        maxStateUpdatesPerChannel: paymentChannelMaxStateUpdates,
+        stateUpdate: {
+          windowMs: paymentChannelStateUpdateWindowHours * 60 * 60 * 1000,
+          windowHours: paymentChannelStateUpdateWindowHours,
+          max: paymentChannelStateUpdateMax,
+          message: {
+            error: `Too many payment channel state updates. You can submit up to ${paymentChannelStateUpdateMax} updates per ${paymentChannelStateUpdateWindowHours} hour${paymentChannelStateUpdateWindowHours > 1 ? 's' : ''}. Please try again later.`,
+          },
+          standardHeaders: true,
+          legacyHeaders: false,
+        },
+      },
+      settlementBatch: {
+        maxBatchSize: settlementMaxBatchSize,
+      },
+      selectiveDisclosure: {
+        windowMs: selectiveDisclosureWindowHours * 60 * 60 * 1000,
+        windowHours: selectiveDisclosureWindowHours,
+        max: selectiveDisclosureMax,
+        message: {
+          error: `Too many selective disclosure proofs. You can generate up to ${selectiveDisclosureMax} proofs per ${selectiveDisclosureWindowHours} hour${selectiveDisclosureWindowHours > 1 ? 's' : ''}. Please try again later.`,
+        },
+        standardHeaders: true,
+        legacyHeaders: false,
+      },
+    },
   };
 
   // Log configuration for operational visibility
@@ -134,6 +233,17 @@ export function loadRateLimitConfig(): RateLimitSettings {
       mfa: `${config.mfa.max}/${config.mfa.windowMinutes}m`,
       admin: `${config.admin.max}/${config.admin.windowHours}h`,
       simulation: `${config.simulation.max}/${config.simulation.windowHours}h`,
+    },
+    privacy: {
+      stealthAddress: `${config.privacy.stealthAddress.max}/${config.privacy.stealthAddress.windowHours}h`,
+      zkProof: `${config.privacy.zkProof.max}/${config.privacy.zkProof.windowMinutes}m`,
+      paymentChannel: {
+        maxOpen: config.privacy.paymentChannel.maxOpenChannels,
+        maxStateUpdates: config.privacy.paymentChannel.maxStateUpdatesPerChannel,
+        stateUpdateRate: `${config.privacy.paymentChannel.stateUpdate.max}/${config.privacy.paymentChannel.stateUpdate.windowHours}h`,
+      },
+      settlementBatch: `max ${config.privacy.settlementBatch.maxBatchSize} tx/batch`,
+      selectiveDisclosure: `${config.privacy.selectiveDisclosure.max}/${config.privacy.selectiveDisclosure.windowHours}h`,
     },
   });
 

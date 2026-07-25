@@ -50,6 +50,10 @@
     {
       "group": "SDK & Contracts",
       "pages": ["sdk-reference", "contracts"]
+    },
+    {
+      "group": "Privacy & Security",
+      "pages": ["TOR_BROWSER_COMPATIBILITY"]
     }
   ],
   "footerSocials": {

@@ -1,4 +1,4 @@
-import { parseSubscriptionEmail, parseSubscriptionEmailWithFallback } from '../services/email-parser';
+import { parseSubscriptionEmail, parseSubscriptionEmailWithFallback } from '../src/services/email-parser';
 
 jest.mock('../src/services/llm-parser', () => ({
   llmParser: {

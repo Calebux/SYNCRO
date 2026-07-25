@@ -15,6 +15,7 @@ import { subDays } from 'date-fns';
 import { calculateBackoffDelay } from '../utils/retry';
 import { userPreferenceService } from './user-preference-service';
 import { notificationPreferenceService } from './notification-preference-service';
+import { telegramBotService } from './telegram-bot-service';
 
 export interface ReminderEngineOptions {
   defaultDaysBefore?: number[];
@@ -128,21 +129,46 @@ export class ReminderEngine {
       throw preferencesError;
     }
 
-    const prefsByUser = new Map<string, { reminder_timing?: number[] }>();
-    (preferences ?? []).forEach((pref: { user_id: string; reminder_timing?: number[] }) => {
+    const prefsByUser = new Map<string, { reminder_timing?: number[]; reminder_jitter_level?: string }>();
+    (preferences ?? []).forEach((pref: { user_id: string; reminder_timing?: number[]; reminder_jitter_level?: string }) => {
       prefsByUser.set(pref.user_id, pref);
     });
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    const jitterLevels: Record<string, number> = {
+      off: 0,
+      low: 2,
+      medium: 6,
+      high: 12
+    };
+
     for (const subscription of activeSubscriptions) {
-      const timing = prefsByUser.get(subscription.user_id)?.reminder_timing ?? daysBefore;
+      const userPref = prefsByUser.get(subscription.user_id);
+      const timing = userPref?.reminder_timing ?? daysBefore;
+      const jitterLevel = userPref?.reminder_jitter_level ?? 'off';
+      const maxJitter = jitterLevels[jitterLevel] || 0;
       const renewalDate = new Date(subscription.active_until as string);
 
       for (const day of timing) {
-        const reminderDate = subDays(renewalDate, day);
+        // Calculate base reminder date
+        let reminderDate = subDays(renewalDate, day);
         reminderDate.setHours(0, 0, 0, 0);
+
+        let jitterOffsetHours = 0;
+        if (maxJitter > 0) {
+          // Generate random jitter between -maxJitter and +maxJitter
+          jitterOffsetHours = (Math.random() * 2 * maxJitter) - maxJitter;
+          // Apply jitter
+          reminderDate = new Date(reminderDate.getTime() + jitterOffsetHours * 60 * 60 * 1000);
+          // Ensure reminder is not after renewal date
+          if (reminderDate > renewalDate) {
+            reminderDate = new Date(renewalDate);
+            // Recalculate offset to be the maximum possible before renewal
+            jitterOffsetHours = (renewalDate.getTime() - subDays(renewalDate, day).setHours(0,0,0,0)) / (60*60*1000);
+          }
+        }
 
         if (reminderDate >= today) {
           rows.push({
@@ -151,6 +177,7 @@ export class ReminderEngine {
             reminder_date: reminderDate.toISOString().split('T')[0],
             reminder_type: 'renewal',
             days_before: day,
+            jitter_offset_hours: maxJitter > 0 ? jitterOffsetHours : null,
             status: 'pending',
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
@@ -367,6 +394,30 @@ export class ReminderEngine {
       );
     }
 
+    if (deliveryChannels.includes('telegram') && userPreferences.email_opt_ins.reminders) {
+      const subPrefs = await this.getNotificationPreferences(reminder.subscription_id, reminder.user_id);
+      if (!subPrefs.muted && subPrefs.channels.includes('telegram')) {
+        const telegramDelivery = await this.createDeliveryRecord(reminder.id, reminder.user_id, 'telegram');
+        deliveries.push(telegramDelivery);
+
+        const telegramResult = await telegramBotService.sendRenewalReminder(reminder.user_id, payload, undefined, {
+          maxAttempts: this.maxRetryAttempts,
+        });
+        const telegramStatus: DeliveryStatus = telegramResult.success
+          ? 'sent'
+          : (telegramResult.metadata?.retryable ? 'retrying' : 'failed');
+
+        telegramDelivery.status = telegramStatus;
+
+        await this.updateDeliveryRecord(
+          telegramDelivery.id,
+          telegramStatus,
+          telegramResult.error,
+          telegramResult.metadata,
+        );
+      }
+    }
+
     await blockchainService.logReminderEvent(reminder.user_id, payload, deliveryChannels);
 
     const hasDeliveryProgress = deliveries.some((delivery) =>
@@ -444,6 +495,10 @@ export class ReminderEngine {
       }
     } else if (delivery.channel === 'slack') {
       result = await slackService.sendReminderNotification(payload, {
+        maxAttempts: 1,
+      });
+    } else if (delivery.channel === 'telegram') {
+      result = await telegramBotService.sendRenewalReminder(delivery.user_id, payload, undefined, {
         maxAttempts: 1,
       });
     }

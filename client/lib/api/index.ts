@@ -27,6 +27,9 @@ export * from './idempotency'
 // CSRF
 export * from './csrf'
 
+// Audit logging (server-side, sensitive routes)
+export * from './audit'
+
 /**
  * Helper to create a complete API route handler with all middleware
  */

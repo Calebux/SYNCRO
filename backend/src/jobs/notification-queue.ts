@@ -1,5 +1,4 @@
 import { Queue, Worker, Job } from 'bullmq';
-import { createClient } from 'redis';
 import logger from '../config/logger';
 import { pushService } from './push-service';
 import { notificationDeadLetterService } from '../services/notification-dead-letter-service';
@@ -94,4 +93,11 @@ notificationWorker.on('completed', (job) => {
 
 export async function enqueueNotification(data: NotificationJobData): Promise<void> {
   await notificationQueue.add('send', data);
+}
+
+export async function shutdownNotificationQueue(): Promise<void> {
+  logger.info('Closing BullMQ notification worker and queue');
+  await notificationWorker.close();
+  await notificationQueue.close();
+  logger.info('BullMQ notification worker and queue closed');
 }

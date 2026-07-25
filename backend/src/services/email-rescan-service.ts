@@ -4,8 +4,8 @@ import { supabase } from '../config/database';
 import logger from '../config/logger';
 import { idempotencyService } from './idempotency';
 import { auditService } from './audit-service';
-import { parseSubscriptionEmailWithFallback } from '../../services/email-parser';
-import { refreshOutlookToken } from '../../services/outlook-service';
+import { parseSubscriptionEmailWithFallback } from './email-parser';
+import { refreshOutlookToken } from './outlook-service';
 
 export interface RescanOptions {
   userId: string;
@@ -127,6 +127,10 @@ export class EmailRescanService {
         return this.fetchGmailEmails(emailAccount, startAt, endAt);
       case 'outlook':
         return this.fetchOutlookEmails(emailAccount, startAt, endAt);
+      case 'yahoo':
+        return this.fetchYahooEmails(emailAccount, startAt, endAt);
+      case 'icloud':
+        return this.fetchIcloudEmails(emailAccount, startAt, endAt);
       default:
         throw new Error(`Unsupported email provider: ${emailAccount.provider}`);
     }
@@ -246,6 +250,24 @@ export class EmailRescanService {
         bodyText: message.body?.content ?? '',
         date: message.receivedDateTime ?? startAt.toISOString(),
       }));
+  }
+
+  private async fetchYahooEmails(
+    account: EmailAccountRecord,
+    startAt: Date,
+    endAt: Date,
+  ): Promise<RawEmail[]> {
+    logger.warn('Yahoo email fetching not implemented yet');
+    return [];
+  }
+
+  private async fetchIcloudEmails(
+    account: EmailAccountRecord,
+    startAt: Date,
+    endAt: Date,
+  ): Promise<RawEmail[]> {
+    logger.warn('iCloud email fetching not implemented yet');
+    return [];
   }
 
   private findGmailHeader(

@@ -14,57 +14,87 @@ jest.mock('../src/middleware/auth', () => ({
 
 import { ExchangeRateService } from '../src/services/exchange-rate/exchange-rate-service';
 import { createExchangeRatesRouter } from '../src/routes/exchange-rates';
-import express from 'express';
-import request from 'supertest';
+
+function getRouteHandler(mockService: ExchangeRateService) {
+  const router = createExchangeRatesRouter(mockService) as any;
+  const layer = router.stack.find(
+    (entry: any) => entry.route?.path === '/' && entry.route?.methods?.get,
+  );
+
+  if (!layer) {
+    throw new Error('GET / route handler not found');
+  }
+
+  return layer.route.stack[0].handle as (req: any, res: any, next: any) => Promise<void>;
+}
 
 describe('GET /api/exchange-rates', () => {
-  let app: express.Application;
+  let handler: ReturnType<typeof getRouteHandler>;
+  let mockService: ExchangeRateService;
 
   beforeEach(() => {
-    const mockService = {
+    mockService = {
       getExchangeRateResponse: jest.fn().mockResolvedValue({
         base: 'USD',
         rates: { EUR: 0.92, GBP: 0.79 },
         cachedAt: '2026-03-28T12:00:00Z',
+        ageMs: 1234,
         stale: false,
         source: 'live',
       }),
     } as unknown as ExchangeRateService;
 
-    app = express();
-    // Simulate auth by injecting user
-    app.use((req: any, _res, next) => {
-      req.user = { id: 'test-user', email: 'test@test.com' };
-      next();
-    });
-    app.use('/api/exchange-rates', createExchangeRatesRouter(mockService));
+    handler = getRouteHandler(mockService);
   });
 
   it('returns rates for the given base currency', async () => {
-    const res = await request(app).get('/api/exchange-rates?base=USD');
+    const res = {
+      json: jest.fn(),
+      status: jest.fn().mockReturnThis(),
+    };
 
-    expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
-    expect(res.body.data.base).toBe('USD');
-    expect(res.body.data.rates.EUR).toBe(0.92);
-    expect(res.body.data.stale).toBe(false);
-    expect(res.body.data.source).toBe('live');
+    await handler({ query: { base: 'USD' } }, res, jest.fn());
+
+    expect(mockService.getExchangeRateResponse).toHaveBeenCalledWith('USD');
+    expect(res.json).toHaveBeenCalledWith({
+      success: true,
+      data: {
+        base: 'USD',
+        rates: { EUR: 0.92, GBP: 0.79 },
+        cachedAt: '2026-03-28T12:00:00Z',
+        ageMs: 1234,
+        stale: false,
+        source: 'live',
+      },
+      meta: {
+        timestamp: expect.any(String),
+        stale: false,
+        source: 'live',
+        ageMs: 1234,
+      },
+    });
   });
 
   it('defaults to USD when no base provided', async () => {
-    const res = await request(app).get('/api/exchange-rates');
+    const res = {
+      json: jest.fn(),
+      status: jest.fn().mockReturnThis(),
+    };
 
-    expect(res.status).toBe(200);
-    expect(res.body.data.base).toBe('USD');
+    await handler({ query: {} }, res, jest.fn());
+
+    expect(mockService.getExchangeRateResponse).toHaveBeenCalledWith('USD');
+    expect(res.json).toHaveBeenCalled();
   });
 
   it('rejects unsupported base currency', async () => {
-    const res = await request(app).get('/api/exchange-rates?base=FAKE');
+    const res = {
+      json: jest.fn(),
+      status: jest.fn().mockReturnThis(),
+    };
 
-    expect(res.status).toBe(400);
-    // The API might not return a success flag in the body for errors, or it might be success: false
-    if (res.body.success !== undefined) {
-      expect(res.body.success).toBe(false);
-    }
+    await expect(handler({ query: { base: 'FAKE' } }, res, jest.fn())).rejects.toThrow(
+      'Unsupported currency: FAKE',
+    );
   });
 });

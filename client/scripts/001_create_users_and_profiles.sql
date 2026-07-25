@@ -4,6 +4,7 @@ create table if not exists public.profiles (
   display_name text,
   company_name text,
   plan_type text default 'free' check (plan_type in ('free', 'pro', 'enterprise')),
+  stealth_meta_address text,
   created_at timestamp with time zone default now(),
   updated_at timestamp with time zone default now()
 );

@@ -1,4 +1,5 @@
 import { env } from '../config/env';
+import logger from '../config/logger';
 
 /**
  * Interface for secret retrieval.
@@ -43,7 +44,7 @@ export class SecretProviderFactory {
         //   this.instance = new AwsSecretProvider();
         //   break;
         default:
-          console.warn(`Unknown SecretProvider type: ${type}. Falling back to 'local'.`);
+          logger.warn(`Unknown SecretProvider type: ${type}. Falling back to 'local'.`);
           this.instance = new LocalSecretProvider();
       }
     }

@@ -26,6 +26,7 @@ export default async function SettingsPage() {
         {/* Navigation to sub-settings */}
         <nav aria-label="Settings sections" className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
           {[
+            { href: "/settings/wallet", label: "Wallet Management" },
             { href: "/settings/security", label: "Security & Two-Factor Authentication" },
             { href: "/settings/privacy",  label: "Privacy & Data" },
           ].map(({ href, label }) => (

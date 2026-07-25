@@ -2,7 +2,7 @@
 
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype,
-    token, Address, Env, String,
+    panic_with_error, token, Address, Env, String,
 };
 
 // ── Storage keys ──────────────────────────────────────────────────────────────
@@ -74,7 +74,7 @@ pub enum EscrowError {
     InDispute = 15,
     NotInDispute = 16,
     SelfAsCounterparty = 17,
-    Same Arbiter As Party = 18,
+    SameArbiterAsParty = 18,
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
@@ -142,7 +142,7 @@ impl EscrowContract {
 
     pub fn init(env: Env, admin: Address) {
         if env.storage().instance().has(&DataKey::Admin) {
-            panic!(EscrowError::AlreadyInitialized);
+            panic_with_error!(&env, EscrowError::AlreadyInitialized);
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
     }
@@ -185,13 +185,13 @@ impl EscrowContract {
         payer.require_auth();
 
         if amount <= 0 {
-            panic!(EscrowError::InvalidAmount);
+            panic_with_error!(&env, EscrowError::InvalidAmount);
         }
         if payer == payee {
-            panic!(EscrowError::SelfAsCounterparty);
+            panic_with_error!(&env, EscrowError::SelfAsCounterparty);
         }
         if arbiter == payer || arbiter == payee {
-            panic!(EscrowError::SameArbiterAsParty);
+            panic_with_error!(&env, EscrowError::SameArbiterAsParty);
         }
 
         let count: u64 = env
@@ -203,7 +203,7 @@ impl EscrowContract {
 
         let now = env.ledger().timestamp();
         if expires_at <= now {
-            panic!(EscrowError::Expired);
+            panic_with_error!(&env, EscrowError::Expired);
         }
 
         let escrow = EscrowAgreement {
@@ -253,7 +253,7 @@ impl EscrowContract {
             .expect("escrow not found");
 
         if escrow.state != EscrowState::Created {
-            panic!(EscrowError::AlreadyFunded);
+            panic_with_error!(&env, EscrowError::AlreadyFunded);
         }
 
         escrow.payer.require_auth();
@@ -295,10 +295,10 @@ impl EscrowContract {
             .expect("escrow not found");
 
         if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Disputed {
-            panic!(EscrowError::NotFunded);
+            panic_with_error!(&env, EscrowError::NotFunded);
         }
         if escrow.arbiter_approved {
-            panic!(EscrowError::AlreadyApproved);
+            panic_with_error!(&env, EscrowError::AlreadyApproved);
         }
 
         escrow.arbiter.require_auth();
@@ -331,10 +331,10 @@ impl EscrowContract {
             .expect("escrow not found");
 
         if escrow.state == EscrowState::Released {
-            panic!(EscrowError::AlreadyReleased);
+            panic_with_error!(&env, EscrowError::AlreadyReleased);
         }
         if escrow.state != EscrowState::Approved {
-            panic!(EscrowError::NotApproved);
+            panic_with_error!(&env, EscrowError::NotApproved);
         }
 
         // Payee must authorize receipt
@@ -376,13 +376,13 @@ impl EscrowContract {
             .expect("escrow not found");
 
         if escrow.state == EscrowState::Refunded {
-            panic!(EscrowError::AlreadyRefunded);
+            panic_with_error!(&env, EscrowError::AlreadyRefunded);
         }
         if escrow.state == EscrowState::Released {
-            panic!(EscrowError::AlreadyReleased);
+            panic_with_error!(&env, EscrowError::AlreadyReleased);
         }
         if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Approved {
-            panic!(EscrowError::NotFunded);
+            panic_with_error!(&env, EscrowError::NotFunded);
         }
 
         let now = env.ledger().timestamp();
@@ -394,7 +394,7 @@ impl EscrowContract {
         } else {
             // Before expiry — refund only if arbiter hasn't approved
             if escrow.arbiter_approved {
-                panic!(EscrowError::AlreadyApproved);
+                panic_with_error!(&env, EscrowError::AlreadyApproved);
             }
             escrow.payer.require_auth();
         }
@@ -430,11 +430,11 @@ impl EscrowContract {
             .expect("escrow not found");
 
         if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Approved {
-            panic!(EscrowError::NotFunded);
+            panic_with_error!(&env, EscrowError::NotFunded);
         }
 
         if caller != escrow.payer && caller != escrow.payee {
-            panic!(EscrowError::Unauthorized);
+            panic_with_error!(&env, EscrowError::Unauthorized);
         }
         caller.require_auth();
 
@@ -465,7 +465,7 @@ impl EscrowContract {
             .expect("escrow not found");
 
         if escrow.state != EscrowState::Disputed {
-            panic!(EscrowError::NotInDispute);
+            panic_with_error!(&env, EscrowError::NotInDispute);
         }
 
         escrow.arbiter.require_auth();
@@ -491,7 +491,7 @@ impl EscrowContract {
                 );
                 escrow.state = EscrowState::Refunded;
             }
-            _ => panic!(EscrowError::InvalidAmount),
+            _ => panic_with_error!(&env, EscrowError::InvalidAmount),
         }
 
         env.storage()
@@ -572,13 +572,13 @@ mod test {
 
         // Create a Stellar asset token for testing
         let sac = env.register_stellar_asset_contract_v2(admin.clone());
-        let token = TokenClient::new(&env, &sac.0);
-        let asset_client = StellarAssetClient::new(&env, &sac.0);
+        let token = TokenClient::new(&env, &sac.address());
+        let asset_client = StellarAssetClient::new(&env, &sac.address());
 
         // Mint tokens to payer
         asset_client.mint(&payer, &10_000_000_000i128);
 
-        (env, payer, payee, arbiter, sac.0, token)
+        (env, payer, payee, arbiter, sac.address(), token)
     }
 
     fn register_escrow(env: &Env) -> EscrowContractClient<'static> {
@@ -624,7 +624,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "Unauthorized")]
+    #[should_panic(expected = "Error(Contract, #10)")]
     fn test_release_without_arbiter_approval_fails() {
         let (env, payer, payee, arbiter, token, _token_client) = setup();
         let escrow = register_escrow(&env);
@@ -667,7 +667,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "AlreadyApproved")]
+    #[should_panic(expected = "Error(Contract, #9)")]
     fn test_refund_after_approval_fails_before_expiry() {
         let (env, payer, payee, arbiter, token, _token_client) = setup();
         let escrow = register_escrow(&env);
@@ -714,7 +714,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "SameArbiterAsParty")]
+    #[should_panic(expected = "Error(Contract, #18)")]
     fn test_arbiter_cannot_be_party() {
         let (env, payer, payee, _arbiter, token, _token_client) = setup();
         let escrow = register_escrow(&env);
@@ -731,7 +731,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "SelfAsCounterparty")]
+    #[should_panic(expected = "Error(Contract, #17)")]
     fn test_payer_cannot_be_payee() {
         let (env, payer, _payee, arbiter, token, _token_client) = setup();
         let escrow = register_escrow(&env);
@@ -827,4 +827,7 @@ mod test {
         assert!(!agreement.arbiter_approved);
     }
 }
+
+#[cfg(test)]
+mod fuzz;
 

@@ -3,7 +3,7 @@ import { HttpStatus } from "@/lib/api/types"
 import { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
 import { checkOwnership } from "@/lib/api/auth"
-import { ApiErrors, createAuthenticatedApiRoute, createSuccessResponse, RateLimiters, validateRequestBody } from "@/lib/api/index"
+import { ApiErrors, createAuthenticatedApiRoute, createSuccessResponse, RateLimiters, validateRequestBody, emitAuditEvent } from "@/lib/api/index"
 
 // Validation schemas
 const updateSubscriptionSchema = z.object({
@@ -56,6 +56,8 @@ export async function DELETE(
       if (error) {
         throw ApiErrors.internalError(`Failed to delete subscription: ${error.message}`)
       }
+
+      emitAuditEvent({ userId: user.id, action: "subscription.delete", resourceType: "subscription", resourceId: id })
 
       return createSuccessResponse(
         { message: "Subscription deleted successfully" },

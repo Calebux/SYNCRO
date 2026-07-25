@@ -72,3 +72,60 @@ export function decrypt(encryptedText: string): string {
     return encryptedText;
   }
 }
+
+/**
+ * Encrypts a string using AES-256-GCM with a user-derived key.
+ * @param text The plain text to encrypt.
+ * @param userId The ID of the user whose derived key should be used.
+ * @returns The encrypted string in the format: iv:tag:encryptedText
+ */
+export function encryptForUser(text: string, userId: string): string {
+  if (!text) return text;
+  
+  const iv = crypto.randomBytes(IV_LENGTH);
+  // Import dynamically/lazily to avoid potential circular dependency issues
+  const { privacyService } = require('../services/privacy-service');
+  const key = privacyService.getUserDerivedKey(userId);
+  
+  const cipher = crypto.createCipheriv(ALGORITHM, iv, key);
+  
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  
+  const tag = cipher.getAuthTag();
+  
+  return `${iv.toString('hex')}:${tag.toString('hex')}:${encrypted}`;
+}
+
+/**
+ * Decrypts a string using AES-256-GCM with a user-derived key.
+ * @param encryptedText The encrypted text in the format: iv:tag:encryptedText.
+ * @param userId The ID of the user whose derived key should be used.
+ * @returns The decrypted plain text.
+ */
+export function decryptForUser(encryptedText: string, userId: string): string {
+  if (!encryptedText || !encryptedText.includes(':')) {
+    return encryptedText;
+  }
+  
+  const parts = encryptedText.split(':');
+  if (parts.length !== 3) return encryptedText;
+  
+  const [ivHex, tagHex, encryptedDataHex] = parts;
+  
+  const iv = Buffer.from(ivHex, 'hex');
+  const tag = Buffer.from(tagHex, 'hex');
+  
+  // Import dynamically/lazily to avoid potential circular dependency issues
+  const { privacyService } = require('../services/privacy-service');
+  const key = privacyService.getUserDerivedKey(userId);
+  
+  const decipher = crypto.createDecipheriv(ALGORITHM, iv, key);
+  decipher.setAuthTag(tag);
+  
+  let decrypted = decipher.update(encryptedDataHex, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  
+  return decrypted;
+}
+

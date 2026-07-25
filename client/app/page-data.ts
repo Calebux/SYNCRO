@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { buildQueryWarning, type DataLoadWarning } from '@/lib/dashboard-bootstrap'
+import { fetchConsolidationSuggestions, filterDismissedSuggestions } from '@/lib/dashboard-data'
 import type { ConsolidationSuggestion } from '@/lib/types'
 
 export type InitialPriceChange = {
@@ -15,13 +16,13 @@ export type InitialPriceChange = {
 }
 
 export type InitialDataResult = {
-  subscriptions: any[]
-  emailAccounts: any[]
-  payments: any[]
-  priceChanges: InitialPriceChange[]
-  consolidationSuggestions: any[]
-  warnings: DataLoadWarning[]
-  isDemo: boolean
+  subscriptions: any[];
+  emailAccounts: any[];
+  payments: any[];
+  priceChanges: InitialPriceChange[];
+  consolidationSuggestions: any[];
+  warnings: DataLoadWarning[];
+  isDemo: boolean;
 }
 
 function transformSubscription(dbSub: any): any {
@@ -41,6 +42,7 @@ function transformSubscription(dbSub: any): any {
     lastUsedAt: dbSub.last_used_at,
     hasApiKey: dbSub.has_api_key || false,
     isTrial: dbSub.is_trial || false,
+    is_encrypted: dbSub.is_encrypted ?? false,
     trialEndsAt: dbSub.trial_ends_at,
     priceAfterTrial: dbSub.price_after_trial,
     source: dbSub.source || 'manual',
@@ -232,6 +234,15 @@ export async function getInitialData(): Promise<InitialDataResult> {
     priceChanges = (priceHistoryResult.data ?? []).map((change: any) =>
       normalizePriceChange(change, subscriptionsById),
     )
+  }
+
+  let consolidationSuggestions: ConsolidationSuggestion[]
+  try {
+    const raw = await fetchConsolidationSuggestions(user.id)
+    consolidationSuggestions = await filterDismissedSuggestions(user.id, raw)
+  } catch (err) {
+    warnings.push(buildQueryWarning('consolidation_suggestions', err))
+    consolidationSuggestions = []
   }
 
   return {

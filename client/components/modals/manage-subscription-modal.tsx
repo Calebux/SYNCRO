@@ -14,16 +14,15 @@ import {
   Bell,
   Gift,
 } from "lucide-react"
-import { useState } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import NotificationPreferencesModal from "@/components/modals/notification-preferences-modal"
 import { NotesEditor } from "@/components/ui/notes-editor"
 import { TagInput } from "@/components/ui/tag-input"
 import { useTags } from "@/hooks/use-tags"
 import { apiPost } from "@/lib/api"
-import {
-  getGiftCardProviderFromSubscription,
-  openAtomicWalletGiftCard,
-} from "@/lib/atomic-wallet"
+import { getGiftCardProviderFromSubscription } from "@/lib/atomic-wallet"
+import { fetchUserPreferences } from "@/lib/api/user-preferences"
+import { getGiftCardProvider } from "@/lib/gift-card-providers"
 
 const CANCEL_LINKS: Record<string, string> = {
   "ChatGPT Plus": "https://platform.openai.com/account/billing/overview",
@@ -72,6 +71,54 @@ export default function ManageSubscriptionModal({
     subscription.custom_tag_ids ?? [],
   )
 
+  // ── Focus trap & Escape key (Issue #956) ──────────────────────────────────
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
+
+  /** Focus the close button as the initial focus target when the dialog mounts. */
+  useEffect(() => {
+    closeButtonRef.current?.focus()
+  }, [])
+
+  /** Trap focus within the dialog and handle Escape to close. */
+  const handleDialogKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === "Escape") {
+        e.preventDefault()
+        onClose()
+        return
+      }
+      if (e.key !== "Tab") return
+
+      const dialog = dialogRef.current
+      if (!dialog) return
+
+      const focusableSelectors =
+        'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(focusableSelectors),
+      ).filter((el) => !el.closest("[aria-hidden='true']"))
+
+      if (focusable.length === 0) return
+
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault()
+          last.focus()
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault()
+          first.focus()
+        }
+      }
+    },
+    [onClose],
+  )
+
   const handleAddTag = async (tagId: string) => {
     await addTagToSubscription(String(subscription.id), tagId)
     setAssignedTagIds((prev) => [...prev, tagId])
@@ -86,6 +133,22 @@ export default function ManageSubscriptionModal({
   const giftCardProvider = getGiftCardProviderFromSubscription(subscription)
   const giftCardAmount = Number(subscription.price || 0)
   const canBuyGiftCard = Boolean(giftCardProvider && giftCardAmount > 0)
+
+  const handleBuyGiftCard = async () => {
+    if (!giftCardProvider) return
+    let preferredProviderId: string | undefined
+    try {
+      const prefs = await fetchUserPreferences()
+      preferredProviderId = prefs.preferred_gift_card_provider
+    } catch {
+      // Fall back to the default (Atomic Wallet) if preferences can't be loaded.
+    }
+    const purchaseProvider = getGiftCardProvider(preferredProviderId)
+    const url = purchaseProvider.generatePurchaseUrl(giftCardAmount, giftCardProvider)
+    if (typeof window !== "undefined") {
+      window.location.href = url
+    }
+  }
 
   const handleDelete = () => {
     onDelete()
@@ -111,10 +174,12 @@ export default function ManageSubscriptionModal({
     <>
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
         <div
+          ref={dialogRef}
           role="dialog"
           aria-labelledby="manage-modal-title"
           aria-describedby="manage-modal-desc"
           aria-modal="true"
+          onKeyDown={handleDialogKeyDown}
           className={`${
             darkMode
               ? "bg-[#2D3748] text-[#F9F6F2]"
@@ -142,6 +207,7 @@ export default function ManageSubscriptionModal({
                   />
                 </button>
                 <button
+                  ref={closeButtonRef}
                   onClick={onClose}
                   aria-label="Close manage subscription dialog"
                   className="p-2 hover:bg-white/10 rounded-lg transition-colors"
@@ -323,7 +389,7 @@ export default function ManageSubscriptionModal({
 
               {canBuyGiftCard && (
                 <button
-                  onClick={() => openAtomicWalletGiftCard(giftCardAmount, giftCardProvider!)}
+                  onClick={handleBuyGiftCard}
                   className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-[#007A5C] text-white rounded-lg font-semibold hover:bg-[#007A5C]/90 transition-colors"
                 >
                   <Gift className="w-4 h-4" />

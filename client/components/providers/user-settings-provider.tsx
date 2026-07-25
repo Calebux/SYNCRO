@@ -9,6 +9,8 @@ interface UserSettings {
   currency: Currency
   timezone: string
   locale: string
+  privacyModeEnabled: boolean
+  encryptionKey?: string
 }
 
 interface UserSettingsContextType {
@@ -19,11 +21,19 @@ interface UserSettingsContextType {
 
 const UserSettingsContext = createContext<UserSettingsContextType | undefined>(undefined)
 
+function generateEncryptionKey(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32))
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
 export function UserSettingsProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<UserSettings>({
     currency: DEFAULT_CURRENCY,
     timezone: DEFAULT_TIMEZONE,
     locale: "en-US",
+    privacyModeEnabled: false,
   })
   const [isLoading, setIsLoading] = useState(true)
 
@@ -36,6 +46,8 @@ export function UserSettingsProvider({ children }: { children: React.ReactNode }
             currency: (prefs as any).currency || DEFAULT_CURRENCY,
             timezone: prefs.quiet_hours_timezone || getUserTimezone() || DEFAULT_TIMEZONE,
             locale: (prefs as any).locale || "en-US",
+            privacyModeEnabled: prefs.privacy_mode_enabled || false,
+            encryptionKey: prefs.encryption_key,
           })
         }
       } catch (error) {
@@ -57,18 +69,25 @@ export function UserSettingsProvider({ children }: { children: React.ReactNode }
     setSettings((prev) => ({ ...prev, ...updates }))
 
     try {
+      // Generate encryption key if enabling privacy mode and no key exists
+      let encryptionKey = updates.encryptionKey || settings.encryptionKey
+      if (updates.privacyModeEnabled && !encryptionKey) {
+        encryptionKey = generateEncryptionKey()
+      }
+
       await updateUserPreferences({
         // Map UI settings to backend preference fields
-        // Since we are adding currency and timezone to user_preferences
         ...(updates.currency && { currency: updates.currency }),
         ...(updates.timezone && { quiet_hours_timezone: updates.timezone }),
         ...(updates.locale && { locale: updates.locale }),
+        ...(updates.privacyModeEnabled !== undefined && { privacy_mode_enabled: updates.privacyModeEnabled }),
+        ...(encryptionKey && { encryption_key: encryptionKey }),
       } as any)
     } catch (error) {
       console.error("Failed to persist user settings:", error)
       // Revert on error if necessary, or just log
     }
-  }, [])
+  }, [settings])
 
   return (
     <UserSettingsContext.Provider value={{ settings, updateSettings, isLoading }}>

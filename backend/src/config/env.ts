@@ -59,6 +59,9 @@ export const envSchema = z.object({
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
 
+  // Paystack (optional — required for African market users: NG, GH, ZA, KE)
+  PAYSTACK_SECRET_KEY: z.string().optional(),
+
   // Google / Gmail (optional)
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
@@ -108,6 +111,16 @@ export const envSchema = z.object({
   // External Service Defaults
   EXTERNAL_SERVICE_DEFAULT_TIMEOUT: z.string().default('10000'),
   EXTERNAL_SERVICE_DEFAULT_RETRIES: z.string().default('3'),
+
+  // Agent HD wallet (Issue #862 — address rotation for pipeline agents)
+  // BIP-39 mnemonic used to derive agent keypairs. Generate with:
+  //   node -e "const b=require('bip39');console.log(b.generateMnemonic(256))"
+  // REQUIRED when ENABLE_BLOCKCHAIN=true; optional in test/blockchain-disabled mode.
+  AGENT_MASTER_SEED: z.string().optional(),
+  // How often agent wallets rotate: "per-task" | "daily" | "weekly" | "manual"
+  AGENT_ROTATION_SCHEDULE: z
+    .enum(['per-task', 'daily', 'weekly', 'manual'])
+    .default('daily'),
 });
 
 export type BackendEnv = z.infer<typeof envSchema>;

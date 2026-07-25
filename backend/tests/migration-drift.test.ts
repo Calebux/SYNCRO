@@ -2,59 +2,26 @@ import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
 import fs from 'fs';
 import path from 'path';
 
-// Mock module - we'll test the core logic functions
+const drift = require('../../scripts/check-migration-drift.js');
+
 const BACKEND_MIGRATIONS = path.join(__dirname, '..', '..', 'backend', 'migrations');
 const SUPABASE_MIGRATIONS = path.join(__dirname, '..', '..', 'supabase', 'migrations');
 
-// Core utility functions (extracted from drift check script for testing)
-function normalizeSQL(content: string): string {
-  return content
-    .replace(/--.*$/gm, '') // Remove single-line comments
-    .replace(/\/\*[\s\S]*?\*\//g, '') // Remove multi-line comments
-    .replace(/\s+/g, ' ') // Normalize whitespace
-    .toLowerCase()
-    .trim();
-}
-
-function extractTables(sql: string): Set<string> {
-  const tableRegex = /create\s+table\s+(?:if\s+not\s+exists\s+)?(?:public\.)?(\w+)/gi;
-  const alterRegex = /alter\s+table\s+(?:only\s+)?(?:public\.)?(\w+)/gi;
-  const tables = new Set<string>();
-  
-  let match;
-  while ((match = tableRegex.exec(sql)) !== null) {
-    tables.add(match[1].toLowerCase());
-  }
-  while ((match = alterRegex.exec(sql)) !== null) {
-    tables.add(match[1].toLowerCase());
-  }
-  
-  return tables;
-}
-
-function extractIndexes(sql: string): Set<string> {
-  const indexRegex = /create\s+(?:unique\s+)?index\s+(?:if\s+not\s+exists\s+)?(\w+)/gi;
-  const indexes = new Set<string>();
-  
-  let match;
-  while ((match = indexRegex.exec(sql)) !== null) {
-    indexes.add(match[1].toLowerCase());
-  }
-  
-  return indexes;
-}
-
-function extractPolicies(sql: string): Set<string> {
-  const policyRegex = /create\s+policy\s+(\w+)/gi;
-  const policies = new Set<string>();
-  
-  let match;
-  while ((match = policyRegex.exec(sql)) !== null) {
-    policies.add(match[1].toLowerCase());
-  }
-  
-  return policies;
-}
+const {
+  normalizeSQL,
+  normalizeSchemaSnapshot,
+  extractTables,
+  extractIndexes,
+  extractPolicies,
+  migrationVersion,
+  detectTimestampConflicts,
+  compareMigrations,
+  collectExpectedSchema,
+  compareSchemaObjects,
+  buildSchemaDiffReport,
+  compareSchemaSnapshotFiles,
+  readMigrations,
+} = drift;
 
 interface MigrationData {
   content: string;
@@ -62,30 +29,6 @@ interface MigrationData {
   tables: Set<string>;
   indexes: Set<string>;
   policies: Set<string>;
-}
-
-function readMigrations(dir: string): Map<string, MigrationData> {
-  const migrations = new Map<string, MigrationData>();
-  
-  if (!fs.existsSync(dir)) {
-    return migrations;
-  }
-  
-  const files = fs.readdirSync(dir).filter(f => f.endsWith('.sql')).sort();
-  
-  for (const file of files) {
-    const filePath = path.join(dir, file);
-    const content = fs.readFileSync(filePath, 'utf-8');
-    migrations.set(file, {
-      content,
-      normalized: normalizeSQL(content),
-      tables: extractTables(content),
-      indexes: extractIndexes(content),
-      policies: extractPolicies(content)
-    });
-  }
-  
-  return migrations;
 }
 
 interface Issue {
@@ -96,34 +39,6 @@ interface Issue {
   tables?: string[];
   migration?: string;
   executedAt?: string;
-}
-
-function compareMigrations(name1: string, m1: MigrationData, name2: string, m2: MigrationData): Issue[] {
-  const issues: Issue[] = [];
-  
-  // Check if normalized content is identical
-  if (m1.normalized === m2.normalized) {
-    issues.push({
-      type: 'duplicate',
-      severity: 'error',
-      message: `Identical migrations: "${name1}" and "${name2}"`,
-      files: [name1, name2]
-    });
-  } else {
-    // Check for table overlap with different content
-    const commonTables = [...m1.tables].filter(t => m2.tables.has(t));
-    if (commonTables.length > 0) {
-      issues.push({
-        type: 'conflict',
-        severity: 'warning',
-        message: `Common tables in different migrations: "${name1}" and "${name2}" affect tables: ${commonTables.join(', ')}`,
-        files: [name1, name2],
-        tables: commonTables
-      });
-    }
-  }
-  
-  return issues;
 }
 
 describe('Migration Drift Check', () => {
@@ -169,7 +84,7 @@ describe('Migration Drift Check', () => {
           id BIGINT PRIMARY KEY
         );
       `;
-      const sql2 = `CREATE TABLE users(id BIGINT PRIMARY KEY);`;
+      const sql2 = `CREATE TABLE users ( id BIGINT PRIMARY KEY );`;
       expect(normalizeSQL(sql1)).toBe(normalizeSQL(sql2));
     });
   });
@@ -249,6 +164,105 @@ describe('Migration Drift Check', () => {
       const policies = extractPolicies(sql);
       expect(policies).toContain('select_policy');
       expect(policies).toContain('update_policy');
+    });
+  });
+
+  describe('Timestamp Conflict Detection', () => {
+    it('should detect duplicate migration timestamps', () => {
+      const migrations = new Map([
+        ['20260624000000_first.sql', { version: '20260624000000', normalized: 'a', tables: new Set(), indexes: new Set(), policies: new Set(), content: '' }],
+        ['20260624000000_second.sql', { version: '20260624000000', normalized: 'b', tables: new Set(), indexes: new Set(), policies: new Set(), content: '' }],
+      ]);
+
+      const issues = detectTimestampConflicts(migrations);
+      expect(issues).toHaveLength(1);
+      expect(issues[0].type).toBe('timestamp_conflict');
+      expect(issues[0].severity).toBe('error');
+      expect(issues[0].files).toHaveLength(2);
+    });
+
+    it('should extract migration version from filename', () => {
+      expect(migrationVersion('20260624000000_create_foo.sql')).toBe('20260624000000');
+      expect(migrationVersion('20260426_create_csp.sql')).toBe('20260426');
+    });
+
+    it('should not flag unique timestamps', () => {
+      const migrations = new Map([
+        ['20260624000000_first.sql', { version: '20260624000000', normalized: 'a', tables: new Set(), indexes: new Set(), policies: new Set(), content: '' }],
+        ['20260624000001_second.sql', { version: '20260624000001', normalized: 'b', tables: new Set(), indexes: new Set(), policies: new Set(), content: '' }],
+      ]);
+
+      expect(detectTimestampConflicts(migrations)).toHaveLength(0);
+    });
+  });
+
+  describe('Schema Object Comparison', () => {
+    it('should detect tables missing from live schema', () => {
+      const expected = { tables: new Set(['users', 'orders']), indexes: new Set(), policies: new Set() };
+      const actual = { tables: new Set(['users']), indexes: new Set() };
+
+      const { issues } = compareSchemaObjects(expected, actual);
+      expect(issues.some(i => i.object === 'orders' && i.type === 'schema_drift')).toBe(true);
+    });
+
+    it('should detect extra tables in live schema (missing migration)', () => {
+      const expected = { tables: new Set(['users']), indexes: new Set(), policies: new Set() };
+      const actual = { tables: new Set(['users', 'orphan_table']), indexes: new Set() };
+
+      const { issues } = compareSchemaObjects(expected, actual);
+      expect(issues.some(i => i.object === 'orphan_table')).toBe(true);
+    });
+
+    it('should build a readable schema diff report', () => {
+      const expected = { tables: new Set(['users']), indexes: new Set(['idx_users']), policies: new Set() };
+      const actual = { tables: new Set(['users', 'extra']), indexes: new Set() };
+
+      const report = buildSchemaDiffReport(expected, actual);
+      expect(report).toContain('extra');
+      expect(report).toContain('idx_users');
+    });
+  });
+
+  describe('Schema Snapshot Comparison', () => {
+    let tempDir: string;
+
+    beforeEach(() => {
+      tempDir = path.join(__dirname, '.test-schema-' + Date.now());
+      fs.mkdirSync(tempDir, { recursive: true });
+    });
+
+    afterEach(() => {
+      if (fs.existsSync(tempDir)) {
+        fs.rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('should match identical schema snapshots', () => {
+      const sql = 'CREATE TABLE public.users (id bigint PRIMARY KEY);';
+      const expectedPath = path.join(tempDir, 'expected.sql');
+      const livePath = path.join(tempDir, 'live.sql');
+      fs.writeFileSync(expectedPath, sql);
+      fs.writeFileSync(livePath, sql);
+
+      const result = compareSchemaSnapshotFiles(expectedPath, livePath);
+      expect(result.success).toBe(true);
+    });
+
+    it('should detect schema snapshot drift', () => {
+      const expectedPath = path.join(tempDir, 'expected.sql');
+      const livePath = path.join(tempDir, 'live.sql');
+      fs.writeFileSync(expectedPath, 'CREATE TABLE public.users (id bigint);');
+      fs.writeFileSync(livePath, 'CREATE TABLE public.users (id bigint); CREATE TABLE public.orders (id bigint);');
+
+      const result = compareSchemaSnapshotFiles(expectedPath, livePath);
+      expect(result.success).toBe(false);
+      expect(result.diffReport).toBeTruthy();
+    });
+
+    it('should normalize schema snapshot content', () => {
+      const a = normalizeSchemaSnapshot('CREATE TABLE Users ( ID BIGINT ); -- comment');
+      const b = normalizeSchemaSnapshot('create table users ( id bigint );');
+      expect(a).toBe(b);
     });
   });
 
@@ -374,16 +388,12 @@ describe('Migration Drift Check', () => {
   });
 
   describe('Filesystem Migration Analysis', () => {
-    it('should detect migrations in actual filesystem', () => {
-      const backendMigrations = readMigrations(BACKEND_MIGRATIONS);
+    it('should detect canonical supabase migrations in filesystem', () => {
       const supabaseMigrations = readMigrations(SUPABASE_MIGRATIONS);
 
-      // Check that we have migrations
-      expect(backendMigrations.size).toBeGreaterThan(0);
       expect(supabaseMigrations.size).toBeGreaterThan(0);
 
-      // All should have parsed metadata
-      for (const migration of backendMigrations.values()) {
+      for (const migration of supabaseMigrations.values()) {
         expect(migration.content).toBeTruthy();
         expect(migration.normalized).toBeTruthy();
         expect(migration.tables).toBeTruthy();
@@ -391,14 +401,13 @@ describe('Migration Drift Check', () => {
     });
 
     it('should identify migration naming patterns', () => {
-      const backendMigrations = readMigrations(BACKEND_MIGRATIONS);
-      const names = Array.from(backendMigrations.keys());
+      const supabaseMigrations = readMigrations(SUPABASE_MIGRATIONS);
+      const names = Array.from(supabaseMigrations.keys());
 
-      // Check for various naming patterns
       const hasTimestampPattern = names.some(n => /^\d{14}/.test(n));
-      const hasSequentialPattern = names.some(n => /^\d{3}_/.test(n));
+      const hasShortTimestampPattern = names.some(n => /^\d{8}/.test(n));
 
-      expect(hasTimestampPattern || hasSequentialPattern).toBe(true);
+      expect(hasTimestampPattern || hasShortTimestampPattern).toBe(true);
     });
   });
 

@@ -20,8 +20,38 @@ module.exports = {
     "@typescript-eslint/no-floating-promises": "error",
     "no-console": "warn",
     "@typescript-eslint/no-unused-vars": "warn",
+    // Package boundary: backend must not import from client
+    "no-restricted-imports": [
+      "error",
+      {
+        patterns: [
+          {
+            group: ["../client/**", "../../client/**"],
+            message: "Backend must not import from client.",
+          },
+          {
+            group: ["../sdk/src/**", "../../sdk/src/**"],
+            message: "Import from the published @syncro/sdk package, not its source.",
+          },
+          {
+            group: ["../shared/src/**", "../../shared/src/**"],
+            message: "Import from @syncro/shared, not its source path.",
+          },
+        ],
+      },
+    ],
   },
   overrides: [
+    {
+      // Backend application code must route logging through the structured
+      // winston logger (src/config/logger). Raw console.* risks leaking PII to
+      // stdout and bypasses log rotation / redaction. See issue #1028.
+      files: ["src/**/*.ts", "services/**/*.ts"],
+      excludedFiles: ["src/config/logger.ts"],
+      rules: {
+        "no-console": "error",
+      },
+    },
     {
       files: ["*.js", "*.cjs", "*.mjs"],
       parserOptions: {

@@ -4,6 +4,14 @@ import { describe, test, it, expect, vi, beforeEach } from 'vitest'
 import { SubscriptionCard } from '../pages/subscriptions'
 import { mockSubscription, mockCancellationGuide } from '@/lib/test-utils'
 
+vi.mock('@/components/providers/user-settings-provider', () => ({
+  useUserSettings: () => ({
+    settings: { currency: 'USD', timezone: 'UTC', locale: 'en-US', privacyModeEnabled: false },
+    updateSettings: vi.fn(),
+    isLoading: false,
+  }),
+}))
+
 describe('SubscriptionCard', () => {
   const defaultProps = {
     subscription: mockSubscription({
@@ -96,6 +104,26 @@ describe('SubscriptionCard', () => {
       render(<SubscriptionCard {...defaultProps} subscription={subWithEmail} />)
 
       expect(screen.getByText('user@example.com')).toBeInTheDocument()
+    })
+
+    test('displays encrypted lock indicator when subscription is encrypted', () => {
+      const encryptedSub = mockSubscription({
+        ...defaultProps.subscription,
+        is_encrypted: true,
+      })
+      render(<SubscriptionCard {...defaultProps} subscription={encryptedSub} />)
+
+      expect(screen.getByTitle(/encrypted on-chain data/i)).toBeInTheDocument()
+    })
+
+    test('displays plaintext lock indicator when subscription is not encrypted', () => {
+      const plaintextSub = mockSubscription({
+        ...defaultProps.subscription,
+        is_encrypted: false,
+      })
+      render(<SubscriptionCard {...defaultProps} subscription={plaintextSub} />)
+
+      expect(screen.getByTitle(/plaintext on-chain/i)).toBeInTheDocument()
     })
 
     test('displays cancellation difficulty badge when guide is provided', () => {

@@ -12,6 +12,7 @@ import {
 import { webhookDeadLetterService } from './webhook-dead-letter-service';
 import { ExternalServiceClient } from '../utils/external-service-client';
 import { emitSecurityEvent } from './audit-service';
+import { getRequestId } from '../middleware/requestContext';
 
 export class WebhookService {
   private readonly DISABLE_THRESHOLD = 10;
@@ -104,6 +105,8 @@ export class WebhookService {
    * Dispatch an event to all applicable webhooks
    */
   async dispatchEvent<E extends WebhookEventType>(userId: string, eventType: E, data: WebhookEventPayloadMap[E]): Promise<void> {
+    const correlationId = getRequestId();
+    
     try {
       // Find all enabled webhooks for this user subscribed to this event
       const { data: webhooks, error } = await supabase
@@ -114,7 +117,7 @@ export class WebhookService {
         .contains('events', [eventType]);
 
       if (error) {
-        logger.error('Failed to fetch webhooks for dispatch:', error);
+        logger.error('Failed to fetch webhooks for dispatch:', { error, correlationId });
         return;
       }
 
@@ -127,13 +130,16 @@ export class WebhookService {
         type: eventType,
         created: Math.floor(Date.now() / 1000),
         data,
+        correlationId, // Include correlation ID in webhook payload for end-to-end tracing
       };
 
       for (const webhook of webhooks) {
         await this.createDelivery(webhook.id, eventType, eventPayload);
       }
+      
+      logger.debug('Webhook event dispatched', { eventType, webhookCount: webhooks.length, correlationId });
     } catch (err) {
-      logger.error('Error dispatching webhook event:', err);
+      logger.error('Error dispatching webhook event:', { err, eventType, correlationId });
     }
   }
 

@@ -12,6 +12,7 @@ export const userPreferencesUpdateSchema = z.object({
     .min(1, 'At least one reminder timing is required')
     .max(10, 'Maximum 10 reminder timings allowed')
     .optional(),
+  reminder_jitter_level: z.enum(['off', 'low', 'medium', 'high']).optional(),
   email_opt_ins: z
     .object({
       marketing: z.boolean().optional(),
@@ -31,6 +32,15 @@ export const userPreferencesUpdateSchema = z.object({
   currency: z.string().min(3).max(5).optional(),
   timezone: z.string().optional(),
   locale: z.string().optional(),
+  preferred_gift_card_provider: z
+    .enum(['atomic_wallet', 'bitrefill', 'coincards'])
+    .optional(),
+  privacy_mode_enabled: z.boolean().optional(),
+  encryption_key: z.string().optional(),
+  subscription_priority_order: z
+    .array(z.string().uuid('Each subscription ID must be a valid UUID'))
+    .max(500, 'Maximum 500 subscriptions in priority order')
+    .optional(),
 });
 
 // ─── Quiet Hours Schema ─────────────────────────────────────────────────────

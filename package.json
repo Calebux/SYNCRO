@@ -19,6 +19,9 @@
     "generate:openapi": "cd backend && npm run swagger:export",
     "lint:todos": "node scripts/check-todos.mjs",
     "check:migrations": "node scripts/check-migration-drift.js",
+    "check:migrations:verify-db": "node scripts/check-migration-drift.js --verify-db --strict",
+    "check:migrations:verify-schema": "node scripts/check-migration-drift.js --verify-schema --strict",
+    "schema:snapshot": "bash scripts/generate-schema-snapshot.sh",
     "cleanup:migrations": "node scripts/cleanup-duplicate-migrations.js"
   },
   "devDependencies": {
@@ -26,6 +29,6 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.0",
-    "typescript": "^6.0.3"
+    "typescript": "^5.9.3"
   }
 }

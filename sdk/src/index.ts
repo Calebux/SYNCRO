@@ -1,6 +1,5 @@
 import axios, { type AxiosInstance } from "axios";
 import { EventEmitter } from "node:events";
-import * as crypto from "node:crypto";
 import type {
   GiftCardEvent,
   GiftCardEventType,
@@ -30,6 +29,13 @@ import {
   ForbiddenError,
   createApiError,
 } from "./errors.js";
+import {
+  verifyWebhookSignature,
+  parseWebhookHeaders,
+  parseVerifiedWebhookEvent,
+  createWebhookHandler,
+  SYNCRO_WEBHOOK_HEADERS,
+} from "./webhooks.js";
 
 export interface Subscription {
   id: string;
@@ -434,33 +440,7 @@ export class SyncroSDK extends EventEmitter {
    * @returns boolean indicating if the signature is valid
    */
   static verifyWebhookSignature(payload: string, signature: string, secret: string): boolean {
-    if (!signature || !secret || !payload) return false;
-
-    const [timestampPart, signaturePart] = signature.split(",");
-    if (!timestampPart || !signaturePart) return false;
-
-    const timestamp = timestampPart.split("=")[1];
-    const receivedSignature = signaturePart.split("=")[1];
-
-    if (!timestamp || !receivedSignature) return false;
-
-    // Verify timestamp is within 5 minutes (300 seconds)
-    const now = Math.floor(Date.now() / 1000);
-    const ts = parseInt(timestamp, 10);
-    if (isNaN(ts) || Math.abs(now - ts) > 300) {
-      return false;
-    }
-
-    const signedPayload = `${timestamp}.${payload}`;
-    const expectedSignature = crypto
-      .createHmac("sha256", secret)
-      .update(signedPayload)
-      .digest("hex");
-
-    return crypto.timingSafeEqual(
-      Buffer.from(receivedSignature, "hex"),
-      Buffer.from(expectedSignature, "hex")
-    );
+    return verifyWebhookSignature(payload, signature, secret);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -915,4 +895,52 @@ export {
   ConflictError,
   ForbiddenError,
   createApiError,
-} from "./errors.js";
+} from "./errors.js";
+export {
+  verifyWebhookSignature,
+  parseWebhookHeaders,
+  parseVerifiedWebhookEvent,
+  createWebhookHandler,
+  SYNCRO_WEBHOOK_HEADERS,
+} from "./webhooks.js";
+export {
+  buildSyncroMemo,
+  parseSyncroMemo,
+  validateSyncroMemo,
+  verifyTransactionMemo,
+  hashSubscriptionId,
+  resolveMemoOperationFromSubscriptionAction,
+  resolveMemoOperationFromMethod,
+  SYNCRO_MEMO_VERSION,
+} from "./stellar/memo.js";
+export type {
+  SyncroWebhookEventType,
+  SyncroWebhookEventPayloadMap,
+  SyncroWebhookEnvelope,
+  SyncroWebhookEvent,
+  SyncroWebhookDeliveryHeaders,
+  WebhookHeaderInput,
+} from "./webhooks.js";
+export type {
+  SyncroMemoTypeCode,
+  SyncroMemoParts,
+  ParsedSyncroMemo,
+  SyncroMemoOperation,
+  StellarTransactionReceipt,
+} from "./stellar/memo.js";
+export {
+  buildContractInvoke,
+  buildSubscriptionRegistryCreateSubscription,
+  buildSubscriptionRegistryUpdateSubscription,
+  buildSubscriptionRegistryCancelSubscription,
+  buildSubscriptionLoggingRecordLog,
+  buildSubscriptionRenewalRenew,
+} from "./generated/index.js";
+export type {
+  GeneratedContractMap,
+  SubscriptionRegistryContract,
+  SubscriptionLoggingContract,
+  SubscriptionRenewalContract,
+  BuiltTransaction,
+  ContractInvokeParams,
+} from "./generated/index.js";

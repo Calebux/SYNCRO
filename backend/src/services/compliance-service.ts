@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { supabase } from '../config/database';
 import logger from '../config/logger';
 import { emailService } from './email-service';
+import { executeGdprDeletionPipeline } from './gdpr-deletion-pipeline';
 
 export interface UserExportData {
   profile: any;
@@ -15,6 +16,7 @@ export interface UserExportData {
     contractEvents: any[];
     renewalApprovals: any[];
   };
+  blindingFactors: any[];
 }
 
 interface TokenVerificationResult {
@@ -86,6 +88,7 @@ export class ComplianceService {
       teamsResult,
       contractEventsResult,
       renewalApprovalsResult,
+      blindingFactorsResult,
     ] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', userId).single(),
       supabase.from('subscriptions').select('*').eq('user_id', userId),
@@ -96,6 +99,7 @@ export class ComplianceService {
       supabase.from('team_members').select('*').eq('user_id', userId),
       supabase.from('contract_events').select('*').eq('user_id', userId),
       supabase.from('renewal_approvals').select('*').eq('user_id', userId),
+      supabase.from('commitment_blinding_factors').select('*').eq('user_id', userId),
     ]);
 
     return {
@@ -110,6 +114,7 @@ export class ComplianceService {
         contractEvents: contractEventsResult.data || [],
         renewalApprovals: renewalApprovalsResult.data || [],
       },
+      blindingFactors: blindingFactorsResult.data || [],
     };
   }
 
@@ -244,6 +249,35 @@ export class ComplianceService {
     return data || null;
   }
 
+  async processHardDeleteForUser(userId: string, deletionId: string): Promise<number> {
+    try {
+      const { data: { user } } = await supabase.auth.admin.getUserById(userId);
+      if (user?.email) {
+        await emailService.sendSimpleEmail(
+          user.email,
+          'Account Deleted — Synchro',
+          'Your Synchro account has been permanently deleted and all personal data has been removed. Anonymized audit logs have been retained for security purposes. Thank you for using Synchro.',
+        );
+      }
+    } catch (emailError) {
+      logger.error(`Failed to send final deletion email for user ${userId}:`, emailError);
+    }
+
+    const { error: deleteError } = await supabase.auth.admin.deleteUser(userId);
+    if (deleteError) {
+      logger.error(`Failed to delete auth user ${userId}: ${deleteError.message}`);
+      return 0;
+    }
+
+    await supabase
+      .from('account_deletions')
+      .update({ status: 'completed', completed_at: new Date().toISOString() })
+      .eq('id', deletionId);
+
+    logger.info(`Hard delete completed for user ${userId}`);
+    return 1;
+  }
+
   async processHardDeletes(): Promise<number> {
     const now = new Date().toISOString();
 
@@ -261,39 +295,20 @@ export class ComplianceService {
 
     for (const deletion of pendingDeletions) {
       try {
-        await supabase
-          .from('audit_logs')
-          .update({ user_id: null, ip_address: null, user_agent: null })
-          .eq('user_id', deletion.user_id);
+        const pipelineResult = await executeGdprDeletionPipeline(
+          deletion.user_id,
+          deletion.id,
+        );
 
-        // Send final confirmation email before deleting auth user
-        try {
-          const { data: { user } } = await supabase.auth.admin.getUserById(deletion.user_id);
-          if (user?.email) {
-            await emailService.sendSimpleEmail(
-              user.email,
-              'Account Deleted — Synchro',
-              'Your Synchro account has been permanently deleted and all personal data has been removed. Anonymized audit logs have been retained for security purposes. Thank you for using Synchro.'
-            );
-          }
-        } catch (emailError) {
-          logger.error(`Failed to send final deletion email for user ${deletion.user_id}:`, emailError);
-        }
-
-        const { error: deleteError } = await supabase.auth.admin.deleteUser(deletion.user_id);
-
-        if (deleteError) {
-          logger.error(`Failed to delete auth user ${deletion.user_id}: ${deleteError.message}`);
+        if (!pipelineResult.success) {
+          logger.error(`GDPR pipeline failed for user ${deletion.user_id}`, {
+            error: pipelineResult.error,
+          });
           continue;
         }
 
-        await supabase
-          .from('account_deletions')
-          .update({ status: 'completed', completed_at: new Date().toISOString() })
-          .eq('id', deletion.id);
-
-        logger.info(`Hard delete completed for user ${deletion.user_id}`);
-        processed++;
+        const count = await this.processHardDeleteForUser(deletion.user_id, deletion.id);
+        processed += count;
       } catch (err) {
         logger.error(`Error processing hard delete for user ${deletion.user_id}:`, err);
       }

@@ -49,3 +49,22 @@ export interface PaymentHistoryEntry {
   date: string;
   subscriptionName?: string;
 }
+
+/**
+ * Channel deposit recommendation based on subscription portfolio
+ */
+export interface ChannelRecommendation {
+  recommendedDeposit: number;
+  monthlyCost: number;
+  safetyMarginPercent: number;
+  volatilityBufferPercent: number;
+  renewalsBeforeTopUp: number;
+  settlementFrequency: 'weekly' | 'biweekly' | 'monthly';
+  breakdown: {
+    name: string;
+    monthlyEquivalent: number;
+    billingCycle: string;
+    originalAmount: number;
+  }[];
+  currency: string;
+}

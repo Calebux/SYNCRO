@@ -1,4 +1,4 @@
-﻿name: Migration Audit
+name: Migration Audit
 
 on:
   push:
@@ -13,7 +13,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Make audit script executable
         run: chmod +x scripts/check-no-backend-migrations.sh

@@ -17,8 +17,10 @@ import { AnalyticsSummary } from "@/lib/api/analytics"
 import { Download, Calendar, BarChart3, ChevronLeft, ChevronRight, TrendingUp, TrendingDown } from "lucide-react"
 import { downloadSubscriptionPDF } from "@/lib/pdf-report"
 import { Progress } from "@/components/ui/progress"
-import { formatCurrency } from "@/lib/currency-utils"
+import { type Currency, formatCurrency, CURRENCY_SYMBOLS } from "@/lib/currency-utils"
 import { useUserSettings } from "@/components/providers/user-settings-provider"
+import { DISPLAY_CURRENCIES } from "@/lib/exchange-rates"
+import { useExchangeRates } from "@/hooks/use-exchange-rates"
 
 interface AnalyticsPageProps {
   summary: AnalyticsSummary
@@ -29,6 +31,8 @@ interface AnalyticsPageProps {
 
 export default function AnalyticsPage({ summary, darkMode, savedBySyncroCount = 0 }: AnalyticsPageProps) {
   const { settings } = useUserSettings()
+  const [chartCurrency, setChartCurrency] = useState<Currency>(settings.currency)
+  const { convert, isLoading: ratesLoading } = useExchangeRates()
   const currency = settings.currency
   const [view, setView] = useState("default")
   const [currentMonth, setCurrentMonth] = useState(new Date())
@@ -94,18 +98,53 @@ export default function AnalyticsPage({ summary, darkMode, savedBySyncroCount = 
       )}
 
       {/* Main Charts */}
+      {/* Chart currency toggle – Issue #972 */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className={`text-sm font-medium ${darkMode ? "text-gray-400" : "text-gray-600"}`}>
+          Chart currency:
+        </span>
+        <div role="group" aria-label="Select chart currency" className="flex flex-wrap gap-1">
+          {DISPLAY_CURRENCIES.map((code) => (
+            <button
+              key={code}
+              onClick={() => setChartCurrency(code)}
+              aria-pressed={chartCurrency === code}
+              className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FFD166] ${
+                chartCurrency === code
+                  ? "bg-[#FFD166] text-[#1E2A35]"
+                  : darkMode
+                  ? "bg-[#374151] text-gray-300 hover:bg-[#4B5563]"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              }`}
+            >
+              {CURRENCY_SYMBOLS[code] ?? code} {code}
+            </button>
+          ))}
+        </div>
+        {ratesLoading && (
+          <span className="text-xs text-gray-400" aria-live="polite">
+            Loading live rates…
+          </span>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8">
         <div className={`p-4 sm:p-6 rounded-xl border ${darkMode ? "bg-[#2D3748] border-[#374151]" : "bg-white border-gray-200"}`}>
           <h3 className={`font-semibold mb-4 sm:mb-6 ${darkMode ? "text-white" : "text-gray-900"}`}>Spending Trend</h3>
           <div className="w-full overflow-x-auto">
             <div style={{ minWidth: 280 }}>
               <ResponsiveContainer width="100%" height={240}>
-                <LineChart data={summary.monthly_trend}>
+                <LineChart
+                  data={summary.monthly_trend.map((point) => ({
+                    ...point,
+                    total_spend: convert(point.total_spend, "USD", chartCurrency),
+                  }))}
+                >
                   <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#374151" : "#e5e7eb"} />
                   <XAxis dataKey="month" stroke={darkMode ? "#9ca3af" : "#9ca3af"} tick={{ fontSize: 11 }} />
                   <YAxis stroke={darkMode ? "#9ca3af" : "#9ca3af"} tick={{ fontSize: 11 }} width={55} />
                   <Tooltip
-                    formatter={(value) => formatCurrency(Number(value), currency)}
+                    formatter={(value) => formatCurrency(Number(value), chartCurrency)}
                     contentStyle={{ backgroundColor: darkMode ? "#1F2937" : "#FFF", border: "none", borderRadius: "8px" }}
                     itemStyle={{ color: "#6366F1" }}
                   />
@@ -121,7 +160,10 @@ export default function AnalyticsPage({ summary, darkMode, savedBySyncroCount = 
           <ResponsiveContainer width="100%" height={200}>
             <PieChart>
               <Pie
-                data={summary.category_breakdown}
+                data={summary.category_breakdown.map((item) => ({
+                  ...item,
+                  total_spend: convert(item.total_spend, "USD", chartCurrency),
+                }))}
                 dataKey="total_spend"
                 nameKey="category"
                 cx="50%"
@@ -134,14 +176,16 @@ export default function AnalyticsPage({ summary, darkMode, savedBySyncroCount = 
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip formatter={(value) => formatCurrency(Number(value), currency)} />
+              <Tooltip formatter={(value) => formatCurrency(Number(value), chartCurrency)} />
             </PieChart>
           </ResponsiveContainer>
           <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
             {summary.category_breakdown.map((cat, idx) => (
               <div key={idx} className="flex items-center gap-2 text-xs sm:text-sm">
                 <div className="w-2 h-2 flex-shrink-0 rounded-full" style={{ backgroundColor: COLORS[idx % COLORS.length] }}></div>
-                <span className="text-gray-400 truncate">{cat.category}: {formatCurrency(cat.total_spend, currency)}</span>
+                <span className="text-gray-400 truncate">
+                  {cat.category}: {formatCurrency(convert(cat.total_spend, "USD", chartCurrency), chartCurrency)}
+                </span>
               </div>
             ))}
           </div>

@@ -1,0 +1,81 @@
+# Secret scanning configuration (issue #1082)
+#
+# Used by:
+#   - CI          .github/workflows/secret-scan.yml (gitleaks — authoritative)
+#   - pre-commit  scripts/scan-secrets.js (reads the [allowlist] table below)
+#
+# Accepted historical findings live in .secrets-baseline.json, not here.
+# This file is for *categorical* exceptions: paths that never hold real
+# credentials, and patterns that are structurally placeholders.
+#
+# Adding an exception here is a security decision. Justify it in the comment.
+
+title = "SYNCRO secret scanning"
+
+# Start from gitleaks' built-in rule set rather than hand-rolling detection.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Paths and patterns that never contain live credentials"
+
+paths = [
+  # Lockfiles: integrity hashes and registry URLs trip entropy rules.
+  '''package-lock\.json$''',
+  '''pnpm-lock\.yaml$''',
+  '''yarn\.lock$''',
+  '''Cargo\.lock$''',
+
+  # Vendored and generated code.
+  '''(^|/)node_modules/''',
+  '''(^|/)dist/''',
+  '''(^|/)build/''',
+  '''(^|/)coverage/''',
+  '''(^|/)\.next/''',
+  '''(^|/)target/''',
+
+  # Example environment files hold placeholders by definition. They are
+  # allowlisted only because CI also asserts they contain no real values —
+  # never put a working credential in a .example file.
+  '''\.env\.example$''',
+  '''\.env\.sample$''',
+  '''\.env\.template$''',
+
+  # This scanner's own rules and documentation quote credential *shapes*.
+  '''^scripts/scan-secrets\.js$''',
+  '''^\.gitleaks\.toml$''',
+  '''^\.secrets-baseline\.json$''',
+  '''^docs/security/secret-scanning\.md$''',
+]
+
+regexes = [
+  # Values read from configuration rather than hardcoded.
+  '''process\.env\.''',
+  '''import\.meta\.env''',
+  '''os\.environ''',
+  '''\$\{\{\s*secrets\.''',        # GitHub Actions secret interpolation
+  '''\$\{[A-Za-z_][A-Za-z0-9_]*\}''',
+
+  # Obvious placeholders.
+  '''(?i)(your|my|the)[-_]?(api|secret|access|private)?[-_]?(key|token|secret|password)[-_]?here''',
+  '''(?i)\b(xxx+|yyy+|zzz+|foo|bar|baz|changeme|placeholder|redacted|example|dummy|sample)\b''',
+  '''(?i)<[a-z_-]*(key|token|secret|password)[a-z_-]*>''',
+  '''\*{6,}''',
+]
+
+stopwords = [
+  "example",
+  "placeholder",
+  "changeme",
+  "redacted",
+  "notarealkey",
+  "your-",
+  "test-secret",
+  "test-key",
+  "test-token",
+  "test-admin-key",
+  "dummy",
+  "sample",
+  "fake",
+  "localhost",
+]

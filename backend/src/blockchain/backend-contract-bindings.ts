@@ -30,6 +30,7 @@ export interface BackendContractBinding {
 export const BLOCKCHAIN_INVOKE_METHODS = {
   logReminder: 'record_log',
   giftCardAttached: 'record_log',
+  recordCommitment: 'record_commitment',
 } as const;
 
 const SUBSCRIPTION_METHODS: Record<
@@ -97,6 +98,12 @@ export function getBackendContractBindings(): BackendContractBinding[] {
       contract: 'SubscriptionLogging',
       method: BLOCKCHAIN_INVOKE_METHODS.giftCardAttached,
       expectedArgKinds: ['U64', 'String', 'String'],
+    },
+    {
+      operation: 'record_commitment',
+      contract: 'SubscriptionLogging',
+      method: BLOCKCHAIN_INVOKE_METHODS.recordCommitment,
+      expectedArgKinds: ['BytesN<32>'],
     },
   ];
 }

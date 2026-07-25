@@ -149,6 +149,89 @@ describe("PaymentService", () => {
       expect(result.requiresAction).toBeUndefined()
     })
 
+    it("should surface a DECLINED capture as an explicit failure", async () => {
+      const { getPayPalService } = await import("../paypal-service")
+      vi.mocked(getPayPalService).mockReturnValue({
+        captureOrder: vi.fn().mockResolvedValue({
+          id: "ORDER_ABC",
+          status: "COMPLETED",
+          purchase_units: [{
+            payments: {
+              captures: [{
+                id: "CAPTURE_DECLINED",
+                status: "DECLINED",
+                status_details: { reason: "INSTRUMENT_DECLINED" },
+              }],
+            },
+          }],
+        }),
+        createOrder: vi.fn(),
+        refundCapture: vi.fn(),
+        getOrder: vi.fn(),
+      } as any)
+
+      const service = new PaymentService({ provider: "paypal" })
+      const result = await service.processPayment(0, "usd", "order_ORDER_ABC")
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain("declined")
+      expect(result.error).toContain("INSTRUMENT_DECLINED")
+      // Falls back to the capture ID so callers can reconcile the attempt.
+      expect(result.transactionId).toBe("CAPTURE_DECLINED")
+    })
+
+    it("should surface a FAILED capture as an explicit failure", async () => {
+      const { getPayPalService } = await import("../paypal-service")
+      vi.mocked(getPayPalService).mockReturnValue({
+        captureOrder: vi.fn().mockResolvedValue({
+          id: "ORDER_ABC",
+          status: "COMPLETED",
+          purchase_units: [{
+            payments: { captures: [{ id: "CAPTURE_FAILED", status: "FAILED" }] },
+          }],
+        }),
+        createOrder: vi.fn(),
+        refundCapture: vi.fn(),
+        getOrder: vi.fn(),
+      } as any)
+
+      const service = new PaymentService({ provider: "paypal" })
+      const result = await service.processPayment(0, "usd", "order_ORDER_ABC")
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain("failed")
+    })
+
+    it("should treat a PENDING capture as pending (requiresAction), not success", async () => {
+      const { getPayPalService } = await import("../paypal-service")
+      vi.mocked(getPayPalService).mockReturnValue({
+        captureOrder: vi.fn().mockResolvedValue({
+          id: "ORDER_ABC",
+          status: "COMPLETED",
+          purchase_units: [{
+            payments: {
+              captures: [{
+                id: "CAPTURE_PENDING",
+                status: "PENDING",
+                status_details: { reason: "PENDING_REVIEW" },
+              }],
+            },
+          }],
+        }),
+        createOrder: vi.fn(),
+        refundCapture: vi.fn(),
+        getOrder: vi.fn(),
+      } as any)
+
+      const service = new PaymentService({ provider: "paypal" })
+      const result = await service.processPayment(0, "usd", "order_ORDER_ABC")
+
+      expect(result.success).toBe(false)
+      expect(result.requiresAction).toBe(true)
+      expect(result.error).toContain("pending")
+      expect(result.transactionId).toBe("CAPTURE_PENDING")
+    })
+
     it("should return error when PayPal is not configured", async () => {
       const { getPayPalService } = await import("../paypal-service")
       vi.mocked(getPayPalService).mockReturnValue(null)

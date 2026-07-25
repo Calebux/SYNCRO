@@ -18,6 +18,22 @@
     "./errors": {
       "import": "./dist/errors.js",
       "types": "./dist/errors.d.ts"
+    },
+    "./webhooks": {
+      "import": "./dist/webhooks.js",
+      "types": "./dist/webhooks.d.ts"
+    },
+    "./stellar": {
+      "import": "./dist/stellar/index.js",
+      "types": "./dist/stellar/index.d.ts"
+    },
+    "./zk": {
+      "import": "./dist/zk/index.js",
+      "types": "./dist/zk/index.d.ts"
+    },
+    "./contracts": {
+      "import": "./dist/generated/index.js",
+      "types": "./dist/generated/index.d.ts"
     }
   },
   "files": [
@@ -27,6 +43,8 @@
   "scripts": {
     "lint": "eslint \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit",
+    "generate:contracts": "node scripts/generate-contract-bindings.cjs",
+    "prebuild": "npm run generate:contracts",
     "build": "tsc",
     "test": "jest",
     "prepublishOnly": "npm run lint && npm run typecheck && npm run build"
@@ -39,18 +57,20 @@
   "author": "SYNCRO",
   "license": "MIT",
   "dependencies": {
+    "@syncro/shared": "file:../shared",
     "axios": "^1.13.5",
     "events": "^3.3.0"
   },
   "devDependencies": {
+    "@stellar/stellar-sdk": "^14.5.0",
     "@types/jest": "^30.0.0",
-    "@types/node": "^25.6.0",
+    "@types/node": "^26.0.0",
     "@typescript-eslint/eslint-plugin": "^8.60.0",
     "@typescript-eslint/parser": "^8.59.4",
     "eslint": "^10.4.0",
     "jest": "^30.4.2",
     "ts-jest": "^29.2.5",
     "ts-node": "^10.9.2",
-    "typescript": "^6.0.3"
+    "typescript": "^5.9.3"
   }
 }

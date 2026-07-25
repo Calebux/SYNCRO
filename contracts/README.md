@@ -26,6 +26,7 @@ contracts/
 ├── contracts/
 │   ├── src/                     # SubscriptionRegistry contract source
 │   ├── agent-registry/          # Authorized agents registry contract
+│   ├── allowance/               # Recurring allowance / spending-limit authority
 │   ├── escrow/                  # Payment holding escrow contract
 │   ├── subscription_logging/    # On-chain audit trail logging contract
 │   ├── subscription_renewal/    # Main subscription renewal logic contract
@@ -132,6 +133,15 @@ cargo test
 - `record_log` - Appends a log entry (Reminder, Approval, Renewal, Failure, Retry, Cancellation).
 - `get_logs` - Query logs for a specific subscription.
 
+### 7. Allowance Contract (`contracts/contracts/allowance/`)
+**Purpose**: Standalone recurring allowance / spending-limit authority. Lets an owner pre-authorize a merchant for capped recurring pulls, enforcing both a per-period cap and an absolute (lifetime) cap. Decoupled from subscription renewal.
+- `grant_allowance` - Owner authorizes a merchant with a per-period cap, absolute cap, and period length.
+- `revoke_allowance` - Owner revokes the authority, immediately blocking further pulls.
+- `consume` - Merchant pulls funds (owner → merchant via `transfer_from`); resets the period window when elapsed and enforces both caps.
+- `update_caps` - Owner adjusts the per-period and absolute caps (never below already-spent amounts).
+- `available` - Query the amount still pullable right now (min of remaining per-period and lifetime budgets).
+- `pause` / `unpause` / `is_paused` - Admin circuit-breaker over all consumption.
+
 ## Contract Development Roadmap
 
 ### Completed (MVP Stage)
@@ -140,6 +150,7 @@ cargo test
 - [x] Secure escrow agreements with arbiter-mediated dispute resolution
 - [x] Non-custodial virtual cards with disposable/auto-close behavior
 - [x] On-chain audit logging system
+- [x] Recurring allowance authority with per-period and absolute spending caps
 
 ### Phase 3: Mainnet Hardening
 - [ ] Complete external security audits

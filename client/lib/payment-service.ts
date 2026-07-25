@@ -156,20 +156,53 @@ export class PaymentService {
         const orderId = paymentMethodId.replace('order_', '')
         const capture = await paypalService.captureOrder(orderId)
 
-        const captureId = capture.purchase_units[0]?.payments?.captures[0]?.id
-        const status = capture.purchase_units[0]?.payments?.captures[0]?.status
+        const captureDetails = capture.purchase_units[0]?.payments?.captures[0]
+        const captureId = captureDetails?.id
+        const status = captureDetails?.status
+        const reason = captureDetails?.status_details?.reason
 
-        if (status === 'COMPLETED' && captureId) {
-          return {
-            success: true,
-            transactionId: captureId,
-          }
-        } else {
-          return {
-            success: false,
-            transactionId: orderId,
-            error: `Payment capture failed with status: ${status}`,
-          }
+        // Handle every documented PayPal capture status explicitly so callers
+        // can distinguish a completed payment from a declined, failed, or
+        // pending-review one rather than collapsing them into one error.
+        // @see https://developer.paypal.com/docs/api/orders/v2/#definition-capture_status
+        switch (status) {
+          case 'COMPLETED':
+            if (!captureId) {
+              return {
+                success: false,
+                transactionId: orderId,
+                error: 'PayPal reported a completed capture but returned no capture ID',
+              }
+            }
+            return {
+              success: true,
+              transactionId: captureId,
+            }
+
+          case 'PENDING':
+            // Authorized but held for review (e.g. risk/AVS). Not yet a success —
+            // surface it and persist as pending so the webhook can finalize it.
+            return {
+              success: false,
+              transactionId: captureId || orderId,
+              requiresAction: true,
+              error: `PayPal capture is pending review${reason ? `: ${reason}` : ''}`,
+            }
+
+          case 'DECLINED':
+          case 'FAILED':
+            return {
+              success: false,
+              transactionId: captureId || orderId,
+              error: `PayPal capture ${status.toLowerCase()}${reason ? `: ${reason}` : ''}`,
+            }
+
+          default:
+            return {
+              success: false,
+              transactionId: orderId,
+              error: `Payment capture failed with status: ${status ?? 'UNKNOWN'}`,
+            }
         }
       }
 

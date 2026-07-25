@@ -20,7 +20,7 @@ jobs:
       client: ${{ steps.filter.outputs.client }}
       force_full_run: ${{ github.event.inputs.force_full_run || 'false' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
         id: filter
         with:
@@ -36,7 +36,7 @@ jobs:
     name: Lint Root Directory
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Verify no implementation artifacts in root
         run: |
           ALLOWED="README.md CONTRIBUTING.md AGENTS.md CLAUDE.md requirements.txt"
@@ -60,7 +60,7 @@ jobs:
         working-directory: backend
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
@@ -84,7 +84,7 @@ jobs:
         working-directory: client
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
@@ -95,5 +95,29 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run Next.js linter
+      - name: Run Next.js linter (includes package boundary rules)
         run: npx next lint
+
+  lint-sdk:
+    name: Lint SDK
+    runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ needs.changes.outputs.force_full_run == 'true' }}
+    defaults:
+      run:
+        working-directory: sdk
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: sdk/package-lock.json
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run ESLint (boundary check included)
+        run: npx eslint "src/**/*.ts" --max-warnings 0

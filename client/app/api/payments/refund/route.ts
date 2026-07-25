@@ -1,5 +1,5 @@
 import { type NextRequest } from "next/server"
-import { createAuthenticatedApiRoute, createSuccessResponse, validateRequestBody, RateLimiters, ApiErrors, checkOwnership } from "@/lib/api/index"
+import { createAuthenticatedApiRoute, createSuccessResponse, validateRequestBody, RateLimiters, ApiErrors, checkOwnership, emitAuditEvent } from "@/lib/api/index"
 import { HttpStatus } from "@/lib/api/types"
 import { z } from "zod"
 import { PaymentService } from "@/lib/payment-service"
@@ -45,6 +45,13 @@ export const POST = createAuthenticatedApiRoute(
     if (!result.success) {
       throw ApiErrors.internalError(`Refund failed: ${result.error || "Unknown error"}`)
     }
+
+    emitAuditEvent({
+      userId: user.id,
+      action: "payment.refund",
+      resourceType: "payment",
+      resourceId: body.transactionId,
+    })
 
     return createSuccessResponse(
       {

@@ -10,6 +10,25 @@
     "jest": true
   },
   "rules": {
-    "@typescript-eslint/no-explicit-any": "warn"
+    "@typescript-eslint/no-explicit-any": "warn",
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": ["../client/**", "../../client/**"],
+            "message": "SDK must not import from client."
+          },
+          {
+            "group": ["../backend/**", "../../backend/**"],
+            "message": "SDK must not import from backend."
+          },
+          {
+            "group": ["../shared/src/**", "../../shared/src/**"],
+            "message": "Import from @syncro/shared, not its source path."
+          }
+        ]
+      }
+    ]
   }
 }

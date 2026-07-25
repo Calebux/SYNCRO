@@ -36,6 +36,25 @@ function createFormDataRequest(fields: Record<string, any>, fileContent?: string
   })
 }
 
+// Helper to create a FormData request with explicit file metadata
+function createFileRequest(
+  fileContent: string,
+  fileName: string,
+  mimeType: string,
+  extraFields: Record<string, any> = {},
+) {
+  const formData = new FormData()
+  const blob = new Blob([fileContent], { type: mimeType })
+  formData.append("file", blob, fileName)
+  Object.entries(extraFields).forEach(([k, v]) => {
+    formData.append(k, typeof v === "object" ? JSON.stringify(v) : String(v))
+  })
+  return new NextRequest("http://localhost/api/subscriptions/import", {
+    method: "POST",
+    body: formData,
+  })
+}
+
 describe("CSV Import API", () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -128,6 +147,62 @@ describe("CSV Import API", () => {
       const json = await res.json()
 
       expect(res.status).toBe(401)
+    })
+  })
+
+  describe("File-level validation", () => {
+    it("rejects files with a non-.csv extension", async () => {
+      // createFormDataRequest always uses 'test.csv', so use createFileRequest
+      const req = createFileRequest("name,price\nNetflix,10", "import.exe", "text/csv")
+      const res = await POST(req)
+      const json = await res.json()
+
+      expect(res.status).toBe(400)
+      expect(json.error).toMatch(/csv/i)
+    })
+
+    it("rejects files with a disallowed MIME type", async () => {
+      const req = createFileRequest("name,price\nNetflix,10", "import.csv", "application/octet-stream")
+      const res = await POST(req)
+      const json = await res.json()
+
+      expect(res.status).toBe(400)
+      expect(json.error).toMatch(/invalid file type/i)
+    })
+
+    it("rejects files that exceed 2 MB", async () => {
+      // Generate >2 MB of CSV content
+      const bigRow = "Netflix,15.99,USD,monthly,,Streaming,\n"
+      const header = "name,price,currency,billing_cycle,next_renewal,category,renewal_url\n"
+      const content = header + bigRow.repeat(60_000) // ~60k rows ≈ ~3 MB
+      const req = createFileRequest(content, "big.csv", "text/csv")
+      const res = await POST(req)
+      const json = await res.json()
+
+      expect(res.status).toBe(400)
+      expect(json.error).toMatch(/too large/i)
+    })
+
+    it("accepts a valid CSV with correct extension and MIME type", async () => {
+      const csv = "name,price,currency,billing_cycle\nNetflix,15.99,USD,monthly"
+      const mappings = { name: "name", price: "price", currency: "currency", billing_cycle: "billing_cycle" }
+      const req = createFileRequest(csv, "subs.csv", "text/csv", { mappings })
+      const res = await POST(req)
+      const json = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(json.success).toBe(true)
+    })
+
+    it("returns row-level validation errors for malformed rows", async () => {
+      const csv = "name,price,billing_cycle\nNetflix,not-a-number,monthly\n,25.00,weekly"
+      const mappings = { name: "name", price: "price", billing_cycle: "billing_cycle" }
+      const req = createFileRequest(csv, "subs.csv", "text/csv", { mappings })
+      const res = await POST(req)
+      const json = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(json.data.preview.errorCount).toBeGreaterThan(0)
     })
   })
 })

@@ -105,6 +105,7 @@ router.get('/export', authenticate, exportRateLimit, async (req: AuthenticatedRe
     archive.append(JSON.stringify(data.emailAccounts, null, 2), { name: 'email_accounts.json' });
     archive.append(JSON.stringify(data.teams, null, 2), { name: 'teams.json' });
     archive.append(JSON.stringify(data.blockchainLogs, null, 2), { name: 'blockchain_logs.json' });
+    archive.append(JSON.stringify(data.blindingFactors, null, 2), { name: 'blinding_factors.json' });
 
     const readme = [
       'Syncro — Personal Data Export',
@@ -121,6 +122,7 @@ router.get('/export', authenticate, exportRateLimit, async (req: AuthenticatedRe
       '  email_accounts.json — Connected email accounts',
       '  teams.json          — Team membership records',
       '  blockchain_logs.json — On-chain contract events and renewal approvals',
+      '  blinding_factors.json — Pedersen commitment blinding factors for audit data',
       '',
       'For questions or deletion requests, contact support.',
     ].join('\n');

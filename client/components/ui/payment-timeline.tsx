@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { renewalHistoryApi, type RenewalEvent, type RenewalHistoryResponse } from '@/lib/api/renewal-history';
+import { getInvoiceSignedUrl } from '@/lib/api/invoices';
 import { BlockchainBadge } from '@/components/ui/blockchain-badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatCurrency } from '@/lib/currency-utils';
@@ -55,6 +56,43 @@ function formatDate(iso: string): string {
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
+
+/**
+ * Fetches a short-lived signed URL on click and opens the invoice PDF in a new
+ * tab. The URL is never embedded in the page — it is minted on demand so it
+ * cannot leak or outlive its short TTL.
+ */
+function ViewInvoiceButton({ invoiceId }: { invoiceId: string }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleClick = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { url } = await getInvoiceSignedUrl(invoiceId);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not open invoice');
+    } finally {
+      setLoading(false);
+    }
+  }, [invoiceId]);
+
+  return (
+    <span className="mt-0.5 inline-flex items-center gap-2">
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={loading}
+        className="text-xs text-indigo-500 hover:underline inline-flex items-center gap-1 focus:outline-none focus:ring-1 focus:ring-indigo-400 rounded disabled:opacity-60 disabled:cursor-not-allowed"
+      >
+        {loading ? 'Opening…' : 'View Invoice PDF'} ↗
+      </button>
+      {error && <span className="text-xs text-red-500">{error}</span>}
+    </span>
+  );
+}
 
 function TimelineEventRow({
   event,
@@ -118,16 +156,20 @@ function TimelineEventRow({
           </p>
         )}
 
-        {event.explorerUrl && (
-          <a
-            href={event.explorerUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-indigo-500 hover:underline mt-0.5 inline-block focus:outline-none focus:ring-1 focus:ring-indigo-400 rounded"
-          >
-            View on Stellar Explorer ↗
-          </a>
-        )}
+        <div className="flex flex-wrap items-center gap-3">
+          {event.explorerUrl && (
+            <a
+              href={event.explorerUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-indigo-500 hover:underline mt-0.5 inline-block focus:outline-none focus:ring-1 focus:ring-indigo-400 rounded"
+            >
+              View on Stellar Explorer ↗
+            </a>
+          )}
+
+          {event.invoiceId && <ViewInvoiceButton invoiceId={event.invoiceId} />}
+        </div>
       </div>
     </li>
   );

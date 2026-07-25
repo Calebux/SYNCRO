@@ -18,7 +18,7 @@ export function AddEmailAccountModal({
 }: AddEmailAccountModalProps) {
   const [step, setStep] = useState<"provider" | "oauth" | "imap">("provider");
   const [provider, setProvider] = useState<
-    "gmail" | "microsoft" | "imap" | "forward"
+    "gmail" | "microsoft" | "imap" | "forward" | "yahoo" | "icloud"
   >("gmail");
   const [imapConfig, setImapConfig] = useState({
     email: "",
@@ -31,9 +31,25 @@ export function AddEmailAccountModal({
 
   const handleProviderSelect = (selectedProvider: typeof provider) => {
     setProvider(selectedProvider);
+    
+    // Set default host and port for Yahoo and iCloud
+    if (selectedProvider === "yahoo") {
+      setImapConfig(prev => ({
+        ...prev,
+        host: "imap.mail.yahoo.com",
+        port: "993"
+      }));
+    } else if (selectedProvider === "icloud") {
+      setImapConfig(prev => ({
+        ...prev,
+        host: "imap.mail.me.com",
+        port: "993"
+      }));
+    }
+    
     if (selectedProvider === "gmail" || selectedProvider === "microsoft") {
       setStep("oauth");
-    } else if (selectedProvider === "imap") {
+    } else if (selectedProvider === "imap" || selectedProvider === "yahoo" || selectedProvider === "icloud") {
       setStep("imap");
     } else {
       // Forward - show instructions
@@ -57,21 +73,34 @@ export function AddEmailAccountModal({
     setError("");
 
     try {
-      const data = await apiPost("/api/email/connect-imap", {
-        ...imapConfig,
-        provider: "imap",
-      });
+      let data;
+      if (provider === "yahoo") {
+        data = await apiPost("/api/integrations/yahoo/connect", {
+          email: imapConfig.email,
+          password: imapConfig.password,
+        });
+      } else if (provider === "icloud") {
+        data = await apiPost("/api/integrations/icloud/connect", {
+          email: imapConfig.email,
+          password: imapConfig.password,
+        });
+      } else {
+        data = await apiPost("/api/email/connect-imap", {
+          ...imapConfig,
+          provider: "imap",
+        });
+      }
 
       // assume success if no error thrown
       onAdd({
         email: imapConfig.email,
-        provider: "imap",
+        provider: provider === "yahoo" || provider === "icloud" ? provider : "imap",
         is_connected: true,
       });
 
       onClose();
     } catch (err) {
-      console.error("IMAP connect error:", err);
+      console.error("Connect error:", err);
       setError(
         "Failed to connect to email server. Please check your credentials."
       );
@@ -181,6 +210,62 @@ export function AddEmailAccountModal({
                       </span>
                       <span className="text-xs px-2 py-1 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
                         Secure OAuth
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => handleProviderSelect("yahoo")}
+                className={`w-full p-4 rounded-lg border-2 ${
+                  darkMode
+                    ? "border-gray-700 hover:border-blue-500 bg-gray-750"
+                    : "border-gray-200 hover:border-blue-500 bg-gray-50"
+                } transition-colors text-left`}
+              >
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center flex-shrink-0">
+                    <Mail className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-semibold mb-1">
+                      Yahoo Mail
+                    </h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      Connect your Yahoo Mail account with app password
+                    </p>
+                    <div className="mt-2">
+                      <span className="text-xs px-2 py-1 rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400">
+                        App Password Required
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => handleProviderSelect("icloud")}
+                className={`w-full p-4 rounded-lg border-2 ${
+                  darkMode
+                    ? "border-gray-700 hover:border-blue-500 bg-gray-750"
+                    : "border-gray-200 hover:border-blue-500 bg-gray-50"
+                } transition-colors text-left`}
+              >
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center flex-shrink-0">
+                    <Mail className="w-6 h-6 text-gray-600 dark:text-gray-400" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-semibold mb-1">
+                      iCloud Mail
+                    </h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      Connect your iCloud Mail account with app-specific password
+                    </p>
+                    <div className="mt-2">
+                      <span className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-400">
+                        App-Specific Password Required
                       </span>
                     </div>
                   </div>
@@ -301,7 +386,7 @@ export function AddEmailAccountModal({
 
                 <div>
                   <label className="block text-sm font-medium mb-2">
-                    Password
+                    {provider === "yahoo" ? "App Password" : provider === "icloud" ? "App-Specific Password" : "Password"}
                   </label>
                   <input
                     type="password"
@@ -309,7 +394,7 @@ export function AddEmailAccountModal({
                     onChange={(e) =>
                       setImapConfig({ ...imapConfig, password: e.target.value })
                     }
-                    placeholder="Your email password"
+                    placeholder={provider === "yahoo" ? "Your Yahoo app password" : provider === "icloud" ? "Your iCloud app-specific password" : "Your email password"}
                     className={`w-full px-4 py-2 rounded-lg border ${
                       darkMode
                         ? "bg-gray-750 border-gray-700 text-white"
@@ -317,49 +402,55 @@ export function AddEmailAccountModal({
                     }`}
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Your password is encrypted and stored securely
+                    {provider === "yahoo" 
+                      ? "Create an app password in Yahoo Account Settings > Account Security" 
+                      : provider === "icloud" 
+                      ? "Create an app-specific password in Apple ID > Sign-In and Security"
+                      : "Your password is encrypted and stored securely"}
                   </p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-2">
-                      IMAP Host
-                    </label>
-                    <input
-                      type="text"
-                      value={imapConfig.host}
-                      onChange={(e) =>
-                        setImapConfig({ ...imapConfig, host: e.target.value })
-                      }
-                      placeholder="imap.example.com"
-                      className={`w-full px-4 py-2 rounded-lg border ${
-                        darkMode
-                          ? "bg-gray-750 border-gray-700 text-white"
-                          : "bg-white border-gray-300 text-gray-900"
-                      }`}
-                    />
-                  </div>
+                {provider === "imap" && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-2">
+                        IMAP Host
+                      </label>
+                      <input
+                        type="text"
+                        value={imapConfig.host}
+                        onChange={(e) =>
+                          setImapConfig({ ...imapConfig, host: e.target.value })
+                        }
+                        placeholder="imap.example.com"
+                        className={`w-full px-4 py-2 rounded-lg border ${
+                          darkMode
+                            ? "bg-gray-750 border-gray-700 text-white"
+                            : "bg-white border-gray-300 text-gray-900"
+                        }`}
+                      />
+                    </div>
 
-                  <div>
-                    <label className="block text-sm font-medium mb-2">
-                      Port
-                    </label>
-                    <input
-                      type="text"
-                      value={imapConfig.port}
-                      onChange={(e) =>
-                        setImapConfig({ ...imapConfig, port: e.target.value })
-                      }
-                      placeholder="993"
-                      className={`w-full px-4 py-2 rounded-lg border ${
-                        darkMode
-                          ? "bg-gray-750 border-gray-700 text-white"
-                          : "bg-white border-gray-300 text-gray-900"
-                      }`}
-                    />
+                    <div>
+                      <label className="block text-sm font-medium mb-2">
+                        Port
+                      </label>
+                      <input
+                        type="text"
+                        value={imapConfig.port}
+                        onChange={(e) =>
+                          setImapConfig({ ...imapConfig, port: e.target.value })
+                        }
+                        placeholder="993"
+                        className={`w-full px-4 py-2 rounded-lg border ${
+                          darkMode
+                            ? "bg-gray-750 border-gray-700 text-white"
+                            : "bg-white border-gray-300 text-gray-900"
+                        }`}
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {error && (
                   <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-sm">

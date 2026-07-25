@@ -13,6 +13,7 @@ export interface Subscription {
   color: string
   renewal_url: string | null
   tags: string[]
+  is_encrypted?: boolean
   date_added: string
   email_account_id: number | null
   last_used_at?: string

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
+import { logger } from "@/lib/logger"
 
 /**
  * CSP Violation Report Schema
@@ -94,7 +95,7 @@ export async function POST(request: NextRequest) {
     report["document-uri"] = sanitizedUri;
 
     // Log the violation (structured logging)
-    console.error("CSP Violation Report:", {
+    logger.error("CSP Violation Report", {
       documentURI: report["document-uri"],
       violatedDirective: report["violated-directive"],
       blockedURI: report["blocked-uri"],
@@ -120,7 +121,7 @@ export async function POST(request: NextRequest) {
         },
         body: JSON.stringify({ report, context }),
       }).catch(error => {
-        console.error("Failed to persist CSP violation:", error)
+        logger.error("Failed to persist CSP violation", { err: error })
       }),
 
       // Send to Sentry (if configured)
@@ -154,14 +155,14 @@ export async function POST(request: NextRequest) {
             },
           })
         }).catch(error => {
-          console.error("Failed to send CSP violation to Sentry:", error)
+          logger.error("Failed to send CSP violation to Sentry", { err: error })
         })
         : Promise.resolve(),
     ])
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error("Error processing CSP report:", error)
+    logger.error("Error processing CSP report", { err: error })
     return NextResponse.json(
       { success: false, error: "Failed to process report" },
       { status: 500 }

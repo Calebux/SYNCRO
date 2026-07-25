@@ -3,6 +3,7 @@ import Stripe from "stripe"
 import { createClient } from "@/lib/supabase/server"
 import { getStripeInstance } from "@/lib/stripe-config"
 import { createErrorResponse, ApiErrors } from "@/lib/api/errors"
+import { logger } from "@/lib/logger"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -45,7 +46,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // 3. Verify signature
   // Missing header or secret → 400 (not a Stripe request or misconfiguration)
   if (!signature || !webhookSecret) {
-    console.warn("[Webhook] Missing stripe-signature header or STRIPE_WEBHOOK_SECRET")
+    logger.warn("[Webhook] Missing stripe-signature header or STRIPE_WEBHOOK_SECRET")
     return signatureErrorResponse()
   }
 
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // events (timestamp tolerance exceeded). All are expected noise — log at warn,
     // not error, to avoid alert fatigue.
     const reason = err instanceof Error ? err.message : String(err)
-    console.warn("[Webhook] Signature verification failed", { reason })
+    logger.warn("[Webhook] Signature verification failed", { reason })
     return signatureErrorResponse()
   }
 
@@ -75,7 +76,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           .eq("transaction_id", pi.id)
 
         if (paymentErr) {
-          console.error("[Webhook] Failed to update payment status", {
+          logger.error("[Webhook] Failed to update payment status", {
             eventId: event.id,
             paymentIntentId: pi.id,
             error: paymentErr.message,
@@ -90,7 +91,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             .eq("id", pi.metadata.userId)
 
           if (profileErr) {
-            console.error("[Webhook] Failed to update user profile", {
+            logger.error("[Webhook] Failed to update user profile", {
               eventId: event.id,
               userId: pi.metadata.userId,
               error: profileErr.message,
@@ -110,7 +111,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           .eq("transaction_id", pi.id)
 
         if (failErr) {
-          console.error("[Webhook] Failed to update payment failure status", {
+          logger.error("[Webhook] Failed to update payment failure status", {
             eventId: event.id,
             paymentIntentId: pi.id,
             error: failErr.message,
@@ -128,7 +129,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ received: true })
   } catch (err) {
-    console.error("[Webhook] Unexpected error processing event", {
+    logger.error("[Webhook] Unexpected error processing event", {
       eventId: event.id,
       eventType: event.type,
       error: err instanceof Error ? err.message : String(err),

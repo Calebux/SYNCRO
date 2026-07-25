@@ -5,7 +5,8 @@ export type SuggestionType =
   | 'switch_to_annual'
   | 'unused_subscription'
   | 'duplicate_service'
-  | 'plan_downgrade';
+  | 'plan_downgrade'
+  | 'suggest_cheaper_alternatives';
 
 export interface Suggestion {
   id: string;
@@ -54,8 +55,31 @@ const ANNUAL_TEMPLATES: AnnualTemplate[] = [
   { name: 'Microsoft 365',    annualPrice:  99.99 },
 ];
 
+/** Known cheaper alternatives for popular subscriptions */
+interface CheaperAlternative {
+  name: string;
+  currentPrice: number;
+  cheaperAlternativeName: string;
+  cheaperAlternativePrice: number;
+  savingsPerMonth: number;
+}
+
+const CHEAPER_ALTERNATIVES: CheaperAlternative[] = [
+  { name: 'Netflix', currentPrice: 15.99, cheaperAlternativeName: 'Ad-free Lite', cheaperAlternativePrice: 9.99, savingsPerMonth: 6.00 },
+  { name: 'Spotify', currentPrice: 9.99, cheaperAlternativeName: 'Spotify Family', cheaperAlternativePrice: 7.99, savingsPerMonth: 2.00 },
+  { name: 'Disney+', currentPrice: 7.99, cheaperAlternativeName: 'Disney+ (Quarterly)', cheaperAlternativePrice: 5.99, savingsPerMonth: 2.00 },
+  { name: 'Hulu', currentPrice: 5.99, cheaperAlternativeName: 'Hulu Basic', cheaperAlternativePrice: 4.99, savingsPerMonth: 1.00 },
+  { name: 'YouTube Premium', currentPrice: 11.99, cheaperAlternativeName: 'YouTube Premium Student', cheaperAlternativePrice: 4.99, savingsPerMonth: 7.00 },
+  { name: 'ChatGPT Plus', currentPrice: 20.00, cheaperAlternativeName: 'ChatGPT Team', cheaperAlternativePrice: 15.00, savingsPerMonth: 5.00 },
+  { name: 'Claude Pro', currentPrice: 20.00, cheaperAlternativeName: 'Claude Team', cheaperAlternativePrice: 15.00, savingsPerMonth: 5.00 },
+  { name: 'GitHub Copilot', currentPrice: 10.00, cheaperAlternativeName: 'GitHub Copilot Business', cheaperAlternativePrice: 8.00, savingsPerMonth: 2.00 },
+  { name: 'Adobe CC', currentPrice: 79.99, cheaperAlternativeName: 'Adobe Cloud Essential', cheaperAlternativePrice: 60.00, savingsPerMonth: 19.99 },
+  { name: 'Microsoft 365', currentPrice: 9.99, cheaperAlternativeName: 'Office Online Basic', cheaperAlternativePrice: 6.00, savingsPerMonth: 3.99 },
+];
+
 const UNUSED_DAYS_THRESHOLD = 60;
 const MIN_ANNUAL_SAVINGS = 20;
+const DISCOUNT_THRESHOLD = 5.00;
 const DISMISS_DAYS = 30;
 
 export class SuggestionService {
@@ -162,6 +186,23 @@ export class SuggestionService {
           message: `You may be paying twice for similar ${category.replace('_', ' ')} tools: ${sub.name} and ${others.join(', ')}. Compare plans →`,
         });
         break; // one suggestion per category group is enough
+      }
+    }
+
+    // 4. Cheaper alternatives detection
+    for (const sub of subs) {
+      const alt = CHEAPER_ALTERNATIVES.find(a => a.name.toLowerCase() === sub.name.toLowerCase());
+      if (!alt) continue;
+      if (isDismissed(sub.id, 'suggest_cheaper_alternatives')) continue;
+      if (alt.savingsPerMonth >= DISCOUNT_THRESHOLD) {
+        suggestions.push({
+          id: `${sub.id}:suggest_cheaper_alternatives`,
+          type: 'suggest_cheaper_alternatives',
+          subscriptionId: sub.id,
+          subscriptionName: sub.name,
+          message: `Try ${alt.cheaperAlternativeName} for $${alt.cheaperAlternativePrice}/mo instead of ${sub.name} ($${sub.price}/mo). Save $${alt.savingsPerMonth}/mo ($${alt.savingsPerMonth * 12}/yr).`,
+          savingsPerYear: alt.savingsPerMonth * 12,
+        });
       }
     }
 

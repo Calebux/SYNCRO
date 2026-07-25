@@ -55,6 +55,7 @@ export interface DashboardSubscription {
   price_history?: Array<{ date: string; amount: number }>
   /** ISO currency code for this subscription's price (e.g. "USD", "EUR"). */
   currency?: string
+  is_encrypted?: boolean
   /** True when a price increase has been detected since last renewal. */
   priceChange?: boolean
 }

@@ -504,6 +504,77 @@ export async function handleSnoozeCommand(ctx: Context): Promise<void> {
   });
 }
 
+export async function handleStatusCommand(ctx: Context): Promise<void> {
+  const requestId = randomUUID();
+  const chatId = String(ctx.chat?.id);
+
+  logger.info('[TelegramCommandService] /status command received', { requestId, chatId });
+
+  let userId: string | null;
+  try {
+    userId = await getUserIdByChatId(chatId);
+  } catch (err) {
+    logger.error('[TelegramCommandService] DB error looking up user for /status', {
+      requestId,
+      chatId,
+      error: (err as Error).message,
+    });
+    await ctx.reply('⚠️ Something went wrong. Please try again later.');
+    return;
+  }
+
+  if (!userId) {
+    await ctx.reply(
+      '🔗 Your Telegram account is not linked to a SYNCRO account.\n\n' +
+        'Log in to SYNCRO and connect Telegram in your notification settings.',
+    );
+    return;
+  }
+
+  let subs: Subscription[];
+  let renewals: UpcomingRenewal[];
+  try {
+    [subs, renewals] = await Promise.all([
+      getActiveSubscriptions(userId),
+      getUpcomingRenewals(userId),
+    ]);
+  } catch (err) {
+    logger.error('[TelegramCommandService] DB error fetching status', {
+      requestId,
+      userId,
+      error: (err as Error).message,
+    });
+    await ctx.reply('⚠️ Could not load your subscription overview. Please try again later.');
+    return;
+  }
+
+  const totalMonthly = subs.reduce(
+    (sum, s) => sum + toMonthlyAmount(s.price, s.billing_cycle),
+    0,
+  );
+  const currency = subs[0]?.currency ?? 'USD';
+  const nextRenewal = renewals[0];
+
+  let message = '📊 <b>Subscription Overview</b>\n\n';
+  message += `📦 Active: <b>${subs.length}</b>\n`;
+  message += `💳 Monthly spend: <b>${currency} ${totalMonthly.toFixed(2)}</b>\n`;
+  message += `📅 Upcoming renewals (30d): <b>${renewals.length}</b>\n`;
+
+  if (nextRenewal) {
+    const dateStr = new Date(nextRenewal.next_billing_date).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+    });
+    message += `\n⏭ Next: <b>${nextRenewal.name}</b> on ${dateStr}`;
+  }
+
+  message += '\n\n_Use /renewals for the full list or /snooze to pause reminders._';
+
+  await ctx.reply(message, { parse_mode: 'HTML' });
+
+  logger.info('[TelegramCommandService] /status reply sent', { requestId, userId });
+}
+
 // ─── Service ──────────────────────────────────────────────────────────────────
 
 export class TelegramCommandService {
@@ -523,6 +594,7 @@ export class TelegramCommandService {
     this.bot.command('subs', handleSubsCommand);
     this.bot.command('renewals', handleRenewalsCommand);
     this.bot.command('snooze', handleSnoozeCommand);
+    this.bot.command('status', handleStatusCommand);
 
     logger.info('[TelegramCommandService] Command handlers registered');
     return this.bot;

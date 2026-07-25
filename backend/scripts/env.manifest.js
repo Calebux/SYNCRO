@@ -77,6 +77,9 @@ const optional = [
   'STRIPE_SECRET_KEY',
   'STRIPE_WEBHOOK_SECRET',
 
+  // Paystack — African market users (NG, GH, ZA, KE)
+  'PAYSTACK_SECRET_KEY',
+
   // Google / Gmail integration
   'GOOGLE_CLIENT_ID',
   'GOOGLE_CLIENT_SECRET',
@@ -141,6 +144,10 @@ const optional = [
 
   // Risk calculation
   'RISK_CALC_CONCURRENCY',
+
+  // Agent HD Wallet — Address Rotation (Issue #862)
+  'AGENT_MASTER_SEED',
+  'AGENT_ROTATION_SCHEDULE',
 ];
 
 /** Deprecated names that must NOT appear as active keys in .env.example. */

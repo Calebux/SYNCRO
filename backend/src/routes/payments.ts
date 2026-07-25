@@ -3,7 +3,7 @@ import {
   initializeFunding,
   verifyTransaction,
   listBanks,
-} from '../../services/paystack'
+} from '../services/paystack'
 
 const router = Router()
 

@@ -17,6 +17,11 @@ const securityHeaders = {
 /**
  * Generate Content Security Policy with nonce for script/style inline execution
  * Uses report-only mode for safe rollout - switch to enforcing after 1 week clean
+ * 
+ * Tor Browser Compatibility:
+ * - Supports http:// for .onion addresses, so upgrade-insecure-requests is optional
+ * - Allows all standard Web APIs and storage mechanisms
+ * - Removes upgrade-insecure-requests in development to support .onion testing
  */
 function generateCSP(
   nonce: string,
@@ -35,7 +40,8 @@ function generateCSP(
     `object-src 'none'`,
     `base-uri 'self'`,
     `form-action 'self'`,
-    `upgrade-insecure-requests`,
+    // Note: upgrade-insecure-requests is omitted to support Tor Browser .onion addresses
+    // which use http:// by design
   ].join("; ");
 
   // Enforcing mode by default for strict security

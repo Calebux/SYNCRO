@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X, Wallet, CheckCircle, AlertCircle, ExternalLink } from "lucide-react";
 import {
   isFreighterInstalled,
@@ -8,6 +8,7 @@ import {
   StellarWalletError,
 } from "@/lib/stellar-wallet";
 import { apiPost } from "@/lib/api";
+import { isTorBrowser, getTorCompatibilityInfo } from "@/lib/tor-detection";
 
 interface VerifyWalletModalProps {
   isOpen: boolean;
@@ -25,6 +26,18 @@ export default function VerifyWalletModal({
   const [isVerifying, setIsVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<"connect" | "sign" | "verify" | "success">("connect");
+  const [torInfo, setTorInfo] = useState({ isTorBrowser: false, knownLimitations: [] as string[] });
+
+  // Detect Tor Browser on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const info = getTorCompatibilityInfo();
+      setTorInfo({
+        isTorBrowser: info.isTorBrowser,
+        knownLimitations: info.knownLimitations,
+      });
+    }
+  }, []);
 
   if (!isOpen) return null;
 
@@ -35,7 +48,10 @@ export default function VerifyWalletModal({
     try {
       // Check if Freighter is installed
       if (!isFreighterInstalled()) {
-        setError("Freighter wallet extension is not installed");
+        const torBrowserNote = torInfo.isTorBrowser 
+          ? "\n\nFreighter extensions often don't work in Tor Browser. Consider using a regular Firefox or Chrome browser, or contact support for alternative payment methods."
+          : "";
+        setError("Freighter wallet extension is not installed" + torBrowserNote);
         return;
       }
 
@@ -66,7 +82,7 @@ export default function VerifyWalletModal({
       } else if (err instanceof Error) {
         setError(err.message);
       } else {
-        setError("An unexpected error occurred");
+        setError(String(err) || 'An unexpected error occurred');
       }
       setStep("connect");
     } finally {
@@ -95,6 +111,8 @@ export default function VerifyWalletModal({
           <button
             onClick={onClose}
             disabled={isVerifying}
+            aria-label="Close wallet verification modal"
+            title="Close"
             className={`p-2 rounded-lg transition-colors ${
               darkMode ? "hover:bg-gray-800" : "hover:bg-gray-100"
             }`}
@@ -104,6 +122,21 @@ export default function VerifyWalletModal({
         </div>
 
         <div className="space-y-4">
+          {/* Tor Browser Warning */}
+          {torInfo.isTorBrowser && (
+            <div className="flex items-start gap-3 p-4 rounded-lg bg-yellow-50 border border-yellow-200">
+              <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-yellow-800">Tor Browser Detected</p>
+                <p className="text-sm text-yellow-700 mt-1">
+                  {torInfo.knownLimitations.includes('Freighter wallet extension is not available in Tor Browser')
+                    ? "The Freighter wallet extension may not work in Tor Browser due to extension restrictions. You can still use other methods to connect."
+                    : "Some features may have limitations in Tor Browser."}
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Instructions */}
           <div
             className={`p-4 rounded-lg ${darkMode ? "bg-gray-800" : "bg-gray-50"}`}

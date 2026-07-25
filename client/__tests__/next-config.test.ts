@@ -64,5 +64,12 @@ describe('Next.js config unification (#598)', () => {
       expect(src).toContain('export default');
       expect(src).not.toContain('module.exports');
     });
+
+    it('disables Next.js telemetry in the client scripts', () => {
+      const pkg = JSON.parse(fs.readFileSync(path.join(clientDir, 'package.json'), 'utf8'));
+      expect(pkg.scripts.dev).toContain('NEXT_TELEMETRY_DISABLED=1');
+      expect(pkg.scripts.build).toContain('NEXT_TELEMETRY_DISABLED=1');
+      expect(pkg.scripts.start).toContain('NEXT_TELEMETRY_DISABLED=1');
+    });
   });
 });

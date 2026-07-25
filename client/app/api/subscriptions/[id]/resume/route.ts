@@ -1,5 +1,5 @@
 import { type NextRequest } from "next/server"
-import { createAuthenticatedApiRoute, createSuccessResponse, RateLimiters, ApiErrors } from "@/lib/api/index"
+import { createAuthenticatedApiRoute, createSuccessResponse, RateLimiters, ApiErrors, emitAuditEvent } from "@/lib/api/index"
 import { HttpStatus } from "@/lib/api/types"
 import { createClient } from "@/lib/supabase/server"
 import { checkOwnership } from "@/lib/api/auth"
@@ -43,6 +43,8 @@ export async function POST(
         .single()
 
       if (error) throw ApiErrors.internalError(`Failed to resume subscription: ${error.message}`)
+
+      emitAuditEvent({ userId: user.id, action: "subscription.resume", resourceType: "subscription", resourceId: id })
 
       return createSuccessResponse({ subscription: data }, HttpStatus.OK, context.requestId)
     },

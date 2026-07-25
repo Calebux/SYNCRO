@@ -7,7 +7,8 @@ type SuggestionType =
   | 'switch_to_annual'
   | 'unused_subscription'
   | 'duplicate_service'
-  | 'plan_downgrade';
+  | 'plan_downgrade'
+  | 'suggest_cheaper_alternatives';
 
 interface Suggestion {
   id: string;

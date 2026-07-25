@@ -40,3 +40,18 @@ export * from './sentry';
 
 // Soroban contract interfaces (backend ↔ contract compatibility)
 export * from './soroban-contract-interfaces';
+
+// Crypto utilities
+export * from './crypto';
+
+// Stealth address deterministic derivation
+export * from './crypto/stealth-derive';
+
+// Stealth meta-address format and helpers
+export * from './types/stealth';
+
+// Stealth payment audit types
+export * from './types/stealth-payment';
+
+// Stealth payment audit types
+export * from './types/stealth-payment';

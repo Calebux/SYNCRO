@@ -2,23 +2,33 @@ name: Migration Drift Check
 
 on:
   pull_request:
+    branches: [main, develop]
     paths:
       - 'backend/migrations/**'
       - 'supabase/migrations/**'
+      - 'supabase/schema.snapshot.sql'
+      - 'client/supabase/migrations/**'
+      - 'scripts/check-migration-drift.js'
   push:
-    branches:
-      - main
+    branches: [main, develop]
     paths:
       - 'backend/migrations/**'
       - 'supabase/migrations/**'
+      - 'supabase/schema.snapshot.sql'
+      - 'client/supabase/migrations/**'
+      - 'scripts/check-migration-drift.js'
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   check-migrations:
-    name: Detect migration drift
+    name: Detect migration file drift
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -30,73 +40,22 @@ jobs:
         run: npm ci
 
       - name: Run migration drift check
-        id: drift-check
         run: |
-          node scripts/check-migration-drift.js --json > drift-result.json 2>&1 || true
-          cat drift-result.json
-          node -e "process.exit(JSON.parse(require('fs').readFileSync('drift-result.json','utf8')).success ? 0 : 1)"
+          node scripts/check-migration-drift.js --json --strict > drift-file-result.json
+          cat drift-file-result.json
 
-      - name: Comment on PR
-        if: github.event_name == 'pull_request' && always()
-        uses: actions/github-script@v9
+      - name: Upload file drift report
+        uses: actions/upload-artifact@v4
         with:
-          script: |
-            const fs = require('fs');
-            let result;
-            try {
-              result = JSON.parse(fs.readFileSync('drift-result.json', 'utf-8'));
-            } catch {
-              console.log('⚠️ Could not parse drift check result');
-              return;
-            }
-
-            const status = result.success ? '✅ No drift detected' : '❌ Drift detected!';
-            let details = '';
-            if (result.issues?.length > 0) {
-              const errors = result.issues.filter(i => i.severity === 'error');
-              const warnings = result.issues.filter(i => i.severity === 'warning');
-              if (errors.length > 0) {
-                details += '\n\n**Errors (must fix before merging):**\n' +
-                  errors.map(i => `- \`[${i.type}]\` ${i.message}`).join('\n');
-              }
-              if (warnings.length > 0) {
-                details += '\n\n**Warnings (review recommended):**\n' +
-                  warnings.map(i => `- \`[${i.type}]\` ${i.message}`).join('\n');
-              }
-            }
-
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number
-            });
-
-            const existingComment = comments.find(c => c.body.includes('## 🔍 Migration Drift Check'));
-
-            const body = `## 🔍 Migration Drift Check\n**Result**: ${status}${details}\n\nFor guidance on fixing drift issues, see [docs/MIGRATION_REMEDIATION.md](../../docs/MIGRATION_REMEDIATION.md)`;
-
-            if (existingComment) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existingComment.id,
-                body
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body
-              });
-            }
+          name: drift-file-result
+          path: drift-file-result.json
 
   verify-local-database:
-    name: Verify local database migration state
+    name: Verify local database and schema
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v2
@@ -109,6 +68,9 @@ jobs:
       - name: Apply all migrations
         run: supabase db push
 
+      - name: Dump live schema snapshot
+        run: supabase db dump --local --schema-only -f /tmp/live-schema.sql
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
@@ -118,83 +80,40 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run drift check against local database
-        id: local-drift-check
-        # Official Supabase demo service role key — only valid for localhost:54321
+      - name: Verify migration history and schema against local database
         env:
-          SUPABASE_URL: http://localhost:54321
+          SUPABASE_URL: http://127.0.0.1:54321
           SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
         run: |
-          node scripts/check-migration-drift.js --verify-db --env local --json > local-drift-result.json 2>&1 || true
-          cat local-drift-result.json
-          node -e "process.exit(JSON.parse(require('fs').readFileSync('local-drift-result.json','utf8')).success ? 0 : 1)"
+          node scripts/check-migration-drift.js \
+            --verify-db \
+            --verify-schema \
+            --compare-schema supabase/schema.snapshot.sql \
+            --live-schema /tmp/live-schema.sql \
+            --env local \
+            --strict \
+            --json > drift-local-result.json
+          cat drift-local-result.json
 
-      - name: Comment local verification on PR
-        if: github.event_name == 'pull_request' && always()
-        uses: actions/github-script@v9
+      - name: Upload local drift report
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          script: |
-            const fs = require('fs');
-            let result;
-            try {
-              result = JSON.parse(fs.readFileSync('local-drift-result.json', 'utf-8'));
-            } catch { return; }
-
-            const status = result.success ? '✅ Verified' : '⚠️ Issues detected';
-            let details = '';
-            if (result.dbCheck?.issues?.length > 0) {
-              const errors = result.dbCheck.issues.filter(i => i.severity === 'error');
-              const warnings = result.dbCheck.issues.filter(i => i.severity === 'warning');
-              if (errors.length > 0) {
-                details += '\n\n**Errors:**\n' +
-                  errors.map(i => `- \`[${i.type}]\` ${i.message}`).join('\n');
-              }
-              if (warnings.length > 0) {
-                details += '\n\n**Warnings:**\n' +
-                  warnings.map(i => `- \`[${i.type}]\` ${i.message}${i.executedAt ? ` _(applied ${i.executedAt})_` : ''}`).join('\n');
-              }
-            }
-
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number
-            });
-            const existingComment = comments.find(c => c.body.includes('## 🖥️ Local Database Drift Check'));
-
-            const counts = result.dbCheck
-              ? `\nApplied: ${result.dbCheck.appliedCount} | Filesystem: ${result.dbCheck.filesystemCount}`
-              : '';
-            const body = `## 🖥️ Local Database Drift Check\n**Result**: ${status}${counts}${details}\n\nFor guidance, see [docs/MIGRATION_REMEDIATION.md](../../docs/MIGRATION_REMEDIATION.md)`;
-
-            if (existingComment) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existingComment.id,
-                body
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body
-              });
-            }
+          name: drift-local-result
+          path: drift-local-result.json
 
       - name: Stop Supabase local stack
         if: always()
         run: supabase stop
 
-  verify-database:
-    name: Verify CI remote database migration state
+  verify-remote-database:
+    name: Verify remote database migration state
     runs-on: ubuntu-latest
-    # Only run when remote database credentials are available
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && vars.ENABLE_DB_VERIFICATION == 'true')
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -205,88 +124,152 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify applied migrations against CI remote database
-        id: db-verify
-        run: |
-          node scripts/check-migration-drift.js --verify-db --env ci-remote --json > drift-result.json 2>&1
-          cat drift-result.json
+      - name: Verify applied migrations against remote database
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        continue-on-error: true
+        run: |
+          node scripts/check-migration-drift.js \
+            --verify-db \
+            --env ci-remote \
+            --strict \
+            --json > drift-remote-result.json
+          cat drift-remote-result.json
 
-      - name: Parse and report results
+      - name: Upload remote drift report
         if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-remote-result
+          path: drift-remote-result.json
+
+  report:
+    name: Post drift report
+    runs-on: ubuntu-latest
+    needs: [check-migrations, verify-local-database, verify-remote-database]
+    if: github.event_name == 'pull_request' && always()
+    steps:
+      - name: Download drift reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: drift-*-result
+          merge-multiple: true
+
+      - name: Comment unified drift report on PR
         uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
-            let result;
-            try {
-              result = JSON.parse(fs.readFileSync('drift-result.json', 'utf-8'));
-            } catch {
-              console.log('⚠️ Could not parse drift check result');
-              return;
-            }
 
-            if (!result.success) {
-              let dbIssues = '';
-              if (result.dbCheck?.issues?.length > 0) {
-                dbIssues = result.dbCheck.issues
-                  .map(i => `- [${i.type}] ${i.message}`)
-                  .join('\n');
-              }
-              core.setFailed(`CI remote database verification failed:\n${dbIssues || 'See logs for details'}`);
-            } else {
-              console.log('✅ CI remote database migration state verified');
-              if (result.dbCheck?.appliedCount != null) {
-                console.log(`Applied migrations: ${result.dbCheck.appliedCount}`);
+            function load(name) {
+              try {
+                return JSON.parse(fs.readFileSync(name, 'utf8'));
+              } catch {
+                return null;
               }
             }
 
-      - name: Comment database verification result
-        if: github.event_name == 'pull_request' && always()
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const fs = require('fs');
-            let result;
-            try {
-              result = JSON.parse(fs.readFileSync('drift-result.json', 'utf-8'));
-            } catch { return; }
+            const fileResult = load('drift-file-result.json');
+            const localResult = load('drift-local-result.json');
+            const remoteResult = load('drift-remote-result.json');
 
-            const status = result.success ? '✅ Verified' : '⚠️ Issues detected';
-            let details = '';
-            if (result.dbCheck?.issues?.length > 0) {
-              details = '\n\n**Issues:**\n' +
-                result.dbCheck.issues.map(i => `- \`[${i.type}]\` ${i.message}`).join('\n');
+            const sections = [];
+            const allIssues = [];
+
+            if (fileResult) {
+              allIssues.push(...(fileResult.issues || []));
+              sections.push({
+                title: 'File-level checks',
+                success: fileResult.success,
+                summary: `${fileResult.fileCheck?.supabaseCount ?? '?'} migration files analyzed`,
+              });
             }
+
+            if (localResult) {
+              allIssues.push(...(localResult.issues || []));
+              sections.push({
+                title: 'Local Supabase (migration history + schema)',
+                success: localResult.success,
+                summary: localResult.dbCheck
+                  ? `Applied: ${localResult.dbCheck.appliedCount} | Expected: ${localResult.dbCheck.filesystemCount}`
+                  : 'Schema verification',
+              });
+            }
+
+            if (remoteResult) {
+              allIssues.push(...(remoteResult.issues || []));
+              sections.push({
+                title: 'Remote database',
+                success: remoteResult.success,
+                summary: remoteResult.dbCheck
+                  ? `Applied: ${remoteResult.dbCheck.appliedCount} | Expected: ${remoteResult.dbCheck.filesystemCount}`
+                  : 'Remote verification',
+              });
+            }
+
+            const overallSuccess = sections.every(s => s.success);
+            const status = overallSuccess ? '✅ No drift detected' : '❌ Drift detected — merge blocked';
+
+            let body = `## 🔍 Migration Drift Report\n**Result**: ${status}\n`;
+
+            for (const section of sections) {
+              const icon = section.success ? '✅' : '❌';
+              body += `\n### ${icon} ${section.title}\n${section.summary}\n`;
+            }
+
+            const errors = allIssues.filter(i => i.severity === 'error');
+            const warnings = allIssues.filter(i => i.severity === 'warning');
+
+            if (errors.length > 0) {
+              body += '\n**Errors (must fix before merging):**\n';
+              body += errors.map(i => `- \`[${i.type}]\` ${i.message}`).join('\n');
+            }
+
+            if (warnings.length > 0) {
+              body += '\n\n**Warnings:**\n';
+              body += warnings.slice(0, 20).map(i => `- \`[${i.type}]\` ${i.message}`).join('\n');
+              if (warnings.length > 20) {
+                body += `\n- _…and ${warnings.length - 20} more warnings_`;
+              }
+            }
+
+            const diffReport = [localResult?.diffReport, localResult?.schemaCheck?.diffReport]
+              .filter(Boolean)
+              .join('\n\n');
+
+            if (diffReport) {
+              body += '\n\n<details><summary>Schema diff</summary>\n\n```\n';
+              body += diffReport.slice(0, 6000);
+              body += '\n```\n</details>';
+            }
+
+            body += '\n\nFor remediation, see [docs/MIGRATION_REMEDIATION.md](../../docs/MIGRATION_REMEDIATION.md).';
 
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number
+              issue_number: context.issue.number,
             });
 
-            const existingComment = comments.find(c => c.body.includes('## 📊 CI Remote Database Drift Check'));
+            const marker = '## 🔍 Migration Drift Report';
+            const existing = comments.find(c => c.body.includes(marker));
 
-            const counts = result.dbCheck
-              ? `\nApplied: ${result.dbCheck.appliedCount} | Filesystem: ${result.dbCheck.filesystemCount}`
-              : '';
-            const body = `## 📊 CI Remote Database Drift Check\n**Result**: ${status}${counts}${details}\n\nFor more information, see [docs/MIGRATION_REMEDIATION.md](../../docs/MIGRATION_REMEDIATION.md)`;
-
-            if (existingComment) {
+            if (existing) {
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                comment_id: existingComment.id,
-                body
+                comment_id: existing.id,
+                body,
               });
             } else {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
-                body
+                body,
               });
+            }
+
+            if (!overallSuccess) {
+              core.setFailed('Migration drift detected — see PR comment for details');
             }

@@ -51,6 +51,9 @@ export interface PayPalCaptureResponse {
                     currency_code: string
                     value: string
                 }
+                status_details?: {
+                    reason?: string
+                }
             }>
         }
     }>

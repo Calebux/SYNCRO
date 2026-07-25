@@ -1,15 +1,17 @@
-import cron from 'node-cron';
+import cron, { type ScheduledTask } from 'node-cron';
 import { supabase } from '../config/database';
 import { subscriptionService } from '../services/subscription-service';
 import logger from '../config/logger';
 import { jobAlertService } from '../services/job-alert-service';
+
+let autoResumeTask: ScheduledTask | null = null;
 
 /**
  * Auto-Resume Cron Job
  * Runs daily at 6:00 AM — resumes subscriptions whose resume_at date has passed
  */
 export function scheduleAutoResume(): void {
-  cron.schedule('0 6 * * *', async () => {
+  autoResumeTask = cron.schedule('0 6 * * *', async () => {
     logger.info('[auto-resume] Running scheduled auto-resume job');
 
     try {
@@ -50,4 +52,12 @@ export function scheduleAutoResume(): void {
   });
 
   logger.info('[auto-resume] Cron job scheduled — runs daily at 6:00 AM');
+}
+
+export function stopAutoResume(): void {
+  if (autoResumeTask) {
+    autoResumeTask.stop();
+    autoResumeTask = null;
+    logger.info('[auto-resume] Cron job stopped');
+  }
 }

@@ -8,7 +8,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertTriangle, Info } from "lucide-react"
 import { formatDate } from "@/lib/timezone-utils"
 import { formatCurrency } from "@/lib/currency-utils"
-import { saveSubscriptionsOffline } from "@/lib/offline-cache"
+import { saveSubscriptionsOffline, cacheSubscriptions } from "@/lib/offline-cache"
+import { useMutationQueue } from "@/hooks/use-mutation-queue"
 
 interface Subscription {
   id: string
@@ -51,20 +52,23 @@ export default function DashboardClient({
   // initialEmailAccounts reserved for future email account display
   const [gdprLoading, setGdprLoading] = useState<"export" | "delete" | null>(null)
 
-  // Persist subscriptions for offline reading
+  // Persist subscriptions for offline reading (both IndexedDB and localStorage)
   useEffect(() => {
     if (subscriptions.length > 0) {
-      saveSubscriptionsOffline(
-        subscriptions.map((s) => ({
-          id: s.id,
-          name: s.name,
-          status: s.status,
-          billing_cycle: s.billing_cycle,
-          next_renewal: s.next_renewal ?? null,
-          price: Number(s.price),
-          category: s.category ?? null,
-        })),
-      )
+      const offlineData = subscriptions.map((s) => ({
+        id: s.id,
+        name: s.name,
+        status: s.status,
+        billing_cycle: s.billing_cycle,
+        next_renewal: s.next_renewal ?? null,
+        price: Number(s.price),
+        category: s.category ?? null,
+      }))
+      saveSubscriptionsOffline(offlineData)
+      // Also cache in IndexedDB for better offline support
+      cacheSubscriptions(offlineData).catch(() => {
+        // Ignore IndexedDB errors - localStorage fallback is already handled
+      })
     }
   }, [subscriptions])
   const [gdprMessage, setGdprMessage] = useState<string | null>(null)

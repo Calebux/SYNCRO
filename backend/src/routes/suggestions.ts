@@ -29,6 +29,7 @@ const dismissSchema = z.object({
     'unused_subscription',
     'duplicate_service',
     'plan_downgrade',
+    'suggest_cheaper_alternatives',
   ]),
 });
 

@@ -7,17 +7,23 @@ export interface TelemetryContext {
   component?: string
   userId?: string
   extra?: Record<string, any>
+  /** If true, telemetry is fully suppressed (privacy mode) */
+  privacyMode?: boolean
 }
 
 /**
- * Log an error to Sentry and console with structured context
+ * Log an error to Sentry and console with structured context.
+ * No-op when privacyMode is true or when privacy_mode preference is active.
  */
 export function trackError(
   error: any,
   category: ErrorCategory = "unknown",
   context: TelemetryContext = {}
 ) {
-  const { query, component, userId, extra } = context
+  const { query, component, userId, extra, privacyMode } = context
+
+  // Respect privacy mode - skip all telemetry
+  if (privacyMode) return
 
   // Categorize error if not already specified
   let finalCategory = category
@@ -55,13 +61,17 @@ export function trackError(
 }
 
 /**
- * Log a warning message with context
+ * Log a warning message with context.
+ * No-op when privacyMode is true.
  */
 export function trackWarning(
   message: string,
   context: TelemetryContext = {}
 ) {
-  const { query, component, userId, extra } = context
+  const { query, component, userId, extra, privacyMode } = context
+
+  // Respect privacy mode - skip all telemetry
+  if (privacyMode) return
 
   console.warn(`[Telemetry] Warning in ${component || "unknown"}: ${message}`, context)
 
