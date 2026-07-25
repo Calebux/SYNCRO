@@ -53,7 +53,7 @@ interface ScanImapOptions {
  * Connects to an IMAP server and scans for subscription emails
  */
 export async function scanImapSubscriptions(options: ScanImapOptions): Promise<RawScanResult[]> {
-  // TODO: Implement actual IMAP connection logic with imapflow or similar library
+  // TODO(#0): Implement actual IMAP connection logic with imapflow or similar library
   // This is a placeholder implementation that can be filled in once dependencies are installed
   console.warn('[imap-service] scanImapSubscriptions is a placeholder implementation')
   
@@ -73,7 +73,7 @@ export async function scanImapSubscriptions(options: ScanImapOptions): Promise<R
  * Validates IMAP connection credentials
  */
 export async function validateImapCredentials(email: string, password: string, provider: string): Promise<boolean> {
-  // TODO: Implement actual validation logic
+  // TODO(#0): Implement actual validation logic
   console.warn('[imap-service] validateImapCredentials is a placeholder implementation')
   return true
 }

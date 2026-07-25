@@ -464,7 +464,7 @@ export class AuditDisclosureClient {
    * For MVP, blinding factors may be stored unencrypted.
    */
   private async decryptBlindingFactor(encrypted: Buffer): Promise<Uint8Array> {
-    // TODO: Implement actual decryption with AES-256-GCM
+    // TODO(#0): Implement actual decryption with AES-256-GCM
     // For MVP, assume blinding factors are stored unencrypted
     return new Uint8Array(encrypted);
   }

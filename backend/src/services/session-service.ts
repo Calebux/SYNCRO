@@ -140,7 +140,7 @@ export const sessionService = {
     if (signOutError) {
       // The Supabase JS client version installed may not support the two-arg form.
       // Fall back to a password-less ban/unban cycle which also rotates the refresh token.
-      // TODO: upgrade @supabase/supabase-js to a version that supports signOut(userId, 'global')
+      // TODO(#966): upgrade @supabase/supabase-js to a version that supports signOut(userId, 'global')
       logger.warn(
         'supabase.auth.admin.signOut(userId, "global") failed — falling back to updateUserById ban cycle',
         { userId, error: signOutError.message },
