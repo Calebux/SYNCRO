@@ -7,7 +7,7 @@ import type {
   SimulationSummary,
   RiskAssessment,
 } from '../types/simulation';
-import { addMonths, addQuarters, addYears } from 'date-fns';
+import { addMonths, addQuarters, addWeeks, addYears } from 'date-fns';
 
 /**
  * Simulation service for projecting subscription renewals
@@ -19,14 +19,17 @@ export class SimulationService {
    */
   calculateNextRenewal(
     currentDate: Date,
-    billingCycle: 'monthly' | 'quarterly' | 'yearly'
+    billingCycle: 'monthly' | 'quarterly' | 'yearly' | 'weekly' | 'annual'
   ): Date {
     switch (billingCycle) {
+      case 'weekly':
+        return addWeeks(currentDate, 1);
       case 'monthly':
         return addMonths(currentDate, 1);
       case 'quarterly':
         return addQuarters(currentDate, 1);
       case 'yearly':
+      case 'annual':
         return addYears(currentDate, 1);
       default:
         return currentDate;

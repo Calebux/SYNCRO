@@ -94,7 +94,36 @@ const rowSchema = z.object({
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
+/**
+ * Detects CSV injection attempts.
+ * Cells starting with =, +, -, @, tab, or carriage return can execute formulas in Excel/Sheets.
+ */
+function detectFormulaInjection(value: string): boolean {
+  if (!value) return false;
+  const dangerousChars = ['=', '+', '-', '@', '\t', '\r'];
+  return dangerousChars.some((char) => value.startsWith(char));
+}
+
+/**
+ * Validates cell values for CSV injection attacks.
+ * Returns error message if injection detected, null otherwise.
+ */
+function validateCellSafety(raw: Record<string, string>): string | null {
+  for (const [key, value] of Object.entries(raw)) {
+    if (detectFormulaInjection(String(value ?? ''))) {
+      return `Cell "${key}" contains potentially dangerous formula character at start: "${value.substring(0, 10)}..."`;
+    }
+  }
+  return null;
+}
+
 function validateRow(raw: Record<string, string>, rowNum: number): ImportRow {
+  // Check for CSV injection before processing
+  const injectionError = validateCellSafety(raw);
+  if (injectionError) {
+    return { row: rowNum, status: 'error', data: null, error: injectionError };
+  }
+
   // Normalize keys: strip BOM, lowercase, trim
   const normalised: Record<string, string> = {};
   for (const [k, v] of Object.entries(raw)) {

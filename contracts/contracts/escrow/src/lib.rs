@@ -34,6 +34,20 @@ pub enum EscrowState {
     Disputed,
 }
 
+/// Typed resolution outcomes for dispute resolution
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DisputeResolution {
+    /// Release full amount to payee
+    ReleaseToPayee,
+    /// Refund full amount to payer
+    RefundToPayer,
+    /// Split funds between parties (payee_basis_points: 0-10000)
+    /// Value represents basis points for payee, remainder goes to payer
+    /// Example: 7500 = 75% to payee, 25% to payer
+    PartialSplit(u32),
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EscrowAgreement {
@@ -75,6 +89,9 @@ pub enum EscrowError {
     NotInDispute = 16,
     SelfAsCounterparty = 17,
     SameArbiterAsParty = 18,
+    InvalidBasisPoints = 19,
+    ArithmeticOverflow = 20,
+    CounterOverflow = 21,
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
@@ -123,7 +140,9 @@ pub struct EscrowDisputed {
 #[contractevent]
 pub struct EscrowResolved {
     pub escrow_id: u64,
-    pub resolution: u32, // 1 = release to payee, 2 = refund to payer
+    pub resolution: DisputeResolution,
+    pub payee_amount: i128,
+    pub payer_amount: i128,
 }
 
 #[contractevent]
@@ -199,7 +218,9 @@ impl EscrowContract {
             .instance()
             .get(&DataKey::EscrowCount)
             .unwrap_or(0);
-        let escrow_id = count + 1;
+        let escrow_id = count
+            .checked_add(1)
+            .unwrap_or_else(|| panic_with_error!(&env, EscrowError::CounterOverflow));
 
         let now = env.ledger().timestamp();
         if expires_at <= now {
@@ -454,10 +475,18 @@ impl EscrowContract {
     /// Resolve a disputed escrow.
     ///
     /// # Arguments
-    /// * `resolution` — `1` to release to payee, `2` to refund to payer
+    /// * `resolution` — Typed resolution enum specifying how to distribute funds:
+    ///   - `ReleaseToPayee`: Full amount to payee
+    ///   - `RefundToPayer`: Full amount to payer
+    ///   - `PartialSplit(payee_basis_points)`: Split based on basis points (0-10000)
     ///
     /// Only the designated arbiter may resolve disputes.
-    pub fn resolve_dispute(env: Env, escrow_id: u64, resolution: u32) {
+    ///
+    /// # Security
+    /// * Uses checked arithmetic to prevent overflow
+    /// * Validates basis points are within 0-10000 range
+    /// * Ensures total distributed equals deposited amount
+    pub fn resolve_dispute(env: Env, escrow_id: u64, resolution: DisputeResolution) {
         let mut escrow: EscrowAgreement = env
             .storage()
             .persistent()
@@ -471,28 +500,69 @@ impl EscrowContract {
         escrow.arbiter.require_auth();
 
         let token_client = token::Client::new(&env, &escrow.token);
+        let total_amount = escrow.deposited;
 
-        match resolution {
-            1 => {
-                // Release to payee
+        let (payee_amount, payer_amount) = match resolution {
+            DisputeResolution::ReleaseToPayee => {
+                // Release full amount to payee
                 token_client.transfer(
                     &env.current_contract_address(),
                     &escrow.payee,
-                    &escrow.deposited,
+                    &total_amount,
                 );
                 escrow.state = EscrowState::Released;
+                (total_amount, 0i128)
             }
-            2 => {
-                // Refund to payer
+            DisputeResolution::RefundToPayer => {
+                // Refund full amount to payer
                 token_client.transfer(
                     &env.current_contract_address(),
                     &escrow.payer,
-                    &escrow.deposited,
+                    &total_amount,
                 );
                 escrow.state = EscrowState::Refunded;
+                (0i128, total_amount)
             }
-            _ => panic_with_error!(&env, EscrowError::InvalidAmount),
-        }
+            DisputeResolution::PartialSplit(payee_basis_points) => {
+                // Validate basis points
+                if payee_basis_points > 10000 {
+                    panic_with_error!(&env, EscrowError::InvalidBasisPoints);
+                }
+
+                // Calculate payee amount using checked arithmetic
+                // Formula: payee_amount = (total_amount * payee_basis_points) / 10000
+                let payee_amount = total_amount
+                    .checked_mul(payee_basis_points as i128)
+                    .and_then(|v| v.checked_div(10000))
+                    .unwrap_or_else(|| panic_with_error!(&env, EscrowError::ArithmeticOverflow));
+
+                // Calculate payer amount (remainder) using checked arithmetic
+                let payer_amount = total_amount
+                    .checked_sub(payee_amount)
+                    .unwrap_or_else(|| panic_with_error!(&env, EscrowError::ArithmeticOverflow));
+
+                // Transfer to both parties if amounts are non-zero
+                if payee_amount > 0 {
+                    token_client.transfer(
+                        &env.current_contract_address(),
+                        &escrow.payee,
+                        &payee_amount,
+                    );
+                }
+
+                if payer_amount > 0 {
+                    token_client.transfer(
+                        &env.current_contract_address(),
+                        &escrow.payer,
+                        &payer_amount,
+                    );
+                }
+
+                // Mark as released (partial release is still a resolution)
+                escrow.state = EscrowState::Released;
+                (payee_amount, payer_amount)
+            }
+        };
 
         env.storage()
             .persistent()
@@ -501,6 +571,8 @@ impl EscrowContract {
         EscrowResolved {
             escrow_id,
             resolution,
+            payee_amount,
+            payer_amount,
         }
         .publish(&env);
     }
@@ -767,7 +839,7 @@ mod test {
         assert_eq!(disputed.state, EscrowState::Disputed);
 
         // Arbiter resolves in favor of payee
-        escrow.resolve_dispute(&id, &1u32);
+        escrow.resolve_dispute(&id, &DisputeResolution::ReleaseToPayee);
         let resolved = escrow.get_escrow(&id);
         assert_eq!(resolved.state, EscrowState::Released);
     }
@@ -789,7 +861,7 @@ mod test {
         escrow.raise_dispute(&id, &payee);
 
         // Arbiter resolves in favor of payer (refund)
-        escrow.resolve_dispute(&id, &2u32);
+        escrow.resolve_dispute(&id, &DisputeResolution::RefundToPayer);
         let resolved = escrow.get_escrow(&id);
         assert_eq!(resolved.state, EscrowState::Refunded);
     }
@@ -826,8 +898,231 @@ mod test {
         assert_eq!(agreement.state, EscrowState::Funded);
         assert!(!agreement.arbiter_approved);
     }
+
+    // ── Partial Split Tests ──────────────────────────────────────
+
+    #[test]
+    fn test_partial_split_50_50() {
+        let (env, payer, payee, arbiter, token, token_client) = setup();
+        let escrow = register_escrow(&env);
+        let admin = Address::generate(&env);
+        escrow.init(&admin);
+
+        let expiry = env.ledger().timestamp() + 86400;
+        let desc = String::from_str(&env, "Test");
+        let amount = 1_000_000_000i128;
+
+        let id = escrow.create_escrow(
+            &payer, &payee, &arbiter, &token, &amount, &expiry, &desc,
+        );
+        escrow.deposit(&id);
+        escrow.raise_dispute(&id, &payer);
+
+        let payer_balance_before = token_client.balance(&payer);
+        let payee_balance_before = token_client.balance(&payee);
+
+        // 50/50 split: 5000 basis points = 50%
+        escrow.resolve_dispute(&id, &DisputeResolution::PartialSplit(5000));
+
+        let payer_balance_after = token_client.balance(&payer);
+        let payee_balance_after = token_client.balance(&payee);
+
+        // Each should receive 500,000,000
+        assert_eq!(payee_balance_after - payee_balance_before, 500_000_000i128);
+        assert_eq!(payer_balance_after - payer_balance_before, 500_000_000i128);
+
+        let resolved = escrow.get_escrow(&id);
+        assert_eq!(resolved.state, EscrowState::Released);
+    }
+
+    #[test]
+    fn test_partial_split_75_25() {
+        let (env, payer, payee, arbiter, token, token_client) = setup();
+        let escrow = register_escrow(&env);
+        let admin = Address::generate(&env);
+        escrow.init(&admin);
+
+        let expiry = env.ledger().timestamp() + 86400;
+        let desc = String::from_str(&env, "Test");
+        let amount = 1_000_000_000i128;
+
+        let id = escrow.create_escrow(
+            &payer, &payee, &arbiter, &token, &amount, &expiry, &desc,
+        );
+        escrow.deposit(&id);
+        escrow.raise_dispute(&id, &payee);
+
+        let payer_balance_before = token_client.balance(&payer);
+        let payee_balance_before = token_client.balance(&payee);
+
+        // 75/25 split: 7500 basis points = 75% to payee
+        escrow.resolve_dispute(&id, &DisputeResolution::PartialSplit(7500));
+
+        let payer_balance_after = token_client.balance(&payer);
+        let payee_balance_after = token_client.balance(&payee);
+
+        // Payee gets 75%, payer gets 25%
+        assert_eq!(payee_balance_after - payee_balance_before, 750_000_000i128);
+        assert_eq!(payer_balance_after - payer_balance_before, 250_000_000i128);
+
+        let resolved = escrow.get_escrow(&id);
+        assert_eq!(resolved.state, EscrowState::Released);
+    }
+
+    #[test]
+    fn test_partial_split_all_to_payee() {
+        let (env, payer, payee, arbiter, token, token_client) = setup();
+        let escrow = register_escrow(&env);
+        let admin = Address::generate(&env);
+        escrow.init(&admin);
+
+        let expiry = env.ledger().timestamp() + 86400;
+        let desc = String::from_str(&env, "Test");
+        let amount = 1_000_000_000i128;
+
+        let id = escrow.create_escrow(
+            &payer, &payee, &arbiter, &token, &amount, &expiry, &desc,
+        );
+        escrow.deposit(&id);
+        escrow.raise_dispute(&id, &payer);
+
+        let payer_balance_before = token_client.balance(&payer);
+        let payee_balance_before = token_client.balance(&payee);
+
+        // 100% to payee: 10000 basis points
+        escrow.resolve_dispute(&id, &DisputeResolution::PartialSplit(10000));
+
+        let payer_balance_after = token_client.balance(&payer);
+        let payee_balance_after = token_client.balance(&payee);
+
+        // Payee gets 100%, payer gets 0%
+        assert_eq!(payee_balance_after - payee_balance_before, amount);
+        assert_eq!(payer_balance_after - payer_balance_before, 0i128);
+    }
+
+    #[test]
+    fn test_partial_split_all_to_payer() {
+        let (env, payer, payee, arbiter, token, token_client) = setup();
+        let escrow = register_escrow(&env);
+        let admin = Address::generate(&env);
+        escrow.init(&admin);
+
+        let expiry = env.ledger().timestamp() + 86400;
+        let desc = String::from_str(&env, "Test");
+        let amount = 1_000_000_000i128;
+
+        let id = escrow.create_escrow(
+            &payer, &payee, &arbiter, &token, &amount, &expiry, &desc,
+        );
+        escrow.deposit(&id);
+        escrow.raise_dispute(&id, &payee);
+
+        let payer_balance_before = token_client.balance(&payer);
+        let payee_balance_before = token_client.balance(&payee);
+
+        // 0% to payee, 100% to payer: 0 basis points
+        escrow.resolve_dispute(&id, &DisputeResolution::PartialSplit(0));
+
+        let payer_balance_after = token_client.balance(&payer);
+        let payee_balance_after = token_client.balance(&payee);
+
+        // Payee gets 0%, payer gets 100%
+        assert_eq!(payee_balance_after - payee_balance_before, 0i128);
+        assert_eq!(payer_balance_after - payer_balance_before, amount);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #19)")]
+    fn test_partial_split_invalid_basis_points_too_high() {
+        let (env, payer, payee, arbiter, token, _token_client) = setup();
+        let escrow = register_escrow(&env);
+        let admin = Address::generate(&env);
+        escrow.init(&admin);
+
+        let expiry = env.ledger().timestamp() + 86400;
+        let desc = String::from_str(&env, "Test");
+
+        let id = escrow.create_escrow(
+            &payer, &payee, &arbiter, &token, &1_000_000_000i128, &expiry, &desc,
+        );
+        escrow.deposit(&id);
+        escrow.raise_dispute(&id, &payer);
+
+        // Invalid: basis points > 10000
+        escrow.resolve_dispute(&id, &DisputeResolution::PartialSplit(10001));
+    }
+
+    #[test]
+    fn test_partial_split_with_odd_amount() {
+        let (env, payer, payee, arbiter, token, token_client) = setup();
+        let escrow = register_escrow(&env);
+        let admin = Address::generate(&env);
+        escrow.init(&admin);
+
+        let expiry = env.ledger().timestamp() + 86400;
+        let desc = String::from_str(&env, "Test");
+        let amount = 999_999i128; // Odd amount that doesn't divide evenly
+
+        let id = escrow.create_escrow(
+            &payer, &payee, &arbiter, &token, &amount, &expiry, &desc,
+        );
+        escrow.deposit(&id);
+        escrow.raise_dispute(&id, &payer);
+
+        let payer_balance_before = token_client.balance(&payer);
+        let payee_balance_before = token_client.balance(&payee);
+
+        // 33.33% to payee (3333 basis points)
+        escrow.resolve_dispute(&id, &DisputeResolution::PartialSplit(3333));
+
+        let payer_balance_after = token_client.balance(&payer);
+        let payee_balance_after = token_client.balance(&payee);
+
+        let payee_received = payee_balance_after - payee_balance_before;
+        let payer_received = payer_balance_after - payer_balance_before;
+
+        // Verify total conservation
+        assert_eq!(payee_received + payer_received, amount);
+        
+        // Verify payee got approximately 33.33%
+        // (999,999 * 3333) / 10000 = 333,299 (integer division)
+        assert_eq!(payee_received, 333_299i128);
+        assert_eq!(payer_received, 666_700i128);
+    }
+
+    #[test]
+    fn test_partial_split_preserves_total() {
+        let (env, payer, payee, arbiter, token, token_client) = setup();
+        let escrow = register_escrow(&env);
+        let admin = Address::generate(&env);
+        escrow.init(&admin);
+
+        let expiry = env.ledger().timestamp() + 86400;
+        let desc = String::from_str(&env, "Test");
+        let amount = 987_654_321i128;
+
+        let id = escrow.create_escrow(
+            &payer, &payee, &arbiter, &token, &amount, &expiry, &desc,
+        );
+        escrow.deposit(&id);
+        escrow.raise_dispute(&id, &payer);
+
+        let payer_balance_before = token_client.balance(&payer);
+        let payee_balance_before = token_client.balance(&payee);
+
+        // Random split: 6543 basis points (65.43%)
+        escrow.resolve_dispute(&id, &DisputeResolution::PartialSplit(6543));
+
+        let payer_balance_after = token_client.balance(&payer);
+        let payee_balance_after = token_client.balance(&payee);
+
+        let payee_received = payee_balance_after - payee_balance_before;
+        let payer_received = payer_balance_after - payer_balance_before;
+
+        // Critical: verify no funds are lost or created
+        assert_eq!(payee_received + payer_received, amount);
+    }
 }
 
 #[cfg(test)]
 mod fuzz;
-

@@ -12,6 +12,7 @@ import logger from '../config/logger';
 import { BadRequestError } from '../errors';
 import { validateRequest } from '../utils/validation';
 import { cursorPaginationSchema, safeUrlSchema } from '../schemas/common';
+import { createImportLimiter } from '../middleware/rate-limit-factory';
 
 const router = Router();
 
@@ -455,13 +456,13 @@ router.get('/trials/saved-metric', async (req: AuthenticatedRequest, res: Respon
 });
 
 // CSV Import Routes
-router.post('/import/preview', upload.single('file'), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/import/preview', createImportLimiter(), upload.single('file'), async (req: AuthenticatedRequest, res: Response) => {
   if (!req.file) throw new BadRequestError('No file uploaded');
   const preview = await subscriptionService.previewImport(req.user!.id, req.file.buffer);
   res.json({ success: true, data: preview });
 });
 
-router.post('/import/commit', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/import/commit', createImportLimiter(), async (req: AuthenticatedRequest, res: Response) => {
   const { importId } = req.body;
   if (!importId) throw new BadRequestError('Import ID required');
   const result = await subscriptionService.commitImport(req.user!.id, importId);

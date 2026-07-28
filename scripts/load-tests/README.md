@@ -1,12 +1,24 @@
-Load tests for the backend reminder engine and analytics endpoints
+Load tests for the backend reminder engine, analytics endpoints, and settlement batcher
 
 Overview
-- Two lightweight shell scripts are provided that use `npx autocannon` to drive load against the backend HTTP API.
-- Scripts do not add dependencies to the repo; they rely on `npx autocannon` being available (installed transiently by `npx`).
+- Lightweight shell scripts use `npx autocannon` (or Jest for settlement) to drive load.
+- Scripts do not add dependencies to the repo; they rely on `npx` / existing Jest.
 
 Files
 - `run-reminder-loadtest.sh` — public status check + admin-trigger (`POST /api/reminders/process`). Requires `ADMIN_API_KEY` env var.
 - `run-analytics-loadtest.sh` — authenticated analytics endpoints (`/api/analytics/summary` and `/api/analytics/spending`). Requires `X_API_KEY` env var.
+- `run-settlement-loadtest.sh` — bounded batch sizing / backpressure assertions via Jest (`settlement-batcher.test.ts`).
+
+Settlement batch env knobs
+- `SETTLEMENT_MIN_BATCH` (default 3)
+- `SETTLEMENT_MAX_BATCH` (default 20) — hard cap per on-chain submit
+- `SETTLEMENT_MAX_WAIT_MS` (default 300000)
+- `SETTLEMENT_MAX_QUEUE_DEPTH` (default 500) — enqueue backpressure
+- `SETTLEMENT_MAX_IN_FLIGHT` (default 2)
+
+```bash
+./scripts/load-tests/run-settlement-loadtest.sh
+```
 
 Representative scenarios
 1. Light (smoke): `DURATION=10 CONCURRENCY=10 ./run-analytics-loadtest.sh`

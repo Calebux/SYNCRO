@@ -7,49 +7,49 @@
  * Usage: node scripts/check-issue-governance.js
  * Exit code: 0 if valid, 1 if invalid
  */
-
 const fs = require('fs');
 const path = require('path');
 
 const REPO_ROOT = path.join(__dirname, '..');
 
+/** Canonical colon-style labels (must match .github/labels.yml). */
 const EXPECTED_LABELS = [
-  // Areas
-  'area/client',
-  'area/backend',
-  'area/contracts',
-  'area/supabase',
-  'area/sdk',
-  'area/shared',
-  'area/docs',
-  'area/scripts',
-  'area/governance',
-  'area/ops',
+  // Areas (aligned with remote GitHub)
+  'area:frontend',
+  'area:client-api',
+  'area:backend',
+  'area:blockchain',
+  'area:data',
+  'area:docs',
+  'area:governance',
+  'area:integrations',
+  'area:ops',
+  'area:architecture',
+  'area:quality',
   // Priorities
-  'priority/P0',
-  'priority/P1',
-  'priority/P2',
-  'priority/P3',
+  'priority:p0',
+  'priority:p1',
+  'priority:p2',
   // Types
-  'type/bug',
-  'type/feature',
-  'type/refactor',
-  'type/chore',
-  'type/security',
-  'type/documentation',
-  'type/performance',
+  'type:bug',
+  'type:feature',
+  'type:refactor',
+  'type:chore',
+  'type:security',
+  'type:documentation',
+  'type:performance',
   // Risks
-  'risk/low',
-  'risk/medium',
-  'risk/high',
+  'risk:low',
+  'risk:medium',
+  'risk:high',
   // Statuses
-  'status/triage',
-  'status/backlog',
-  'status/in-progress',
-  'status/in-review',
-  'status/blocked',
-  'status/wontfix',
-  'status/done'
+  'status:triage',
+  'status:backlog',
+  'status:in-progress',
+  'status:in-review',
+  'status:blocked',
+  'status:wontfix',
+  'status:done'
 ];
 
 function parseLabelsYaml(content) {
@@ -61,7 +61,6 @@ function parseLabelsYaml(content) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) continue;
 
-    // Handle YAML sequence item
     if (trimmed.startsWith('- name:')) {
       if (currentLabel) {
         labels.push(currentLabel);
@@ -116,6 +115,11 @@ function checkLabels() {
         errors.push('Found label entry with invalid or empty name');
         continue;
       }
+      if (parsedLabel.name.includes('/')) {
+        errors.push(
+          `Label "${parsedLabel.name}" uses slash-style; canonical style is colon (e.g. area:frontend)`
+        );
+      }
       if (!parsedLabel.color) {
         errors.push(`Label "${parsedLabel.name}" is missing a color definition`);
       }
@@ -141,7 +145,6 @@ function checkTriagePolicy() {
   try {
     const content = fs.readFileSync(policyPath, 'utf8');
 
-    // Check key requirements
     const requiredPhrases = [
       'intake',
       'grooming',
@@ -154,6 +157,14 @@ function checkTriagePolicy() {
       if (!content.toLowerCase().includes(phrase.toLowerCase())) {
         errors.push(`Triage policy lacks mention of "${phrase}"`);
       }
+    }
+
+    if (content.includes('file://')) {
+      errors.push('Triage policy must not contain absolute file:// links');
+    }
+
+    if (content.includes('area/') || content.includes('priority/P')) {
+      errors.push('Triage policy still references slash-style labels; use colon-style (area:, priority:)');
     }
   } catch (err) {
     errors.push(`Failed to read triage policy: ${err.message}`);
@@ -177,18 +188,20 @@ function checkTemplates() {
     try {
       const content = fs.readFileSync(templatePath, 'utf8');
 
-      // Verify template frontmatter contains status/triage label
-      if (!content.includes('status/triage')) {
-        errors.push(`Template ${template} must specify default status/triage label in frontmatter`);
+      if (!content.includes('status:triage')) {
+        errors.push(`Template ${template} must specify default status:triage label in frontmatter`);
       }
 
-      // Verify references to taxonomy in body
       if (!content.includes('Taxonomy (For Triagers)')) {
         errors.push(`Template ${template} should include the "Taxonomy (For Triagers)" checklist section`);
       }
 
       if (!content.includes('Area:') || !content.includes('Priority:') || !content.includes('Risk:')) {
         errors.push(`Template ${template} must prompt for Area, Priority, and Risk`);
+      }
+
+      if (content.includes('area/') || content.includes('priority/P') || content.includes('status/triage')) {
+        errors.push(`Template ${template} still references slash-style labels; use colon-style`);
       }
     } catch (err) {
       errors.push(`Failed to read template ${template}: ${err.message}`);

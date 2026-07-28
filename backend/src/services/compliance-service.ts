@@ -193,7 +193,7 @@ export class ComplianceService {
       metadata: { scheduled_deletion_at: scheduledDeletionAt.toISOString(), reason },
     });
 
-    logger.info(`Account deletion requested for user ${userId}, scheduled for ${scheduledDeletionAt.toISOString()}`);
+    logger.info('Account deletion requested', { scheduledAt: scheduledDeletionAt.toISOString() });
 
     // Send confirmation email
     try {
@@ -234,7 +234,7 @@ export class ComplianceService {
       resource_id: userId,
     });
 
-    logger.info(`Account deletion cancelled for user ${userId}`);
+    logger.info('Account deletion cancelled');
     return data;
   }
 
@@ -260,12 +260,12 @@ export class ComplianceService {
         );
       }
     } catch (emailError) {
-      logger.error(`Failed to send final deletion email for user ${userId}:`, emailError);
+      logger.error('Failed to send final deletion email', emailError);
     }
 
     const { error: deleteError } = await supabase.auth.admin.deleteUser(userId);
     if (deleteError) {
-      logger.error(`Failed to delete auth user ${userId}: ${deleteError.message}`);
+      logger.error('Failed to delete auth user', { error: deleteError.message });
       return 0;
     }
 
@@ -274,7 +274,7 @@ export class ComplianceService {
       .update({ status: 'completed', completed_at: new Date().toISOString() })
       .eq('id', deletionId);
 
-    logger.info(`Hard delete completed for user ${userId}`);
+    logger.info('Hard delete completed');
     return 1;
   }
 
@@ -301,16 +301,14 @@ export class ComplianceService {
         );
 
         if (!pipelineResult.success) {
-          logger.error(`GDPR pipeline failed for user ${deletion.user_id}`, {
-            error: pipelineResult.error,
-          });
+          logger.error('GDPR pipeline failed', { error: pipelineResult.error });
           continue;
         }
 
         const count = await this.processHardDeleteForUser(deletion.user_id, deletion.id);
         processed += count;
       } catch (err) {
-        logger.error(`Error processing hard delete for user ${deletion.user_id}:`, err);
+        logger.error('Error processing hard delete', err);
       }
     }
 

@@ -120,7 +120,7 @@ export class EmailService {
             headers: unsubscribeHeaders,
           });
 
-          logger.info(`Email sent successfully to ${recipientEmail}`, {
+          logger.info('Email sent successfully', {
             messageId: info.messageId,
           });
 
@@ -145,7 +145,7 @@ export class EmailService {
       // Determine if error is retryable
       const isRetryable = this.isRetryableError(error);
 
-      logger.error(`Failed to send email to ${recipientEmail}:`, errorMessage);
+      logger.error('Failed to send email', { errorMessage });
 
       return {
         success: false,
@@ -379,7 +379,7 @@ This is an automated reminder from Synchro.
       html: `<p>${text}</p>` + unsubscribeFooter,
       headers: unsubscribeHeaders,
     });
-    logger.info(`Simple email sent to ${to}`, { subject });
+    logger.info('Simple email sent', { subject });
   }
 
   /**
@@ -442,7 +442,7 @@ This is an automated reminder from Synchro.
           text,
         });
 
-        logger.info(`Invitation email sent to ${recipientEmail}`, { messageId: info.messageId });
+        logger.info('Invitation email sent', { messageId: info.messageId });
 
         return {
           success: true,
@@ -451,7 +451,7 @@ This is an automated reminder from Synchro.
       }, { maxAttempts: 3 });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to send invitation email to ${recipientEmail}:`, errorMessage);
+      logger.error('Failed to send invitation email', { errorMessage });
       return { success: false, error: errorMessage, metadata: { retryable: this.isRetryableError(error) } };
     }
   }
@@ -519,7 +519,7 @@ This is an automated reminder from Synchro.
           text,
         });
 
-        logger.info(`Risk alert email sent to ${payload.to}`, { messageId: info.messageId });
+        logger.info('Risk alert email sent', { messageId: info.messageId });
 
         return {
           success: true,
@@ -528,7 +528,7 @@ This is an automated reminder from Synchro.
       }, { maxAttempts: 3 });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to send risk alert email to ${payload.to}:`, errorMessage);
+        logger.error('Failed to send risk alert email', { errorMessage });
       return { success: false, error: errorMessage, metadata: { retryable: this.isRetryableError(error) } };
     }
   }

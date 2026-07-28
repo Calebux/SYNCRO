@@ -4,6 +4,7 @@ import {
   verifyTransaction,
   listBanks,
 } from '../services/paystack'
+import { createPaymentLimiter, createRefundLimiter } from '../middleware/rate-limit-factory'
 
 const router = Router()
 
@@ -17,6 +18,7 @@ const router = Router()
  */
 router.post(
   '/paystack/initialize',
+  createPaymentLimiter(),
   async (req: Request, res: Response) => {
     try {
       const { email, amountKobo, reference, callbackUrl, metadata } = req.body
@@ -51,6 +53,7 @@ router.post(
  */
 router.get(
   '/paystack/verify/:reference',
+  createPaymentLimiter(),
   async (req: Request, res: Response) => {
     try {
       const result = await verifyTransaction(req.params.reference)
@@ -76,6 +79,16 @@ router.get('/paystack/banks', async (_req: Request, res: Response) => {
     const message = err instanceof Error ? err.message : 'Unknown error'
     return res.status(500).json({ error: message })
   }
+})
+
+/**
+ * POST /api/payments/refund
+ * Sensitive mutation — stricter refund rate limit (429 on abuse).
+ */
+router.post('/refund', createRefundLimiter(), async (_req: Request, res: Response) => {
+  return res.status(501).json({
+    error: 'Refunds are processed via the client payment service / provider dashboard',
+  })
 })
 
 export default router

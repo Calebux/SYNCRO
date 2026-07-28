@@ -99,6 +99,7 @@ import paymentChannelsRoutes from './routes/payment-channels';
 import { errorHandler } from './middleware/errorHandler';
 import { swaggerSpec } from './swagger';
 import privacyMetricsAdminRoutes from './routes/admin/privacy-metrics';
+import metricsRoutes from './routes/metrics';
 
 
 const app = express();
@@ -238,6 +239,10 @@ app.get('/health', async (req, res) => {
     });
   }
 });
+
+// Core SLIs Metrics Endpoint (Prometheus / JSON)
+app.use('/metrics', metricsRoutes);
+app.use('/api/metrics', metricsRoutes);
 
 // Swagger Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));

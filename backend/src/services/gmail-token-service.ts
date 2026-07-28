@@ -14,7 +14,7 @@
 import { encrypt, decrypt } from '../utils/encryption';
 import { supabase } from '../config/database';
 import { ExternalServiceClient } from '../utils/external-service-client';
-import logger from '../config/logger';
+import { SingleFlight } from '../utils/single-flight';
 
 type TokenResponse = {
   access_token: string;
@@ -23,59 +23,76 @@ type TokenResponse = {
 };
 
 const gmailClient = new ExternalServiceClient('gmail');
+const singleFlight = new SingleFlight<string>();
 
 export class GmailTokenService {
   /**
    * Uses the stored encrypted refresh token to obtain and persist a new access token.
+   * Single-flight: only one refresh per account at a time.
    */
   static async refreshAccessToken(userId: string): Promise<string> {
-    // 1. Retrieve the encrypted account record
-    const { data: account, error } = await supabase
+    // First, get the account id to use as the single-flight key
+    const { data: account, error: fetchError } = await supabase
       .from('email_accounts')
       .select('*')
       .eq('user_id', userId)
       .eq('provider', 'gmail')
       .single();
 
-    if (error || !account || !account.refresh_token) {
+    if (fetchError || !account || !account.refresh_token) {
       throw new Error('No valid Gmail credentials found for rotation');
     }
 
-    // 2. Decrypt refresh token for the rotation request
-    const decryptedRefreshToken = decrypt(account.refresh_token);
+    const key = `gmail-refresh:${account.id}`;
 
-    // 3. Request new tokens from Google OAuth2
-    const data = await gmailClient.request<TokenResponse>('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: process.env.GOOGLE_CLIENT_ID || '',
-        client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
-        refresh_token: decryptedRefreshToken,
-        grant_type: 'refresh_token',
-      }).toString(),
+    return singleFlight.do(key, async () => {
+      // Re-fetch account inside the single-flight to get the latest (in case another process updated it)
+      const { data: latestAccount, error: latestFetchError } = await supabase
+        .from('email_accounts')
+        .select('*')
+        .eq('id', account.id)
+        .single();
+
+      if (latestFetchError || !latestAccount || !latestAccount.refresh_token) {
+        throw new Error('No valid Gmail credentials found for rotation');
+      }
+
+      // Decrypt refresh token for the rotation request
+      const decryptedRefreshToken = decrypt(latestAccount.refresh_token);
+
+      // Request new tokens from Google OAuth2
+      const data = await gmailClient.request<TokenResponse>('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: process.env.GOOGLE_CLIENT_ID || '',
+          client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
+          refresh_token: decryptedRefreshToken,
+          grant_type: 'refresh_token',
+        }).toString(),
+      });
+
+      const { access_token, refresh_token: newRefreshToken, expires_in } = data;
+
+      // Re-encrypt rotated credentials before database update
+      const encryptedAccessToken = encrypt(access_token);
+      const updateData: any = {
+        access_token: encryptedAccessToken,
+        token_expiry: new Date(Date.now() + expires_in * 1000).toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      if (newRefreshToken) {
+        updateData.refresh_token = encrypt(newRefreshToken);
+      }
+
+      await supabase
+        .from('email_accounts')
+        .update(updateData)
+        .eq('id', latestAccount.id);
+
+      return access_token;
     });
-
-    const { access_token, refresh_token: newRefreshToken, expires_in } = data;
-
-    // 4. Re-encrypt rotated credentials before database update
-    const encryptedAccessToken = encrypt(access_token);
-    const updateData: any = {
-      access_token: encryptedAccessToken,
-      token_expires_at: new Date(Date.now() + expires_in * 1000).toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
-    if (newRefreshToken) {
-      updateData.refresh_token = encrypt(newRefreshToken);
-    }
-
-    await supabase
-      .from('email_accounts')
-      .update(updateData)
-      .eq('id', account.id);
-
-    return access_token;
   }
 
   /**

@@ -1,5 +1,8 @@
 # @syncro/client
 
+[![Tests](https://github.com/YOUR_ORG/YOUR_REPO/actions/workflows/test.yml/badge.svg)](https://github.com/YOUR_ORG/YOUR_REPO/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/YOUR_ORG/YOUR_REPO/branch/main/graph/badge.svg)](https://codecov.io/gh/YOUR_ORG/YOUR_REPO)
+
 The frontend client application for SYNCRO (`@syncro/client`), built with Next.js 15, React 19, and TypeScript. This is the user-facing web application that provides the subscription management interface, dashboard, analytics, and integration management.
 
 ## Overview

@@ -2,8 +2,6 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('fs');
-const path = require('path');
 
 const {
   EXPECTED_LABELS,
@@ -18,23 +16,23 @@ describe('check-issue-governance', () => {
     it('correctly parses a formatted list of labels', () => {
       const yaml = `
 # Some comments
-- name: "area/test"
+- name: "area:frontend"
   color: "123456"
   description: "Test description"
 
-- name: "priority/P1"
+- name: "priority:p1"
   color: "ffffff"
   description: "High priority"
 `;
       const parsed = parseLabelsYaml(yaml);
       assert.equal(parsed.length, 2);
       assert.deepEqual(parsed[0], {
-        name: 'area/test',
+        name: 'area:frontend',
         color: '123456',
         description: 'Test description'
       });
       assert.deepEqual(parsed[1], {
-        name: 'priority/P1',
+        name: 'priority:p1',
         color: 'ffffff',
         description: 'High priority'
       });
@@ -44,7 +42,7 @@ describe('check-issue-governance', () => {
       const yaml = `
 # Comment at top
 
-- name: "status/test"
+- name: "status:triage"
   # inline comment
   color: "000000"
   description: "Status test description"
@@ -52,7 +50,7 @@ describe('check-issue-governance', () => {
       const parsed = parseLabelsYaml(yaml);
       assert.equal(parsed.length, 1);
       assert.deepEqual(parsed[0], {
-        name: 'status/test',
+        name: 'status:triage',
         color: '000000',
         description: 'Status test description'
       });
@@ -73,6 +71,13 @@ describe('check-issue-governance', () => {
     it('issue templates have correct default labels and taxonomy references', () => {
       const errors = checkTemplates();
       assert.deepEqual(errors, [], `Expected no errors in issue templates, but got: ${errors.join(', ')}`);
+    });
+
+    it('expected labels use colon-style names only', () => {
+      for (const name of EXPECTED_LABELS) {
+        assert.ok(!name.includes('/'), `Expected colon-style label, got: ${name}`);
+        assert.ok(name.includes(':'), `Expected colon in label name: ${name}`);
+      }
     });
   });
 });

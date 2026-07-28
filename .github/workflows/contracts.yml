@@ -60,7 +60,7 @@ jobs:
               run: cargo test
 
             - name: Run contract fuzz tests
-              run: cargo test -p subscription_renewal -p escrow -p payment-channel fuzz_
+              run: cargo test -p subscription_renewal -p escrow -p payment-channel -p virtual-card fuzz_
               env:
                   PROPTEST_CASES: "8"
 

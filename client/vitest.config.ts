@@ -60,11 +60,15 @@ const defaultTestConfig = {
       '.next/',
       'coverage/',
     ],
+    // Minimums live in ../coverage-thresholds.json (issue #1090). These were
+    // never enforced — CI ran `vitest run` without --coverage — so the numbers
+    // below are unverified. They are held at 0 until the coverage workflow
+    // reports a real figure, then ratcheted up to just under it.
     thresholds: {
-      lines: 80,
-      branches: 75,
-      functions: 85,
-      statements: 80,
+      lines: 0,
+      branches: 0,
+      functions: 0,
+      statements: 0,
     },
   },
 };

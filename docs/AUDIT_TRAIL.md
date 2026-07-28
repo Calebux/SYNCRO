@@ -32,9 +32,16 @@ Each entry in `audit_logs` includes:
 | `user_agent` | Client user-agent |
 | `created_at` | Timestamp |
 
+## Tamper Evidence
+
+Entries are append-only and hash-chained: each row carries `sequence`,
+`entry_hash` and `prev_hash`, a database trigger rejects `UPDATE`/`DELETE`, and
+`GET /api/audit/verify` re-walks the chain to detect edits, deletions and
+reordering. See [`security/audit-log-tamper-evidence.md`](security/audit-log-tamper-evidence.md).
+
 ## Retention & Visibility
 
-- **Retention**: Logs are kept indefinitely by default. Apply a Supabase scheduled job or pg_cron rule to purge entries older than your compliance window (e.g. 90 days).
+- **Retention**: Logs are kept indefinitely by default. Purging requires temporarily disabling the append-only trigger — see the retention section of the tamper-evidence doc.
 - **User visibility**: Users can query their own logs via `GET /api/audit` (filtered by `resource_type=api_key`).
 - **Admin visibility**: Admins can query all logs via the admin audit endpoint with no user filter.
 - **RLS**: The `audit_logs` table enforces row-level security — users only see rows where `user_id = auth.uid()`. Admins bypass via service role.

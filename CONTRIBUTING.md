@@ -188,7 +188,12 @@ See [contracts/README.md](./contracts/README.md) for Stellar CLI setup.
 node scripts/check-env-docs.js
 node scripts/check-contributing.js
 node scripts/check-issue-governance.js
+node scripts/check-label-drift.js
 ```
+
+## Repository scripts
+
+Reusable automation belongs in [`scripts/`](./scripts/) or the appropriate package-level `scripts/` directory. Do not keep one-off conflict-resolution helpers, temporary migration repair scripts, PR body drafts, or ad-hoc `fix*.js` files in the repository root. If a cleanup or migration helper is worth preserving, move it under `scripts/`, give it a descriptive name, and document when it should be run. Delete throwaway helpers once the underlying issue is resolved.
 
 ## Database and migrations
 
@@ -246,6 +251,31 @@ Use these for deep dives; the quick start above covers day-to-day local developm
 | Contracts | [contracts/README.md](./contracts/README.md) | Soroban build and deploy |
 | Environment | [docs/ENVIRONMENT.md](./docs/ENVIRONMENT.md) | Env manifests and CI validation |
 | Code review | [docs/code-review-process.md](./docs/code-review-process.md) | Review expectations |
+
+## Pre-commit hooks
+
+Husky runs local gates before every commit so bad changes are caught before push. Config lives in [`.husky/pre-commit`](./.husky/pre-commit) (wired per #115).
+
+| Check | Command | Purpose |
+|-------|---------|---------|
+| **Lint** | `lint-staged` on `backend/` + `client/` | ESLint on staged files |
+| **Typecheck** | `npm run typecheck` | Workspace + root `tsc --noEmit` |
+| **Conflict markers** | `node scripts/check-conflict-markers.mjs` | Blocks unresolved `<<<<<<<` / `=======` / `>>>>>>>` |
+| **TODO policy** | `node scripts/check-todos.mjs` | Critical-path TODOs must use `TODO(#123):` form — see [DEBT.md](./DEBT.md) |
+
+**CI parity:** [`.github/workflows/pre-commit-parity.yml`](./.github/workflows/pre-commit-parity.yml) runs the same conflict, TODO, typecheck, and lint gates on every PR.
+
+After `npm install`, the `prepare` script makes `.husky/pre-commit` executable. To run checks without committing:
+
+```bash
+npm run lint:conflicts
+npm run lint:todos
+npm run typecheck
+# or all at once:
+npm run precommit:check
+```
+
+Skip hooks only when necessary: `HUSKY=0 git commit ...` (not for normal contributions).
 
 ## Branch naming
 

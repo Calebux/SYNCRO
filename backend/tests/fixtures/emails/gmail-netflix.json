@@ -1,0 +1,14 @@
+{
+  "provider": "gmail",
+  "messageId": "gmail-msg-netflix-001",
+  "subject": "Your Netflix subscription receipt",
+  "from": "billing@netflix.com",
+  "body": "Hi there,\n\nYour subscription renews on June 1st. Payment received for $15.99/month.\nThank you for being a member.\n\n— Netflix",
+  "receivedAt": "2026-05-01T12:00:00.000Z",
+  "expected": {
+    "name": "Netflix",
+    "amount": 15.99,
+    "currency": "USD",
+    "interval": "monthly"
+  }
+}

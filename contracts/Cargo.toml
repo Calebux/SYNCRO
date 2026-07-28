@@ -11,10 +11,24 @@ members = [
   "contracts/payment-channel",
   "contracts/contract-upgrade",
   "contracts/allowance",
+  "contracts/payment-adapter",
+  "contracts/voucher-ledger",
+  "contracts/fee-collector",
+  "contracts/resolver-registry",
+  "contracts/subscription_refund",
+  "contracts/recurring_allowance",
+  "contracts/loyalty_rewards",
+  "contracts/subscription_nft",
+  "contracts/attestation",
+  "contracts/guardian",
+  "contracts/fx-oracle",
+  "contracts/payment-splitter",
+  "contracts/stealth-announcement",
+  "integration_tests",
 ]
 
 [workspace.dependencies]
-soroban-sdk = "26"
+soroban-sdk = "27"
 proptest = "1.6"
 
 [profile.release]

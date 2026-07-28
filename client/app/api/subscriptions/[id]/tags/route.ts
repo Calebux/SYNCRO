@@ -1,9 +1,8 @@
 import { type NextRequest } from "next/server"
-import { createAuthenticatedApiRoute, createSuccessResponse, validateRequestBody, RateLimiters, ApiErrors, checkOwnership } from "@/lib/api/index"
+import { createAuthenticatedApiRoute, createSuccessResponse, validateRequestBody, RateLimiters, ApiErrors } from "@/lib/api/index"
 import { HttpStatus } from "@/lib/api/types"
 import { z } from "zod"
 import { addTagToSubscription } from "@/lib/supabase/tags"
-import { createClient } from "@/lib/supabase/server"
 
 const bodySchema = z.object({
   tag_id: z.string().uuid(),
@@ -19,36 +18,18 @@ export async function POST(
     async (_req, context, user) => {
       const { tag_id } = await validateRequestBody(request, bodySchema)
 
-      const supabase = await createClient()
-
-      // Verify subscription ownership
-      const { data: subscription, error: subError } = await supabase
-        .from("subscriptions")
-        .select("user_id")
-        .eq("id", id)
-        .single()
-
-      if (subError || !subscription) {
-        throw ApiErrors.notFound("Subscription")
+      try {
+        await addTagToSubscription(user.id, id, tag_id)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to assign tag"
+        if (message.includes("not found")) {
+          throw ApiErrors.notFound(message.includes("Tag") ? "Tag" : "Subscription")
+        }
+        if (message.includes("does not belong")) {
+          throw ApiErrors.forbidden(message)
+        }
+        throw err
       }
-
-      checkOwnership(user.id, subscription.user_id)
-
-      // Verify tag ownership
-      const { data: tag, error: tagError } = await supabase
-        .from("subscription_tags")
-        .select("user_id")
-        .eq("id", tag_id)
-        .single()
-
-      if (tagError || !tag) {
-        throw ApiErrors.notFound("Tag")
-      }
-
-      checkOwnership(user.id, tag.user_id)
-
-      // Proceed with assignment
-      await addTagToSubscription(id, tag_id)
 
       return createSuccessResponse({ assigned: true }, HttpStatus.OK, context.requestId)
     },

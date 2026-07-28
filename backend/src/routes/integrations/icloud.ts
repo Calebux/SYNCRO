@@ -3,12 +3,13 @@ import { scanImapSubscriptions, validateImapCredentials, encrypt, decrypt } from
 import { createState, consumeState } from '../../../utils/oauth-state'
 import { supabase } from '../../config/database'
 import { AuthenticatedRequest } from '../../middleware/auth'
+import { createLoginLimiter } from '../../middleware/rate-limit-factory'
 
 const router: Router = Router()
 
 // POST /api/integrations/icloud/connect
 // Connect iCloud Mail account using app-specific password
-router.post('/connect', async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+router.post('/connect', createLoginLimiter(), async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const { email, password } = req.body as { email?: string; password?: string }
 

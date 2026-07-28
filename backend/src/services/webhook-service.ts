@@ -221,6 +221,36 @@ export class WebhookService {
       .update(payloadString)
       .digest('hex');
 
+    // ── SSRF guard (dispatch-time, with DNS resolution) ───────────────────
+    // The webhook URL was validated at creation/update time by the schema, but
+    // we re-validate here with a DNS lookup to protect against:
+    //   - DNS rebinding attacks
+    //   - Webhooks that were registered before SSRF checks were added
+    //   - Any URL that bypassed schema validation
+    try {
+      await validateOutboundUrl(webhook.url, { resolveDns: true });
+    } catch (ssrfErr) {
+      const reason = ssrfErr instanceof SSRFError ? ssrfErr.message : String(ssrfErr);
+      logger.warn(`SSRF check blocked webhook delivery ${deliveryId}: ${reason}`, {
+        webhookId: webhook.id,
+        url: webhook.url,
+      });
+      emitSecurityEvent('webhook.ssrf_blocked', {
+        severity: 'high',
+        resourceType: 'webhook',
+        resourceId: webhook.id,
+        reason,
+        details: { deliveryId, url: webhook.url },
+      });
+      return await this.handleDeliveryFailure(
+        deliveryId,
+        webhook.id,
+        0,
+        `SSRF protection blocked delivery: ${reason}`,
+      );
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
     try {
       const data = await this.client.request<any>(webhook.url, {
         method: 'POST',

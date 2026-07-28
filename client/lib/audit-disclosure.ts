@@ -153,7 +153,7 @@ class CommitmentEncoder {
 /**
  * Compute SHA-256 hash
  */
-async function sha256(data: Uint8Array): Promise<Uint8Array> {
+async function sha256(data: BufferSource): Promise<Uint8Array> {
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   return new Uint8Array(hashBuffer);
 }
@@ -296,7 +296,7 @@ export class AuditDisclosureClient {
       throw new Error(`Failed to fetch commitments: ${error?.message || 'Not found'}`);
     }
     
-    const indices = records.map(r => r.commitment_index);
+    const indices = records.map((r: { commitment_index: number }) => r.commitment_index);
     return this.generateMultipleDisclosures(userId, indices);
   }
   
@@ -457,16 +457,80 @@ export class AuditDisclosureClient {
   }
   
   /**
-   * Decrypt blinding factor
-   * 
-   * Note: In production, blinding factors are encrypted at rest.
-   * This function would decrypt using keys from a secure key store.
-   * For MVP, blinding factors may be stored unencrypted.
+   * Decrypt a blinding factor that was encrypted with AES-256-GCM.
+   *
+   * Expected wire format (all concatenated, no separators):
+   *   [ iv: 12 bytes ][ ciphertext: N bytes ][ auth tag: 16 bytes ]
+   *
+   * The AES key is read from the environment variable BLINDING_FACTOR_KEY,
+   * which must be a 64-character hex string (32 bytes / 256 bits).
+   *
+   * Throws if the auth tag does not verify (tampered ciphertext) or if the
+   * key is missing / malformed.
    */
   private async decryptBlindingFactor(encrypted: Buffer): Promise<Uint8Array> {
-    // TODO: Implement actual decryption with AES-256-GCM
-    // For MVP, assume blinding factors are stored unencrypted
-    return new Uint8Array(encrypted);
+    // Minimum: 12-byte IV + 0-byte ciphertext + 16-byte tag = 28 bytes
+    if (encrypted.length < 28) {
+      throw new Error('Encrypted blinding factor is too short to be valid AES-256-GCM ciphertext');
+    }
+
+    // Resolve the raw key material from the environment
+    const keyHex =
+      process.env.BLINDING_FACTOR_KEY ??
+      process.env.NEXT_PUBLIC_BLINDING_FACTOR_KEY;
+
+    if (!keyHex) {
+      throw new Error(
+        'BLINDING_FACTOR_KEY environment variable is not set — cannot decrypt blinding factor'
+      );
+    }
+
+    if (keyHex.length !== 64) {
+      throw new Error(
+        'BLINDING_FACTOR_KEY must be exactly 64 hex characters (32 bytes / AES-256)'
+      );
+    }
+
+    // Decode hex key → raw bytes
+    const keyBytes = new Uint8Array(32);
+    for (let i = 0; i < 32; i++) {
+      keyBytes[i] = parseInt(keyHex.slice(i * 2, i * 2 + 2), 16);
+    }
+
+    // Import the raw key for AES-GCM decryption (non-extractable)
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw',
+      keyBytes,
+      { name: 'AES-GCM', length: 256 },
+      false,     // non-extractable
+      ['decrypt']
+    );
+
+    // Copy into plain Uint8Arrays backed by a concrete ArrayBuffer so that
+    // WebCrypto's BufferSource constraint (ArrayBuffer, not ArrayBufferLike) is satisfied.
+    const iv = new Uint8Array(encrypted.slice(0, 12));
+    const ciphertextWithTag = new Uint8Array(encrypted.slice(12));
+
+    let plaintext: ArrayBuffer;
+    try {
+      plaintext = await crypto.subtle.decrypt(
+        {
+          name: 'AES-GCM',
+          iv,
+          tagLength: 128, // 16-byte auth tag (WebCrypto default, explicit for clarity)
+        },
+        cryptoKey,
+        ciphertextWithTag
+      );
+    } catch {
+      // WebCrypto throws a generic DOMException on auth-tag failure; surface a
+      // meaningful error so callers can distinguish tampering from other issues.
+      throw new Error(
+        'AES-256-GCM decryption failed — ciphertext may have been tampered with or the key is incorrect'
+      );
+    }
+
+    return new Uint8Array(plaintext);
   }
   
   /**

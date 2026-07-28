@@ -62,11 +62,62 @@ describe('GmailTokenService Security and Lifecycle', () => {
     expect(decrypted).toBe('new-raw-access');
   });
 
+  it('should prevent concurrent refresh (single-flight)', async () => {
+    const encryptedRefresh = encryption.encrypt(rawRefreshToken);
+    let callCount = 0;
+
+    const updateMock = jest.fn().mockResolvedValue({ error: null });
+    mockSupabase = {
+      from: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      single: jest.fn().mockImplementation(() => {
+        callCount++;
+        return Promise.resolve({
+          data: { id: 'acc-1', refresh_token: encryptedRefresh }
+        });
+      }),
+      update: updateMock,
+    };
+
+    // Mock fetch to resolve slowly so concurrent calls stack up
+    mockedFetch.mockImplementation(() => 
+      new Promise(resolve => 
+        setTimeout(() => 
+          resolve({
+            ok: true,
+            json: () => Promise.resolve({
+              access_token: 'concurrent-test-token',
+              expires_in: 3600
+            })
+          }), 100
+        )
+      )
+    );
+
+    // Launch 5 concurrent refresh calls
+    const promises = Array.from({ length: 5 }, () => 
+      GmailTokenService.refreshAccessToken(mockUserId)
+    );
+
+    // Wait for all to resolve
+    const results = await Promise.all(promises);
+
+    // Verify all got the same token
+    expect(results.every(token => token === 'concurrent-test-token')).toBe(true);
+
+    // Verify fetch was called only once (single-flight worked)
+    expect(mockedFetch).toHaveBeenCalledTimes(1);
+
+    // Verify update was called only once
+    expect(updateMock).toHaveBeenCalledTimes(1);
+  });
+
   it('should revoke remote tokens and purge local credentials on disconnect', async () => {
     const encryptedRefresh = encryption.encrypt(rawRefreshToken);
     const encryptedAccess = encryption.encrypt(rawAccessToken);
 
-    const updateMock = jest.fn().mockResolvedValue({ error: null });
+    const deleteMock = jest.fn().mockResolvedValue({ error: null });
     mockSupabase = {
       from: jest.fn().mockReturnThis(),
       select: jest.fn().mockReturnThis(),
@@ -78,7 +129,7 @@ describe('GmailTokenService Security and Lifecycle', () => {
           access_token: encryptedAccess 
         }
       }),
-      update: updateMock,
+      delete: deleteMock,
     };
     mockedFetch.mockResolvedValue({ ok: true });
 
@@ -90,10 +141,7 @@ describe('GmailTokenService Security and Lifecycle', () => {
       expect.objectContaining({ method: 'POST' })
     );
 
-    // 2. Verify local database credentials were set to null
-    const updateCallArgs = updateMock.mock.calls[0][0];
-    expect(updateCallArgs.access_token).toBeNull();
-    expect(updateCallArgs.refresh_token).toBeNull();
-    expect(updateCallArgs.is_connected).toBe(false);
+    // 2. Verify local database account was deleted
+    expect(deleteMock).toHaveBeenCalledTimes(1);
   });
 });

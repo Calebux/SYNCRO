@@ -7,7 +7,9 @@
  *     the latest ledger and back-fills them in bounded batches.
  *  3. Persists every on-chain event to `blockchain_logs` so the table is
  *     never missing a transaction.
- *  4. Uses exponential back-off with jitter on transient RPC failures.
+ *  4. Normalizes contract topics into a canonical dotted path so downstream
+ *     consumers can rely on stable event names across contracts.
+ *  5. Uses exponential back-off with jitter on transient RPC failures.
  */
 
 import logger from '../config/logger';
@@ -72,6 +74,23 @@ interface RawEvent {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+function normalizeTopicPath(topics: string[]): string | null {
+  const cleaned = topics
+    .map((topic) => topic.trim().toLowerCase())
+    .filter((topic) => topic.length > 0);
+
+  return cleaned.length > 0 ? cleaned.join('.') : null;
+}
+
+function normalizeEventType(event: RawEvent): string {
+  return normalizeTopicPath(event.topic) ?? event.type;
+}
+
+function extractSchemaVersion(value: unknown): number {
+  const schemaVersion = (value as { schema_version?: unknown } | null)?.schema_version;
+  return typeof schemaVersion === 'number' ? schemaVersion : 1;
+}
+
 async function rpcPost<T>(method: string, params: unknown): Promise<T> {
   try {
     const res = await rpcClient.fetch(RPC_URL, {
@@ -129,7 +148,7 @@ async function persistEvents(events: RawEvent[]): Promise<void> {
 
   const rows = events.map((e) => ({
     user_id: 'system',
-    event_type: e.type,
+    event_type: normalizeEventType(e),
     event_data: {
       id: e.id,
       ledger: e.ledger,
@@ -137,6 +156,9 @@ async function persistEvents(events: RawEvent[]): Promise<void> {
       contractId: e.contractId,
       txHash: e.txHash,
       topic: e.topic,
+      topicPath: normalizeTopicPath(e.topic),
+      eventType: e.type,
+      schemaVersion: extractSchemaVersion(e.value),
       value: e.value,
     },
     transaction_hash: e.txHash,

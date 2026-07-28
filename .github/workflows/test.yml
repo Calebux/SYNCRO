@@ -42,8 +42,10 @@ jobs:
         working-directory: client
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # Fetch all history for coverage comparison
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: "npm"
@@ -52,8 +54,144 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run client unit tests
-        run: npm test -- --coverage
+      - name: Run client unit tests with coverage
+        run: npm test -- --coverage --run
+        continue-on-error: false
+
+      - name: Check coverage thresholds
+        id: coverage-check
+        run: |
+          echo "Checking coverage thresholds..."
+          npm test -- --coverage --run --reporter=json > coverage-output.json || true
+          
+          # Extract coverage summary
+          if [ -f coverage/coverage-summary.json ]; then
+            echo "Coverage report found"
+            cat coverage/coverage-summary.json
+            
+            # Parse thresholds (lines: 80%, branches: 75%, functions: 85%, statements: 80%)
+            LINES=$(jq '.total.lines.pct' coverage/coverage-summary.json)
+            BRANCHES=$(jq '.total.branches.pct' coverage/coverage-summary.json)
+            FUNCTIONS=$(jq '.total.functions.pct' coverage/coverage-summary.json)
+            STATEMENTS=$(jq '.total.statements.pct' coverage/coverage-summary.json)
+            
+            echo "lines_coverage=$LINES" >> $GITHUB_OUTPUT
+            echo "branches_coverage=$BRANCHES" >> $GITHUB_OUTPUT
+            echo "functions_coverage=$FUNCTIONS" >> $GITHUB_OUTPUT
+            echo "statements_coverage=$STATEMENTS" >> $GITHUB_OUTPUT
+            
+            FAILED=0
+            if (( $(echo "$LINES < 80" | bc -l) )); then
+              echo "❌ Line coverage ($LINES%) is below threshold (80%)"
+              FAILED=1
+            fi
+            if (( $(echo "$BRANCHES < 75" | bc -l) )); then
+              echo "❌ Branch coverage ($BRANCHES%) is below threshold (75%)"
+              FAILED=1
+            fi
+            if (( $(echo "$FUNCTIONS < 85" | bc -l) )); then
+              echo "❌ Function coverage ($FUNCTIONS%) is below threshold (85%)"
+              FAILED=1
+            fi
+            if (( $(echo "$STATEMENTS < 80" | bc -l) )); then
+              echo "❌ Statement coverage ($STATEMENTS%) is below threshold (80%)"
+              FAILED=1
+            fi
+            
+            if [ $FAILED -eq 1 ]; then
+              echo "threshold_passed=false" >> $GITHUB_OUTPUT
+              exit 1
+            else
+              echo "✅ All coverage thresholds passed"
+              echo "threshold_passed=true" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "⚠️  Coverage summary not found"
+            echo "threshold_passed=unknown" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./client/coverage/lcov.info
+          flags: client
+          name: client-coverage
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Comment PR with coverage
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            // Read coverage summary
+            let coverageSummary = '';
+            try {
+              const summaryPath = path.join(process.cwd(), 'client/coverage/coverage-summary.json');
+              const summary = JSON.parse(fs.readFileSync(summaryPath, 'utf8'));
+              
+              const total = summary.total;
+              const lines = total.lines.pct.toFixed(2);
+              const branches = total.branches.pct.toFixed(2);
+              const functions = total.functions.pct.toFixed(2);
+              const statements = total.statements.pct.toFixed(2);
+              
+              // Determine status emojis
+              const lineStatus = lines >= 80 ? '✅' : '❌';
+              const branchStatus = branches >= 75 ? '✅' : '❌';
+              const functionStatus = functions >= 85 ? '✅' : '❌';
+              const statementStatus = statements >= 80 ? '✅' : '❌';
+              
+              coverageSummary = `## 📊 Client Test Coverage Report
+              
+| Metric | Coverage | Threshold | Status |
+|--------|----------|-----------|--------|
+| Lines | ${lines}% | 80% | ${lineStatus} |
+| Branches | ${branches}% | 75% | ${branchStatus} |
+| Functions | ${functions}% | 85% | ${functionStatus} |
+| Statements | ${statements}% | 80% | ${statementStatus} |
+
+${lines >= 80 && branches >= 75 && functions >= 85 && statements >= 80 ? '✅ All coverage thresholds passed!' : '⚠️ Some coverage thresholds not met. Please add more tests.'}
+
+[View detailed coverage report](https://codecov.io/gh/${{ github.repository }}/pull/${{ github.event.pull_request.number }})
+`;
+            } catch (error) {
+              coverageSummary = '⚠️ Unable to read coverage summary';
+            }
+            
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('📊 Client Test Coverage Report')
+            );
+            
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: coverageSummary
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: coverageSummary
+              });
+            }
 
       - uses: actions/upload-artifact@v7
         if: always()
@@ -78,7 +216,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: "npm"
@@ -107,7 +245,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: "npm"
@@ -136,7 +274,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: "npm"

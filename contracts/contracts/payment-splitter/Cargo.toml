@@ -1,0 +1,15 @@
+[package]
+name = "payment-splitter"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Soroban contract that atomically splits a subscription renewal across N payers by basis-point shares."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

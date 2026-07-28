@@ -1,5 +1,6 @@
 import * as crypto from 'crypto';
 import { Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
 import { supabase } from '../config/database';
 import logger from '../config/logger';
 import { setRequestUserId, setRequestPrivacyMode, setRequestPrivacyPreferences } from './requestContext';
@@ -183,6 +184,53 @@ export async function authenticate(
       return;
     }
 
+    // Extract session_id from JWT payload to check for manual revocation
+    let sessionId: string | null = null;
+    try {
+      const decoded = jwt.decode(token);
+      if (decoded && typeof decoded === 'object' && 'session_id' in decoded) {
+        sessionId = decoded.session_id as string;
+      }
+    } catch (err) {
+      logger.warn('Failed to decode JWT payload for session check', { error: err });
+    }
+
+    if (sessionId) {
+      const { data: sessionRecord, error: dbError } = await supabase
+        .from('user_sessions')
+        .select('revoked_at')
+        .eq('id', sessionId)
+        .maybeSingle();
+
+      if (dbError) {
+        logger.warn('Failed to query user_sessions for validation', { error: dbError.message });
+      } else if (sessionRecord && sessionRecord.revoked_at) {
+        logger.warn('Authentication failed: session is revoked', { sessionId, userId: user.id });
+        await emitSecurityEvent('session.revoked', {
+          severity: 'high',
+          resourceType: 'auth',
+          reason: 'Session has been revoked',
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'] as string | undefined,
+        });
+        res.status(401).json({
+          error: 'Unauthorized',
+          message: 'Session has been revoked',
+        });
+        return;
+      } else if (!sessionRecord) {
+        // Dynamically track new active sessions from client logins
+        const { sessionService } = await import('../services/session-service');
+        await sessionService.recordSession(user.id, {
+          sessionId,
+          userAgent: req.headers['user-agent'] as string | undefined,
+          ipAddress: req.ip,
+        }).catch((err) => {
+          logger.warn('Failed to record new session on auth', { userId: user.id, error: err.message });
+        });
+      }
+    }
+
     // Attach user to request and propagate to log context
     // Get role from authoritative source instead of metadata fallback
     const role = await roleService.getUserRole(user.id);
@@ -236,21 +284,56 @@ export async function optionalAuthenticate(
     if (token) {
       const { data: { user }, error } = await supabase.auth.getUser(token);
       if (!error && user) {
-        // Get role from authoritative source instead of metadata fallback
-        const role = await roleService.getUserRole(user.id);
+        // Extract session_id from JWT payload to check for manual revocation
+        let sessionId: string | null = null;
+        try {
+          const decoded = jwt.decode(token);
+          if (decoded && typeof decoded === 'object' && 'session_id' in decoded) {
+            sessionId = decoded.session_id as string;
+          }
+        } catch (err) {
+          logger.warn('Failed to decode JWT payload for optional session check', { error: err });
+        }
 
-        req.user = {
-          id: user.id,
-          email: user.email || '',
-          role,
-          authMethod: 'jwt',
-          scopes: Array.from(API_KEY_SCOPES),
-        };
-        setRequestUserId(user.id);
-        await loadPrivacyPreferences(user.id);
-        Sentry.setUser({ id: user.id, email: user.email });
+        let isRevoked = false;
+        if (sessionId) {
+          const { data: sessionRecord, error: dbError } = await supabase
+            .from('user_sessions')
+            .select('revoked_at')
+            .eq('id', sessionId)
+            .maybeSingle();
+
+          if (!dbError && sessionRecord && sessionRecord.revoked_at) {
+            isRevoked = true;
+          } else if (!dbError && !sessionRecord) {
+            // Dynamically track new active sessions from client logins
+            const { sessionService } = await import('../services/session-service');
+            await sessionService.recordSession(user.id, {
+              sessionId,
+              userAgent: req.headers['user-agent'] as string | undefined,
+              ipAddress: req.ip,
+            }).catch((err) => {
+              logger.warn('Failed to record new session on optional auth', { userId: user.id, error: err.message });
+            });
+          }
+        }
+
+        if (!isRevoked) {
+          // Get role from authoritative source instead of metadata fallback
+          const role = await roleService.getUserRole(user.id);
+
+          req.user = {
+            id: user.id,
+            email: user.email || '',
+            role,
+            authMethod: 'jwt',
+            scopes: Array.from(API_KEY_SCOPES),
+          };
+          setRequestUserId(user.id);
+          await loadPrivacyPreferences(user.id);
+          Sentry.setUser({ id: user.id, email: user.email });
+        }
       }
-
     }
 
     next();

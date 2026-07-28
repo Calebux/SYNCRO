@@ -1,19 +1,20 @@
 #![cfg(test)]
 
 use soroban_sdk::{
-    testutils::Address as _, vec, Address, BytesN, Env, String,
+    testutils::{Address as _, Ledger}, vec, Address, BytesN, Env, String,
 };
 
 use super::*;
 
 fn setup() -> (Env, Address, Address, Address, Address) {
     let env = Env::default();
+    env.mock_all_auths();
     let admin = Address::generate(&env);
     let guardian1 = Address::generate(&env);
     let guardian2 = Address::generate(&env);
     let guardian3 = Address::generate(&env);
 
-    let contract_id = env.register_contract(None, ContractUpgradeGovernance);
+    let contract_id = env.register(ContractUpgradeGovernance, ());
     let guardians = vec![&env, guardian1.clone(), guardian2.clone(), guardian3.clone()];
     let client = ContractUpgradeGovernanceClient::new(&env, &contract_id);
 
@@ -27,7 +28,7 @@ fn test_initialize() {
     let (env, admin, g1, g2, g3) = setup();
     let client = ContractUpgradeGovernanceClient::new(
         &env,
-        &env.register_contract(None, ContractUpgradeGovernance),
+        &env.register(ContractUpgradeGovernance, ()),
     );
 
     let guardians = vec![&env, g1.clone(), g2.clone(), g3.clone()];
@@ -41,10 +42,10 @@ fn test_initialize() {
 }
 
 #[test]
-#[should_panic(expected = "AlreadyInitialized")]
+#[should_panic(expected = "Error(Contract, #2)")]
 fn test_double_init_fails() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, ContractUpgradeGovernance);
+    let contract_id = env.register(ContractUpgradeGovernance, ());
     let admin = Address::generate(&env);
     let g1 = Address::generate(&env);
     let g2 = Address::generate(&env);
@@ -55,10 +56,10 @@ fn test_double_init_fails() {
 }
 
 #[test]
-#[should_panic(expected = "InvalidArgument")]
+#[should_panic(expected = "Error(Contract, #14)")]
 fn test_init_fewer_than_2_guardians_fails() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, ContractUpgradeGovernance);
+    let contract_id = env.register(ContractUpgradeGovernance, ());
     let admin = Address::generate(&env);
     let g1 = Address::generate(&env);
     let guardians = vec![&env, g1];
@@ -67,10 +68,10 @@ fn test_init_fewer_than_2_guardians_fails() {
 }
 
 #[test]
-#[should_panic(expected = "InvalidArgument")]
+#[should_panic(expected = "Error(Contract, #14)")]
 fn test_init_more_than_3_guardians_fails() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, ContractUpgradeGovernance);
+    let contract_id = env.register(ContractUpgradeGovernance, ());
     let admin = Address::generate(&env);
     let g1 = Address::generate(&env);
     let g2 = Address::generate(&env);
@@ -84,7 +85,7 @@ fn test_init_more_than_3_guardians_fails() {
 #[test]
 fn test_propose_upgrade() {
     let (env, _admin, g1, g2, _g3) = setup();
-    let contract_id = env.register_contract(None, ContractUpgradeGovernance);
+    let contract_id = env.register(ContractUpgradeGovernance, ());
     let client = ContractUpgradeGovernanceClient::new(&env, &contract_id);
 
     let guardians = vec![&env, g1.clone(), g2.clone()];
@@ -109,7 +110,7 @@ fn test_propose_upgrade() {
 #[test]
 fn test_approve_upgrade_reaches_threshold() {
     let (env, _admin, g1, g2, g3) = setup();
-    let contract_id = env.register_contract(None, ContractUpgradeGovernance);
+    let contract_id = env.register(ContractUpgradeGovernance, ());
     let client = ContractUpgradeGovernanceClient::new(&env, &contract_id);
 
     let guardians = vec![&env, g1.clone(), g2.clone(), g3.clone()];
@@ -134,9 +135,28 @@ fn test_approve_upgrade_reaches_threshold() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #7)")]
+fn test_duplicate_approval_rejected() {
+    let (env, _admin, g1, g2, _g3) = setup();
+    let contract_id = env.register(ContractUpgradeGovernance, ());
+    let client = ContractUpgradeGovernanceClient::new(&env, &contract_id);
+
+    let guardians = vec![&env, g1.clone(), g2.clone()];
+    client.init(&_admin, &guardians);
+
+    let target = String::from_str(&env, "CAFEBABE");
+    let new_hash = BytesN::from_array(&env, &[2u8; 32]);
+    let old_hash = BytesN::from_array(&env, &[1u8; 32]);
+    let pid = client.propose_upgrade(&g1, &target, &new_hash, &old_hash, &String::from_str(&env, "v2"));
+
+    client.approve_upgrade(&pid, &g1);
+    client.approve_upgrade(&pid, &g1);
+}
+
+#[test]
 fn test_execute_upgrade_after_timelock() {
     let (mut env, _admin, g1, g2, _g3) = setup();
-    let contract_id = env.register_contract(None, ContractUpgradeGovernance);
+    let contract_id = env.register(ContractUpgradeGovernance, ());
     let client = ContractUpgradeGovernanceClient::new(&env, &contract_id);
 
     let guardians = vec![&env, g1.clone(), g2.clone()];
@@ -172,7 +192,7 @@ fn test_execute_upgrade_after_timelock() {
 #[test]
 fn test_rollback_upgrade() {
     let (mut env, admin, g1, g2, _g3) = setup();
-    let contract_id = env.register_contract(None, ContractUpgradeGovernance);
+    let contract_id = env.register(ContractUpgradeGovernance, ());
     let client = ContractUpgradeGovernanceClient::new(&env, &contract_id);
 
     let guardians = vec![&env, g1.clone(), g2.clone()];
@@ -194,10 +214,34 @@ fn test_rollback_upgrade() {
 }
 
 #[test]
-#[should_panic(expected = "TimelockNotExpired")]
+#[should_panic(expected = "Error(Contract, #13)")]
+fn test_rollback_cannot_be_replayed() {
+    let (mut env, admin, g1, g2, _g3) = setup();
+    let contract_id = env.register(ContractUpgradeGovernance, ());
+    let client = ContractUpgradeGovernanceClient::new(&env, &contract_id);
+
+    let guardians = vec![&env, g1.clone(), g2.clone()];
+    client.init(&admin, &guardians);
+
+    let target = String::from_str(&env, "CAFEBABE");
+    let new_hash = BytesN::from_array(&env, &[2u8; 32]);
+    let old_hash = BytesN::from_array(&env, &[1u8; 32]);
+
+    let pid = client.propose_upgrade(&g1, &target, &new_hash, &old_hash, &String::from_str(&env, "v2"));
+    client.approve_upgrade(&pid, &g1);
+    client.approve_upgrade(&pid, &g2);
+    env.ledger().set_timestamp(env.ledger().timestamp() + DEFAULT_TIMELOCK_SECONDS + 1);
+    client.execute_upgrade(&pid, &g1, &new_hash);
+
+    client.rollback_upgrade(&admin, &old_hash);
+    client.rollback_upgrade(&admin, &old_hash);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #11)")]
 fn test_execute_before_timelock_fails() {
     let (env, _admin, g1, g2, _g3) = setup();
-    let contract_id = env.register_contract(None, ContractUpgradeGovernance);
+    let contract_id = env.register(ContractUpgradeGovernance, ());
     let client = ContractUpgradeGovernanceClient::new(&env, &contract_id);
 
     let guardians = vec![&env, g1.clone(), g2.clone()];
@@ -218,7 +262,7 @@ fn test_execute_before_timelock_fails() {
 #[test]
 fn test_set_guardians() {
     let (env, admin, g1, g2, g3) = setup();
-    let contract_id = env.register_contract(None, ContractUpgradeGovernance);
+    let contract_id = env.register(ContractUpgradeGovernance, ());
     let client = ContractUpgradeGovernanceClient::new(&env, &contract_id);
 
     let guardians = vec![&env, g1.clone(), g2.clone(), g3.clone()];
@@ -234,7 +278,7 @@ fn test_set_guardians() {
 #[test]
 fn test_pause_toggle() {
     let (env, admin, g1, g2, _g3) = setup();
-    let contract_id = env.register_contract(None, ContractUpgradeGovernance);
+    let contract_id = env.register(ContractUpgradeGovernance, ());
     let client = ContractUpgradeGovernanceClient::new(&env, &contract_id);
 
     let guardians = vec![&env, g1, g2];
@@ -250,7 +294,7 @@ fn test_pause_toggle() {
 #[test]
 fn test_set_timelock() {
     let (env, admin, g1, g2, _g3) = setup();
-    let contract_id = env.register_contract(None, ContractUpgradeGovernance);
+    let contract_id = env.register(ContractUpgradeGovernance, ());
     let client = ContractUpgradeGovernanceClient::new(&env, &contract_id);
 
     let guardians = vec![&env, g1, g2];
@@ -262,10 +306,10 @@ fn test_set_timelock() {
 }
 
 #[test]
-#[should_panic(expected = "InvalidArgument")]
+#[should_panic(expected = "Error(Contract, #14)")]
 fn test_set_timelock_below_minimum_fails() {
     let (env, admin, g1, g2, _g3) = setup();
-    let contract_id = env.register_contract(None, ContractUpgradeGovernance);
+    let contract_id = env.register(ContractUpgradeGovernance, ());
     let client = ContractUpgradeGovernanceClient::new(&env, &contract_id);
 
     let guardians = vec![&env, g1, g2];
@@ -276,7 +320,7 @@ fn test_set_timelock_below_minimum_fails() {
 #[test]
 fn test_cancel_proposal() {
     let (env, _admin, g1, g2, _g3) = setup();
-    let contract_id = env.register_contract(None, ContractUpgradeGovernance);
+    let contract_id = env.register(ContractUpgradeGovernance, ());
     let client = ContractUpgradeGovernanceClient::new(&env, &contract_id);
 
     let guardians = vec![&env, g1.clone(), g2.clone()];
