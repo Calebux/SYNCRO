@@ -51,6 +51,26 @@ export interface RateLimitSettings {
   mfa: RateLimitConfig & {
     windowMinutes: number;
   };
+  /** Login / credential submission (IP-keyed). */
+  login: RateLimitConfig & {
+    windowMinutes: number;
+  };
+  /** CSV / bulk import mutations. */
+  import: RateLimitConfig & {
+    windowHours: number;
+  };
+  /** Payment initialize / capture. */
+  payment: RateLimitConfig & {
+    windowHours: number;
+  };
+  /** Refund mutations (stricter than payment). */
+  refund: RateLimitConfig & {
+    windowHours: number;
+  };
+  /** API key create / revoke. */
+  apiKey: RateLimitConfig & {
+    windowHours: number;
+  };
   admin: RateLimitConfig & {
     windowHours: number;
   };
@@ -101,6 +121,26 @@ export function loadRateLimitConfig(): RateLimitSettings {
   const mfaMax = parseIntEnv(process.env.RATE_LIMIT_MFA_MAX, 10);
   const mfaWindowMinutes = parseIntEnv(process.env.RATE_LIMIT_MFA_WINDOW_MINUTES, 15);
 
+  // Login / auth credential endpoints (IP-based)
+  const loginMax = parseIntEnv(process.env.RATE_LIMIT_LOGIN_MAX, 5);
+  const loginWindowMinutes = parseIntEnv(process.env.RATE_LIMIT_LOGIN_WINDOW_MINUTES, 15);
+
+  // Import mutations
+  const importMax = parseIntEnv(process.env.RATE_LIMIT_IMPORT_MAX, 5);
+  const importWindowHours = parseIntEnv(process.env.RATE_LIMIT_IMPORT_WINDOW_HOURS, 1);
+
+  // Payment mutations
+  const paymentMax = parseIntEnv(process.env.RATE_LIMIT_PAYMENT_MAX, 10);
+  const paymentWindowHours = parseIntEnv(process.env.RATE_LIMIT_PAYMENT_WINDOW_HOURS, 1);
+
+  // Refund mutations (stricter)
+  const refundMax = parseIntEnv(process.env.RATE_LIMIT_REFUND_MAX, 5);
+  const refundWindowHours = parseIntEnv(process.env.RATE_LIMIT_REFUND_WINDOW_HOURS, 1);
+
+  // API key mutations
+  const apiKeyMax = parseIntEnv(process.env.RATE_LIMIT_API_KEY_MAX, 10);
+  const apiKeyWindowHours = parseIntEnv(process.env.RATE_LIMIT_API_KEY_WINDOW_HOURS, 1);
+
   // Admin limits
   const adminMax = parseIntEnv(process.env.RATE_LIMIT_ADMIN_MAX, 100);
   const adminWindowHours = parseIntEnv(process.env.RATE_LIMIT_ADMIN_WINDOW_HOURS, 1);
@@ -147,6 +187,56 @@ export function loadRateLimitConfig(): RateLimitSettings {
       max: mfaMax,
       message: { 
         error: `Too many MFA attempts. You can make up to ${mfaMax} attempts per ${mfaWindowMinutes} minute${mfaWindowMinutes > 1 ? 's' : ''}. Please try again later.` 
+      },
+      standardHeaders: true,
+      legacyHeaders: false,
+    },
+    login: {
+      windowMs: loginWindowMinutes * 60 * 1000,
+      windowMinutes: loginWindowMinutes,
+      max: loginMax,
+      message: {
+        error: `Too many login attempts. You can try up to ${loginMax} times per ${loginWindowMinutes} minute${loginWindowMinutes > 1 ? 's' : ''}. Please try again later.`,
+      },
+      standardHeaders: true,
+      legacyHeaders: false,
+    },
+    import: {
+      windowMs: importWindowHours * 60 * 60 * 1000,
+      windowHours: importWindowHours,
+      max: importMax,
+      message: {
+        error: `Too many import requests. You can run up to ${importMax} imports per ${importWindowHours} hour${importWindowHours > 1 ? 's' : ''}. Please try again later.`,
+      },
+      standardHeaders: true,
+      legacyHeaders: false,
+    },
+    payment: {
+      windowMs: paymentWindowHours * 60 * 60 * 1000,
+      windowHours: paymentWindowHours,
+      max: paymentMax,
+      message: {
+        error: `Too many payment requests. You can make up to ${paymentMax} payment attempts per ${paymentWindowHours} hour${paymentWindowHours > 1 ? 's' : ''}. Please try again later.`,
+      },
+      standardHeaders: true,
+      legacyHeaders: false,
+    },
+    refund: {
+      windowMs: refundWindowHours * 60 * 60 * 1000,
+      windowHours: refundWindowHours,
+      max: refundMax,
+      message: {
+        error: `Too many refund requests. You can make up to ${refundMax} refunds per ${refundWindowHours} hour${refundWindowHours > 1 ? 's' : ''}. Please try again later.`,
+      },
+      standardHeaders: true,
+      legacyHeaders: false,
+    },
+    apiKey: {
+      windowMs: apiKeyWindowHours * 60 * 60 * 1000,
+      windowHours: apiKeyWindowHours,
+      max: apiKeyMax,
+      message: {
+        error: `Too many API key operations. You can make up to ${apiKeyMax} changes per ${apiKeyWindowHours} hour${apiKeyWindowHours > 1 ? 's' : ''}. Please try again later.`,
       },
       standardHeaders: true,
       legacyHeaders: false,
@@ -231,6 +321,11 @@ export function loadRateLimitConfig(): RateLimitSettings {
     limits: {
       teamInvite: `${config.teamInvite.max}/${config.teamInvite.windowHours}h`,
       mfa: `${config.mfa.max}/${config.mfa.windowMinutes}m`,
+      login: `${config.login.max}/${config.login.windowMinutes}m`,
+      import: `${config.import.max}/${config.import.windowHours}h`,
+      payment: `${config.payment.max}/${config.payment.windowHours}h`,
+      refund: `${config.refund.max}/${config.refund.windowHours}h`,
+      apiKey: `${config.apiKey.max}/${config.apiKey.windowHours}h`,
       admin: `${config.admin.max}/${config.admin.windowHours}h`,
       simulation: `${config.simulation.max}/${config.simulation.windowHours}h`,
     },

@@ -224,7 +224,7 @@ export class JobAlertService {
           value: alert.value,
           threshold: alert.threshold,
           runbook_section: alert.runbookSection,
-          runbook: 'docs/JOB_FAILURE_RUNBOOK.md',
+          runbook: alert.runbook,
         },
       },
     });
@@ -237,6 +237,7 @@ export class JobAlertService {
       value: alert.value,
       threshold: alert.threshold,
       runbookSection: alert.runbookSection,
+      runbook: alert.runbook,
     });
   }
 }

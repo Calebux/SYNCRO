@@ -139,28 +139,68 @@ export async function POST(request: NextRequest) {
             )
         }
 
-        // Check for duplicate events (idempotency)
+        // Check idempotency and store event BEFORE processing
+        // This ensures we never process the same event twice even under concurrent delivery
         const supabase = await createClient()
-        const { data: existingEvent } = await supabase
+
+        // Check if event already exists
+        const { data: existingRecord, error: checkError } = await supabase
             .from('webhook_events')
-            .select('id')
+            .select('id, processed_at')
             .eq('provider', 'paypal')
             .eq('event_id', event.id)
-            .single()
+            .maybeSingle()
 
-        if (existingEvent) {
-            logger.info('[PayPal Webhook] Duplicate event, skipping', { eventId: event.id })
+        if (checkError && checkError.code !== 'PGRST116') {
+            logger.error('[PayPal Webhook] Failed to check idempotency', {
+                eventId: event.id,
+                error: checkError.message,
+            })
+            return NextResponse.json(
+                { error: 'Idempotency check failed' },
+                { status: 500 }
+            )
+        }
+
+        if (existingRecord) {
+            logger.info('[PayPal Webhook] Duplicate event detected', {
+                eventId: event.id,
+                processedAt: existingRecord.processed_at,
+            })
             return NextResponse.json({ received: true, duplicate: true })
         }
 
-        // Store webhook event
-        await supabase.from('webhook_events').insert({
-            provider: 'paypal',
-            event_id: event.id,
-            event_type: event.event_type,
-            event_data: event,
-            processed: false,
-        })
+        // Store webhook event BEFORE processing to prevent concurrent duplicate processing
+        const { error: insertError, data: newRecord } = await supabase
+            .from('webhook_events')
+            .insert({
+                provider: 'paypal',
+                event_id: event.id,
+                event_type: event.event_type,
+                event_data: event,
+                processed: false,
+                created_at: new Date().toISOString(),
+            })
+            .select('id')
+            .single()
+
+        if (insertError) {
+            // Check if it's a unique constraint violation (concurrent delivery)
+            if (insertError.code === '23505') {
+                logger.info('[PayPal Webhook] Concurrent delivery detected', {
+                    eventId: event.id,
+                })
+                return NextResponse.json({ received: true, duplicate: true })
+            }
+            logger.error('[PayPal Webhook] Failed to store webhook event', {
+                eventId: event.id,
+                error: insertError.message,
+            })
+            return NextResponse.json(
+                { error: 'Failed to store webhook' },
+                { status: 500 }
+            )
+        }
 
         // Process event based on type
         switch (event.event_type) {
@@ -192,7 +232,7 @@ export async function POST(request: NextRequest) {
         await supabase
             .from('webhook_events')
             .update({ processed: true, processed_at: new Date().toISOString() })
-            .eq('event_id', event.id)
+            .eq('id', newRecord.id)
 
         return NextResponse.json({ received: true })
     } catch (error) {

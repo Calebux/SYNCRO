@@ -1,0 +1,14 @@
+{
+  "provider": "outlook",
+  "messageId": "outlook-msg-spotify-001",
+  "subject": "Spotify Premium renewal",
+  "from": "noreply@spotify.com",
+  "body": "Your Spotify Premium subscription has been renewed. You were charged $10.99 per month. Your subscription is confirmed.",
+  "receivedAt": "2026-05-02T08:30:00.000Z",
+  "expected": {
+    "name": "Spotify",
+    "amount": 10.99,
+    "currency": "USD",
+    "interval": "monthly"
+  }
+}

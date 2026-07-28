@@ -1,12 +1,16 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
 import { supabase } from '../config/database';
 import logger from '../config/logger';
 import { telegramBotService } from '../services/telegram-bot-service';
+import { TelegramTokenService } from '../services/telegram-token-service';
+import { webhookSignatureAlertService } from '../services/webhook-signature-alert-service';
 
 const router = Router();
 
 /**
- * Validate the X-Telegram-Bot-Api-Secret-Token header.
+ * Validate the X-Telegram-Bot-Api-Secret-Token header using constant-time
+ * comparison to prevent timing-oracle attacks (issue #1069).
  * Rejects requests that don't carry the configured secret.
  * If TELEGRAM_WEBHOOK_SECRET is not set the check is skipped (dev/test).
  */
@@ -17,13 +21,28 @@ function validateWebhookSecret(req: Request, res: Response, next: NextFunction):
     return;
   }
   const header = req.headers['x-telegram-bot-api-secret-token'];
-  if (header !== secret) {
-    logger.warn('[TelegramWebhook] Invalid or missing secret token', {
-      ip: req.ip,
-    });
+  if (typeof header !== 'string') {
+    logger.warn('[TelegramWebhook] Missing secret token header', { ip: req.ip });
+    webhookSignatureAlertService.recordFailure('telegram', { reason: 'missing_header' });
     res.sendStatus(403);
     return;
   }
+  // Constant-time comparison — prevents timing oracle on the secret value.
+  const secretBuf = Buffer.from(secret, 'utf8');
+  const headerBuf = Buffer.from(header, 'utf8');
+  const lengthsMatch = secretBuf.length === headerBuf.length;
+  // Always call timingSafeEqual with equal-length buffers to avoid length leaks.
+  const padded = lengthsMatch
+    ? headerBuf
+    : Buffer.concat([headerBuf, Buffer.alloc(Math.max(0, secretBuf.length - headerBuf.length))]).slice(0, secretBuf.length);
+  const valid = lengthsMatch && crypto.timingSafeEqual(secretBuf, padded);
+  if (!valid) {
+    logger.warn('[TelegramWebhook] Invalid secret token', { ip: req.ip });
+    webhookSignatureAlertService.recordFailure('telegram', { reason: 'invalid_secret' });
+    res.sendStatus(403);
+    return;
+  }
+  webhookSignatureAlertService.recordSuccess('telegram');
   next();
 }
 
@@ -132,43 +151,28 @@ router.post('/webhook', validateWebhookSecret, async (req: Request, res: Respons
                         .single();
 
                     if (existing) {
-                        // Update existing connection
-                        const { error: updateError } = await supabase
-                            .from('user_telegram_connections')
-                            .update({
-                                chat_id: chatId,
-                                username: from.username || null,
-                                first_name: from.first_name,
-                                last_name: from.last_name || null,
-                                updated_at: new Date().toISOString(),
-                            })
-                            .eq('user_id', userId);
-
-                        if (updateError) {
-                            logger.error('[TelegramWebhook] Failed to update connection:', updateError);
-                            throw updateError;
-                        }
+                        // Update existing connection (tokens encrypted at rest via TelegramTokenService)
+                        await TelegramTokenService.upsertConnection({
+                            userId,
+                            chatId,
+                            username: from.username ?? null,
+                            firstName: from.first_name,
+                            lastName: from.last_name ?? null,
+                        });
 
                         logger.info('[TelegramWebhook] Updated existing Telegram connection', {
                             userId,
                             chatId,
                         });
                     } else {
-                        // Create new connection
-                        const { error: insertError } = await supabase
-                            .from('user_telegram_connections')
-                            .insert({
-                                user_id: userId,
-                                chat_id: chatId,
-                                username: from.username || null,
-                                first_name: from.first_name,
-                                last_name: from.last_name || null,
-                            });
-
-                        if (insertError) {
-                            logger.error('[TelegramWebhook] Failed to create connection:', insertError);
-                            throw insertError;
-                        }
+                        // Create new connection (tokens encrypted at rest via TelegramTokenService)
+                        await TelegramTokenService.upsertConnection({
+                            userId,
+                            chatId,
+                            username: from.username ?? null,
+                            firstName: from.first_name,
+                            lastName: from.last_name ?? null,
+                        });
 
                         logger.info('[TelegramWebhook] Created new Telegram connection', {
                             userId,

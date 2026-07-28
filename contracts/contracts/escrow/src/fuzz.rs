@@ -9,7 +9,7 @@ use soroban_sdk::{
 };
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use super::{EscrowContract, EscrowContractClient, EscrowState};
+use super::{DisputeResolution, EscrowContract, EscrowContractClient, EscrowState};
 
 fn fuzz_env() -> Env {
     Env::new_with_config(EnvTestConfig {
@@ -152,5 +152,125 @@ proptest! {
         prop_assert!(result.is_err(), "unauthorized dispute must panic");
 
         prop_assert_eq!(escrow.get_escrow(&id).state, EscrowState::Funded);
+    }
+
+    // ── Partial Split Fuzz Tests ─────────────────────────────────
+
+    #[test]
+    fn fuzz_partial_split_conserves_funds(
+        amount in 1i128..=10_000_000_000i128,
+        payee_basis_points in 0u32..=10000u32
+    ) {
+        let (env, payer, payee, arbiter, token, token_client) = fuzz_setup();
+        let escrow = register_escrow(&env);
+        let admin = Address::generate(&env);
+        escrow.init(&admin);
+
+        let expiry = env.ledger().timestamp() + 86_400u64;
+        let desc = String::from_str(&env, "fuzz");
+
+        let id = escrow.create_escrow(
+            &payer, &payee, &arbiter, &token, &amount, &expiry, &desc,
+        );
+        escrow.deposit(&id);
+        escrow.raise_dispute(&id, &payer);
+
+        let payer_balance_before = token_client.balance(&payer);
+        let payee_balance_before = token_client.balance(&payee);
+
+        escrow.resolve_dispute(&id, &DisputeResolution::PartialSplit(payee_basis_points));
+
+        let payer_balance_after = token_client.balance(&payer);
+        let payee_balance_after = token_client.balance(&payee);
+
+        let payee_received = payee_balance_after - payee_balance_before;
+        let payer_received = payer_balance_after - payer_balance_before;
+
+        // Critical: total must be conserved
+        prop_assert_eq!(payee_received + payer_received, amount, 
+            "Fund conservation violated: payee got {}, payer got {}, total was {}", 
+            payee_received, payer_received, amount);
+
+        // Verify payee received approximately the correct percentage
+        let expected_payee = (amount * payee_basis_points as i128) / 10000;
+        prop_assert_eq!(payee_received, expected_payee,
+            "Payee should receive {}% = {}, but got {}", 
+            payee_basis_points as f64 / 100.0, expected_payee, payee_received);
+    }
+
+    #[test]
+    fn fuzz_partial_split_invalid_basis_points(
+        amount in 1i128..=1_000_000_000i128,
+        invalid_bp in 10001u32..=100000u32
+    ) {
+        let (env, payer, payee, arbiter, token, _token_client) = fuzz_setup();
+        let escrow = register_escrow(&env);
+        let admin = Address::generate(&env);
+        escrow.init(&admin);
+
+        let expiry = env.ledger().timestamp() + 86_400u64;
+        let desc = String::from_str(&env, "fuzz");
+
+        let id = escrow.create_escrow(
+            &payer, &payee, &arbiter, &token, &amount, &expiry, &desc,
+        );
+        escrow.deposit(&id);
+        escrow.raise_dispute(&id, &payer);
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            escrow.resolve_dispute(&id, &DisputeResolution::PartialSplit(invalid_bp));
+        }));
+
+        prop_assert!(result.is_err(), "basis points > 10000 must panic");
+        prop_assert_eq!(escrow.get_escrow(&id).state, EscrowState::Disputed);
+    }
+
+    #[test]
+    fn fuzz_partial_split_boundary_conditions(
+        amount in 1i128..=10_000_000_000i128
+    ) {
+        let (env, payer, payee, arbiter, token, token_client) = fuzz_setup();
+        let escrow = register_escrow(&env);
+        let admin = Address::generate(&env);
+        escrow.init(&admin);
+
+        let expiry = env.ledger().timestamp() + 86_400u64;
+        let desc = String::from_str(&env, "fuzz");
+
+        // Test boundary: 0% to payee (all to payer)
+        let id1 = escrow.create_escrow(
+            &payer, &payee, &arbiter, &token, &amount, &expiry, &desc,
+        );
+        escrow.deposit(&id1);
+        escrow.raise_dispute(&id1, &payer);
+
+        let payer_balance_before = token_client.balance(&payer);
+        let payee_balance_before = token_client.balance(&payee);
+
+        escrow.resolve_dispute(&id1, &DisputeResolution::PartialSplit(0));
+
+        let payee_received = token_client.balance(&payee) - payee_balance_before;
+        let payer_received = token_client.balance(&payer) - payer_balance_before;
+
+        prop_assert_eq!(payee_received, 0i128);
+        prop_assert_eq!(payer_received, amount);
+
+        // Test boundary: 100% to payee
+        let id2 = escrow.create_escrow(
+            &payer, &payee, &arbiter, &token, &amount, &(expiry + 1000), &desc,
+        );
+        escrow.deposit(&id2);
+        escrow.raise_dispute(&id2, &payer);
+
+        let payer_balance_before2 = token_client.balance(&payer);
+        let payee_balance_before2 = token_client.balance(&payee);
+
+        escrow.resolve_dispute(&id2, &DisputeResolution::PartialSplit(10000));
+
+        let payee_received2 = token_client.balance(&payee) - payee_balance_before2;
+        let payer_received2 = token_client.balance(&payer) - payer_balance_before2;
+
+        prop_assert_eq!(payee_received2, amount);
+        prop_assert_eq!(payer_received2, 0i128);
     }
 }

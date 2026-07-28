@@ -153,4 +153,65 @@ describe('error taxonomy – HTTP response shapes via errorHandler', () => {
 
     process.env.NODE_ENV = original;
   });
+
+  it('unknown error → 500 always returns application/problem+json', async () => {
+    const app = buildApp((_req, _res, next) => next(new Error('boom')));
+    const res = await request(app).get('/test');
+
+    expect(res.status).toBe(500);
+    expect(res.headers['content-type']).toMatch(/application\/problem\+json/);
+    expect(res.body).toMatchObject({
+      type: 'https://syncro.app/errors/internal',
+      title: 'Internal Server Error',
+      status: 500,
+    });
+  });
+
+  it('unknown error → 500 never exposes err.message in any environment', async () => {
+    const savedEnv = process.env.NODE_ENV;
+
+    for (const env of ['development', 'test', 'production']) {
+      process.env.NODE_ENV = env;
+      const app = buildApp((_req, _res, next) =>
+        next(new Error('SUPER_SECRET_DB_PASSWORD=hunter2'))
+      );
+      const res = await request(app).get('/test');
+      expect(res.body.detail).not.toContain('SUPER_SECRET_DB_PASSWORD');
+      expect(res.body.detail).not.toContain('hunter2');
+    }
+
+    process.env.NODE_ENV = savedEnv;
+  });
+
+  it('AppError extensions are spread into RFC 7807 body but carry no raw Error internals', async () => {
+    const app = buildApp((_req, _res, next) =>
+      next(new ExternalDependencyError('Upstream down', 'stripe'))
+    );
+    const res = await request(app).get('/test');
+
+    expect(res.status).toBe(502);
+    // extensions field (dependency) should be present
+    expect(res.body.dependency).toBe('stripe');
+    // stack trace must never appear in any response
+    expect(JSON.stringify(res.body)).not.toMatch(/at Object\.|at Function\.|\.ts:\d+/);
+  });
+
+  it('ZodError → 400 with application/problem+json', async () => {
+    const { ZodError, z } = await import('zod');
+    const schema = z.object({ name: z.string() });
+    let zodErr: InstanceType<typeof ZodError>;
+    try { schema.parse({}); } catch (e) { zodErr = e as InstanceType<typeof ZodError>; }
+
+    const app = buildApp((_req, _res, next) => next(zodErr!));
+    const res = await request(app).get('/test');
+
+    expect(res.status).toBe(400);
+    expect(res.headers['content-type']).toMatch(/application\/problem\+json/);
+    expect(res.body).toMatchObject({
+      type: 'https://syncro.app/errors/validation',
+      title: 'Validation Error',
+      status: 400,
+    });
+    expect(Array.isArray(res.body.errors)).toBe(true);
+  });
 });

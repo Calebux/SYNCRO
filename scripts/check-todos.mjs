@@ -86,6 +86,7 @@ function runScan({ warnOnly = false } = {}) {
   for (const file of getTrackedFiles()) {
     if (isIgnored(file)) continue;
     if (file.endsWith("check-todos.mjs")) continue; // don't scan the scanner
+  if (/\.test\.[^.]+$/.test(file) || file.includes(".test.")) continue; // tests may mention TODO format
     if (!SOURCE_EXTENSIONS.has(extOf(file))) continue;
 
     let content;

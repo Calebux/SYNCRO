@@ -32,17 +32,17 @@ Alert levels (`warning` vs `critical`) indicate how far a metric has breached it
 
 Critical jobs and default thresholds (override via `JOB_ALERT_<ENV_PREFIX>_*` env vars — see `job-alert-config.ts`):
 
-| Job ID | Paging | Warning | Critical |
-|--------|--------|---------|----------|
-| `reminder-processing` | page | 1 consecutive failure, 5 failures/hr | 2 consecutive, 15 failures/hr, 10 DLQ/24h |
-| `reminder-scheduling` | page | 1 consecutive failure | 2 consecutive, 5 failures/hr |
-| `reminder-retries` | page | 2 consecutive, 10 failures/hr, 10 DLQ/24h | 3 consecutive, 25 failures/hr, 50 DLQ/24h |
-| `notification-queue` | page | 20 failures/hr, 5 DLQ/24h | 50 failures/hr, 15 DLQ/24h |
-| `event-listener` | page | 5 consecutive, 10 failures/hr | 10 consecutive, 30 failures/hr |
-| `expiry-processing` | alert | 1 consecutive failure | 2 consecutive, 3 failures/hr |
-| `auto-resume` | alert | 1 consecutive, 3 failures/hr | 2 consecutive, 10 failures/hr |
-| `webhook-retries` | alert | 3 consecutive, 10 DLQ/24h | 5 consecutive, 25 DLQ/24h |
-| `csp-monitoring` | warn | 2 consecutive failures | 4 consecutive, 3 failures/hr |
+| Job ID | Paging | Warning | Critical | Dedicated Runbook |
+|--------|--------|---------|----------|-------------------|
+| `reminder-processing` | page | 1 consecutive failure, 5 failures/hr | 2 consecutive, 15 failures/hr, 10 DLQ/24h | [reminder-processing-runbook.md](./ops/reminder-processing-runbook.md) |
+| `reminder-scheduling` | page | 1 consecutive failure | 2 consecutive, 5 failures/hr | [reminder-scheduling-runbook.md](./ops/reminder-scheduling-runbook.md) |
+| `reminder-retries` | page | 2 consecutive, 10 failures/hr, 10 DLQ/24h | 3 consecutive, 25 failures/hr, 50 DLQ/24h | [reminder-retries-runbook.md](./ops/reminder-retries-runbook.md) |
+| `notification-queue` | page | 20 failures/hr, 5 DLQ/24h | 50 failures/hr, 15 DLQ/24h | [notification-queue-runbook.md](./ops/notification-queue-runbook.md) |
+| `event-listener` | page | 5 consecutive, 10 failures/hr | 10 consecutive, 30 failures/hr | [event-listener-runbook.md](./ops/event-listener-runbook.md) |
+| `expiry-processing` | alert | 1 consecutive failure | 2 consecutive, 3 failures/hr | [expiry-processing-runbook.md](./ops/expiry-processing-runbook.md) |
+| `auto-resume` | alert | 1 consecutive, 3 failures/hr | 2 consecutive, 10 failures/hr | [auto-resume-runbook.md](./ops/auto-resume-runbook.md) |
+| `webhook-retries` | alert | 3 consecutive, 10 DLQ/24h | 5 consecutive, 25 DLQ/24h | [webhook-retries-runbook.md](./ops/webhook-retries-runbook.md) |
+| `csp-monitoring` | warn | 2 consecutive failures | 4 consecutive, 3 failures/hr | [csp-monitoring-runbook.md](./ops/csp-monitoring-runbook.md) |
 
 **Useful diagnostic endpoints** (require `x-admin-api-key`):
 
@@ -323,6 +323,7 @@ Complete these after the immediate incident is resolved.
 ## Related Documentation
 
 - [backend/OPS_DASHBOARD_README.md](../backend/OPS_DASHBOARD_README.md) — metrics baselines and ops endpoints
+- [docs/ops/GRAFANA_DASHBOARD.md](./ops/GRAFANA_DASHBOARD.md) — Grafana panels and core SLI Prometheus metrics (`/metrics`)
 - [docs/SENTRY_ALERT_ROUTING.md](./SENTRY_ALERT_ROUTING.md) — Sentry tag routing for job alerts
 - [backend/docs/DEAD_LETTER_HANDLING.md](../backend/docs/DEAD_LETTER_HANDLING.md) — DLQ inspection and replay
 - [docs/CSP_INCIDENT_RESPONSE.md](./CSP_INCIDENT_RESPONSE.md) — CSP-specific incident response

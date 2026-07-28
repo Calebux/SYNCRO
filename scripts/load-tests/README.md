@@ -1,8 +1,8 @@
-Load tests for the backend reminder engine and analytics endpoints
+Load tests for the backend reminder engine, analytics endpoints, and settlement batcher
 
 Overview
-- Two lightweight shell scripts are provided that use `npx autocannon` to drive load against the backend HTTP API.
-- Scripts do not add dependencies to the repo; they rely on `npx autocannon` being available (installed transiently by `npx`).
+- Lightweight shell scripts use `npx autocannon` (or Jest for settlement) to drive load.
+- Scripts do not add dependencies to the repo; they rely on `npx` / existing Jest.
 
 Files
 - `run-reminder-loadtest.sh` — public status check + admin-trigger (`POST /api/reminders/process`). Requires `ADMIN_API_KEY` env var.

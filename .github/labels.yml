@@ -1,132 +1,136 @@
 # GitHub Issue Labels Taxonomy
-# This file defines the canonical label set for the SYNCRO repository.
-# Format: Array of objects with name, color, and description.
+# Canonical label set for the SYNCRO repository.
+# Style: colon-separated prefixes (area:, priority:, type:, risk:, status:)
+# to match the remote GitHub label convention.
+#
+# Sync with GitHub via: node scripts/check-label-drift.js
+# See docs/label-migration.md for slash → colon rename mapping.
 
-# Area Labels: Map to directory ownership boundaries
-- name: "area/client"
-  color: "0072F5"
-  description: "Issues related to the client application (frontend UI/UX)"
+# Area Labels (aligned with remote repository)
+- name: "area:frontend"
+  color: "0052cc"
+  description: "Frontend UX and behavior"
 
-- name: "area/backend"
-  color: "13C18A"
-  description: "Issues related to the Express/Node API backend"
+- name: "area:client-api"
+  color: "006b75"
+  description: "Next.js API routes and API security"
 
-- name: "area/contracts"
-  color: "7828C8"
-  description: "Issues related to Stellar/Soroban smart contracts"
+- name: "area:backend"
+  color: "b60205"
+  description: "Backend services and platform"
 
-- name: "area/supabase"
-  color: "F5A524"
-  description: "Database migrations, RLS policies, schemas, and seeds"
+- name: "area:blockchain"
+  color: "f9d0c4"
+  description: "Contracts and blockchain integrations"
 
-- name: "area/sdk"
-  color: "000000"
-  description: "Stellar reminder SDK and utility logger modules"
+- name: "area:data"
+  color: "bfd4f2"
+  description: "Database and migrations"
 
-- name: "area/shared"
-  color: "71717A"
-  description: "Shared types and utility code across workspaces"
+- name: "area:docs"
+  color: "c5def5"
+  description: "Documentation quality"
 
-- name: "area/docs"
-  color: "0284C7"
-  description: "Technical documentation, markdown guides, API references"
+- name: "area:governance"
+  color: "e4e669"
+  description: "Process and governance"
 
-- name: "area/scripts"
-  color: "E11D48"
-  description: "Automation, devops tooling, local environment helpers"
+- name: "area:integrations"
+  color: "c2e0c6"
+  description: "Payments and external integrations"
 
-- name: "area/governance"
-  color: "F43F5E"
-  description: "Repository workflows, triage policies, backlog management"
+- name: "area:ops"
+  color: "d4c5f9"
+  description: "Operations and observability"
 
-- name: "area/ops"
-  color: "10B981"
-  description: "CI/CD pipelines, deployment workflows, staging/production environments"
+- name: "area:architecture"
+  color: "5319e7"
+  description: "Architecture and structure"
 
-# Priority Labels
-- name: "priority/P0"
-  color: "E11D48"
-  description: "Critical blocker. Immediate action required. Outages or hotfixes."
+- name: "area:quality"
+  color: "fef2c0"
+  description: "Testing and reliability"
 
-- name: "priority/P1"
-  color: "F97316"
+# Priority Labels (aligned with remote repository)
+- name: "priority:p0"
+  color: "d73a4a"
+  description: "Highest priority. Immediate action required."
+
+- name: "priority:p1"
+  color: "d93f0b"
   description: "High priority. Core backlog items for current milestone."
 
-- name: "priority/P2"
-  color: "EAB308"
-  description: "Medium priority. Standard features and fixes for next milestone."
+- name: "priority:p2"
+  color: "0e8a16"
+  description: "Medium priority. Standard features and fixes."
 
-- name: "priority/P3"
-  color: "3B82F6"
-  description: "Low priority. Non-urgent requests, minor polish, or nice-to-haves."
-
-# Type Labels
-- name: "type/bug"
+# Type Labels (local taxonomy; sync to GitHub via label drift check)
+- name: "type:bug"
   color: "D946EF"
   description: "An unexpected error, failure, or incorrect behavior"
 
-- name: "type/feature"
+- name: "type:feature"
   color: "06B6D4"
   description: "A new feature request or enhancements to existing capabilities"
 
-- name: "type/refactor"
+- name: "type:refactor"
   color: "8B5CF6"
   description: "Structural code changes that improve maintainability without adding features"
 
-- name: "type/chore"
+- name: "type:chore"
   color: "64748B"
   description: "Tooling updates, dependency bumps, or repository maintenance"
 
-- name: "type/security"
+- name: "type:security"
   color: "EF4444"
   description: "Security auditing, vulnerability patching, or access control fixes"
 
-- name: "type/documentation"
+- name: "type:documentation"
   color: "0EA5E9"
   description: "Additions, corrections, or updates to documentation"
 
-- name: "type/performance"
+- name: "type:performance"
   color: "10B981"
   description: "Changes targeting bundle size, response time, or SQL optimization"
 
 # Risk Labels
-- name: "risk/low"
+- name: "risk:low"
   color: "10B981"
   description: "Isolated impact, zero DB migrations, simple validation path"
 
-- name: "risk/medium"
+- name: "risk:medium"
   color: "F59E0B"
   description: "Moderate impact, touches multiple components, API/SDK interface updates"
 
-- name: "risk/high"
+- name: "risk:high"
   color: "EF4444"
   description: "Major impact, database migrations, breaking changes, auth/RLS updates"
 
 # Status Labels
-- name: "status/triage"
+- name: "status:triage"
   color: "EC4899"
   description: "New issue. Awaiting triage and verification."
 
-- name: "status/backlog"
+- name: "status:backlog"
   color: "6366F1"
   description: "Triaged and scheduled. Ready for assignment."
 
-- name: "status/in-progress"
+- name: "status:in-progress"
   color: "0EA5E9"
   description: "Active development currently underway"
 
-- name: "status/in-review"
+- name: "status:in-review"
   color: "8B5CF6"
   description: "Development complete. Pull request awaiting approval."
 
-- name: "status/blocked"
+- name: "status:blocked"
   color: "F43F5E"
   description: "Development stalled due to external dependency or dependency task"
 
-- name: "status/wontfix"
+- name: "status:wontfix"
   color: "94A3B8"
   description: "Rejected, duplicate, out-of-scope, or resolved by other means"
 
-- name: "status/done"
+- name: "status:done"
   color: "10B981"
   description: "Fully completed and merged"

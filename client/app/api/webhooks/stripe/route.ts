@@ -62,9 +62,68 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return signatureErrorResponse()
   }
 
-  // 4. Process the verified event
+  // 4. Check idempotency BEFORE processing
+  // Store webhook event record atomically to prevent duplicate processing
   const supabase = await createClient()
 
+  const idempotencyKey = `stripe:${event.id}`
+  
+  // Try to insert idempotency record with unique constraint
+  // If it already exists, return success to prevent duplicate processing
+  const { data: existingRecord, error: checkError } = await supabase
+    .from("webhook_events")
+    .select("id, processed_at")
+    .eq("provider", "stripe")
+    .eq("event_id", event.id)
+    .maybeSingle()
+
+  if (checkError && checkError.code !== "PGRST116") {
+    logger.error("[Webhook] Failed to check idempotency", {
+      eventId: event.id,
+      error: checkError.message,
+    })
+    return dbErrorResponse("idempotency check failed")
+  }
+
+  if (existingRecord) {
+    logger.info("[Webhook] Duplicate Stripe event detected, returning cached response", {
+      eventId: event.id,
+      processedAt: existingRecord.processed_at,
+    })
+    // Return success for duplicate to prevent retry loops
+    return NextResponse.json({ received: true, isDuplicate: true })
+  }
+
+  // Insert webhook event record BEFORE processing to mark as in-flight
+  const { error: insertError, data: newRecord } = await supabase
+    .from("webhook_events")
+    .insert({
+      provider: "stripe",
+      event_id: event.id,
+      event_type: event.type,
+      event_data: event,
+      processed: false,
+      created_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single()
+
+  if (insertError) {
+    // Check if it's a unique constraint violation (concurrent requests)
+    if (insertError.code === "23505") {
+      logger.info("[Webhook] Concurrent request detected, another handler processing", {
+        eventId: event.id,
+      })
+      return NextResponse.json({ received: true, isDuplicate: true })
+    }
+    logger.error("[Webhook] Failed to store webhook event", {
+      eventId: event.id,
+      error: insertError.message,
+    })
+    return dbErrorResponse("webhook event storage failed")
+  }
+
+  // 5. Process the verified event
   try {
     switch (event.type) {
       case "payment_intent.succeeded": {
@@ -127,6 +186,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         break
     }
 
+    // Mark event as successfully processed
+    await supabase
+      .from("webhook_events")
+      .update({ processed: true, processed_at: new Date().toISOString() })
+      .eq("id", newRecord.id)
+
     return NextResponse.json({ received: true })
   } catch (err) {
     logger.error("[Webhook] Unexpected error processing event", {
@@ -134,6 +199,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       eventType: event.type,
       error: err instanceof Error ? err.message : String(err),
     })
+    // Mark as failed so it can be retried/investigated
+    await supabase
+      .from("webhook_events")
+      .update({ processed: false, processed_at: null })
+      .eq("id", newRecord.id)
+    
     return createErrorResponse(ApiErrors.internalError("Unexpected error processing webhook"))
   }
 }

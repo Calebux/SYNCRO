@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Symbol,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env,
 };
 
 #[contracttype]
@@ -21,12 +21,20 @@ pub enum ChannelState {
     Closed = 4,
 }
 
+/// A payment channel between two parties backed by an on-chain token escrow.
+///
+/// # Token field
+/// `token` stores the SEP-41 token contract address used for the initial
+/// deposit and for disbursements on `finalize`.  Without this field the
+/// contract has no way to disburse funds, which would lock balances forever.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PaymentChannel {
     pub id: u64,
     pub depositor: Address,
     pub counterparty: Address,
+    /// Token contract used for on-chain disbursement.
+    pub token: Address,
     pub balance_a: i128,
     pub balance_b: i128,
     pub sequence: u64,
@@ -49,6 +57,7 @@ pub enum Error {
     DisputeWindowActive = 8,
     DisputeWindowExpired = 9,
     StaleState = 10,
+    CounterOverflow = 11,
 }
 
 #[contract]
@@ -74,10 +83,17 @@ impl PaymentChannelContract {
         Ok(admin)
     }
 
+    /// Open a new payment channel.
+    ///
+    /// `token` is the SEP-41 token contract.  The depositor must have
+    /// pre-approved the contract to spend `deposit_amount` tokens (via the
+    /// standard token allowance mechanism), which this call then transfers
+    /// into contract escrow.
     pub fn open_channel(
         env: Env,
         depositor: Address,
         counterparty: Address,
+        token: Address,
         deposit_amount: i128,
         dispute_window: u64,
     ) -> Result<u64, Error> {
@@ -90,13 +106,20 @@ impl PaymentChannelContract {
             return Err(Error::Unauthorized);
         }
 
-        let count: u64 = env.storage().instance().get(&DataKey::ChannelCount).unwrap_or(0);
-        let id = count + 1;
+        let count: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ChannelCount)
+            .unwrap_or(0);
+        let id = count.checked_add(1).ok_or(Error::CounterOverflow)?;
         let now = env.ledger().timestamp();
+
+        // ── EFFECTS — record the channel state ───────────────────────────────
         let channel = PaymentChannel {
             id,
             depositor: depositor.clone(),
             counterparty: counterparty.clone(),
+            token: token.clone(),
             balance_a: deposit_amount,
             balance_b: 0,
             sequence: 0,
@@ -105,13 +128,26 @@ impl PaymentChannelContract {
             closing_started_at: 0,
         };
 
-        env.storage().persistent().set(&DataKey::Channel(id), &channel);
-        env.storage().instance().set(&DataKey::ChannelCount, &id);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Channel(id), &channel);
+        env.storage()
+            .instance()
+            .set(&DataKey::ChannelCount, &id);
 
         env.events().publish(
-            (symbol_short!("channel"), symbol_short!("open")),
-            (id, depositor, counterparty, deposit_amount, dispute_window),
+            (symbol_short!("channel"), symbol_short!("opened")),
+            (id, depositor.clone(), counterparty, deposit_amount, dispute_window),
         );
+
+        // ── INTERACTIONS — pull funds from depositor ─────────────────────────
+        let token_client = token::Client::new(&env, &token);
+        token_client.transfer(
+            &depositor,
+            &env.current_contract_address(),
+            &deposit_amount,
+        );
+
         Ok(id)
     }
 
@@ -136,6 +172,11 @@ impl PaymentChannelContract {
         if sequence_number <= channel.sequence {
             return Err(Error::StaleState);
         }
+        if !((sig_a == channel.depositor && sig_b == channel.counterparty)
+            || (sig_a == channel.counterparty && sig_b == channel.depositor))
+        {
+            return Err(Error::Unauthorized);
+        }
 
         sig_a.require_auth();
         sig_b.require_auth();
@@ -145,9 +186,11 @@ impl PaymentChannelContract {
         channel.sequence = sequence_number;
         channel.state = ChannelState::Open;
 
-        env.storage().persistent().set(&DataKey::Channel(channel_id), &channel);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Channel(channel_id), &channel);
         env.events().publish(
-            (symbol_short!("channel"), symbol_short!("state")),
+            (symbol_short!("channel"), symbol_short!("submitted")),
             (channel_id, balance_a, balance_b, sequence_number),
         );
         Ok(())
@@ -173,6 +216,9 @@ impl PaymentChannelContract {
         if seq <= channel.sequence {
             return Err(Error::StaleState);
         }
+        if sig != channel.depositor && sig != channel.counterparty {
+            return Err(Error::Unauthorized);
+        }
 
         sig.require_auth();
 
@@ -182,9 +228,11 @@ impl PaymentChannelContract {
         channel.state = ChannelState::Closing;
         channel.closing_started_at = env.ledger().timestamp();
 
-        env.storage().persistent().set(&DataKey::Channel(channel_id), &channel);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Channel(channel_id), &channel);
         env.events().publish(
-            (symbol_short!("channel"), symbol_short!("init")),
+            (symbol_short!("channel"), symbol_short!("closing")),
             (channel_id, balance_a, balance_b, seq),
         );
         Ok(())
@@ -214,6 +262,11 @@ impl PaymentChannelContract {
         if env.ledger().timestamp() > channel.dispute_deadline {
             return Err(Error::DisputeWindowExpired);
         }
+        if !((sig_a == channel.depositor && sig_b == channel.counterparty)
+            || (sig_a == channel.counterparty && sig_b == channel.depositor))
+        {
+            return Err(Error::Unauthorized);
+        }
 
         sig_a.require_auth();
         sig_b.require_auth();
@@ -223,15 +276,17 @@ impl PaymentChannelContract {
         channel.sequence = higher_seq;
         channel.state = ChannelState::Dispute;
 
-        env.storage().persistent().set(&DataKey::Channel(channel_id), &channel);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Channel(channel_id), &channel);
         env.events().publish(
-            (symbol_short!("channel"), symbol_short!("dispute")),
+            (symbol_short!("channel"), symbol_short!("disputed")),
             (channel_id, balance_a, balance_b, higher_seq),
         );
         Ok(())
     }
 
-    pub fn finalize(env: Env, channel_id: u64) -> Result<(), Error> {
+    pub fn finalize(env: Env, channel_id: u64, expected_sequence: u64) -> Result<(), Error> {
         let mut channel: PaymentChannel = env
             .storage()
             .persistent()
@@ -244,17 +299,60 @@ impl PaymentChannelContract {
         if env.ledger().timestamp() <= channel.dispute_deadline {
             return Err(Error::DisputeWindowActive);
         }
+        if expected_sequence != channel.sequence {
+            return Err(Error::StaleState);
+        }
 
+        // Capture values needed after the state mutation.
+        let depositor = channel.depositor.clone();
+        let counterparty = channel.counterparty.clone();
+        let token_addr = channel.token.clone();
+        let balance_a = channel.balance_a;
+        let balance_b = channel.balance_b;
+
+        // ── EFFECTS ─────────────────────────────────────────────────────────
+        // Mark closed and persist BEFORE any external call.  A re-entrant
+        // `finalize` call would now fail the `InvalidState` guard above.
         channel.state = ChannelState::Closed;
-        env.storage().persistent().set(&DataKey::Channel(channel_id), &channel);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Channel(channel_id), &channel);
+
         env.events().publish(
-            (symbol_short!("channel"), symbol_short!("final")),
+            (symbol_short!("channel"), symbol_short!("closed")),
             (channel_id, channel.balance_a, channel.balance_b),
         );
+
+        // ── INTERACTIONS ─────────────────────────────────────────────────────
+        // Disburse escrowed funds.  Zero-value transfers are skipped.
+        let token_client = token::Client::new(&env, &token_addr);
+
+        if balance_a > 0 {
+            token_client.transfer(
+                &env.current_contract_address(),
+                &depositor,
+                &balance_a,
+            );
+        }
+
+        if balance_b > 0 {
+            token_client.transfer(
+                &env.current_contract_address(),
+                &counterparty,
+                &balance_b,
+            );
+        }
+
         Ok(())
     }
 
-    pub fn top_up(env: Env, channel_id: u64, amount: i128, depositor: Address) -> Result<(), Error> {
+    /// Add more funds to an open channel (depositor side only).
+    pub fn top_up(
+        env: Env,
+        channel_id: u64,
+        amount: i128,
+        depositor: Address,
+    ) -> Result<(), Error> {
         let mut channel: PaymentChannel = env
             .storage()
             .persistent()
@@ -273,17 +371,34 @@ impl PaymentChannelContract {
             return Err(Error::Unauthorized);
         }
 
+        let token_addr = channel.token.clone();
+
+        // ── EFFECTS ─────────────────────────────────────────────────────────
         channel.balance_a += amount;
-        env.storage().persistent().set(&DataKey::Channel(channel_id), &channel);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Channel(channel_id), &channel);
+
         env.events().publish(
-            (symbol_short!("channel"), symbol_short!("topup")),
+            (symbol_short!("channel"), symbol_short!("toppedup")),
             (channel_id, amount),
         );
+
+        // ── INTERACTIONS ─────────────────────────────────────────────────────
+        let token_client = token::Client::new(&env, &token_addr);
+        token_client.transfer(
+            &depositor,
+            &env.current_contract_address(),
+            &amount,
+        );
+
         Ok(())
     }
 
     pub fn get_channel(env: Env, channel_id: u64) -> Option<PaymentChannel> {
-        env.storage().persistent().get(&DataKey::Channel(channel_id))
+        env.storage()
+            .persistent()
+            .get(&DataKey::Channel(channel_id))
     }
 }
 

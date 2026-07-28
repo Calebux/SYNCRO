@@ -125,8 +125,13 @@ const optional = [
   'ANTHROPIC_API_KEY',
   'GEMINI_API_KEY',
 
-  // Exchange rate cache
+  // Exchange rate cache (#1092)
   'EXCHANGE_RATE_TTL_MS',
+  'EXCHANGE_RATE_CACHE_JITTER_FACTOR',
+  'EXCHANGE_RATE_CACHE_SWR_FACTOR',
+
+  // Merchant metadata cache (#1092)
+  'MERCHANT_CACHE_TTL_MS',
 
   // Monitoring (Sentry)
   'SENTRY_DSN',

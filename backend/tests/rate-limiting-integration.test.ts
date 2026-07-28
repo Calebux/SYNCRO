@@ -1,7 +1,8 @@
 import request from 'supertest';
 import express from 'express';
-import { RateLimiterFactory, createTeamInviteLimiter, createMfaLimiter, createAdminLimiter } from '../src/middleware/rate-limit-factory';
+import { RateLimiterFactory, createTeamInviteLimiter, createMfaLimiter, createAdminLimiter, createLoginLimiter, createImportLimiter, createPaymentLimiter, createRefundLimiter, createApiKeyLimiter } from '../src/middleware/rate-limit-factory';
 import { authenticate } from '../src/middleware/auth';
+import { rateLimitConfig } from '../src/config/rate-limit';
 
 // Mock dependencies
 jest.mock('../src/config/logger', () => ({
@@ -296,6 +297,86 @@ describe('Rate Limiting Integration Tests', () => {
       expect(response1.body.success).toBe(true);
       expect(response2.body.success).toBe(true);
     });
+  });
+
+  describe('Sensitive mutation & auth route classes (429 on abuse)', () => {
+    it('login limiter returns 429 after max IP attempts', async () => {
+      const max = rateLimitConfig.login.max;
+      app.post('/api/test/login', createLoginLimiter(), (_req, res) => {
+        res.json({ ok: true });
+      });
+
+      const responses = await Promise.all(
+        Array.from({ length: max + 1 }, () =>
+          request(app).post('/api/test/login').set('X-Forwarded-For', '203.0.113.50').send({}),
+        ),
+      );
+
+      expect(responses.filter((r) => r.status === 200).length).toBe(max);
+      const blocked = responses.find((r) => r.status === 429);
+      expect(blocked).toBeDefined();
+      expect(blocked!.body.error).toMatch(/login/i);
+    }, 30000);
+
+    it('import limiter returns 429 after max user attempts', async () => {
+      const max = rateLimitConfig.import.max;
+      app.post('/api/test/import', authenticate, createImportLimiter(), (_req, res) => {
+        res.json({ ok: true });
+      });
+
+      const responses = await Promise.all(
+        Array.from({ length: max + 1 }, () => request(app).post('/api/test/import').send({})),
+      );
+
+      expect(responses.filter((r) => r.status === 200).length).toBe(max);
+      expect(responses.some((r) => r.status === 429)).toBe(true);
+    }, 30000);
+
+    it('payment limiter returns 429 after max attempts', async () => {
+      const max = rateLimitConfig.payment.max;
+      app.post('/api/test/payment', createPaymentLimiter(), (_req, res) => {
+        res.json({ ok: true });
+      });
+
+      const responses = await Promise.all(
+        Array.from({ length: max + 1 }, () =>
+          request(app).post('/api/test/payment').set('X-Forwarded-For', '198.51.100.10').send({}),
+        ),
+      );
+
+      expect(responses.filter((r) => r.status === 200).length).toBe(max);
+      expect(responses.some((r) => r.status === 429)).toBe(true);
+    }, 30000);
+
+    it('refund limiter returns 429 after max attempts', async () => {
+      const max = rateLimitConfig.refund.max;
+      app.post('/api/test/refund', authenticate, createRefundLimiter(), (_req, res) => {
+        res.json({ ok: true });
+      });
+
+      const responses = await Promise.all(
+        Array.from({ length: max + 1 }, () => request(app).post('/api/test/refund').send({})),
+      );
+
+      expect(responses.filter((r) => r.status === 200).length).toBe(max);
+      const blocked = responses.find((r) => r.status === 429);
+      expect(blocked).toBeDefined();
+      expect(blocked!.body.error).toMatch(/refund/i);
+    }, 30000);
+
+    it('api-key limiter returns 429 after max attempts', async () => {
+      const max = rateLimitConfig.apiKey.max;
+      app.post('/api/test/api-key', authenticate, createApiKeyLimiter(), (_req, res) => {
+        res.json({ ok: true });
+      });
+
+      const responses = await Promise.all(
+        Array.from({ length: max + 1 }, () => request(app).post('/api/test/api-key').send({})),
+      );
+
+      expect(responses.filter((r) => r.status === 200).length).toBe(max);
+      expect(responses.some((r) => r.status === 429)).toBe(true);
+    }, 30000);
   });
 
   describe('Rate Limiting with Memory Store Fallback', () => {

@@ -91,4 +91,76 @@ describe('Telegram webhook secret validation', () => {
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('ok');
   });
+
+  describe('Success and idempotent-replay (#1084)', () => {
+    beforeEach(() => {
+      delete process.env.TELEGRAM_WEBHOOK_SECRET;
+    });
+
+    it('processes a valid /help command update (success)', async () => {
+      const helpUpdate = {
+        update_id: 12345,
+        message: {
+          message_id: 1,
+          from: { id: 111, is_bot: false, first_name: 'TestUser' },
+          chat: { id: 111, first_name: 'TestUser', type: 'private' },
+          date: Math.floor(Date.now() / 1000),
+          text: '/help',
+        },
+      };
+
+      const res = await request(app)
+        .post('/api/telegram/webhook')
+        .send(helpUpdate);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ ok: true });
+    });
+
+    it('processes a /start command without deep link (success)', async () => {
+      const startUpdate = {
+        update_id: 12346,
+        message: {
+          message_id: 2,
+          from: { id: 222, is_bot: false, first_name: 'NewUser' },
+          chat: { id: 222, first_name: 'NewUser', type: 'private' },
+          date: Math.floor(Date.now() / 1000),
+          text: '/start',
+        },
+      };
+
+      const res = await request(app)
+        .post('/api/telegram/webhook')
+        .send(startUpdate);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ ok: true });
+    });
+
+    it('accepts the same update_id twice (idempotent-replay)', async () => {
+      const statusUpdate = {
+        update_id: 99999,
+        message: {
+          message_id: 10,
+          from: { id: 333, is_bot: false, first_name: 'ReplayUser' },
+          chat: { id: 333, first_name: 'ReplayUser', type: 'private' },
+          date: Math.floor(Date.now() / 1000),
+          text: '/help',
+        },
+      };
+
+      const res1 = await request(app)
+        .post('/api/telegram/webhook')
+        .send(statusUpdate);
+
+      const res2 = await request(app)
+        .post('/api/telegram/webhook')
+        .send(statusUpdate);
+
+      expect(res1.status).toBe(200);
+      expect(res1.body).toEqual({ ok: true });
+      expect(res2.status).toBe(200);
+      expect(res2.body).toEqual({ ok: true });
+    });
+  });
 });

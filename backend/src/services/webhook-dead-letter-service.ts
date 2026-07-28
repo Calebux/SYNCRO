@@ -2,6 +2,8 @@ import { supabase } from '../config/database';
 import logger from '../config/logger';
 import crypto from 'crypto';
 import { WebhookDelivery } from '../types/webhook';
+import { emitSecurityEvent } from './audit-service';
+import { validateOutboundUrl, SSRFError } from '../utils/ssrf-protection';
 
 export interface WebhookDeadLetterDelivery {
   id: string;
@@ -235,6 +237,42 @@ export class WebhookDeadLetterService {
       .eq('id', replayId);
 
     try {
+      // ── SSRF guard (replay-time, with DNS resolution) ─────────────────
+      // Dead-letter replays re-use the original webhook URL which may have
+      // been registered before SSRF checks were added, or the DNS record
+      // may have changed since registration (rebinding).
+      try {
+        await validateOutboundUrl(webhook.url, { resolveDns: true });
+      } catch (ssrfErr) {
+        const reason = ssrfErr instanceof SSRFError ? ssrfErr.message : String(ssrfErr);
+        logger.warn(`SSRF check blocked dead-letter replay ${replayId}: ${reason}`, {
+          webhookId: webhook.id,
+          url: webhook.url,
+        });
+        emitSecurityEvent('webhook.ssrf_blocked', {
+          severity: 'high',
+          resourceType: 'webhook',
+          resourceId: webhook.id,
+          reason,
+          details: { replayId, url: webhook.url },
+        });
+
+        const { data: failedData, error: failedError } = await supabase
+          .from('webhook_dead_letter_replays')
+          .update({
+            status: 'failed',
+            error_message: `SSRF protection blocked replay: ${reason}`,
+            completed_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', replayId)
+          .select()
+          .single();
+
+        if (failedError) throw failedError;
+        return failedData as WebhookDeadLetterReplay;
+      }
+      // ─────────────────────────────────────────────────────────────────
       const payloadString = JSON.stringify(delivery.payload);
       const signature = crypto
         .createHmac('sha256', webhook.secret)
