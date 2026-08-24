@@ -1,7 +1,7 @@
 import { Router, Response, NextFunction } from 'express'
 import { scanImapSubscriptions, validateImapCredentials, encrypt, decrypt } from '../../services/imap-service'
 import { createState, consumeState } from '../../../utils/oauth-state'
-import { supabase } from '../../config/database'
+import { supabase, databaseRepository } from '../../config/database'
 import { AuthenticatedRequest } from '../../middleware/auth'
 import { createLoginLimiter } from '../../middleware/rate-limit-factory'
 
@@ -26,7 +26,7 @@ router.post('/connect', createLoginLimiter(), async (req: AuthenticatedRequest, 
     // Encrypt password before storing
     const encryptedPassword = encrypt(password)
 
-    const { error: dbError } = await supabase
+    const { error: dbError } = await databaseRepository
       .from('email_accounts')
       .upsert(
         {
@@ -66,7 +66,7 @@ router.post('/scan', async (req: AuthenticatedRequest, res: Response, next: Next
 
     // If password not provided, try to get it from the database
     if (!actualPassword && email) {
-      const { data: account, error: dbError } = await supabase
+      const { data: account, error: dbError } = await databaseRepository
         .from('email_accounts')
         .select('access_token')
         .eq('user_id', req.user!.id)
@@ -105,7 +105,7 @@ router.delete('/:id', async (req: AuthenticatedRequest, res: Response, next: Nex
   try {
     const { id } = req.params
 
-    const { error, count } = await supabase
+    const { error, count } = await databaseRepository
       .from('email_accounts')
       .delete({ count: 'exact' })
       .eq('id', id)

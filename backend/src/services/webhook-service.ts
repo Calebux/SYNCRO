@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import crypto from 'crypto';
 import { 
@@ -24,7 +24,7 @@ export class WebhookService {
   async registerWebhook(userId: string, input: WebhookCreateInput): Promise<Webhook> {
     const secret = `whsec_${crypto.randomBytes(24).toString('hex')}`;
     
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('webhooks')
       .insert({
         user_id: userId,
@@ -48,7 +48,7 @@ export class WebhookService {
    * Update an existing webhook
    */
   async updateWebhook(userId: string, webhookId: string, input: WebhookUpdateInput): Promise<Webhook> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('webhooks')
       .update({
         ...input,
@@ -71,7 +71,7 @@ export class WebhookService {
    * List webhooks for a user
    */
   async listWebhooks(userId: string): Promise<Webhook[]> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('webhooks')
       .select('*')
       .eq('user_id', userId)
@@ -89,7 +89,7 @@ export class WebhookService {
    * Delete a webhook
    */
   async deleteWebhook(userId: string, webhookId: string): Promise<void> {
-    const { error } = await supabase
+    const { error } = await databaseRepository
       .from('webhooks')
       .delete()
       .eq('id', webhookId)
@@ -109,7 +109,7 @@ export class WebhookService {
     
     try {
       // Find all enabled webhooks for this user subscribed to this event
-      const { data: webhooks, error } = await supabase
+      const { data: webhooks, error } = await databaseRepository
         .from('webhooks')
         .select('*')
         .eq('user_id', userId)
@@ -147,7 +147,7 @@ export class WebhookService {
    * Trigger a test event for a webhook
    */
   async triggerTestEvent(userId: string, webhookId: string): Promise<WebhookDelivery> {
-    const { data: webhook, error } = await supabase
+    const { data: webhook, error } = await databaseRepository
       .from('webhooks')
       .select('*')
       .eq('id', webhookId)
@@ -175,7 +175,7 @@ export class WebhookService {
    * Create a delivery record
    */
   private async createDelivery<E extends WebhookEventType>(webhookId: string, eventType: E, payload: { id: string; type: E; created: number; data: WebhookEventPayloadMap[E] }): Promise<WebhookDelivery> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('webhook_deliveries')
       .insert({
         webhook_id: webhookId,
@@ -204,7 +204,7 @@ export class WebhookService {
    * Execute an HTTP POST for a delivery
    */
   async sendDelivery(deliveryId: string): Promise<WebhookDelivery> {
-    const { data: delivery, error: fetchError } = await supabase
+    const { data: delivery, error: fetchError } = await databaseRepository
       .from('webhook_deliveries')
       .select('*, webhooks!inner(*)')
       .eq('id', deliveryId)
@@ -274,7 +274,7 @@ export class WebhookService {
   }
 
   private async updateDeliverySuccess(deliveryId: string, code: number, body: string): Promise<WebhookDelivery> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('webhook_deliveries')
       .update({
         status: 'success',
@@ -290,14 +290,14 @@ export class WebhookService {
     if (error) throw error;
     
     // Reset failure count on success
-    const { data: delivery } = await supabase
+    const { data: delivery } = await databaseRepository
       .from('webhook_deliveries')
       .select('webhook_id')
       .eq('id', deliveryId)
       .single();
     
     if (delivery) {
-      await supabase
+      await databaseRepository
         .from('webhooks')
         .update({ failure_count: 0 })
         .eq('id', delivery.webhook_id);
@@ -307,7 +307,7 @@ export class WebhookService {
   }
 
   private async handleDeliveryFailure(deliveryId: string, webhookId: string, code: number, body: string): Promise<WebhookDelivery> {
-    const { data: currentDelivery } = await supabase
+    const { data: currentDelivery } = await databaseRepository
       .from('webhook_deliveries')
       .select('retry_count')
       .eq('id', deliveryId)
@@ -342,7 +342,7 @@ export class WebhookService {
       scheduledAt = new Date(Date.now() + delay * 1000).toISOString();
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('webhook_deliveries')
       .update({
         status: nextStatus,
@@ -360,7 +360,7 @@ export class WebhookService {
     if (error) throw error;
 
     // Update webhook failure count
-    const { data: webhook } = await supabase
+    const { data: webhook } = await databaseRepository
       .from('webhooks')
       .select('failure_count')
       .eq('id', webhookId)
@@ -369,7 +369,7 @@ export class WebhookService {
     const newFailureCount = (webhook?.failure_count || 0) + 1;
     const enabled = newFailureCount < this.DISABLE_THRESHOLD;
 
-    await supabase
+    await databaseRepository
       .from('webhooks')
       .update({ 
         failure_count: newFailureCount,
@@ -404,7 +404,7 @@ export class WebhookService {
    */
   async getDeliveries(userId: string, webhookId: string): Promise<WebhookDelivery[]> {
     // Verify ownership
-    const { data: webhook } = await supabase
+    const { data: webhook } = await databaseRepository
       .from('webhooks')
       .select('id')
       .eq('id', webhookId)
@@ -415,7 +415,7 @@ export class WebhookService {
       throw new Error('Webhook not found or access denied');
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('webhook_deliveries')
       .select('*')
       .eq('webhook_id', webhookId)
@@ -434,7 +434,7 @@ export class WebhookService {
    */
   async processRetries(): Promise<void> {
     const now = new Date().toISOString();
-    const { data: deliveries, error } = await supabase
+    const { data: deliveries, error } = await databaseRepository
       .from('webhook_deliveries')
       .select('id')
       .eq('status', 'retrying')
@@ -489,7 +489,7 @@ export class WebhookService {
    */
   async executeDeadLetterReplay(userId: string, replayId: string): Promise<WebhookDeadLetterReplay> {
     // Fetch the replay
-    const { data: replay, error: replayError } = await supabase
+    const { data: replay, error: replayError } = await databaseRepository
       .from('webhook_dead_letter_replays')
       .select('*, webhook_deliveries!inner(*, webhooks!inner(*))')
       .eq('id', replayId)

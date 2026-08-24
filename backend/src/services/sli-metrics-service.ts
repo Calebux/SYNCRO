@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { notificationQueue } from '../jobs/notification-queue';
 
@@ -96,7 +96,7 @@ export class SliMetricsService {
 
   private async fetchRenewalSuccessRate(since: string): Promise<number> {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from('renewal_logs')
         .select('status')
         .gte('created_at', since)
@@ -117,7 +117,7 @@ export class SliMetricsService {
 
   private async fetchWebhookProcessingLag(since: string): Promise<{ avg_ms: number; p95_ms: number }> {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from('webhook_deliveries')
         .select('created_at, delivered_at, updated_at')
         .gte('created_at', since)
@@ -194,15 +194,15 @@ export class SliMetricsService {
   }> {
     try {
       const [notificationRes, renewalRes, webhookRes] = await Promise.all([
-        supabase
+        databaseRepository
           .from('notification_dead_letter_queue')
           .select('id', { count: 'exact', head: true })
           .gte('dead_letter_at', since),
-        supabase
+        databaseRepository
           .from('renewal_dead_letter_queue')
           .select('id', { count: 'exact', head: true })
           .gte('dead_letter_at', since),
-        supabase
+        databaseRepository
           .from('webhook_deliveries')
           .select('id', { count: 'exact', head: true })
           .eq('is_dead_letter', true)

@@ -1,5 +1,5 @@
 import { Response, NextFunction } from 'express';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import { AuthenticatedRequest } from './auth';
 import logger from '../config/logger';
 
@@ -32,7 +32,7 @@ export async function validateSubscriptionOwnership(
     }
 
     // Check ownership in database
-    const { data: subscription, error } = await supabase
+    const { data: subscription, error } = await databaseRepository
       .from('subscriptions')
       .select('id, user_id')
       .eq('id', subscriptionId)
@@ -94,7 +94,7 @@ export async function validateBulkSubscriptionOwnership(
     }
 
     // Check ownership for all subscriptions
-    const { data: subscriptions, error } = await supabase
+    const { data: subscriptions, error } = await databaseRepository
       .from('subscriptions')
       .select('id, user_id')
       .in('id', subscriptionIds)

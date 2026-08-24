@@ -3,8 +3,8 @@ import {
   initializeFunding,
   verifyTransaction,
   listBanks,
-} from '../services/paystack'
-import { createPaymentLimiter, createRefundLimiter } from '../middleware/rate-limit-factory'
+} from './payment.service'
+import { createPaymentLimiter, createRefundLimiter } from '../../middleware/rate-limit-factory'
 
 const router = Router()
 

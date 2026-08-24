@@ -5,7 +5,7 @@
  * server-side API for listing all active sessions for a given user.
  */
 
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import { emitSecurityEvent } from './audit-service';
 import { emailService } from './email-service';
 import logger from '../config/logger';
@@ -30,7 +30,7 @@ export const sessionService = {
     userId: string,
     sessionData: { userAgent?: string; ipAddress?: string; sessionId: string },
   ): Promise<void> {
-    const { error } = await supabase.from('user_sessions').insert({
+    const { error } = await databaseRepository.from('user_sessions').insert({
       id: sessionData.sessionId,
       user_id: userId,
       user_agent: sessionData.userAgent ?? null,
@@ -51,7 +51,7 @@ export const sessionService = {
    * Return all active (non-revoked) sessions for the given user.
    */
   async listActiveSessions(userId: string): Promise<UserSession[]> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('user_sessions')
       .select('*')
       .eq('user_id', userId)
@@ -71,7 +71,7 @@ export const sessionService = {
    * Only sessions belonging to `userId` can be revoked via this method.
    */
   async revokeSession(userId: string, sessionId: string, reason: string): Promise<void> {
-    const { error } = await supabase
+    const { error } = await databaseRepository
       .from('user_sessions')
       .update({
         revoked_at: new Date().toISOString(),
@@ -106,7 +106,7 @@ export const sessionService = {
     reason: 'password_change' | 'wallet_disconnect' | 'manual',
   ): Promise<{ count: number }> {
     // 1. Count active sessions before revoking so we can return a meaningful result
-    const { count, error: countError } = await supabase
+    const { count, error: countError } = await databaseRepository
       .from('user_sessions')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', userId)
@@ -120,7 +120,7 @@ export const sessionService = {
     }
 
     // 2. Mark all sessions as revoked in our tracking table
-    const { error: updateError } = await supabase
+    const { error: updateError } = await databaseRepository
       .from('user_sessions')
       .update({
         revoked_at: new Date().toISOString(),

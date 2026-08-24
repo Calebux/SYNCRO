@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import logger from './logger';
+import { DatabaseRepository } from '../repositories/database.repository';
 
 const isTest = process.env.NODE_ENV === 'test';
 const supabaseUrl = process.env.SUPABASE_URL || (isTest ? 'http://localhost' : '');
@@ -17,6 +18,8 @@ export const supabase = createClient(supabaseUrl || 'http://localhost', supabase
     persistSession: false,
   },
 });
+
+export const databaseRepository = new DatabaseRepository(supabase);
 
 // ---------------------------------------------------------------------------
 // Connection pool monitoring (issue #278)
@@ -67,4 +70,3 @@ export function trackDbRequest(): () => void {
     clearTimeout(leakTimer);
   };
 }
-

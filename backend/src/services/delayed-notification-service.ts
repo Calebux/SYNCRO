@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { NotificationPayload, NotificationPriority } from '../types/reminder';
 
@@ -29,7 +29,7 @@ export class DelayedNotificationService {
     delayReason?: string
   ): Promise<DelayedNotification> {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from('delayed_notifications')
         .insert({
           user_id: userId,
@@ -67,7 +67,7 @@ export class DelayedNotificationService {
    */
   async getPendingDelayedNotifications(currentTime: Date = new Date()): Promise<DelayedNotification[]> {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from('delayed_notifications')
         .select('*')
         .eq('status', 'pending')
@@ -91,7 +91,7 @@ export class DelayedNotificationService {
    */
   async markDelayedNotificationAsSent(notificationId: string): Promise<void> {
     try {
-      const { error } = await supabase
+      const { error } = await databaseRepository
         .from('delayed_notifications')
         .update({
           status: 'sent',
@@ -116,7 +116,7 @@ export class DelayedNotificationService {
    */
   async cancelDelayedNotifications(reminderScheduleId: string): Promise<void> {
     try {
-      const { error } = await supabase
+      const { error } = await databaseRepository
         .from('delayed_notifications')
         .update({
           status: 'cancelled',
@@ -145,7 +145,7 @@ export class DelayedNotificationService {
     status?: DelayedNotification['status']
   ): Promise<DelayedNotification[]> {
     try {
-      let query = supabase
+      let query = databaseRepository
         .from('delayed_notifications')
         .select('*')
         .eq('user_id', userId)
@@ -177,7 +177,7 @@ export class DelayedNotificationService {
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
 
-      const { error } = await supabase
+      const { error } = await databaseRepository
         .from('delayed_notifications')
         .delete()
         .in('status', ['sent', 'cancelled'])

@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import logger from '../config/logger';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import { redisDistributedLock } from '../lib/redis-lock';
 import { renewalExecutor } from './renewal-executor';
 import { renewalDeadLetterService } from './renewal-dead-letter-service';
@@ -164,7 +164,7 @@ export class RenewalExecutionOrchestrator {
   }
 
   private async resolveBillingDate(subscriptionId: string): Promise<string> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('subscriptions')
       .select('next_billing_date')
       .eq('id', subscriptionId)

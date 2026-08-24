@@ -1,5 +1,5 @@
 import logger from '../config/logger';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import { emailService } from './email-service';
 import { pushService, PushSubscription } from './push-service';
 import { slackService } from './slack-service';
@@ -37,7 +37,7 @@ export class ReminderEngine {
     const dateString = targetDate.toISOString().split('T')[0];
     logger.info(`Processing reminders for date: ${dateString}`);
 
-    const { data: reminders, error } = await supabase
+    const { data: reminders, error } = await databaseRepository
       .from('reminder_schedules')
       .select('*')
       .eq('reminder_date', dateString)
@@ -66,7 +66,7 @@ export class ReminderEngine {
     const now = new Date().toISOString();
     logger.info('Processing delivery retries');
 
-    const { data: deliveries, error } = await supabase
+    const { data: deliveries, error } = await databaseRepository
       .from('notification_deliveries')
       .select('*, reminder_schedules!inner(*)')
       .eq('status', 'retrying')
@@ -98,7 +98,7 @@ export class ReminderEngine {
     const start = Date.now();
     logger.info(`Scheduling reminders, engine defaults: ${daysBefore.join(', ')}`);
 
-    const { data: subscriptions, error } = await supabase
+    const { data: subscriptions, error } = await databaseRepository
       .from('subscriptions')
       .select('*')
       .eq('status', 'active')
@@ -119,7 +119,7 @@ export class ReminderEngine {
     }
 
     const userIds = Array.from(new Set(activeSubscriptions.map((sub) => sub.user_id)));
-    const { data: preferences, error: preferencesError } = await supabase
+    const { data: preferences, error: preferencesError } = await databaseRepository
       .from('user_preferences')
       .select('*')
       .in('user_id', userIds);
@@ -187,7 +187,7 @@ export class ReminderEngine {
     }
 
     if (rows.length > 0) {
-      const { error: upsertError } = await supabase
+      const { error: upsertError } = await databaseRepository
         .from('reminder_schedules')
         .upsert(rows, { onConflict: 'subscription_id,reminder_date' });
 
@@ -203,7 +203,7 @@ export class ReminderEngine {
   async scheduleTrialReminders(): Promise<void> {
     logger.info('Scheduling trial reminders');
 
-    const { data: trials, error } = await supabase
+    const { data: trials, error } = await databaseRepository
       .from('subscriptions')
       .select('*')
       .eq('is_trial', true)
@@ -239,7 +239,7 @@ export class ReminderEngine {
           continue;
         }
 
-        const { data: existing } = await supabase
+        const { data: existing } = await databaseRepository
           .from('reminder_schedules')
           .select('id')
           .eq('subscription_id', subscription.id)
@@ -252,7 +252,7 @@ export class ReminderEngine {
           continue;
         }
 
-        const { error: insertError } = await supabase.from('reminder_schedules').insert({
+        const { error: insertError } = await databaseRepository.from('reminder_schedules').insert({
           subscription_id: subscription.id,
           user_id: subscription.user_id,
           reminder_date: reminderDate.toISOString().split('T')[0],
@@ -424,7 +424,7 @@ export class ReminderEngine {
       delivery.status === 'sent' || delivery.status === 'retrying',
     );
 
-    const { error: reminderUpdateError } = await supabase
+    const { error: reminderUpdateError } = await databaseRepository
       .from('reminder_schedules')
       .update({
         status: hasDeliveryProgress ? 'sent' : 'failed',
@@ -529,7 +529,7 @@ export class ReminderEngine {
 
   private async getSubscription(id: string): Promise<Subscription | null> {
     try {
-      const { data, error } = await supabase.from('subscriptions').select('*').eq('id', id).single();
+      const { data, error } = await databaseRepository.from('subscriptions').select('*').eq('id', id).single();
       if (error) {
         if (error.code === 'PGRST116') {
           return null;
@@ -547,7 +547,7 @@ export class ReminderEngine {
 
   private async getUserProfile(userId: string): Promise<UserProfile | null> {
     try {
-      const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
+      const { data, error } = await databaseRepository.from('profiles').select('*').eq('id', userId).single();
       if (!error && data) {
         return {
           id: data.id,
@@ -577,7 +577,7 @@ export class ReminderEngine {
     }
 
     try {
-      const { data: emailAccount } = await supabase
+      const { data: emailAccount } = await databaseRepository
         .from('email_accounts')
         .select('email')
         .eq('user_id', userId)
@@ -603,7 +603,7 @@ export class ReminderEngine {
 
   private async getPushSubscription(userId: string): Promise<PushSubscription | null> {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from('push_subscriptions')
         .select('endpoint, p256dh, auth')
         .eq('user_id', userId)
@@ -637,7 +637,7 @@ export class ReminderEngine {
   }
 
   private async removeStalePushSubscription(userId: string): Promise<void> {
-    const { error } = await supabase.from('push_subscriptions').delete().eq('user_id', userId);
+    const { error } = await databaseRepository.from('push_subscriptions').delete().eq('user_id', userId);
     if (error) {
       logger.warn(`Failed to remove stale push subscriptions for ${userId}:`, error);
     }
@@ -648,7 +648,7 @@ export class ReminderEngine {
     userId: string,
     channel: NotificationDelivery['channel'],
   ): Promise<NotificationDelivery> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('notification_deliveries')
       .insert({
         reminder_schedule_id: reminderScheduleId,
@@ -697,14 +697,14 @@ export class ReminderEngine {
       updateData.next_retry_at = null;
     }
 
-    const { error } = await supabase.from('notification_deliveries').update(updateData).eq('id', deliveryId);
+    const { error } = await databaseRepository.from('notification_deliveries').update(updateData).eq('id', deliveryId);
     if (error) {
       throw error;
     }
   }
 
   private async markReminderAsFailed(reminderId: string, reason: string): Promise<void> {
-    const { error } = await supabase
+    const { error } = await databaseRepository
       .from('reminder_schedules')
       .update({
         status: 'failed',
@@ -720,7 +720,7 @@ export class ReminderEngine {
   }
 
   private async markDeliveryAsFailed(deliveryId: string, reason: string): Promise<void> {
-    const { error } = await supabase
+    const { error } = await databaseRepository
       .from('notification_deliveries')
       .update({
         status: 'failed',

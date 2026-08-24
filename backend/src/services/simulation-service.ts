@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import type { Subscription } from '../types/subscription';
 import type {
@@ -98,7 +98,7 @@ export class SimulationService {
       endDate.setDate(endDate.getDate() + days);
 
       // Fetch active subscriptions with next_billing_date
-      const { data: subscriptions, error } = await supabase
+      const { data: subscriptions, error } = await databaseRepository
         .from('subscriptions')
         .select('*')
         .eq('user_id', userId)

@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import crypto from 'crypto';
 import { NotificationJobData, notificationQueue } from '../jobs/notification-queue';
@@ -47,7 +47,7 @@ export class NotificationDeadLetterService {
     errorMessage: string,
     errorCode?: string
   ): Promise<NotificationDeadLetterEntry> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('notification_dead_letter_queue')
       .insert({
         user_id: jobData.userId,
@@ -75,7 +75,7 @@ export class NotificationDeadLetterService {
    * Get all dead-letter entries for a user
    */
   async getUserDeadLetters(userId: string): Promise<NotificationDeadLetterEntry[]> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('notification_dead_letter_queue')
       .select('*')
       .eq('user_id', userId)
@@ -93,7 +93,7 @@ export class NotificationDeadLetterService {
    * Get a specific dead-letter entry
    */
   async getDeadLetterEntry(userId: string, dlqId: string): Promise<NotificationDeadLetterEntry> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('notification_dead_letter_queue')
       .select('*')
       .eq('id', dlqId)
@@ -116,7 +116,7 @@ export class NotificationDeadLetterService {
     idempotencyKey?: string
   ): Promise<NotificationDeadLetterReplay> {
     // Verify the DLQ entry exists and belongs to the user
-    const { data: dlqEntry, error: fetchError } = await supabase
+    const { data: dlqEntry, error: fetchError } = await databaseRepository
       .from('notification_dead_letter_queue')
       .select('*')
       .eq('id', dlqId)
@@ -131,7 +131,7 @@ export class NotificationDeadLetterService {
     const key = idempotencyKey || crypto.randomUUID();
 
     try {
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from('notification_dead_letter_replays')
         .insert({
           notification_dlq_id: dlqId,
@@ -145,7 +145,7 @@ export class NotificationDeadLetterService {
       if (error) {
         // If the key already exists, return the existing replay (idempotency)
         if (error.code === '23505') { // Unique constraint violation
-          const { data: existingReplay, error: fetchExistingError } = await supabase
+          const { data: existingReplay, error: fetchExistingError } = await databaseRepository
             .from('notification_dead_letter_replays')
             .select('*')
             .eq('idempotency_key', key)
@@ -174,7 +174,7 @@ export class NotificationDeadLetterService {
    */
   async getReplayHistory(userId: string, dlqId: string): Promise<NotificationDeadLetterReplay[]> {
     // Verify ownership
-    const { data: dlqEntry } = await supabase
+    const { data: dlqEntry } = await databaseRepository
       .from('notification_dead_letter_queue')
       .select('id')
       .eq('id', dlqId)
@@ -185,7 +185,7 @@ export class NotificationDeadLetterService {
       throw new Error('Dead-letter entry not found or access denied');
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('notification_dead_letter_replays')
       .select('*')
       .eq('notification_dlq_id', dlqId)
@@ -204,14 +204,14 @@ export class NotificationDeadLetterService {
    */
   async executeReplay(replayId: string): Promise<NotificationDeadLetterReplay> {
     // Update status to processing
-    await supabase
+    await databaseRepository
       .from('notification_dead_letter_replays')
       .update({ status: 'processing' })
       .eq('id', replayId);
 
     try {
       // Fetch the replay and DLQ entry
-      const { data: replay, error: replayError } = await supabase
+      const { data: replay, error: replayError } = await databaseRepository
         .from('notification_dead_letter_replays')
         .select('*, notification_dead_letter_queue!inner(*)')
         .eq('id', replayId)
@@ -229,7 +229,7 @@ export class NotificationDeadLetterService {
 
       logger.info(`Re-enqueued notification job: ${newJob.id}`);
 
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from('notification_dead_letter_replays')
         .update({
           status: 'queued',
@@ -250,7 +250,7 @@ export class NotificationDeadLetterService {
 
       logger.error(`Replay ${replayId} encountered error:`, err);
 
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from('notification_dead_letter_replays')
         .update({
           status: 'failed',
@@ -281,7 +281,7 @@ export class NotificationDeadLetterService {
       most_recent: string;
     }>;
   }> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('notification_dead_letter_stats')
       .select('*')
       .eq('user_id', userId);

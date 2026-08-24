@@ -1,5 +1,5 @@
 import logger from '../config/logger';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import { blockchainService } from './blockchain-service';
 import { webhookService } from './webhook-service';
 import { channelStateService } from './channel-state';
@@ -158,7 +158,7 @@ export class RenewalExecutor {
     approvalId: string,
     amount: number
   ): Promise<{ valid: boolean; reason?: string }> {
-    const { data: approval, error } = await supabase
+    const { data: approval, error } = await databaseRepository
       .from('renewal_approvals')
       .select('*')
       .eq('subscription_id', subscriptionId)
@@ -184,7 +184,7 @@ export class RenewalExecutor {
   private async validateBillingWindow(
     subscriptionId: string
   ): Promise<{ valid: boolean; reason?: string; billingCycle?: 'monthly' | 'quarterly' | 'yearly' }> {
-    const { data: subscription, error } = await supabase
+    const { data: subscription, error } = await databaseRepository
       .from('subscriptions')
       .select('next_billing_date, status, billing_cycle')
       .eq('id', subscriptionId)
@@ -218,7 +218,7 @@ export class RenewalExecutor {
       return { viewPublicKey: envView, spendPublicKey: envSpend };
     }
 
-    const { data: profile } = await supabase
+    const { data: profile } = await databaseRepository
       .from('profiles')
       .select('stealth_meta_address')
       .eq('id', userId)
@@ -318,7 +318,7 @@ export class RenewalExecutor {
         nextBilling = addMonths(now, 1);
     }
 
-    await supabase
+    await databaseRepository
       .from('subscriptions')
       .update({
         status: 'active',
@@ -339,7 +339,7 @@ export class RenewalExecutor {
   ): Promise<void> {
     const correlationId = getRequestId();
     
-    await supabase.from('renewal_logs').insert({
+    await databaseRepository.from('renewal_logs').insert({
       subscription_id: subscriptionId,
       user_id: userId,
       status: 'success',
@@ -359,7 +359,7 @@ export class RenewalExecutor {
     // Telegram payment confirmation (non-blocking)
     try {
       const { telegramNotificationService } = await import('./telegram-notification-service');
-      const { data: sub } = await supabase
+      const { data: sub } = await databaseRepository
         .from('subscriptions')
         .select('name, price, currency, billing_cycle')
         .eq('id', subscriptionId)
@@ -399,7 +399,7 @@ export class RenewalExecutor {
   ): Promise<RenewalResult> {
     const correlationId = getRequestId();
     
-    await supabase.from('renewal_logs').insert({
+    await databaseRepository.from('renewal_logs').insert({
       subscription_id: subscriptionId,
       user_id: userId,
       status: 'failed',

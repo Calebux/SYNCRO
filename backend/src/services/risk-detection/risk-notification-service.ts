@@ -3,7 +3,7 @@
  * Handles notifications for risk level changes
  */
 
-import { supabase } from '../../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../../config/database';
 import logger from '../../config/logger';
 import { RiskLevel, RiskScore, RiskNotificationPayload } from '../../types/risk-detection';
 import { emailService } from '../email-service';
@@ -59,7 +59,7 @@ export class RiskNotificationService {
    */
   private async getPushSub(userId: string): Promise<PushSubscription | null> {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from('push_subscriptions')
         .select('endpoint, p256dh, auth')
         .eq('user_id', userId)
@@ -110,7 +110,7 @@ export class RiskNotificationService {
       }
 
       // 3. Store In-App Notification
-      await supabase.from('notifications').insert({
+      await databaseRepository.from('notifications').insert({
         user_id: payload.user_id,
         type: 'risk_alert',
         message: this.buildNotificationMessage(payload),
@@ -216,7 +216,7 @@ export class RiskNotificationService {
     riskLevel: RiskLevel
   ): Promise<void> {
     try {
-      await supabase
+      await databaseRepository
         .from('subscription_risk_scores')
         .update({
           last_notified_risk_level: riskLevel,

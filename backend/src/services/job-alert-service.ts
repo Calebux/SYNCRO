@@ -4,7 +4,7 @@
  */
 
 import * as Sentry from '@sentry/node';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import {
   evaluateJobThresholds,
@@ -178,11 +178,11 @@ export class JobAlertService {
     const since = new Date(now - 24 * 60 * 60 * 1000).toISOString();
 
     const [notificationRes, webhookRes] = await Promise.all([
-      supabase
+      databaseRepository
         .from('notification_dead_letter_queue')
         .select('id', { count: 'exact', head: true })
         .gte('dead_letter_at', since),
-      supabase
+      databaseRepository
         .from('webhook_deliveries')
         .select('id', { count: 'exact', head: true })
         .eq('is_dead_letter', true)

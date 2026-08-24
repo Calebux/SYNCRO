@@ -13,7 +13,7 @@
  */
 
 import logger from '../config/logger';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import { RpcClient } from '../../../shared/src/rpc-client';
 import {
   getBlockchainFlags,
@@ -129,7 +129,7 @@ async function fetchEvents(
 }
 
 async function getCursor(): Promise<number> {
-  const { data } = await supabase
+  const { data } = await databaseRepository
     .from('event_cursor')
     .select('last_ledger')
     .eq('id', 1)
@@ -138,7 +138,7 @@ async function getCursor(): Promise<number> {
 }
 
 async function saveCursor(ledger: number): Promise<void> {
-  await supabase
+  await databaseRepository
     .from('event_cursor')
     .upsert({ id: 1, last_ledger: ledger, updated_at: new Date().toISOString() });
 }
@@ -167,7 +167,7 @@ async function persistEvents(events: RawEvent[]): Promise<void> {
   }));
 
   // Upsert on transaction_hash to guarantee idempotency
-  const { error } = await supabase
+  const { error } = await databaseRepository
     .from('blockchain_logs')
     .upsert(rows, { onConflict: 'transaction_hash', ignoreDuplicates: true });
 

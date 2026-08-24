@@ -1,4 +1,4 @@
-import { supabase, monitorPool, PoolMetrics } from '../config/database';
+import { supabase, databaseRepository, databaseRepository, monitorPool, PoolMetrics } from '../config/database';
 import logger from '../config/logger';
 import { ExternalServiceClient, ServiceMetrics } from '../utils/external-service-client';
 import { apiLatencyService, EndpointLatencyMetrics } from './api-latency-service';
@@ -191,9 +191,9 @@ export class MonitoringService {
                     // Limit raw fetch for metrics that can't be computed with simple counts
                     { data: subs }
                 ] = await Promise.all([
-                    supabase.from('subscriptions').select('*', { count: 'exact', head: true }),
-                    supabase.from('subscriptions').select('*', { count: 'exact', head: true }).eq('status', 'active'),
-                    supabase.from('subscriptions').select('category, price, status, billing_cycle').limit(10000)
+                    databaseRepository.from('subscriptions').select('*', { count: 'exact', head: true }),
+                    databaseRepository.from('subscriptions').select('*', { count: 'exact', head: true }).eq('status', 'active'),
+                    databaseRepository.from('subscriptions').select('category, price, status, billing_cycle').limit(10000)
                 ]);
 
                 const metrics: SubscriptionMetrics = {
@@ -226,7 +226,7 @@ export class MonitoringService {
             const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
             
             // Limit to last 24h of deliveries and cap the result set
-            const { data: deliveries, error } = await supabase
+            const { data: deliveries, error } = await databaseRepository
                 .from('notification_deliveries')
                 .select('channel, status')
                 .gte('created_at', yesterday)
@@ -279,10 +279,10 @@ export class MonitoringService {
                 { count: processedCount },
                 { data: bcLogs }
             ] = await Promise.all([
-                supabase.from('reminder_schedules').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
-                supabase.from('reminder_schedules').select('*', { count: 'exact', head: true }).neq('status', 'pending').gte('updated_at', yesterday),
+                databaseRepository.from('reminder_schedules').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
+                databaseRepository.from('reminder_schedules').select('*', { count: 'exact', head: true }).neq('status', 'pending').gte('updated_at', yesterday),
                 // Optimized log query with limit and date filter
-                supabase.from('blockchain_logs')
+                databaseRepository.from('blockchain_logs')
                     .select('status, created_at')
                     .gte('created_at', yesterday)
                     .order('created_at', { ascending: false })
@@ -311,20 +311,20 @@ export class MonitoringService {
           { count: expiringTrials },
           { data: conversionEvents },
         ] = await Promise.all([
-          supabase
+          databaseRepository
             .from('subscriptions')
             .select('*', { count: 'exact', head: true })
             .eq('is_trial', true)
             .in('status', ['active', 'trial'])
             .gt('trial_ends_at', now),
-          supabase
+          databaseRepository
             .from('subscriptions')
             .select('*', { count: 'exact', head: true })
             .eq('is_trial', true)
             .in('status', ['active', 'trial'])
             .gt('trial_ends_at', now)
             .lte('trial_ends_at', in7Days),
-          supabase
+          databaseRepository
             .from('trial_conversion_events')
             .select('conversion_type, saved_by_syncro'),
         ]);
@@ -377,23 +377,23 @@ export class MonitoringService {
                 { data: renewals, error: rnErr },
                 { data: bcEvents, error: bcErr },
             ] = await Promise.all([
-                supabase
+                databaseRepository
                     .from('reminder_schedules')
                     .select('status')
                     .in('status', ['sent', 'failed'])
                     .gte('updated_at', since)
                     .limit(10000),
-                supabase
+                databaseRepository
                     .from('notification_deliveries')
                     .select('channel, status')
                     .gte('created_at', since)
                     .limit(10000),
-                supabase
+                databaseRepository
                     .from('renewal_logs')
                     .select('status')
                     .gte('created_at', since)
                     .limit(10000),
-                supabase
+                databaseRepository
                     .from('blockchain_logs')
                     .select('status')
                     .gte('created_at', since)
@@ -449,13 +449,13 @@ export class MonitoringService {
                 { data: deliveries, error: dErr },
                 { data: renewals, error: rErr },
             ] = await Promise.all([
-                supabase
+                databaseRepository
                     .from('notification_deliveries')
                     .select('created_at, last_attempt_at')
                     .not('last_attempt_at', 'is', null)
                     .gte('created_at', since)
                     .limit(10000),
-                supabase
+                databaseRepository
                     .from('renewal_logs')
                     .select('created_at, updated_at')
                     .not('updated_at', 'is', null)
@@ -503,7 +503,7 @@ export class MonitoringService {
         return this.timeQuery('getRetryMetrics', (async () => {
             const since = this.windowStart(windowHours);
 
-            const { data: deliveries, error } = await supabase
+            const { data: deliveries, error } = await databaseRepository
                 .from('notification_deliveries')
                 .select('channel, status, attempt_count')
                 .gte('created_at', since)
@@ -581,7 +581,7 @@ export class MonitoringService {
         return this.timeQuery('getFailedItems', (async () => {
             if (type === 'reminder') {
                 // Failed notification deliveries
-                const { data, error, count } = await supabase
+                const { data, error, count } = await databaseRepository
                     .from('notification_deliveries')
                     .select(
                         'id, status, channel, attempt_count, error_message, created_at, updated_at, reminder_schedules!inner(subscription_id, user_id)',
@@ -610,7 +610,7 @@ export class MonitoringService {
 
             } else if (type === 'renewal') {
                 // Failed renewal executions
-                const { data, error, count } = await supabase
+                const { data, error, count } = await databaseRepository
                     .from('renewal_logs')
                     .select(
                         'id, status, failure_reason, error_message, subscription_id, user_id, created_at, updated_at',
@@ -638,7 +638,7 @@ export class MonitoringService {
 
             } else {
                 // Failed blockchain events
-                const { data, error, count } = await supabase
+                const { data, error, count } = await databaseRepository
                     .from('blockchain_logs')
                     .select(
                         'id, status, error_message, subscription_id, user_id, created_at',

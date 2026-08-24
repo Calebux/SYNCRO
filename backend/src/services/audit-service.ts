@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { getRequestId } from '../middleware/requestContext';
 import {
@@ -159,7 +159,7 @@ class AuditService {
 
   /** Read the current tip of the chain: its sequence number and hash. */
   private async readChainTip(): Promise<{ sequence: number; hash: string | null }> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('audit_logs')
       .select('sequence, entry_hash')
       .not('sequence', 'is', null)
@@ -238,7 +238,7 @@ class AuditService {
         const tip = await this.readChainTip();
         const rows = this.buildChainedRows(entries, tip);
 
-        const query = supabase.from('audit_logs').insert(rows);
+        const query = databaseRepository.from('audit_logs').insert(rows);
         const { data, error } = select ? await query.select() : await query;
 
         if (!error) return { data: (data as unknown[] | null) ?? null };
@@ -349,7 +349,7 @@ class AuditService {
     }
   ): Promise<AuditEntry[]> {
     try {
-      let query = supabase
+      let query = databaseRepository
         .from('audit_logs')
         .select('*')
         .eq('user_id', userId)
@@ -395,7 +395,7 @@ class AuditService {
     endDate?: string;
   }): Promise<AuditEntry[]> {
     try {
-      let query = supabase
+      let query = databaseRepository
         .from('audit_logs')
         .select('*')
         .order('created_at', { ascending: false });
@@ -458,7 +458,7 @@ class AuditService {
   }): Promise<ChainVerificationResult> {
     const limit = Math.min(options?.limit ?? 1000, 10000);
 
-    let query = supabase
+    let query = databaseRepository
       .from('audit_logs')
       .select('*')
       .not('sequence', 'is', null)
@@ -486,7 +486,7 @@ class AuditService {
     const firstSequence = rows[0]?.sequence == null ? null : Number(rows[0].sequence);
 
     if (firstSequence !== null && firstSequence > 1) {
-      const { data: predecessor } = await supabase
+      const { data: predecessor } = await databaseRepository
         .from('audit_logs')
         .select('entry_hash')
         .eq('sequence', firstSequence - 1)
@@ -521,7 +521,7 @@ class AuditService {
     userId?: string;
   }): Promise<number> {
     try {
-      let query = supabase.from('audit_logs').select('*', { count: 'exact', head: true });
+      let query = databaseRepository.from('audit_logs').select('*', { count: 'exact', head: true });
 
       if (options?.action) {
         query = query.eq('action', options.action);

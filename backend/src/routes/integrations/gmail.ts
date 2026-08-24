@@ -7,7 +7,7 @@ import {
 } from '../../services/gmail-service'
 import { encrypt, decrypt } from '../../utils/encryption'
 import { createState, consumeState } from '../../../utils/oauth-state'
-import { supabase } from '../../config/database'
+import { supabase, databaseRepository } from '../../config/database'
 import { AuthenticatedRequest } from '../../middleware/auth'
 
 const router: Router = Router()
@@ -38,7 +38,7 @@ router.get('/callback', async (req: AuthenticatedRequest, res: Response, next: N
     const tokens = await exchangeGmailCodeForTokens(code)
     const profile = await getGmailProfile(tokens)
 
-    const { error: dbError } = await supabase
+    const { error: dbError } = await databaseRepository
       .from('email_accounts')
       .upsert(
         {
@@ -110,7 +110,7 @@ router.delete('/:id', async (req: AuthenticatedRequest, res: Response, next: Nex
   try {
     const { id } = req.params
 
-    const { error, count } = await supabase
+    const { error, count } = await databaseRepository
       .from('email_accounts')
       .delete({ count: 'exact' })
       .eq('id', id)

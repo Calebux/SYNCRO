@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import {
   buildCategoryMonthlySpend,
@@ -60,9 +60,9 @@ export class AnalyticsService {
 
     try {
       const [subsRes, budgetsRes, suggestionsRes] = await Promise.all([
-        supabase.from('subscriptions').select('*').in('user_id', ids).eq('status', 'active'),
-        supabase.from('monthly_budgets').select('*').in('user_id', ids),
-        supabase
+        databaseRepository.from('subscriptions').select('*').in('user_id', ids).eq('status', 'active'),
+        databaseRepository.from('monthly_budgets').select('*').in('user_id', ids),
+        databaseRepository
           .from('suggestions')
           .select('user_id, savings_per_year')
           .in('user_id', ids)
@@ -175,7 +175,7 @@ export class AnalyticsService {
    * Get user budgets
    */
   async getUserBudgets(userId: string) {
-    return await supabase
+    return await databaseRepository
       .from('monthly_budgets')
       .select('*')
       .eq('user_id', userId);
@@ -185,7 +185,7 @@ export class AnalyticsService {
    * Upsert a budget
    */
   async upsertBudget(userId: string, budget: Partial<Budget>) {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('monthly_budgets')
       .upsert({
         ...budget,
@@ -240,7 +240,7 @@ export class AnalyticsService {
       if (breached.length === 0) return;
 
       // Check which users were already notified this month, to prevent spam.
-      const { data: existing } = await supabase
+      const { data: existing } = await databaseRepository
         .from('notifications')
         .select('user_id')
         .in('user_id', breached.map((entry) => entry.userId))
@@ -276,7 +276,7 @@ export class AnalyticsService {
         });
 
       if (notifications.length > 0) {
-        await supabase.from('notifications').insert(notifications);
+        await databaseRepository.from('notifications').insert(notifications);
       }
     } catch (error) {
       logger.error('Error checking budget threshold:', error);
@@ -288,7 +288,7 @@ export class AnalyticsService {
    */
   async getSpending(userId: string) {
     try {
-      const { data: subscriptions, error: subError } = await supabase
+      const { data: subscriptions, error: subError } = await databaseRepository
         .from('subscriptions')
         .select('*')
         .eq('user_id', userId);
@@ -316,7 +316,7 @@ export class AnalyticsService {
    */
   async getForecast(userId: string) {
     try {
-      const { data: subscriptions, error: subError } = await supabase
+      const { data: subscriptions, error: subError } = await databaseRepository
         .from('subscriptions')
         .select('*')
         .eq('user_id', userId)

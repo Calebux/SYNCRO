@@ -1,5 +1,5 @@
 import logger from '../../config/logger';
-import { supabase } from '../../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../../config/database';
 import { STATIC_RATES_USD } from './static-rates';
 import { RedisCacheAdapter } from './redis-cache';
 import type { ExchangeRateProvider, CachedRates, ExchangeRateResponse } from './types';
@@ -261,7 +261,7 @@ export class ExchangeRateService {
     source: string,
   ): Promise<void> {
     try {
-      const { error } = await supabase.from('exchange_rate_history').insert({
+      const { error } = await databaseRepository.from('exchange_rate_history').insert({
         base_currency: baseCurrency,
         rates,
         source,

@@ -1,7 +1,7 @@
 import { Telegraf, Context } from 'telegraf';
 import { randomUUID } from 'crypto';
 import logger from '../config/logger';
-import { supabase, trackDbRequest } from '../config/database';
+import { supabase, databaseRepository, trackDbRequest } from '../config/database';
 import { Subscription } from '../types/subscription';
 import { UserRole } from '../middleware/auth';
 import { ROLE_PERMISSIONS } from '../middleware/rbac';
@@ -132,7 +132,7 @@ export function roleHasPermission(role: UserRole, permission: string): boolean {
 export async function getUserIdByChatId(chatId: string): Promise<string | null> {
   const release = trackDbRequest();
   try {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('profiles')
       .select('id')
       .eq('telegram_chat_id', chatId)
@@ -148,7 +148,7 @@ export async function getUserIdByChatId(chatId: string): Promise<string | null> 
 export async function getActiveSubscriptions(userId: string): Promise<Subscription[]> {
   const release = trackDbRequest();
   try {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('subscriptions')
       .select('id, name, price, currency, billing_cycle, status')
       .eq('user_id', userId)
@@ -169,7 +169,7 @@ export async function getUpcomingRenewals(userId: string): Promise<UpcomingRenew
     const cutoff = new Date(now);
     cutoff.setDate(cutoff.getDate() + UPCOMING_RENEWAL_DAYS);
 
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('subscriptions')
       .select('id, name, price, currency, billing_cycle, next_billing_date')
       .eq('user_id', userId)
@@ -223,7 +223,7 @@ export async function snoozeRenewalReminder(
     const mutedUntil = new Date();
     mutedUntil.setDate(mutedUntil.getDate() + snoozeDays);
 
-    const { error } = await supabase
+    const { error } = await databaseRepository
       .from('subscription_notification_preferences')
       .upsert(
         {

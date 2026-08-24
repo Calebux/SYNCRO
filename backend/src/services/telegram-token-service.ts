@@ -13,7 +13,7 @@
  */
 
 import { encrypt, decrypt } from '../utils/encryption';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 
 export interface TelegramConnectionRow {
@@ -49,7 +49,7 @@ export class TelegramTokenService {
         ? encrypt(accessToken)
         : null;
 
-    const { error } = await supabase
+    const { error } = await databaseRepository
       .from('user_telegram_connections')
       .upsert(
         {
@@ -81,7 +81,7 @@ export class TelegramTokenService {
    * Returns null when no token is stored for the user.
    */
   static async getDecryptedToken(userId: string): Promise<string | null> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('user_telegram_connections')
       .select('access_token')
       .eq('user_id', userId)
@@ -104,7 +104,7 @@ export class TelegramTokenService {
    * revocation fails we always remove local credentials.
    */
   static async disconnectUser(userId: string): Promise<void> {
-    const { data: connection } = await supabase
+    const { data: connection } = await databaseRepository
       .from('user_telegram_connections')
       .select('*')
       .eq('user_id', userId)
@@ -147,7 +147,7 @@ export class TelegramTokenService {
     }
 
     // Remove local credentials unconditionally.
-    const { error: deleteError } = await supabase
+    const { error: deleteError } = await databaseRepository
       .from('user_telegram_connections')
       .delete()
       .eq('user_id', userId);
@@ -167,7 +167,7 @@ export class TelegramTokenService {
    * Look up the chat_id for a user without decrypting any tokens.
    */
   static async getChatId(userId: string): Promise<string | null> {
-    const { data } = await supabase
+    const { data } = await databaseRepository
       .from('user_telegram_connections')
       .select('chat_id')
       .eq('user_id', userId)

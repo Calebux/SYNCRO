@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import ical, { ICalCalendar } from 'ical-generator';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { userPreferenceService } from './user-preference-service';
 import type { Subscription } from '../types/reminder';
@@ -174,7 +174,7 @@ export class CalendarService {
   }
 
   private async fetchSubscriptions(userId: string, status: string): Promise<Subscription[]> {
-    let query = supabase
+    let query = databaseRepository
       .from('subscriptions')
       .select('*')
       .eq('user_id', userId)
@@ -197,7 +197,7 @@ export class CalendarService {
   }
 
   private async fetchReminderSchedules(userId: string): Promise<ReminderScheduleRow[]> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('reminder_schedules')
       .select('id, subscription_id, reminder_date, reminder_type, days_before, status, subscriptions(name, price, billing_cycle, status)')
       .eq('user_id', userId)

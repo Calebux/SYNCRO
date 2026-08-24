@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import * as stellarSdk from '@stellar/stellar-sdk';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { emitSecurityEvent } from '../services/audit-service';
 
@@ -83,7 +83,7 @@ router.post('/verify', async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user!.id;
 
     // Persist verification to the dedicated wallet_verifications table
-    const { error: dbError } = await supabase
+    const { error: dbError } = await databaseRepository
       .from('wallet_verifications')
       .upsert(
         {
@@ -174,7 +174,7 @@ router.get('/status', async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user!.id;
 
     // Check the dedicated table first
-    const { data: dbVerifications, error: dbError } = await supabase
+    const { data: dbVerifications, error: dbError } = await databaseRepository
       .from('wallet_verifications')
       .select('*')
       .eq('user_id', userId)
@@ -261,7 +261,7 @@ router.post('/revoke', async (req: AuthenticatedRequest, res: Response) => {
     }
 
     // Revoke in the dedicated table
-    const { error: revokeError } = await supabase
+    const { error: revokeError } = await databaseRepository
       .from('wallet_verifications')
       .update({
         revoked_at: new Date().toISOString(),
@@ -280,7 +280,7 @@ router.post('/revoke', async (req: AuthenticatedRequest, res: Response) => {
     }
 
     // Log the revocation
-    await supabase.from('wallet_verification_revocations').insert({
+    await databaseRepository.from('wallet_verification_revocations').insert({
       user_id: userId,
       public_key: publicKey,
       reason: reason || 'User requested revocation',

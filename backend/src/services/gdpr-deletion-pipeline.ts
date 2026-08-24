@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { removeUserFromSentry } from './sentry-user-deletion';
 
@@ -41,7 +41,7 @@ async function recordAuditStep(
   metadata: Record<string, unknown> = {},
 ): Promise<void> {
   try {
-    const { error } = await supabase.from('deletion_audit_trail').insert({
+    const { error } = await databaseRepository.from('deletion_audit_trail').insert({
       deletion_id: deletionId,
       step,
       status,
@@ -60,7 +60,7 @@ async function cascadeDeleteUserTables(userId: string): Promise<number> {
   let tablesProcessed = 0;
 
   for (const table of USER_DATA_TABLES) {
-    const { error } = await supabase.from(table).delete().eq('user_id', userId);
+    const { error } = await databaseRepository.from(table).delete().eq('user_id', userId);
     if (error) {
       // Table may not exist in all environments — log and continue
       logger.warn(`GDPR cascade: could not purge ${table}`, { userId, error: error.message });
@@ -70,7 +70,7 @@ async function cascadeDeleteUserTables(userId: string): Promise<number> {
   }
 
   // Cancel and anonymize subscriptions (retain anonymized billing history)
-  await supabase
+  await databaseRepository
     .from('subscriptions')
     .update({
       status: 'cancelled',
@@ -83,7 +83,7 @@ async function cascadeDeleteUserTables(userId: string): Promise<number> {
     .eq('user_id', userId);
 
   // Remove profile PII before auth cascade
-  await supabase
+  await databaseRepository
     .from('profiles')
     .update({
       full_name: null,
@@ -98,7 +98,7 @@ async function cascadeDeleteUserTables(userId: string): Promise<number> {
 }
 
 async function anonymizeBlockchainReferences(userId: string): Promise<number> {
-  const { data: subscriptions } = await supabase
+  const { data: subscriptions } = await databaseRepository
     .from('subscriptions')
     .select('blockchain_sub_id')
     .eq('user_id', userId)
@@ -115,7 +115,7 @@ async function anonymizeBlockchainReferences(userId: string): Promise<number> {
   let anonymized = 0;
 
   for (const subId of subIds) {
-    const { data: events } = await supabase
+    const { data: events } = await databaseRepository
       .from('contract_events')
       .select('id, event_data')
       .eq('sub_id', subId);
@@ -129,7 +129,7 @@ async function anonymizeBlockchainReferences(userId: string): Promise<number> {
         user_reference: null,
       };
 
-      await supabase
+      await databaseRepository
         .from('contract_events')
         .update({
           tx_hash: `redacted_${event.id}`,
@@ -140,7 +140,7 @@ async function anonymizeBlockchainReferences(userId: string): Promise<number> {
       anonymized += 1;
     }
 
-    await supabase
+    await databaseRepository
       .from('renewal_approvals')
       .update({ rejection_reason: null })
       .eq('blockchain_sub_id', subId);
@@ -150,7 +150,7 @@ async function anonymizeBlockchainReferences(userId: string): Promise<number> {
 }
 
 async function anonymizeAuditLogs(userId: string): Promise<void> {
-  await supabase
+  await databaseRepository
     .from('audit_logs')
     .update({ user_id: null, ip_address: null, user_agent: null })
     .eq('user_id', userId);

@@ -8,6 +8,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { DatabaseRepository } from '../repositories/database.repository';
 import SERVICE_CATEGORIES from './service-categories';
 import logger from '../src/config/logger';
 
@@ -108,7 +109,7 @@ async function checkDbCache(
   serviceName: string,
 ): Promise<ClassificationResult | null> {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await new DatabaseRepository(supabase)
       .from('subscription_classifications')
       .select('category')
       .eq('service_name', serviceName)
@@ -133,7 +134,7 @@ async function saveToDbCache(
   category: Category,
 ): Promise<void> {
   try {
-    await supabase
+    await new DatabaseRepository(supabase)
       .from('subscription_classifications')
       .upsert(
         { service_name: serviceName, category, created_at: new Date().toISOString() },

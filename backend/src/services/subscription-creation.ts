@@ -13,6 +13,7 @@
 
 import type { Request, Response } from 'express';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { DatabaseRepository } from '../repositories/database.repository';
 import { classifyService, type Confidence, type ClassificationSource } from './subscription-classifier';
 import logger from '../src/config/logger';
 
@@ -77,7 +78,7 @@ export async function handleCreateSubscription(
   }
 
   // ── Insert subscription ───────────────────────────────────────────────────
-  const { data: subscription, error } = await supabase
+  const { data: subscription, error } = await new DatabaseRepository(req.supabase)
     .from('subscriptions')
     .insert({
       user_id: userId,

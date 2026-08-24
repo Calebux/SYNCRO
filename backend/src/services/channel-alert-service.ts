@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { sendSlackAlert } from './slack-service';
 import { channelStateService } from './channel-state';
@@ -15,7 +15,7 @@ async function wasAlertSent(
   channelId: string,
   alertType: ChannelAlertType,
 ): Promise<boolean> {
-  const { data } = await supabase
+  const { data } = await databaseRepository
     .from('channel_alert_logs')
     .select('id')
     .eq('user_id', userId)
@@ -30,7 +30,7 @@ async function recordAlert(
   channelId: string,
   alertType: ChannelAlertType,
 ): Promise<void> {
-  await supabase.from('channel_alert_logs').upsert({
+  await databaseRepository.from('channel_alert_logs').upsert({
     user_id: userId,
     channel_id: channelId,
     alert_type: alertType,
@@ -39,7 +39,7 @@ async function recordAlert(
 }
 
 async function getNotificationChannels(userId: string): Promise<string[]> {
-  const { data } = await supabase
+  const { data } = await databaseRepository
     .from('user_preferences')
     .select('notification_channels')
     .eq('user_id', userId)
@@ -49,21 +49,21 @@ async function getNotificationChannels(userId: string): Promise<string[]> {
 }
 
 async function getTeamSlackWebhook(userId: string): Promise<string | null> {
-  const { data: ownedTeam } = await supabase
+  const { data: ownedTeam } = await databaseRepository
     .from('teams')
     .select('slack_webhook_url')
     .eq('owner_id', userId)
     .maybeSingle();
   if (ownedTeam?.slack_webhook_url) return ownedTeam.slack_webhook_url;
 
-  const { data: membership } = await supabase
+  const { data: membership } = await databaseRepository
     .from('team_members')
     .select('team_id')
     .eq('user_id', userId)
     .maybeSingle();
   if (!membership) return null;
 
-  const { data: team } = await supabase
+  const { data: team } = await databaseRepository
     .from('teams')
     .select('slack_webhook_url')
     .eq('id', membership.team_id)
@@ -80,7 +80,7 @@ async function dispatchAlert(
   const channels = await getNotificationChannels(userId);
 
   if (channels.includes('email') || channels.includes('push')) {
-    await supabase.from('notifications').insert({
+    await databaseRepository.from('notifications').insert({
       user_id: userId,
       type,
       message,

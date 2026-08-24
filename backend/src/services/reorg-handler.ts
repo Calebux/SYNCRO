@@ -1,5 +1,5 @@
 import logger from '../config/logger';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import { LIFECYCLE_COLUMN_MAP } from './event-listener';
 import { DBContractEvent, EventType } from '../types/contract-events';
 
@@ -17,7 +17,7 @@ export class ReorgHandler {
     const safePoint = fromLedger - this.reorgDepth;
     
     // Get affected events
-    const { data: events } = await supabase
+    const { data: events } = await databaseRepository
       .from('contract_events')
       .select('*')
       .gte('ledger', safePoint) as { data: DBContractEvent[] | null };
@@ -32,13 +32,13 @@ export class ReorgHandler {
     }
 
     // Delete rolled back events
-    await supabase
+    await databaseRepository
       .from('contract_events')
       .delete()
       .gte('ledger', safePoint);
 
     // Update cursor
-    await supabase
+    await databaseRepository
       .from('event_cursor')
       .update({ last_ledger: safePoint - 1 })
       .eq('id', 1);
@@ -51,7 +51,7 @@ export class ReorgHandler {
 
     switch (event_type) {
       case EventType.RENEWAL_SUCCESS:
-        await supabase
+        await databaseRepository
           .from('subscriptions')
           .update({ status: 'pending', last_renewal_cycle_id: null })
           .eq('blockchain_sub_id', sub_id);
@@ -63,7 +63,7 @@ export class ReorgHandler {
 
       case EventType.STATE_TRANSITION:
         // Fetch previous state from earlier events
-        const { data: prevEvent } = await supabase
+        const { data: prevEvent } = await databaseRepository
           .from('contract_events')
           .select('event_data')
           .eq('sub_id', sub_id)
@@ -73,7 +73,7 @@ export class ReorgHandler {
           .single();
 
         if (prevEvent) {
-          await supabase
+          await databaseRepository
             .from('subscriptions')
             .update({ status: prevEvent.event_data.new_state?.toLowerCase() || 'active' })
             .eq('blockchain_sub_id', sub_id);
@@ -81,7 +81,7 @@ export class ReorgHandler {
         break;
 
       case EventType.APPROVAL_CREATED:
-        await supabase
+        await databaseRepository
           .from('renewal_approvals')
           .delete()
           .eq('blockchain_sub_id', sub_id)
@@ -91,7 +91,7 @@ export class ReorgHandler {
       case EventType.LIFECYCLE_TIMESTAMP_UPDATED:
         const col = LIFECYCLE_COLUMN_MAP[event.event_data?.event_kind as number];
         if (col) {
-          await supabase
+          await databaseRepository
             .from('subscriptions')
             .update({ [col]: null })
             .eq('blockchain_sub_id', sub_id);

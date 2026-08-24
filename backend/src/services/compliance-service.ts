@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { emailService } from './email-service';
 import { executeGdprDeletionPipeline } from './gdpr-deletion-pipeline';
@@ -90,16 +90,16 @@ export class ComplianceService {
       renewalApprovalsResult,
       blindingFactorsResult,
     ] = await Promise.all([
-      supabase.from('profiles').select('*').eq('id', userId).single(),
-      supabase.from('subscriptions').select('*').eq('user_id', userId),
-      supabase.from('notifications').select('*').eq('user_id', userId),
-      supabase.from('audit_logs').select('*').eq('user_id', userId),
-      supabase.from('user_preferences').select('*').eq('user_id', userId).single(),
-      supabase.from('email_accounts').select('*').eq('user_id', userId),
-      supabase.from('team_members').select('*').eq('user_id', userId),
-      supabase.from('contract_events').select('*').eq('user_id', userId),
-      supabase.from('renewal_approvals').select('*').eq('user_id', userId),
-      supabase.from('commitment_blinding_factors').select('*').eq('user_id', userId),
+      databaseRepository.from('profiles').select('*').eq('id', userId).single(),
+      databaseRepository.from('subscriptions').select('*').eq('user_id', userId),
+      databaseRepository.from('notifications').select('*').eq('user_id', userId),
+      databaseRepository.from('audit_logs').select('*').eq('user_id', userId),
+      databaseRepository.from('user_preferences').select('*').eq('user_id', userId).single(),
+      databaseRepository.from('email_accounts').select('*').eq('user_id', userId),
+      databaseRepository.from('team_members').select('*').eq('user_id', userId),
+      databaseRepository.from('contract_events').select('*').eq('user_id', userId),
+      databaseRepository.from('renewal_approvals').select('*').eq('user_id', userId),
+      databaseRepository.from('commitment_blinding_factors').select('*').eq('user_id', userId),
     ]);
 
     return {
@@ -119,7 +119,7 @@ export class ComplianceService {
   }
 
   async requestDeletion(userId: string, reason?: string): Promise<any> {
-    const { data: existing, error: checkError } = await supabase
+    const { data: existing, error: checkError } = await databaseRepository
       .from('account_deletions')
       .select('*')
       .eq('user_id', userId)
@@ -134,7 +134,7 @@ export class ComplianceService {
     const scheduledDeletionAt = new Date(now);
     scheduledDeletionAt.setDate(scheduledDeletionAt.getDate() + 30);
 
-    const { data: cancelledRow } = await supabase
+    const { data: cancelledRow } = await databaseRepository
       .from('account_deletions')
       .select('id')
       .eq('user_id', userId)
@@ -144,7 +144,7 @@ export class ComplianceService {
     let deletionRecord;
 
     if (cancelledRow) {
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from('account_deletions')
         .update({
           status: 'pending',
@@ -169,7 +169,7 @@ export class ComplianceService {
         reason: reason || null,
       };
 
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from('account_deletions')
         .insert(insertData)
         .select()
@@ -179,13 +179,13 @@ export class ComplianceService {
       deletionRecord = data;
     }
 
-    await supabase
+    await databaseRepository
       .from('subscriptions')
       .update({ status: 'cancelled', updated_at: now.toISOString() })
       .eq('user_id', userId)
       .in('status', ['active', 'paused']);
 
-    await supabase.from('audit_logs').insert({
+    await databaseRepository.from('audit_logs').insert({
       user_id: userId,
       action: 'account_deletion_requested',
       resource_type: 'account',
@@ -214,7 +214,7 @@ export class ComplianceService {
   }
 
   async cancelDeletion(userId: string): Promise<any> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('account_deletions')
       .update({
         status: 'cancelled',
@@ -227,7 +227,7 @@ export class ComplianceService {
 
     if (error) throw new Error(`Failed to cancel deletion: ${error.message}`);
 
-    await supabase.from('audit_logs').insert({
+    await databaseRepository.from('audit_logs').insert({
       user_id: userId,
       action: 'account_deletion_cancelled',
       resource_type: 'account',
@@ -239,7 +239,7 @@ export class ComplianceService {
   }
 
   async getDeletionStatus(userId: string): Promise<any | null> {
-    const { data } = await supabase
+    const { data } = await databaseRepository
       .from('account_deletions')
       .select('*')
       .eq('user_id', userId)
@@ -269,7 +269,7 @@ export class ComplianceService {
       return 0;
     }
 
-    await supabase
+    await databaseRepository
       .from('account_deletions')
       .update({ status: 'completed', completed_at: new Date().toISOString() })
       .eq('id', deletionId);
@@ -281,7 +281,7 @@ export class ComplianceService {
   async processHardDeletes(): Promise<number> {
     const now = new Date().toISOString();
 
-    const { data: pendingDeletions, error } = await supabase
+    const { data: pendingDeletions, error } = await databaseRepository
       .from('account_deletions')
       .select('*')
       .eq('status', 'pending')

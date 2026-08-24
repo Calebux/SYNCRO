@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth';
 import { keyRotationService } from '../services/key-rotation-service';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { emitSecurityEvent } from '../services/audit-service';
 
@@ -37,7 +37,7 @@ router.post('/initiate', async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user!.id;
 
     // Verify the new wallet is verified
-    const { data: verification } = await supabase
+    const { data: verification } = await databaseRepository
       .from('wallet_verifications')
       .select('verified_at')
       .eq('user_id', userId)
@@ -140,7 +140,7 @@ router.post('/reencrypt-subscription', async (req: AuthenticatedRequest, res: Re
     const userId = req.user!.id;
 
     // Update subscription with re-encrypted data
-    const { error: updateError } = await supabase
+    const { error: updateError } = await databaseRepository
       .from('subscriptions')
       .update({
         encrypted_name: encryptedData.encrypted_name,
@@ -156,7 +156,7 @@ router.post('/reencrypt-subscription', async (req: AuthenticatedRequest, res: Re
       logger.error('Error updating re-encrypted subscription:', updateError);
       
       // Mark progress as failed
-      await supabase
+      await databaseRepository
         .from('subscription_reencryption_progress')
         .update({
           status: 'failed',
@@ -173,7 +173,7 @@ router.post('/reencrypt-subscription', async (req: AuthenticatedRequest, res: Re
     }
 
     // Mark progress as completed
-    await supabase
+    await databaseRepository
       .from('subscription_reencryption_progress')
       .update({
         status: 'completed',

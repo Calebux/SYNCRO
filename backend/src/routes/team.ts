@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/rbac';
 import { validate } from '../middleware/validate';
@@ -20,7 +20,7 @@ router.use(authenticate);
 async function resolveUserTeam(
   userId: string
 ): Promise<{ teamId: string; isOwner: boolean; memberRole: string | null } | null> {
-  const { data: ownedTeam } = await supabase
+  const { data: ownedTeam } = await databaseRepository
     .from('teams')
     .select('id')
     .eq('owner_id', userId)
@@ -30,7 +30,7 @@ async function resolveUserTeam(
     return { teamId: ownedTeam.id, isOwner: true, memberRole: null };
   }
 
-  const { data: membership } = await supabase
+  const { data: membership } = await databaseRepository
     .from('team_members')
     .select('team_id, role')
     .eq('user_id', userId)
@@ -59,7 +59,7 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
       return res.json({ success: true, data: [] });
     }
 
-    const { data: members, error } = await supabase
+    const { data: members, error } = await databaseRepository
       .from('team_members')
       .select('id, user_id, role, joined_at')
       .eq('team_id', ctx.teamId)
@@ -89,7 +89,7 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
     });
   }
 
-  const { data: members, error } = await supabase
+  const { data: members, error } = await databaseRepository
     .from('team_members')
     .select('id, user_id, role, joined_at')
     .eq('team_id', ctx.teamId)
@@ -129,7 +129,7 @@ router.post(
       let ctx = await resolveUserTeam(req.user!.id);
 
       if (!ctx) {
-        const { data: newTeam, error: createErr } = await supabase
+        const { data: newTeam, error: createErr } = await databaseRepository
           .from('teams')
           .insert({ name: `${req.user!.email}'s Team`, owner_id: req.user!.id })
           .select('id')
@@ -143,7 +143,7 @@ router.post(
         return res.status(403).json({ success: false, error: 'Only team owners and admins can invite members' });
       }
 
-      const { data: existing } = await supabase
+      const { data: existing } = await databaseRepository
         .from('team_invitations')
         .select('id, expires_at')
         .eq('team_id', ctx.teamId)
@@ -168,7 +168,7 @@ router.post(
         ? await adminAuth.getUserByEmail(email)
         : { data: { user: null } };
 
-      const { data: alreadyMember } = await supabase
+      const { data: alreadyMember } = await databaseRepository
         .from('team_members')
         .select('id')
         .eq('team_id', ctx.teamId)
@@ -182,7 +182,7 @@ router.post(
 
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-      const { data: invitation, error: invErr } = await supabase
+      const { data: invitation, error: invErr } = await databaseRepository
         .from('team_invitations')
         .insert({
           team_id: ctx.teamId,
@@ -196,7 +196,7 @@ router.post(
 
       if (invErr || !invitation) throw invErr ?? new Error('Failed to create invitation');
 
-      const { data: team } = await supabase
+      const { data: team } = await databaseRepository
         .from('teams')
         .select('name')
         .eq('id', ctx.teamId)
@@ -250,7 +250,7 @@ router.get('/pending', requireRole('owner', 'admin'), async (req: AuthenticatedR
       return res.status(403).json({ success: false, error: 'Only team owners and admins can view pending invitations' });
     }
 
-    const { data: invitations, error } = await supabase
+    const { data: invitations, error } = await databaseRepository
       .from('team_invitations')
       .select('id, email, role, expires_at, created_at, invited_by')
       .eq('team_id', ctx.teamId)
@@ -269,7 +269,7 @@ router.get('/pending', requireRole('owner', 'admin'), async (req: AuthenticatedR
     });
   }
 
-  const { data: invitations, error } = await supabase
+  const { data: invitations, error } = await databaseRepository
     .from('team_invitations')
     .select('id, email, role, expires_at, created_at, invited_by')
     .eq('team_id', ctx.teamId)
@@ -289,7 +289,7 @@ router.get('/pending', requireRole('owner', 'admin'), async (req: AuthenticatedR
 router.post('/accept/:token', async (req: AuthenticatedRequest, res: Response) => {
   const { token } = req.params;
 
-  const { data: invitation, error: fetchErr } = await supabase
+  const { data: invitation, error: fetchErr } = await databaseRepository
     .from('team_invitations')
     .select('*')
     .eq('token', token)
@@ -311,7 +311,7 @@ router.post('/accept/:token', async (req: AuthenticatedRequest, res: Response) =
       });
     }
 
-    const { data: existing } = await supabase
+    const { data: existing } = await databaseRepository
       .from('team_members')
       .select('id')
       .eq('team_id', invitation.team_id)
@@ -319,7 +319,7 @@ router.post('/accept/:token', async (req: AuthenticatedRequest, res: Response) =
       .single();
 
     if (existing) {
-      await supabase
+      await databaseRepository
         .from('team_invitations')
         .update({ accepted_at: new Date().toISOString() })
         .eq('id', invitation.id);
@@ -327,14 +327,14 @@ router.post('/accept/:token', async (req: AuthenticatedRequest, res: Response) =
       return res.json({ success: true, message: 'You are already a member of this team' });
     }
 
-    const { error: memberErr } = await supabase
+    const { error: memberErr } = await databaseRepository
       .from('team_members')
       .insert({ team_id: invitation.team_id, user_id: req.user!.id, role: invitation.role });
 
     if (memberErr) throw memberErr;
 
   if (existing) {
-    await supabase
+    await databaseRepository
       .from('team_invitations')
       .update({ accepted_at: new Date().toISOString() })
       .eq('id', invitation.id);
@@ -342,13 +342,13 @@ router.post('/accept/:token', async (req: AuthenticatedRequest, res: Response) =
     return res.json({ success: true, message: 'You are already a member of this team' });
   }
 
-  const { error: memberErr } = await supabase
+  const { error: memberErr } = await databaseRepository
     .from('team_members')
     .insert({ team_id: invitation.team_id, user_id: req.user!.id, role: invitation.role });
 
   if (memberErr) throw memberErr;
 
-  await supabase
+  await databaseRepository
     .from('team_invitations')
     .update({ accepted_at: new Date().toISOString() })
     .eq('id', invitation.id);
@@ -375,7 +375,7 @@ router.put(
         return res.status(403).json({ success: false, error: 'Only the team owner can change member roles' });
       }
 
-      const { data: member, error: fetchErr } = await supabase
+      const { data: member, error: fetchErr } = await databaseRepository
         .from('team_members')
         .select('id, user_id, role')
         .eq('id', memberId)
@@ -386,7 +386,7 @@ router.put(
         return res.status(404).json({ success: false, error: 'Team member not found' });
       }
 
-      const { data: updated, error: updateErr } = await supabase
+      const { data: updated, error: updateErr } = await databaseRepository
         .from('team_members')
         .update({ role })
         .eq('id', memberId)
@@ -424,7 +424,7 @@ router.delete('/:memberId', requireRole('owner', 'admin'), async (req: Authentic
       return res.status(403).json({ success: false, error: 'Only team owners and admins can remove members' });
     }
 
-    const { data: member, error: fetchErr } = await supabase
+    const { data: member, error: fetchErr } = await databaseRepository
       .from('team_members')
       .select('id, user_id')
       .eq('id', memberId)
@@ -435,7 +435,7 @@ router.delete('/:memberId', requireRole('owner', 'admin'), async (req: Authentic
       return res.status(404).json({ success: false, error: 'Team member not found' });
     }
 
-    const { data: team } = await supabase
+    const { data: team } = await databaseRepository
       .from('teams')
       .select('owner_id')
       .eq('id', ctx.teamId)
@@ -445,7 +445,7 @@ router.delete('/:memberId', requireRole('owner', 'admin'), async (req: Authentic
       return res.status(400).json({ success: false, error: 'Cannot remove the team owner' });
     }
 
-    const { error: deleteErr } = await supabase
+    const { error: deleteErr } = await databaseRepository
       .from('team_members')
       .delete()
       .eq('id', memberId);
@@ -461,7 +461,7 @@ router.delete('/:memberId', requireRole('owner', 'admin'), async (req: Authentic
     });
   }
 
-  const { data: member, error: fetchErr } = await supabase
+  const { data: member, error: fetchErr } = await databaseRepository
     .from('team_members')
     .select('id, user_id')
     .eq('id', req.params.memberId)
@@ -472,7 +472,7 @@ router.delete('/:memberId', requireRole('owner', 'admin'), async (req: Authentic
     throw new NotFoundError('Team member not found');
   }
 
-  const { data: team } = await supabase
+  const { data: team } = await databaseRepository
     .from('teams')
     .select('owner_id')
     .eq('id', ctx.teamId)
@@ -482,7 +482,7 @@ router.delete('/:memberId', requireRole('owner', 'admin'), async (req: Authentic
     throw new BadRequestError('Cannot remove the team owner');
   }
 
-  const { error: deleteErr } = await supabase
+  const { error: deleteErr } = await databaseRepository
     .from('team_members')
     .delete()
     .eq('id', req.params.memberId);
@@ -513,7 +513,7 @@ router.patch('/slack-webhook', requireRole('owner', 'admin'), async (req: Authen
       return res.status(400).json({ success: false, error: 'Invalid Slack webhook URL' });
     }
 
-    const { error } = await supabase
+    const { error } = await databaseRepository
       .from('teams')
       .update({ slack_webhook_url: slack_webhook_url ?? null })
       .eq('id', ctx.teamId);

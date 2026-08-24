@@ -157,9 +157,9 @@ export class TelegramBotService {
    */
   private async getChatIdForUser(userId: string): Promise<string | null> {
     try {
-      const { supabase } = await import('../config/database');
+      const { supabase, databaseRepository } = await import('../config/database');
 
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from('user_telegram_connections')
         .select('chat_id')
         .eq('user_id', userId)

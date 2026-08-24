@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import {
   paymentChannelService,
@@ -34,7 +34,7 @@ export class ChannelStateService {
   private readonly expiryThresholds: ExpiryAlertDays[] = [7, 3, 1];
 
   async getAverageRenewalAmount(userId: string): Promise<number> {
-    const { data: subs } = await supabase
+    const { data: subs } = await databaseRepository
       .from('subscriptions')
       .select('price')
       .eq('user_id', userId)
@@ -80,7 +80,7 @@ export class ChannelStateService {
   }
 
   async listActiveChannels(): Promise<PaymentChannelRecord[]> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('payment_channels')
       .select('*')
       .eq('state', 'active');
@@ -102,7 +102,7 @@ export class ChannelStateService {
     autoTopUp: boolean;
     autoTopUpAmount: number | null;
   }> {
-    const { data } = await supabase
+    const { data } = await databaseRepository
       .from('profiles')
       .select('channel_auto_top_up, channel_auto_top_up_amount')
       .eq('id', userId)
@@ -120,7 +120,7 @@ export class ChannelStateService {
     userId: string,
     prefs: { autoTopUp?: boolean; autoTopUpAmount?: number | null },
   ): Promise<void> {
-    const { error } = await supabase
+    const { error } = await databaseRepository
       .from('profiles')
       .update({
         ...(prefs.autoTopUp !== undefined && { channel_auto_top_up: prefs.autoTopUp }),
@@ -184,7 +184,7 @@ export class ChannelStateService {
   }
 
   async logChannelPayment(payment: ChannelPaymentLog): Promise<void> {
-    const { error } = await supabase.from('channel_payments').insert({
+    const { error } = await databaseRepository.from('channel_payments').insert({
       channel_id: payment.channelId,
       user_id: payment.userId,
       subscription_id: payment.subscriptionId,
@@ -202,7 +202,7 @@ export class ChannelStateService {
   }
 
   async getSettlementSchedule(userId: string): Promise<SettlementSchedule> {
-    const { data } = await supabase
+    const { data } = await databaseRepository
       .from('profiles')
       .select('channel_settlement_schedule')
       .eq('id', userId)
@@ -215,7 +215,7 @@ export class ChannelStateService {
    * Active channels whose executor-side balance should be settled on-chain.
    */
   async getChannelsDueForSettlement(): Promise<ChannelSettlementCandidate[]> {
-    const { data: channels, error } = await supabase
+    const { data: channels, error } = await databaseRepository
       .from('payment_channels')
       .select('id, user_id, channel_state, last_settlement_at, state')
       .eq('state', 'active');
@@ -253,7 +253,7 @@ export class ChannelStateService {
   }
 
   async markChannelSettled(channelId: string, userId: string): Promise<void> {
-    const { error } = await supabase
+    const { error } = await databaseRepository
       .from('payment_channels')
       .update({
         last_settlement_at: new Date().toISOString(),

@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { recoveryCodeService, totpService } from '../services/mfa-service';
@@ -288,7 +288,7 @@ router.put(
     const { required } = req.body;
 
     try {
-      const { data: team, error: teamErr } = await supabase
+      const { data: team, error: teamErr } = await databaseRepository
         .from('teams')
         .select('id, owner_id')
         .eq('id', teamId)
@@ -302,7 +302,7 @@ router.put(
         return res.status(403).json({ success: false, error: 'Only the team owner can change 2FA enforcement' });
       }
 
-      const { error: updateErr } = await supabase
+      const { error: updateErr } = await databaseRepository
         .from('teams')
         .update({
           require_2fa: required,

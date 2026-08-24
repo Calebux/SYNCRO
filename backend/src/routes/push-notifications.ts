@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import logger from '../config/logger';
@@ -32,7 +32,7 @@ router.post('/subscribe', validate(pushSubscribeSchema), async (req: Authenticat
 
     const { endpoint, keys, userAgent } = req.body;
 
-    const { data, error } = await supabase.from('push_subscriptions').insert({
+    const { data, error } = await databaseRepository.from('push_subscriptions').insert({
       user_id: userId,
       endpoint,
       keys,
@@ -59,7 +59,7 @@ router.delete('/unsubscribe', async (req: AuthenticatedRequest, res: Response) =
   const { endpoint } = req.body as { endpoint?: string };
   const userId = req.user!.id;
 
-  let query = supabase.from('push_subscriptions').delete().eq('user_id', userId);
+  let query = databaseRepository.from('push_subscriptions').delete().eq('user_id', userId);
   if (endpoint && typeof endpoint === 'string') {
     query = query.eq('endpoint', endpoint);
   }
@@ -74,7 +74,7 @@ router.delete('/unsubscribe', async (req: AuthenticatedRequest, res: Response) =
  * GET /api/notifications/push/status
  */
 router.get('/status', async (req: AuthenticatedRequest, res: Response) => {
-  const { count, error } = await supabase
+  const { count, error } = await databaseRepository
     .from('push_subscriptions')
     .select('id', { count: 'exact', head: true })
     .eq('user_id', req.user!.id);

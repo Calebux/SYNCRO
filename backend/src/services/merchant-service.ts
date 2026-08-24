@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { RedisCacheAdapter } from './exchange-rate/redis-cache';
 import type { Merchant, MerchantCreateInput, MerchantUpdateInput } from '../types/merchant';
@@ -44,7 +44,7 @@ export class MerchantService {
   // ── Write operations (always go to DB and invalidate cache) ─────────────────
 
   async createMerchant(input: MerchantCreateInput): Promise<Merchant> {
-    const { data: merchant, error } = await supabase
+    const { data: merchant, error } = await databaseRepository
       .from('merchants')
       .insert({
         name: input.name,
@@ -75,7 +75,7 @@ export class MerchantService {
       (key) => updateData[key] === undefined && delete updateData[key],
     );
 
-    const { data: merchant, error } = await supabase
+    const { data: merchant, error } = await databaseRepository
       .from('merchants')
       .update(updateData)
       .eq('merchant_id', merchantId)
@@ -100,7 +100,7 @@ export class MerchantService {
   }
 
   async deleteMerchant(merchantId: string): Promise<void> {
-    const { error } = await supabase
+    const { error } = await databaseRepository
       .from('merchants')
       .delete()
       .eq('merchant_id', merchantId);
@@ -171,7 +171,7 @@ export class MerchantService {
   // ── Private helpers ─────────────────────────────────────────────────────────
 
   private async fetchAndCacheMerchant(merchantId: string): Promise<Merchant> {
-    const { data: merchant, error } = await supabase
+    const { data: merchant, error } = await databaseRepository
       .from('merchants')
       .select('*')
       .eq('merchant_id', merchantId)
@@ -200,7 +200,7 @@ export class MerchantService {
     const limit = options.limit ?? 50;
     const offset = options.offset ?? 0;
 
-    let query = supabase
+    let query = databaseRepository
       .from('merchants')
       .select('*', { count: 'exact' })
       .order('name', { ascending: true });

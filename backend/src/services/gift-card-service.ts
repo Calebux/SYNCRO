@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import { blockchainService } from './blockchain-service';
 import logger from '../config/logger';
 
@@ -62,7 +62,7 @@ export class GiftCardService {
 
     try {
       // Verify subscription ownership
-      const { data: subscription, error: fetchError } = await supabase
+      const { data: subscription, error: fetchError } = await databaseRepository
         .from('subscriptions')
         .select('id')
         .eq('id', subscriptionId)
@@ -77,7 +77,7 @@ export class GiftCardService {
       }
 
       // Insert gift card attachment
-      const { data: attachment, error: insertError } = await supabase
+      const { data: attachment, error: insertError } = await databaseRepository
         .from('subscription_gift_cards')
         .insert({
           subscription_id: subscriptionId,
@@ -113,7 +113,7 @@ export class GiftCardService {
 
       // Update attachment with transaction hash if available
       if (blockchainResult.transactionHash) {
-        await supabase
+        await databaseRepository
           .from('subscription_gift_cards')
           .update({
             transaction_hash: blockchainResult.transactionHash,

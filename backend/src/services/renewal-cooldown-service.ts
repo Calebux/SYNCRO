@@ -1,4 +1,4 @@
-import { supabase } from "../config/database";
+import { supabase, databaseRepository } from "../config/database";
 import logger from "../config/logger";
 
 export interface CooldownCheckResult {
@@ -36,7 +36,7 @@ export class RenewalCooldownService {
       const cooldownMinutes = customCooldownMinutes || RenewalCooldownService.DEFAULT_COOLDOWN_MINUTES;
 
       // First, fetch the subscription to get last_renewal_attempt_at
-      const { data: subscription, error: fetchError } = await supabase
+      const { data: subscription, error: fetchError } = await databaseRepository
         .from("subscriptions")
         .select("last_renewal_attempt_at, renewal_cooldown_minutes")
         .eq("id", subscriptionId)
@@ -88,7 +88,7 @@ export class RenewalCooldownService {
   ): Promise<CooldownUpdateResult> {
     try {
       // Update the subscription's last_renewal_attempt_at timestamp
-      const { data: updateResult, error: updateError } = await supabase
+      const { data: updateResult, error: updateError } = await databaseRepository
         .from("subscriptions")
         .update({
           last_renewal_attempt_at: new Date().toISOString(),
@@ -103,7 +103,7 @@ export class RenewalCooldownService {
       }
 
       // Record the attempt in the renewal_attempts table
-      const { error: logError } = await supabase
+      const { error: logError } = await databaseRepository
         .from("subscription_renewal_attempts")
         .insert({
           subscription_id: subscriptionId,
@@ -148,7 +148,7 @@ export class RenewalCooldownService {
         throw new Error("Cooldown period must be between 0 and 1440 minutes (24 hours)");
       }
 
-      const { data: subscription, error: fetchError } = await supabase
+      const { data: subscription, error: fetchError } = await databaseRepository
         .from("subscriptions")
         .select("renewal_cooldown_minutes")
         .eq("id", subscriptionId)
@@ -160,7 +160,7 @@ export class RenewalCooldownService {
 
       const previousCooldown = subscription.renewal_cooldown_minutes || RenewalCooldownService.DEFAULT_COOLDOWN_MINUTES;
 
-      const { error: updateError } = await supabase
+      const { error: updateError } = await databaseRepository
         .from("subscriptions")
         .update({
           renewal_cooldown_minutes: cooldownMinutes,
@@ -198,7 +198,7 @@ export class RenewalCooldownService {
     nextRetryAt?: Date;
   }> {
     try {
-      const { data: subscription, error } = await supabase
+      const { data: subscription, error } = await databaseRepository
         .from("subscriptions")
         .select("renewal_cooldown_minutes, last_renewal_attempt_at")
         .eq("id", subscriptionId)
@@ -229,7 +229,7 @@ export class RenewalCooldownService {
    */
   async resetCooldown(subscriptionId: string): Promise<{ success: boolean }> {
     try {
-      const { error } = await supabase
+      const { error } = await databaseRepository
         .from("subscriptions")
         .update({
           last_renewal_attempt_at: null,

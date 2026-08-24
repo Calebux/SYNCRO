@@ -3,7 +3,7 @@ import { authenticate, AuthenticatedRequest } from '../../middleware/auth';
 import { createAdminLimiter } from '../../middleware/rate-limit-factory';
 import { requireRole } from '../../middleware/rbac';
 import logger from '../../config/logger';
-import { supabase } from '../../config/database';
+import { supabase, databaseRepository } from '../../config/database';
 
 const router = Router();
 
@@ -34,70 +34,70 @@ async function getPrivacyMetricsAggregates(): Promise<Omit<PrivacyMetrics, 'gene
   // We intentionally avoid returning user-level rows.
 
   // 1) Privacy mode enabled rate
-  const { data: privacyEnabledAgg } = await supabase
+  const { data: privacyEnabledAgg } = await databaseRepository
     .from('profiles')
     .select('privacy_mode_enabled')
     .eq('privacy_mode_enabled', true);
 
-  const { count: privacyEnabledCount } = await supabase
+  const { count: privacyEnabledCount } = await databaseRepository
     .from('profiles')
     .select('*', { count: 'exact', head: true })
     .eq('privacy_mode_enabled', true);
 
-  const { count: totalProfilesCount } = await supabase
+  const { count: totalProfilesCount } = await databaseRepository
     .from('profiles')
     .select('*', { count: 'exact', head: true });
 
   const privacyModeRate = safeDivide(Number(privacyEnabledCount ?? 0), Number(totalProfilesCount ?? 0));
 
   // 2) Subscriptions encrypted on-chain rate
-  const { count: encryptedSubsCount } = await supabase
+  const { count: encryptedSubsCount } = await databaseRepository
     .from('subscriptions')
     .select('*', { count: 'exact', head: true })
     .eq('encrypted_onchain', true);
 
-  const { count: totalSubsCount } = await supabase
+  const { count: totalSubsCount } = await databaseRepository
     .from('subscriptions')
     .select('*', { count: 'exact', head: true });
 
   const subsEncryptedRate = safeDivide(Number(encryptedSubsCount ?? 0), Number(totalSubsCount ?? 0));
 
   // 3) Active payment channels count
-  const { count: activeChannelsCount } = await supabase
+  const { count: activeChannelsCount } = await databaseRepository
     .from('payment_channels')
     .select('*', { count: 'exact', head: true })
     .eq('status', 'active');
 
   // 4) ZK proofs generated/verified counts
-  const { count: zkGeneratedCount } = await supabase
+  const { count: zkGeneratedCount } = await databaseRepository
     .from('zk_proofs')
     .select('*', { count: 'exact', head: true })
     .eq('status', 'generated');
 
-  const { count: zkVerifiedCount } = await supabase
+  const { count: zkVerifiedCount } = await databaseRepository
     .from('zk_proofs')
     .select('*', { count: 'exact', head: true })
     .eq('status', 'verified');
 
   // 5) Stealth address adoption rate
-  const { count: stealthConfiguredCount } = await supabase
+  const { count: stealthConfiguredCount } = await databaseRepository
     .from('profiles')
     .select('*', { count: 'exact', head: true })
     .not('stealth_meta_address', 'is', null);
 
-  const { count: totalProfilesCount2 } = await supabase
+  const { count: totalProfilesCount2 } = await databaseRepository
     .from('profiles')
     .select('*', { count: 'exact', head: true });
 
   const stealthAdoptionRate = safeDivide(Number(stealthConfiguredCount ?? 0), Number(totalProfilesCount2 ?? 0));
 
   // 6) GDPR export/deletion requests counts
-  const { count: gdprExportCount } = await supabase
+  const { count: gdprExportCount } = await databaseRepository
     .from('gdpr_requests')
     .select('*', { count: 'exact', head: true })
     .eq('request_type', 'export');
 
-  const { count: gdprDeletionCount } = await supabase
+  const { count: gdprDeletionCount } = await databaseRepository
     .from('gdpr_requests')
     .select('*', { count: 'exact', head: true })
     .eq('request_type', 'deletion');

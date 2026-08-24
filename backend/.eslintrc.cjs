@@ -20,6 +20,13 @@ module.exports = {
     "@typescript-eslint/no-floating-promises": "error",
     "no-console": "warn",
     "@typescript-eslint/no-unused-vars": "warn",
+    "no-restricted-syntax": [
+      "error",
+      {
+        selector: "CallExpression[callee.object.name='supabase'][callee.property.name='from']",
+        message: "Database queries must go through a repository, not supabase.from().",
+      },
+    ],
     // Package boundary: backend must not import from client
     "no-restricted-imports": [
       "error",
@@ -42,6 +49,38 @@ module.exports = {
     ],
   },
   overrides: [
+    {
+      files: ["src/domains/**/*.controller.ts"],
+      rules: {
+        "no-restricted-imports": [
+          "error",
+          {
+            patterns: [
+              {
+                group: ["**/repositories/**", "**/*.repository", "**/*.repository.*"],
+                message: "Controllers must call services; they may not access repositories directly.",
+              },
+            ],
+          },
+        ],
+      },
+    },
+    {
+      files: ["src/domains/**/*.service.ts", "src/services/**/*.ts"],
+      rules: {
+        "no-restricted-imports": [
+          "error",
+          {
+            patterns: [
+              {
+                group: ["**/routes/**", "**/*.controller", "**/*.controller.*"],
+                message: "Services must not depend on routes or controllers.",
+              },
+            ],
+          },
+        ],
+      },
+    },
     {
       // Backend application code must route logging through the structured
       // winston logger (src/config/logger). Raw console.* risks leaking PII to
@@ -71,6 +110,7 @@ module.exports = {
         "src/middleware/**/*.ts",
         "src/schemas/**/*.ts",
         "src/routes/**/*.ts",
+        "src/domains/**/*.controller.ts",
         "src/services/webhook*.ts",
       ],
       rules: {

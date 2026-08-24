@@ -1,5 +1,5 @@
-import { supabase } from '../config/database';
-import logger from '../config/logger';
+import { supabase, databaseRepository } from '../../config/database';
+import logger from '../../config/logger';
 
 export interface ReminderSettings {
     user_id: string;
@@ -22,7 +22,7 @@ export class ReminderSettingsService {
      */
     async getSettings(userId: string): Promise<ReminderSettings> {
         try {
-            const { data, error } = await supabase
+            const { data, error } = await databaseRepository
                 .from('reminder_settings')
                 .select('*')
                 .eq('user_id', userId)
@@ -76,7 +76,7 @@ export class ReminderSettingsService {
             delete (merged as any).created_at;
             delete (merged as any).updated_at;
 
-            const { data, error } = await supabase
+            const { data, error } = await databaseRepository
                 .from('reminder_settings')
                 .upsert({
                     user_id: userId,

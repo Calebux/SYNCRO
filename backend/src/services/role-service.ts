@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { auditService } from './audit-service';
 import { AuthenticatedRequest, UserRole } from '../middleware/auth';
@@ -28,7 +28,7 @@ class RoleService {
 
     try {
       // Query the authoritative source
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from('user_roles')
         .select('role')
         .eq('user_id', userId)
@@ -73,7 +73,7 @@ class RoleService {
     }
 
     try {
-      const { error } = await supabase
+      const { error } = await databaseRepository
         .from('user_roles')
         .upsert({
           user_id: userId,

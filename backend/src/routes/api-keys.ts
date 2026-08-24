@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import crypto from 'crypto';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import { authenticate, AuthenticatedRequest, requireScope } from '../middleware/auth';
 import { requireRole } from '../middleware/rbac';
 import { validate } from '../middleware/validate';
@@ -39,7 +39,7 @@ router.post(
       const { name, scopes } = req.body;
       const { key, hash } = generateApiKey();
 
-      const { error } = await supabase.from('api_keys').insert([
+      const { error } = await databaseRepository.from('api_keys').insert([
         {
           user_id: req.user.id,
           service_name: name,
@@ -76,7 +76,7 @@ router.post(
  * List API keys for the authenticated user
  */
 router.get('/', requireRole('owner', 'admin'), requireScope('subscriptions:read'), async (req: AuthenticatedRequest, res: Response) => {
-  const { data, error } = await supabase
+  const { data, error } = await databaseRepository
     .from('api_keys')
     .select('id, service_name, scopes, revoked, created_at, updated_at, last_used_at, request_count')
     .eq('user_id', req.user!.id)
@@ -92,7 +92,7 @@ router.get('/', requireRole('owner', 'admin'), requireScope('subscriptions:read'
  * Revoke an API key
  */
 router.delete('/:id', requireRole('owner', 'admin'), requireScope('subscriptions:write'), async (req: AuthenticatedRequest, res: Response) => {
-  const { data: existingKey, error: fetchError } = await supabase
+  const { data: existingKey, error: fetchError } = await databaseRepository
     .from('api_keys')
     .select('id')
     .eq('id', req.params.id)
@@ -103,7 +103,7 @@ router.delete('/:id', requireRole('owner', 'admin'), requireScope('subscriptions
     throw new NotFoundError('API key not found');
   }
 
-  const { error } = await supabase
+  const { error } = await databaseRepository
     .from('api_keys')
     .update({ revoked: true, updated_at: new Date().toISOString() })
     .eq('id', req.params.id)
@@ -125,7 +125,7 @@ router.delete('/:id', requireRole('owner', 'admin'), requireScope('subscriptions
  * Get usage stats for an API key
  */
 router.get('/:id/usage', requireRole('owner', 'admin'), requireScope('subscriptions:read'), async (req: AuthenticatedRequest, res: Response) => {
-  const { data, error } = await supabase
+  const { data, error } = await databaseRepository
     .from('api_keys')
     .select('id, service_name, scopes, revoked, created_at, updated_at, last_used_at, request_count')
     .eq('id', req.params.id)
@@ -150,7 +150,7 @@ router.post(
   requireRole('owner', 'admin'),
   requireScope('subscriptions:write'),
   async (req: AuthenticatedRequest, res: Response) => {
-    const { data: existing, error: fetchError } = await supabase
+    const { data: existing, error: fetchError } = await databaseRepository
       .from('api_keys')
       .select('id, service_name, scopes, revoked')
       .eq('id', req.params.id)
@@ -168,7 +168,7 @@ router.post(
     const { key: newKey, hash: newHash } = generateApiKey();
 
     // Revoke the old key
-    const { error: revokeError } = await supabase
+    const { error: revokeError } = await databaseRepository
       .from('api_keys')
       .update({ revoked: true, updated_at: new Date().toISOString() })
       .eq('id', req.params.id)
@@ -180,7 +180,7 @@ router.post(
     }
 
     // Insert replacement key
-    const { error: insertError } = await supabase.from('api_keys').insert([
+    const { error: insertError } = await databaseRepository.from('api_keys').insert([
       {
         user_id: req.user!.id,
         service_name: existing.service_name,
@@ -195,7 +195,7 @@ router.post(
     if (insertError) {
       logger.error('Failed to insert replacement API key during rotation', { error: insertError });
       // Attempt to un-revoke the original to avoid a total lockout
-      await supabase
+      await databaseRepository
         .from('api_keys')
         .update({ revoked: false, updated_at: new Date().toISOString() })
         .eq('id', req.params.id)

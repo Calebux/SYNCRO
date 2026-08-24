@@ -1,3 +1,37 @@
+# Backend architecture
+
+Features are organised under `src/domains` as `subscriptions`, `payments`,
+`reminders`, `privacy`, `admin`, and `integrations`. Migration is incremental;
+compatibility exports under `src/routes` and `src/services` preserve established
+imports and public API paths while application registration uses domain modules.
+
+## Layer dependency rule
+
+```text
+route registration -> controller -> service -> repository -> database/client
+```
+
+- Controllers own HTTP validation and response mapping. They call services and
+  may not import repositories or database clients.
+- Services own use cases and transaction orchestration. They may call
+  repositories and integration adapters, but never routes or controllers.
+- Repositories construct persistence queries and enforce authenticated user
+  scope for user-owned data.
+- Integration adapters isolate third-party SDKs from controllers.
+
+The backend ESLint configuration rejects controller-to-repository and
+service-to-controller/route imports. CI should run `npm run lint` from
+`backend`. Subscriptions, payments, and reminders are the first migrated
+domains; their existing API prefixes and response shapes remain unchanged.
+
+User-owned persistence uses aggregate repositories for subscriptions,
+payments, reminders, tags, audit records, and sessions. Their constructors
+require a non-empty user id and inject it into reads and writes. Unscoped
+operational tables use `DatabaseRepository`; direct `supabase.from()` calls are
+forbidden by lint so query ownership stays visible and testable.
+
+---
+
 # Subscription CRUD Architecture
 
 ## Overview

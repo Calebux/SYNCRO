@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 
 export interface DuplicateCandidate {
@@ -68,7 +68,7 @@ export const subscriptionDedupService = {
     const userThresholds = await subscriptionDedupService.getUserThresholds(userId);
     const merged: DedupThresholds = { ...userThresholds, ...thresholds };
 
-    const { data: subscriptions, error } = await supabase
+    const { data: subscriptions, error } = await databaseRepository
       .from('subscriptions')
       .select('*')
       .eq('user_id', userId)
@@ -121,7 +121,7 @@ export const subscriptionDedupService = {
     mergeId: string,
   ): Promise<{ success: boolean }> {
     // Verify both subscriptions belong to userId
-    const { data: subs, error: fetchError } = await supabase
+    const { data: subs, error: fetchError } = await databaseRepository
       .from('subscriptions')
       .select('id, notes, tags')
       .eq('user_id', userId)
@@ -155,7 +155,7 @@ export const subscriptionDedupService = {
     const mergedTags = Array.from(new Set([...keepTags, ...mergeTags]));
 
     // Update keep subscription
-    const { error: updateError } = await supabase
+    const { error: updateError } = await databaseRepository
       .from('subscriptions')
       .update({ notes: mergedNotes, tags: mergedTags, updated_at: new Date().toISOString() })
       .eq('id', keepId)
@@ -167,7 +167,7 @@ export const subscriptionDedupService = {
     }
 
     // Delete merge subscription
-    const { error: deleteError } = await supabase
+    const { error: deleteError } = await databaseRepository
       .from('subscriptions')
       .delete()
       .eq('id', mergeId)
@@ -191,7 +191,7 @@ export const subscriptionDedupService = {
   ): Promise<DuplicateCandidate | null> {
     const userThresholds = await subscriptionDedupService.getUserThresholds(userId);
 
-    const { data: subscriptions, error } = await supabase
+    const { data: subscriptions, error } = await databaseRepository
       .from('subscriptions')
       .select('*')
       .eq('user_id', userId)
@@ -233,7 +233,7 @@ export const subscriptionDedupService = {
   // Get per-user thresholds from DB (or return defaults)
   async getUserThresholds(userId: string): Promise<DedupThresholds> {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from('subscription_dedup_settings')
         .select('min_confidence, name_similarity_weight, amount_tolerance_pct')
         .eq('user_id', userId)
@@ -258,7 +258,7 @@ export const subscriptionDedupService = {
   // Save per-user thresholds
   async saveUserThresholds(userId: string, thresholds: Partial<DedupThresholds>): Promise<void> {
     try {
-      const { error } = await supabase
+      const { error } = await databaseRepository
         .from('subscription_dedup_settings')
         .upsert(
           {

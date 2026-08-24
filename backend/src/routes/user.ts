@@ -5,7 +5,7 @@
  */
 
 import express, { Response } from 'express';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth';
 import { validateRequest } from '../utils/validation';
 import { userProfileUpdateSchema } from '../schemas/user-profile';
@@ -50,7 +50,7 @@ router.post('/stealth-meta-address', createStealthAddressLimiter(), async (req: 
       return res.status(400).json({ success: false, error: 'Invalid stealth meta-address format' });
     }
 
-    const { error } = await supabase
+    const { error } = await databaseRepository
       .from('profiles')
       .update({ stealth_meta_address: decoded, updated_at: new Date().toISOString() })
       .eq('id', userId);
@@ -94,12 +94,12 @@ router.get('/export-data', async (req: AuthenticatedRequest, res: Response) => {
       { data: notifications },
       { data: tags },
     ] = await Promise.all([
-      supabase.from('profiles').select('*').eq('id', userId).single(),
-      supabase.from('subscriptions').select('*').eq('user_id', userId),
-      supabase.from('email_accounts').select('*').eq('user_id', userId),
-      supabase.from('team_members').select('*').eq('user_id', userId),
-      supabase.from('notifications').select('*').eq('user_id', userId),
-      supabase.from('tags').select('*').eq('user_id', userId),
+      databaseRepository.from('profiles').select('*').eq('id', userId).single(),
+      databaseRepository.from('subscriptions').select('*').eq('user_id', userId),
+      databaseRepository.from('email_accounts').select('*').eq('user_id', userId),
+      databaseRepository.from('team_members').select('*').eq('user_id', userId),
+      databaseRepository.from('notifications').select('*').eq('user_id', userId),
+      databaseRepository.from('tags').select('*').eq('user_id', userId),
     ]);
 
     const exportData = {
@@ -141,7 +141,7 @@ router.delete('/account', async (req: AuthenticatedRequest, res: Response) => {
     ];
 
     for (const table of tables) {
-      const { error } = await supabase.from(table).delete().eq('user_id', userId);
+      const { error } = await databaseRepository.from(table).delete().eq('user_id', userId);
       if (error) {
         logger.error(`Error deleting from ${table} for user ${userId}:`, error);
       }
@@ -169,7 +169,7 @@ router.delete('/account', async (req: AuthenticatedRequest, res: Response) => {
 router.get('/profile', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user!.id;
-    const { data: profile, error } = await supabase
+    const { data: profile, error } = await databaseRepository
       .from('profiles')
       .select('id, display_name, company_name, plan_type, stealth_meta_address, created_at, updated_at')
       .eq('id', userId)
@@ -196,7 +196,7 @@ router.put('/profile', async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user!.id;
     const validatedData = validateRequest(userProfileUpdateSchema, req.body);
 
-    const { data: profile, error } = await supabase
+    const { data: profile, error } = await databaseRepository
       .from('profiles')
       .update({
         ...validatedData,
@@ -273,7 +273,7 @@ router.post('/wallet-disconnect', async (req: AuthenticatedRequest, res: Respons
   try {
     const userId = req.user!.id;
 
-    const { error: profileError } = await supabase
+    const { error: profileError } = await databaseRepository
       .from('profiles')
       .update({ stellar_wallet_address: null, updated_at: new Date().toISOString() })
       .eq('id', userId);

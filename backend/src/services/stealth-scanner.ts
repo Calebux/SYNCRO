@@ -1,5 +1,5 @@
 import logger from '../config/logger';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import { detectStealthDestination, deriveEphemeralStealthAddress } from '@syncro/shared/crypto';
 import {
   decodeStealthMemo,
@@ -164,7 +164,7 @@ export class StealthScanner {
     },
     userId: string,
   ): Promise<boolean> {
-    const { error } = await supabase.from('stealth_payments').insert({
+    const { error } = await databaseRepository.from('stealth_payments').insert({
       user_id: userId,
       transaction_hash: record.transactionHash,
       ephemeral_pubkey: record.ephemeralPubkey,
@@ -184,7 +184,7 @@ export class StealthScanner {
   }
 
   async getUserStealthPayments(userId: string, limit = 100): Promise<StealthPaymentRecord[]> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('stealth_payments')
       .select('*')
       .eq('user_id', userId)
@@ -212,7 +212,7 @@ export class StealthScanner {
     const onChain = await this.getUserStealthPayments(userId);
     if (onChain.length > 0) return onChain;
 
-    const { data: profile } = await supabase
+    const { data: profile } = await databaseRepository
       .from('profiles')
       .select('stealth_meta_address')
       .eq('id', userId)
@@ -227,7 +227,7 @@ export class StealthScanner {
     const [spendPubkey, viewPubkey] = parts;
     const metaAddress = { spendPublicKey: spendPubkey, viewPublicKey: viewPubkey };
 
-    const { data: subs } = await supabase
+    const { data: subs } = await databaseRepository
       .from('subscriptions')
       .select('id')
       .eq('user_id', userId);
@@ -235,7 +235,7 @@ export class StealthScanner {
     const records: StealthPaymentRecord[] = [];
 
     for (const sub of subs ?? []) {
-      const { data: logs } = await supabase
+      const { data: logs } = await databaseRepository
         .from('renewal_logs')
         .select('approval_id, transaction_hash, created_at')
         .eq('subscription_id', sub.id)
@@ -301,7 +301,7 @@ export class StealthScanner {
     try {
       emitProgress('initializing', 0, 1, 'Loading user stealth configuration...');
 
-      const { data: profile } = await supabase
+      const { data: profile } = await databaseRepository
         .from('profiles')
         .select('stealth_meta_address, stellar_public_key')
         .eq('id', userId)
@@ -322,7 +322,7 @@ export class StealthScanner {
 
       emitProgress('scanning_ledger', 0, 1, 'Fetching subscription history...');
 
-      const { data: subs } = await supabase
+      const { data: subs } = await databaseRepository
         .from('subscriptions')
         .select('id, created_at')
         .eq('user_id', userId)
@@ -349,7 +349,7 @@ export class StealthScanner {
           recovered.length,
         );
 
-        const { data: renewals } = await supabase
+        const { data: renewals } = await databaseRepository
           .from('renewal_logs')
           .select('approval_id, created_at, status')
           .eq('subscription_id', sub.id)
@@ -418,7 +418,7 @@ export class StealthScanner {
       return { viewPrivateKey: envView, spendPublicKey: envSpend };
     }
 
-    const { data: profile } = await supabase
+    const { data: profile } = await databaseRepository
       .from('profiles')
       .select('stealth_meta_address, stealth_view_key_encrypted')
       .eq('id', userId)

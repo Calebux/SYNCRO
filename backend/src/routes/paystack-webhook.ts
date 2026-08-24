@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import logger from '../config/logger';
 import { verifyPaystackWebhook } from '../services/payment-webhook-verification';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 
 const router = Router();
 
@@ -42,7 +42,7 @@ router.post('/', async (req: Request, res: Response) => {
 
   // Check if we've already processed this event
   try {
-    const { data: existingRecord, error: checkError } = await supabase
+    const { data: existingRecord, error: checkError } = await databaseRepository
       .from('webhook_events')
       .select('id, processed_at')
       .eq('provider', 'paystack')
@@ -66,7 +66,7 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     // Store webhook event BEFORE processing to prevent concurrent duplicate processing
-    const { error: insertError, data: newRecord } = await supabase
+    const { error: insertError, data: newRecord } = await databaseRepository
       .from('webhook_events')
       .insert({
         provider: 'paystack',
@@ -99,7 +99,7 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     // Mark event as processed
-    await supabase
+    await databaseRepository
       .from('webhook_events')
       .update({ processed: true, processed_at: new Date().toISOString() })
       .eq('id', newRecord.id);

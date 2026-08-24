@@ -1,5 +1,5 @@
 import logger from '../config/logger';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 
 export class RenewalLockService {
   /**
@@ -17,7 +17,7 @@ export class RenewalLockService {
 
     const expiresAt = new Date(Date.now() + ttlMs).toISOString();
 
-    const { error } = await supabase.from('renewal_locks').insert({
+    const { error } = await databaseRepository.from('renewal_locks').insert({
       subscription_id: subscriptionId,
       cycle_id: cycleId,
       lock_holder: lockHolder,
@@ -47,7 +47,7 @@ export class RenewalLockService {
    * Release a renewal lock (marks as released for audit trail).
    */
   async releaseLock(subscriptionId: string, cycleId: number): Promise<void> {
-    const { error } = await supabase
+    const { error } = await databaseRepository
       .from('renewal_locks')
       .update({ status: 'released' })
       .eq('subscription_id', subscriptionId)
@@ -68,7 +68,7 @@ export class RenewalLockService {
   async releaseExpiredLocks(): Promise<number> {
     const now = new Date().toISOString();
 
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('renewal_locks')
       .update({ status: 'expired' })
       .eq('status', 'active')
@@ -93,7 +93,7 @@ export class RenewalLockService {
   async isLocked(subscriptionId: string): Promise<boolean> {
     const now = new Date().toISOString();
 
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('renewal_locks')
       .select('id')
       .eq('subscription_id', subscriptionId)
@@ -118,7 +118,7 @@ export class RenewalLockService {
   ): Promise<void> {
     const now = new Date().toISOString();
 
-    await supabase
+    await databaseRepository
       .from('renewal_locks')
       .update({ status: 'expired' })
       .eq('subscription_id', subscriptionId)

@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { redis } from '../config/redis';
 import { schedulerService } from './scheduler';
@@ -32,7 +32,7 @@ export class DependencyHealthService {
   async checkDatabase(): Promise<DependencyStatus> {
     const start = Date.now();
     try {
-      const { data, error } = await supabase.from('subscriptions').select('count', { count: 'exact', head: true });
+      const { data, error } = await databaseRepository.from('subscriptions').select('count', { count: 'exact', head: true });
       
       if (error) {
         return {

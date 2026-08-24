@@ -31,7 +31,7 @@ import {
   Memo,
 } from '@stellar/stellar-sdk';
 import { rpc as SorobanRpc } from '@stellar/stellar-sdk';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import {
   AgentHDWallet,
@@ -133,7 +133,7 @@ export class AgentWalletRotationService {
    * Inserts a genesis row (index 0) if a row doesn't exist yet.
    */
   async loadAllStates(): Promise<AgentRotationState[]> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('agent_wallet_rotations')
       .select('*')
       .in('agent_name', AGENT_NAMES);
@@ -162,7 +162,7 @@ export class AgentWalletRotationService {
       } else {
         // Bootstrap: derive genesis keypair and insert row
         const genesis = await AgentHDWallet.deriveKeypair(agentName, 0);
-        const { error: insertErr } = await supabase
+        const { error: insertErr } = await databaseRepository
           .from('agent_wallet_rotations')
           .insert({
             agent_name:     agentName,
@@ -200,7 +200,7 @@ export class AgentWalletRotationService {
   }
 
   private async loadState(agentName: AgentName): Promise<AgentRotationState | null> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('agent_wallet_rotations')
       .select('*')
       .eq('agent_name', agentName)
@@ -226,7 +226,7 @@ export class AgentWalletRotationService {
     now: string,
     rotationCount: number,
   ): Promise<void> {
-    const { error } = await supabase
+    const { error } = await databaseRepository
       .from('agent_wallet_rotations')
       .update({
         current_index:   newIndex,
@@ -251,7 +251,7 @@ export class AgentWalletRotationService {
     drainTxHash: string | null,
     reason: string,
   ): Promise<void> {
-    const { error } = await supabase.from('agent_wallet_history').insert({
+    const { error } = await databaseRepository.from('agent_wallet_history').insert({
       agent_name:    agentName,
       address_index: addressIndex,
       public_key:    publicKey,
@@ -537,7 +537,7 @@ export class AgentWalletRotationService {
    * Returns the rotation history for a given agent (most recent first).
    */
   async getHistory(agentName: AgentName, limit = 50) {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('agent_wallet_history')
       .select('*')
       .eq('agent_name', agentName)

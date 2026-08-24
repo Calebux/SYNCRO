@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { monitoringService } from './monitoring-service';
 import { eventListener, EventListenerHealth } from './event-listener';
@@ -80,22 +80,22 @@ export class HealthService {
       lastActivityRes,
       agentActivity,
     ] = await Promise.all([
-      supabase
+      databaseRepository
         .from('notification_deliveries')
         .select('id', { count: 'exact', head: true })
         .eq('status', 'failed')
         .gte('updated_at', oneHourAgo),
-      supabase
+      databaseRepository
         .from('notification_deliveries')
         .select('id', { count: 'exact', head: true })
         .eq('status', 'sent')
         .gte('updated_at', oneHourAgo),
-      supabase
+      databaseRepository
         .from('blockchain_logs')
         .select('id', { count: 'exact', head: true })
         .eq('status', 'failed')
         .gte('updated_at', oneHourAgo),
-      supabase
+      databaseRepository
         .from('reminder_schedules')
         .select('updated_at')
         .neq('status', 'pending')
@@ -200,7 +200,7 @@ export class HealthService {
       const metrics = await this.getCurrentMetrics(contextId);
       const alerts = this.evaluateAlerts(metrics);
 
-      await supabase.from('health_metrics_snapshots').insert({
+      await databaseRepository.from('health_metrics_snapshots').insert({
         recorded_at: new Date().toISOString(),
         failed_renewals_last_hour: metrics.failedRenewalsLastHour,
         successful_deliveries_last_hour: metrics.successfulDeliveriesLastHour,
@@ -220,7 +220,7 @@ export class HealthService {
    * Fetch recent historical snapshots.
    */
   async getHistory(limit: number = 50): Promise<HealthSnapshot[]> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('health_metrics_snapshots')
       .select('*')
       .order('recorded_at', { ascending: false })

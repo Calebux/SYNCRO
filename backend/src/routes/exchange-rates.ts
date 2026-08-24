@@ -4,7 +4,7 @@ import { requireAdmin } from '../middleware/admin';
 import { isSupportedCurrency } from '../constants/currencies';
 import { ExchangeRateService } from '../services/exchange-rate/exchange-rate-service';
 import { BadRequestError } from '../errors';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 
 export function createExchangeRatesRouter(exchangeRateService: ExchangeRateService): Router {
   const router = Router();
@@ -46,7 +46,7 @@ export function createExchangeRatesRouter(exchangeRateService: ExchangeRateServi
     const limit = Math.min(parseInt((req.query.limit as string) || '100', 10), 500);
     const base = req.query.base as string | undefined;
 
-    let query = supabase
+    let query = databaseRepository
       .from('exchange_rate_history')
       .select('id, base_currency, rates, source, fetched_at')
       .order('fetched_at', { ascending: false })

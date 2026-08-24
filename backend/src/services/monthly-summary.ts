@@ -1,4 +1,4 @@
-import { supabase } from "../config/database";
+import { supabase, databaseRepository, databaseRepository } from "../config/database";
 import type { MonthlyDigestSummary } from "../types/digest";
 import { uniqueIds } from "../utils/db-query-metrics";
 
@@ -94,9 +94,9 @@ export async function buildMonthlySummaries(
 
   // Three batched round-trips, issued in parallel.
   const [usersRes, profilesRes, subsRes] = await Promise.all([
-    supabase.from("users").select("id, email").in("id", ids),
-    supabase.from("profiles").select("id, currency").in("id", ids),
-    supabase.from("subscriptions").select("user_id, price").in("user_id", ids),
+    databaseRepository.from("users").select("id, email").in("id", ids),
+    databaseRepository.from("profiles").select("id, currency").in("id", ids),
+    databaseRepository.from("subscriptions").select("user_id, price").in("user_id", ids),
   ]);
 
   const emailByUser = new Map<string, string>();

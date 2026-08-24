@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import type {
   SubscriptionNotificationPreferences,
@@ -14,7 +14,7 @@ export class NotificationPreferenceService {
   async getPreferences(
     subscriptionId: string,
   ): Promise<SubscriptionNotificationPreferences | null> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('subscription_notification_preferences')
       .select('*')
       .eq('subscription_id', subscriptionId)
@@ -60,7 +60,7 @@ export class NotificationPreferenceService {
       ...(custom_message !== undefined && { custom_message }),
     };
 
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('subscription_notification_preferences')
       .upsert(payload, { onConflict: 'subscription_id' })
       .select()
@@ -119,7 +119,7 @@ export class NotificationPreferenceService {
 
     logger.info('Processing expired snoozes');
 
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('subscription_notification_preferences')
       .update({
         muted: false,

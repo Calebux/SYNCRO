@@ -1,5 +1,5 @@
 import logger from "../config/logger";
-import { supabase } from "../config/database";
+import { supabase, databaseRepository, databaseRepository } from "../config/database";
 import { NotificationPayload } from "../types/reminder";
 import { getRequestId } from "../middleware/requestContext";
 import crypto from 'crypto';
@@ -115,7 +115,7 @@ export class BlockchainService {
     for (const sub of subscriptions) {
       try {
         // Idempotency check: check if already completed
-        const { data: migrationRecord } = await supabase
+        const { data: migrationRecord } = await databaseRepository
           .from('subscription_migration_status')
           .select('id, status')
           .eq('subscription_id', sub.id)
@@ -128,7 +128,7 @@ export class BlockchainService {
         }
 
         // Phase 1: Mark as pending
-        await supabase
+        await databaseRepository
           .from('subscription_migration_status')
           .upsert({
             subscription_id: sub.id,
@@ -142,7 +142,7 @@ export class BlockchainService {
         await this.writeSubscriptionToBlockchain('update', { ...sub, ...encryptedData });
 
         // Phase 2: Mark as completed
-        await supabase
+        await databaseRepository
           .from('subscription_migration_status')
           .update({
             status: 'completed',
@@ -151,7 +151,7 @@ export class BlockchainService {
           .eq('subscription_id', sub.id);
 
         // Cleanup: Nullify legacy fields
-        await supabase
+        await databaseRepository
           .from('subscriptions')
           .update({
             plaintext_data: null,
@@ -164,7 +164,7 @@ export class BlockchainService {
         logger.error(`Failed to migrate subscription ${sub.id}:`, e);
         
         // Record failure in DB for later retry
-        await supabase
+        await databaseRepository
           .from('subscription_migration_status')
           .upsert({
             subscription_id: sub.id,
@@ -279,7 +279,7 @@ export class BlockchainService {
 
     // First, log to database
     try {
-      const { data: dbLog, error: dbError } = await supabase
+      const { data: dbLog, error: dbError } = await databaseRepository
         .from("blockchain_logs")
         .insert({
           user_id: userId,
@@ -330,7 +330,7 @@ export class BlockchainService {
 
           // Update database log with transaction hash
           if (result.transactionHash) {
-            await supabase
+            await databaseRepository
               .from("blockchain_logs")
               .update({
                 transaction_hash: result.transactionHash,
@@ -359,7 +359,7 @@ export class BlockchainService {
           logger.error("Failed to write to blockchain:", errorMessage);
 
           // Update database log with error
-          await supabase
+          await databaseRepository
             .from("blockchain_logs")
             .update({
               status: "failed",
@@ -408,7 +408,7 @@ export class BlockchainService {
    * Get blockchain log entries for a user
    */
   async getUserLogs(userId: string, limit: number = 100) {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from("blockchain_logs")
       .select("*")
       .eq("user_id", userId)
@@ -446,7 +446,7 @@ export class BlockchainService {
 
     // First, log to database
     try {
-      const { data: dbLog, error: dbError } = await supabase
+      const { data: dbLog, error: dbError } = await databaseRepository
         .from("blockchain_logs")
         .insert({
           user_id: userId,
@@ -504,7 +504,7 @@ export class BlockchainService {
 
           // Update database log with transaction hash
           if (result.transactionHash) {
-            await supabase
+            await databaseRepository
               .from("blockchain_logs")
               .update({
                 transaction_hash: result.transactionHash,
@@ -537,7 +537,7 @@ export class BlockchainService {
           );
 
           // Update database log with error
-          await supabase
+          await databaseRepository
             .from("blockchain_logs")
             .update({
               status: "failed",
@@ -603,7 +603,7 @@ export class BlockchainService {
     };
 
     try {
-      const { data: dbLog, error: dbError } = await supabase
+      const { data: dbLog, error: dbError } = await databaseRepository
         .from('blockchain_logs')
         .insert({
           user_id: userId,
@@ -631,7 +631,7 @@ export class BlockchainService {
           const result = await this.writeGiftCardToBlockchain(eventData);
 
           if (result.transactionHash) {
-            await supabase
+            await databaseRepository
               .from('blockchain_logs')
               .update({
                 transaction_hash: result.transactionHash,
@@ -651,7 +651,7 @@ export class BlockchainService {
               ? blockchainError.message
               : String(blockchainError);
           logger.error('Failed to write gift card to blockchain:', errorMessage);
-          await supabase
+          await databaseRepository
             .from('blockchain_logs')
             .update({
               status: 'failed',
@@ -1017,7 +1017,7 @@ export class BlockchainService {
 
     try {
       // Fallback: write to a DB log row for observability; consumers could reprocess later
-      await supabase.from("blockchain_logs").insert({
+      await databaseRepository.from("blockchain_logs").insert({
         user_id: "system",
         event_type: "blockchain_dead_letter",
         event_data: { ...payload, correlationId },
@@ -1056,7 +1056,7 @@ export class BlockchainService {
     encryptedBlob: string,
   ): Promise<{ success: boolean; transactionHash?: string; error?: string }> {
     try {
-      const { data: dbLog, error: dbError } = await supabase
+      const { data: dbLog, error: dbError } = await databaseRepository
         .from("blockchain_logs")
         .insert({
           user_id: userId,
@@ -1083,7 +1083,7 @@ export class BlockchainService {
           );
 
           if (result.transactionHash) {
-            await supabase
+            await databaseRepository
               .from("blockchain_logs")
               .update({
                 transaction_hash: result.transactionHash,
@@ -1098,7 +1098,7 @@ export class BlockchainService {
           const errorMessage = blockchainError instanceof Error ? blockchainError.message : String(blockchainError);
           logger.error("Failed to write encrypted sub to blockchain:", errorMessage);
 
-          await supabase
+          await databaseRepository
             .from("blockchain_logs")
             .update({
               status: "failed",

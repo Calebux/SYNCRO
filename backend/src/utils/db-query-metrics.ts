@@ -1,17 +1,17 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 
 /**
  * Query-count instrumentation for the N+1 audit (issue #1095).
  *
  * The Supabase client does not expose a query counter, so we temporarily wrap
- * `supabase.from` and tally the table round-trips a code path performs. This is
+ * `databaseRepository.from` and tally the table round-trips a code path performs. This is
  * used by the N+1 regression tests to assert that batched builders issue a
  * constant number of queries regardless of how many users they compose, and it
  * is also handy for ad-hoc profiling in development.
  */
 
 export interface QueryMetrics {
-  /** Total number of `supabase.from(...)` round-trips started. */
+  /** Total number of `databaseRepository.from(...)` round-trips started. */
   total: number;
   /** Round-trips broken down by table name. */
   byTable: Record<string, number>;

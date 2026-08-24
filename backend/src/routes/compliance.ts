@@ -4,7 +4,7 @@ import { authenticate, AuthenticatedRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/rbac';
 import { validate } from '../middleware/validate';
 import { complianceService } from '../services/compliance-service';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { RateLimiterFactory } from '../middleware/rate-limit-factory';
 import { deleteAccountSchema, emailPreferencesSchema, KNOWN_OPT_IN_KEYS } from '../schemas/compliance';
@@ -134,7 +134,7 @@ router.get('/export', authenticate, exportRateLimit, async (req: AuthenticatedRe
 
     await archive.finalize();
 
-    await supabase.from('audit_logs').insert({
+    await databaseRepository.from('audit_logs').insert({
       user_id: userId,
       action: 'data_export',
       resource_type: 'account',
@@ -207,11 +207,11 @@ router.post('/unsubscribe', async (req: Request, res: Response) => {
   const result = complianceService.verifyUnsubscribeToken(token);
   if (!result.valid || !result.userId || !result.emailType) return res.status(400).send(renderErrorPage('Invalid link.'));
 
-  const { data: prefs } = await supabase.from('user_preferences').select('email_opt_ins').eq('user_id', result.userId).single();
+  const { data: prefs } = await databaseRepository.from('user_preferences').select('email_opt_ins').eq('user_id', result.userId).single();
   const currentOptIns = (prefs?.email_opt_ins as Record<string, boolean>) || {};
   const updated = { ...currentOptIns, [result.emailType]: false };
 
-  const { error } = await supabase.from('user_preferences').upsert({ user_id: result.userId, email_opt_ins: updated }, { onConflict: 'user_id' });
+  const { error } = await databaseRepository.from('user_preferences').upsert({ user_id: result.userId, email_opt_ins: updated }, { onConflict: 'user_id' });
   if (error) throw error;
 
   res.send(renderSuccessPage(result.emailType));
@@ -226,7 +226,7 @@ router.get('/email-preferences', async (req: Request, res: Response) => {
   const userId = await resolveUserFromTokenOrSession(req, token);
   if (!userId) throw new UnauthorizedError();
 
-  const { data: prefs, error } = await supabase.from('user_preferences').select('email_opt_ins').eq('user_id', userId).maybeSingle();
+  const { data: prefs, error } = await databaseRepository.from('user_preferences').select('email_opt_ins').eq('user_id', userId).maybeSingle();
   if (error) throw error;
 
   res.json({ success: true, data: { email_opt_ins: prefs?.email_opt_ins ?? {} } });
@@ -252,7 +252,7 @@ router.patch(
     }
 
     try {
-      const { data: prefs } = await supabase
+      const { data: prefs } = await databaseRepository
         .from('user_preferences')
         .select('email_opt_ins')
         .eq('user_id', userId)
@@ -261,7 +261,7 @@ router.patch(
       const currentOptIns: Record<string, boolean> = (prefs?.email_opt_ins as Record<string, boolean>) || {};
       const merged = { ...currentOptIns, ...updates };
 
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from('user_preferences')
         .upsert({ user_id: userId, email_opt_ins: merged }, { onConflict: 'user_id' })
         .select('email_opt_ins')

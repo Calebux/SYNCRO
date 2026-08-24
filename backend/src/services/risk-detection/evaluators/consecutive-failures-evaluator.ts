@@ -3,7 +3,7 @@
  * Evaluates risk based on consecutive failed renewal attempts
  */
 
-import { supabase } from '../../../config/database';
+import { supabase, databaseRepository } from '../../../config/database';
 import { Subscription } from '../../../types/subscription';
 import { RiskWeight, RiskContext, RiskWeightConfig, RiskWeightValue } from '../../../types/risk-detection';
 import { RiskFactorEvaluator, weightToNumeric } from './base-evaluator';
@@ -15,7 +15,7 @@ export class ConsecutiveFailuresEvaluator implements RiskFactorEvaluator {
   async evaluate(subscription: Subscription, context: RiskContext): Promise<RiskWeight> {
     try {
       // Fetch renewal attempts for this subscription, ordered by date descending
-      const { data: attempts, error } = await supabase
+      const { data: attempts, error } = await databaseRepository
         .from('subscription_renewal_attempts')
         .select('*')
         .eq('subscription_id', subscription.id)

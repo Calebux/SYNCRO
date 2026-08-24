@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { emitSecurityEvent } from './audit-service';
 
@@ -57,7 +57,7 @@ class BlockchainReconciliationService {
     logger.info(`Starting blockchain reconciliation run ${runId}`, { windowDays, autoRepair });
 
     // 1. Fetch contract events
-    const { data: contractEvents, error: ceError } = await supabase
+    const { data: contractEvents, error: ceError } = await databaseRepository
       .from('contract_events')
       .select('*')
       .gte('processed_at', cutoff)
@@ -69,7 +69,7 @@ class BlockchainReconciliationService {
     }
 
     // 2. Fetch subscriptions to map blockchain_sub_id → subscription_id
-    const { data: subscriptions, error: subError } = await supabase
+    const { data: subscriptions, error: subError } = await databaseRepository
       .from('subscriptions')
       .select('id, blockchain_sub_id')
       .not('blockchain_sub_id', 'is', null);
@@ -87,7 +87,7 @@ class BlockchainReconciliationService {
     }
 
     // 3. Fetch renewal history with transaction hashes
-    const { data: renewalRecords, error: rhError } = await supabase
+    const { data: renewalRecords, error: rhError } = await databaseRepository
       .from('renewal_history')
       .select('id, subscription_id, transaction_hash, status')
       .not('transaction_hash', 'is', null)
@@ -228,7 +228,7 @@ class BlockchainReconciliationService {
     }
 
     if (mismatch.mismatchType === 'orphan_event') {
-      const { error } = await supabase
+      const { error } = await databaseRepository
         .from('renewal_history')
         .update({ notes: `[reconciliation] Orphan event — no matching contract event found at ${new Date().toISOString()}` })
         .eq('id', mismatch.renewalHistoryId);

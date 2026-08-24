@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { loadExpiryConfig, getThresholdForCycle } from '../config/expiry';
 import { daysUntilExpiry } from '../utils/expiry';
@@ -35,7 +35,7 @@ export class ExpiryService {
       }
 
       // Fetch candidates: active subscriptions with enabled billing cycles
-      const { data: candidates, error } = await supabase
+      const { data: candidates, error } = await databaseRepository
         .from('subscriptions')
         .select('id, user_id, name, billing_cycle, last_used_at, created_at')
         .eq('status', 'active')
@@ -92,7 +92,7 @@ export class ExpiryService {
   ): Promise<void> {
     const now = new Date().toISOString();
 
-    const { error: updateError } = await supabase
+    const { error: updateError } = await databaseRepository
       .from('subscriptions')
       .update({
         status: 'expired',
@@ -108,7 +108,7 @@ export class ExpiryService {
     }
 
     // Insert expiry notification
-    const { error: notifError } = await supabase
+    const { error: notifError } = await databaseRepository
       .from('notifications')
       .insert({
         user_id: sub.user_id,
@@ -140,7 +140,7 @@ export class ExpiryService {
     if (!tier) return false;
 
     // Check if this warning was already sent (dedup via subscription_data containment)
-    const { data: existing, error: checkError } = await supabase
+    const { data: existing, error: checkError } = await databaseRepository
       .from('notifications')
       .select('id')
       .eq('user_id', sub.user_id)
@@ -161,7 +161,7 @@ export class ExpiryService {
     }
 
     // Insert warning notification
-    const { error: notifError } = await supabase
+    const { error: notifError } = await databaseRepository
       .from('notifications')
       .insert({
         user_id: sub.user_id,

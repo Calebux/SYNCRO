@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import type { CreateShareInviteInput } from '../schemas/subscription-share';
 
@@ -48,7 +48,7 @@ export class SubscriptionShareService {
     subscriptionId: string,
     input: CreateShareInviteInput,
   ): Promise<{ invite: ShareInvite; token: string; shareUrl: string }> {
-    const { data: subscription, error: subErr } = await supabase
+    const { data: subscription, error: subErr } = await databaseRepository
       .from('subscriptions')
       .select('id, name, user_id')
       .eq('id', subscriptionId)
@@ -64,7 +64,7 @@ export class SubscriptionShareService {
     const expiresAt = new Date(Date.now() + (EXPIRY_MS[input.expiry] ?? EXPIRY_MS['7d']));
     const maxUses = input.maxUses === -1 ? 999999 : 1;
 
-    const { data: invite, error } = await supabase
+    const { data: invite, error } = await databaseRepository
       .from('subscription_share_invites')
       .insert({
         subscription_id: subscriptionId,
@@ -97,7 +97,7 @@ export class SubscriptionShareService {
   async getInvitePreview(token: string): Promise<ShareInvitePublicView> {
     const tokenHash = this.hashToken(token);
 
-    const { data: invite, error } = await supabase
+    const { data: invite, error } = await databaseRepository
       .from('subscription_share_invites')
       .select('*, subscriptions!inner(id, name)')
       .eq('token_hash', tokenHash)
@@ -136,7 +136,7 @@ export class SubscriptionShareService {
   }> {
     const tokenHash = this.hashToken(token);
 
-    const { data: invite, error } = await supabase
+    const { data: invite, error } = await databaseRepository
       .from('subscription_share_invites')
       .select('*')
       .eq('token_hash', tokenHash)
@@ -159,7 +159,7 @@ export class SubscriptionShareService {
       throw new Error('Cannot accept your own invite');
     }
 
-    const { error: updateErr } = await supabase
+    const { error: updateErr } = await databaseRepository
       .from('subscription_share_invites')
       .update({
         use_count: invite.use_count + 1,
@@ -182,7 +182,7 @@ export class SubscriptionShareService {
   }
 
   async revokeInvite(userId: string, inviteId: string): Promise<void> {
-    const { data: invite, error } = await supabase
+    const { data: invite, error } = await databaseRepository
       .from('subscription_share_invites')
       .select('*')
       .eq('id', inviteId)
@@ -194,7 +194,7 @@ export class SubscriptionShareService {
       throw new Error('Invite not found or already revoked');
     }
 
-    const { error: updateErr } = await supabase
+    const { error: updateErr } = await databaseRepository
       .from('subscription_share_invites')
       .update({
         revoked_at: new Date().toISOString(),
@@ -210,7 +210,7 @@ export class SubscriptionShareService {
   }
 
   async listPendingInvites(userId: string, subscriptionId: string): Promise<ShareInvite[]> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('subscription_share_invites')
       .select('*')
       .eq('subscription_id', subscriptionId)
@@ -227,7 +227,7 @@ export class SubscriptionShareService {
   }
 
   async getAuditLog(userId: string, subscriptionId: string): Promise<unknown[]> {
-    const { data: subscription } = await supabase
+    const { data: subscription } = await databaseRepository
       .from('subscriptions')
       .select('id')
       .eq('id', subscriptionId)
@@ -238,7 +238,7 @@ export class SubscriptionShareService {
       throw new Error('Subscription not found or access denied');
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('subscription_share_audit_log')
       .select('*')
       .eq('subscription_id', subscriptionId)
@@ -258,7 +258,7 @@ export class SubscriptionShareService {
     actorUserId: string | null,
     metadata?: Record<string, unknown>,
   ): Promise<void> {
-    const { error } = await supabase.from('subscription_share_audit_log').insert({
+    const { error } = await databaseRepository.from('subscription_share_audit_log').insert({
       invite_id: inviteId,
       subscription_id: subscriptionId,
       action,

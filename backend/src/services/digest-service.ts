@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { buildMonthlySummary, buildMonthlySummaries } from "./monthly-summary";
 import { digestEmailService, type DigestSendRequest } from './digest-email-service';
@@ -40,7 +40,7 @@ export class DigestService {
   // ─── Preferences ──────────────────────────────────────────────────────────
 
   async getDigestPreferences(userId: string): Promise<UserDigestPreferences> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('user_preferences')
       .select(PREFERENCE_COLUMNS)
       .eq('user_id', userId)
@@ -60,7 +60,7 @@ export class DigestService {
     if (updates.digestDay         !== undefined) dbUpdates.digest_day           = updates.digestDay;
     if (updates.includeYearToDate !== undefined) dbUpdates.include_year_to_date = updates.includeYearToDate;
 
-    const { error } = await supabase
+    const { error } = await databaseRepository
       .from('user_preferences')
       .upsert({ user_id: userId, ...dbUpdates });
 
@@ -127,7 +127,7 @@ export class DigestService {
     let hasMore = true;
 
     while (hasMore) {
-      const { data: prefs, error } = await supabase
+      const { data: prefs, error } = await databaseRepository
         .from('user_preferences')
         .select(PREFERENCE_COLUMNS)
         .eq('digest_enabled', true)

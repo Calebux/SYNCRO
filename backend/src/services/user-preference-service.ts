@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { UserPreferences, PartialUserPreferences } from '../types/reminder';
 
@@ -37,7 +37,7 @@ export class UserPreferenceService {
      */
     async getPreferences(userId: string): Promise<UserPreferences> {
         try {
-            const { data, error } = await supabase
+            const { data, error } = await databaseRepository
                 .from('user_preferences')
                 .select('*')
                 .eq('user_id', userId)
@@ -96,7 +96,7 @@ export class UserPreferenceService {
             delete (merged as any).updated_at;
             delete (merged as any).created_at;
 
-            const { data, error } = await supabase
+            const { data, error } = await databaseRepository
                 .from('user_preferences')
                 .upsert({
                     user_id: userId,

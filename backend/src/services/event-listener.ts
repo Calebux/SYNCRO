@@ -1,5 +1,5 @@
 import logger from '../config/logger';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import { reorgHandler } from './reorg-handler';
 import { generateCycleId } from '../utils/cycle-id';
 import { renewalCooldownService } from './renewal-cooldown-service';
@@ -346,7 +346,7 @@ export class EventListener {
   private async handleRenewalSuccess(event: ContractEvent): Promise<ProcessedEvent | null> {
     const { sub_id } = event.value as RenewalSuccessPayload;
 
-    const { data: sub } = await supabase
+    const { data: sub } = await databaseRepository
       .from('subscriptions')
       .select('id, next_billing_date')
       .eq('blockchain_sub_id', sub_id)
@@ -363,7 +363,7 @@ export class EventListener {
       updateData.last_renewal_cycle_id = generateCycleId(sub.next_billing_date);
     }
 
-    await supabase
+    await databaseRepository
       .from('subscriptions')
       .update(updateData)
       .eq('blockchain_sub_id', sub_id);
@@ -388,7 +388,7 @@ export class EventListener {
   private async handleRenewalFailed(event: ContractEvent): Promise<ProcessedEvent | null> {
     const { sub_id, failure_count } = event.value as RenewalFailedPayload;
 
-    const { data: sub } = await supabase
+    const { data: sub } = await databaseRepository
       .from('subscriptions')
       .select('id')
       .eq('blockchain_sub_id', sub_id)
@@ -400,7 +400,7 @@ export class EventListener {
       last_renewal_attempt_at: new Date().toISOString(),
     };
 
-    await supabase
+    await databaseRepository
       .from('subscriptions')
       .update(updateData)
       .eq('blockchain_sub_id', sub_id);
@@ -436,7 +436,7 @@ export class EventListener {
       Failed: 'cancelled',
     };
 
-    await supabase
+    await databaseRepository
       .from('subscriptions')
       .update({ status: statusMap[new_state] || 'active' })
       .eq('blockchain_sub_id', sub_id);
@@ -453,7 +453,7 @@ export class EventListener {
   private async handleApprovalCreated(event: ContractEvent): Promise<ProcessedEvent | null> {
     const { sub_id, approval_id, max_spend, expires_at } = event.value as ApprovalCreatedPayload;
 
-    await supabase
+    await databaseRepository
       .from('renewal_approvals')
       .insert({
         blockchain_sub_id: sub_id,
@@ -475,7 +475,7 @@ export class EventListener {
   private async handleApprovalRejected(event: ContractEvent): Promise<ProcessedEvent | null> {
     const { sub_id, approval_id, reason } = event.value as ApprovalRejectedPayload;
 
-    await supabase
+    await databaseRepository
       .from('renewal_approvals')
       .update({
         rejected: true,
@@ -496,7 +496,7 @@ export class EventListener {
   private async handleExecutorAssigned(event: ContractEvent): Promise<ProcessedEvent | null> {
     const { sub_id, executor } = event.value as ExecutorAssignedPayload;
 
-    await supabase
+    await databaseRepository
       .from('subscriptions')
       .update({ executor_address: executor })
       .eq('blockchain_sub_id', sub_id);
@@ -513,7 +513,7 @@ export class EventListener {
   private async handleExecutorRemoved(event: ContractEvent): Promise<ProcessedEvent | null> {
     const { sub_id } = event.value as { sub_id: number };
 
-    await supabase
+    await databaseRepository
       .from('subscriptions')
       .update({ executor_address: null })
       .eq('blockchain_sub_id', sub_id);
@@ -549,7 +549,7 @@ export class EventListener {
       return null;
     }
 
-    const { error } = await supabase
+    const { error } = await databaseRepository
       .from('subscriptions')
       .update({ [column]: timestamp })
       .eq('blockchain_sub_id', sub_id);
@@ -568,7 +568,7 @@ export class EventListener {
   }
 
   private async saveEvents(events: ProcessedEvent[]) {
-    const { error } = await supabase
+    const { error } = await databaseRepository
       .from('contract_events')
       .insert(
         events.map(e => ({
@@ -586,7 +586,7 @@ export class EventListener {
   }
 
   private async getLastProcessedLedger(): Promise<number> {
-    const { data } = await supabase
+    const { data } = await databaseRepository
       .from('event_cursor')
       .select('last_ledger')
       .single();
@@ -595,7 +595,7 @@ export class EventListener {
   }
 
   private async updateLastProcessedLedger(ledger: number) {
-    await supabase
+    await databaseRepository
       .from('event_cursor')
       .upsert({ id: 1, last_ledger: ledger } as any);
   }

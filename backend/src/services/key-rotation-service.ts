@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import { deriveKeyHex } from '../../../shared/src/crypto/key-derivation';
 import logger from '../config/logger';
 
@@ -59,7 +59,7 @@ export class KeyRotationService {
   ): Promise<KeyRotationInitResult> {
     try {
       // 1. Get all encrypted subscriptions for user
-      const { data: subscriptions, error: fetchError } = await supabase
+      const { data: subscriptions, error: fetchError } = await databaseRepository
         .from('subscriptions')
         .select('id, is_encrypted')
         .eq('user_id', userId)
@@ -77,7 +77,7 @@ export class KeyRotationService {
       const totalSubscriptions = subscriptions?.length || 0;
 
       // 2. Update user preferences to mark rotation in progress
-      const { error: prefsError } = await supabase
+      const { error: prefsError } = await databaseRepository
         .from('user_preferences')
         .update({
           previous_wallet_public_key: oldWalletPublicKey,
@@ -106,7 +106,7 @@ export class KeyRotationService {
           new_wallet_public_key: newWalletPublicKey,
         }));
 
-        const { error: progressError } = await supabase
+        const { error: progressError } = await databaseRepository
           .from('subscription_reencryption_progress')
           .upsert(progressRecords, {
             onConflict: 'user_id, subscription_id, new_wallet_public_key',
@@ -155,7 +155,7 @@ export class KeyRotationService {
   ): Promise<ReEncryptionResult> {
     try {
       // 1. Update progress status to in_progress
-      await supabase
+      await databaseRepository
         .from('subscription_reencryption_progress')
         .update({
           status: 'in_progress',
@@ -165,7 +165,7 @@ export class KeyRotationService {
         .eq('subscription_id', subscriptionId);
 
       // 2. Fetch encrypted subscription data
-      const { data: subscription, error: fetchError } = await supabase
+      const { data: subscription, error: fetchError } = await databaseRepository
         .from('subscriptions')
         .select('id, encrypted_name, encrypted_price, encrypted_category, encrypted_renewal_url')
         .eq('id', subscriptionId)
@@ -181,7 +181,7 @@ export class KeyRotationService {
       // This service coordinates the process and tracks progress
 
       // 4. Mark as completed (actual re-encryption done client-side)
-      const { error: progressError } = await supabase
+      const { error: progressError } = await databaseRepository
         .from('subscription_reencryption_progress')
         .update({
           status: 'completed',
@@ -202,7 +202,7 @@ export class KeyRotationService {
       logger.error('Error re-encrypting subscription:', error);
 
       // Mark as failed
-      await supabase
+      await databaseRepository
         .from('subscription_reencryption_progress')
         .update({
           status: 'failed',
@@ -226,7 +226,7 @@ export class KeyRotationService {
   async getRotationProgress(userId: string): Promise<KeyRotationProgressResult> {
     try {
       // Check if rotation is in progress
-      const { data: prefs, error: prefsError } = await supabase
+      const { data: prefs, error: prefsError } = await databaseRepository
         .from('user_preferences')
         .select(
           'rotation_in_progress, rotation_started_at, rotation_completed_at, previous_wallet_public_key'
@@ -255,7 +255,7 @@ export class KeyRotationService {
       }
 
       // Get progress details
-      const { data: progressRecords, error: progressError } = await supabase
+      const { data: progressRecords, error: progressError } = await databaseRepository
         .from('subscription_reencryption_progress')
         .select('status, old_wallet_public_key, new_wallet_public_key')
         .eq('user_id', userId)
@@ -316,7 +316,7 @@ export class KeyRotationService {
       const newEncryptionKey = this.deriveEncryptionKeyFromWallet(newWalletPublicKey);
 
       // 2. Update user preferences
-      const { error: prefsError } = await supabase
+      const { error: prefsError } = await databaseRepository
         .from('user_preferences')
         .update({
           encryption_key: newEncryptionKey,
@@ -350,13 +350,13 @@ export class KeyRotationService {
   async cancelKeyRotation(userId: string): Promise<boolean> {
     try {
       // 1. Delete progress records
-      await supabase
+      await databaseRepository
         .from('subscription_reencryption_progress')
         .delete()
         .eq('user_id', userId);
 
       // 2. Reset rotation flags
-      const { error: prefsError } = await supabase
+      const { error: prefsError } = await databaseRepository
         .from('user_preferences')
         .update({
           rotation_in_progress: false,

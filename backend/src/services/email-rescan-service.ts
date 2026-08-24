@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { google } from 'googleapis';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { idempotencyService } from './idempotency';
 import { auditService } from './audit-service';
@@ -105,7 +105,7 @@ export class EmailRescanService {
   ): Promise<RawEmail[]> {
     logger.info(`Fetching emails for account ${emailAccountId} between ${startAt.toISOString()} and ${endAt.toISOString()}`);
 
-    const { data: account, error } = await supabase
+    const { data: account, error } = await databaseRepository
       .from('email_accounts')
       .select('id, provider, access_token, refresh_token, token_expiry, is_connected')
       .eq('id', emailAccountId)
@@ -339,7 +339,7 @@ export class EmailRescanService {
     logger.info(`Starting email re-scan for user ${userId}, account ${emailAccountId}`);
 
     // Create a job tracking record
-    const { data: job, error: jobError } = await supabase
+    const { data: job, error: jobError } = await databaseRepository
       .from('rescan_jobs')
       .insert({
         user_id: userId,
@@ -409,7 +409,7 @@ export class EmailRescanService {
         }
 
         // 4. Create subscription
-        const { error: insertError } = await supabase
+        const { error: insertError } = await databaseRepository
           .from('subscriptions')
           .insert({
             user_id: userId,
@@ -431,7 +431,7 @@ export class EmailRescanService {
       }
 
       // 5. Update job status
-      await supabase.from('rescan_jobs').update({
+      await databaseRepository.from('rescan_jobs').update({
         status: 'completed',
         processed_count: processedCount,
         subscriptions_created: subscriptionsCreated,
@@ -465,7 +465,7 @@ export class EmailRescanService {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       
-      await supabase.from('rescan_jobs').update({
+      await databaseRepository.from('rescan_jobs').update({
         status: 'failed',
         error_message: errorMessage,
         completed_at: new Date().toISOString(),

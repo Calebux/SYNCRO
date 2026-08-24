@@ -1,5 +1,5 @@
 import logger from '../config/logger';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import { blockchainService } from './blockchain-service';
 
 export interface BatchConfig {
@@ -105,7 +105,7 @@ export class SettlementBatcher {
 
   /** Current pending count in DB (status=pending). */
   async getQueueDepth(): Promise<number> {
-    const { count, error } = await supabase
+    const { count, error } = await databaseRepository
       .from('pending_settlements')
       .select('*', { count: 'exact', head: true })
       .eq('status', 'pending');
@@ -131,7 +131,7 @@ export class SettlementBatcher {
       );
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('pending_settlements')
       .insert({
         user_id: settlement.userId,
@@ -158,7 +158,7 @@ export class SettlementBatcher {
   async getPendingBatch(): Promise<PendingSettlement[]> {
     const cutoff = new Date(Date.now() - this.config.maxWaitMs).toISOString();
 
-    const { data: aged } = await supabase
+    const { data: aged } = await databaseRepository
       .from('pending_settlements')
       .select('*')
       .eq('status', 'pending')
@@ -166,7 +166,7 @@ export class SettlementBatcher {
       .order('created_at', { ascending: true })
       .limit(this.config.maxBatchSize);
 
-    const { data: recent } = await supabase
+    const { data: recent } = await databaseRepository
       .from('pending_settlements')
       .select('*')
       .eq('status', 'pending')
@@ -223,7 +223,7 @@ export class SettlementBatcher {
     }
 
     const ids = shuffled.map((s) => s.id);
-    await supabase
+    await databaseRepository
       .from('pending_settlements')
       .update({
         status: 'submitted',

@@ -9,7 +9,7 @@
 
 import { parse } from 'csv-parse/sync';
 import { z } from 'zod';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 
 // ─── Types ────────────────────────────────────────────────────────────────
@@ -145,7 +145,7 @@ function validateRow(raw: Record<string, string>, rowNum: number): ImportRow {
 }
 
 async function findDuplicate(name: string, userId: string): Promise<string | undefined> {
-  const { data } = await supabase
+  const { data } = await databaseRepository
     .from('subscriptions')
     .select('id')
     .eq('user_id', userId)
@@ -253,7 +253,7 @@ export async function commitImport(
       updated_at: new Date().toISOString(),
     }));
 
-  const { error } = await supabase.from('subscriptions').insert(insertPayload);
+  const { error } = await databaseRepository.from('subscriptions').insert(insertPayload);
 
   if (error) {
     logger.error('CSV import DB error:', error);

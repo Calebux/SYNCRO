@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 
 export type SuggestionType =
@@ -88,7 +88,7 @@ export class SuggestionService {
    * Covers: annual billing savings, unused detection, duplicate service detection.
    */
   async generateSuggestions(userId: string): Promise<Suggestion[]> {
-    const { data: subscriptions, error } = await supabase
+    const { data: subscriptions, error } = await databaseRepository
       .from('subscriptions')
       .select('id, name, price, billing_cycle, category, last_interaction_at, created_at')
       .eq('user_id', userId)
@@ -103,7 +103,7 @@ export class SuggestionService {
     const suggestions: Suggestion[] = [];
 
     // Fetch dismissed suggestions so we can skip them
-    const { data: dismissed } = await supabase
+    const { data: dismissed } = await databaseRepository
       .from('dismissed_suggestions')
       .select('subscription_id, suggestion_type, dismissed_until')
       .eq('user_id', userId)
@@ -220,7 +220,7 @@ export class SuggestionService {
     const dismissedUntil = new Date();
     dismissedUntil.setDate(dismissedUntil.getDate() + DISMISS_DAYS);
 
-    const { error } = await supabase.from('dismissed_suggestions').upsert(
+    const { error } = await databaseRepository.from('dismissed_suggestions').upsert(
       {
         user_id: userId,
         subscription_id: subscriptionId,

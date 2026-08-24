@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import * as speakeasy from 'speakeasy';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 
 const BCRYPT_COST = 12;
@@ -26,7 +26,7 @@ export class RecoveryCodeService {
 
     const rows = hashed.map((code_hash: string) => ({ user_id: userId, code_hash }));
 
-    const { error } = await supabase.from('recovery_codes').insert(rows);
+    const { error } = await databaseRepository.from('recovery_codes').insert(rows);
 
     if (error) {
       logger.error('Failed to insert recovery codes:', error);
@@ -42,7 +42,7 @@ export class RecoveryCodeService {
    * Returns true if a valid unused code matched, false otherwise.
    */
   async verify(userId: string, code: string): Promise<boolean> {
-    const { data: rows, error } = await supabase
+    const { data: rows, error } = await databaseRepository
       .from('recovery_codes')
       .select('id, code_hash')
       .eq('user_id', userId)
@@ -60,7 +60,7 @@ export class RecoveryCodeService {
     for (const row of rows) {
       const match = await bcrypt.compare(code, row.code_hash);
       if (match) {
-        const { error: updateError } = await supabase
+        const { error: updateError } = await databaseRepository
           .from('recovery_codes')
           .update({ used_at: new Date().toISOString() })
           .eq('id', row.id);
@@ -80,7 +80,7 @@ export class RecoveryCodeService {
    * Delete all recovery codes for a user (called when 2FA is disabled).
    */
   async invalidateAll(userId: string): Promise<void> {
-    const { error } = await supabase
+    const { error } = await databaseRepository
       .from('recovery_codes')
       .delete()
       .eq('user_id', userId);
@@ -134,7 +134,7 @@ export class TotpService {
         .update(`${userId}:${token}:${timeWindow}`)
         .digest('hex');
 
-      const { data: existingCode, error: lookupError } = await supabase
+      const { data: existingCode, error: lookupError } = await databaseRepository
         .from('totp_used_codes')
         .select('id')
         .eq('user_id', userId)
@@ -155,7 +155,7 @@ export class TotpService {
       // Step 4: Mark the code as used
       const expiresAt = new Date((timeWindow + 4) * TOTP_STEP * 1000); // Expire after 2 minutes
 
-      const { error: insertError } = await supabase
+      const { error: insertError } = await databaseRepository
         .from('totp_used_codes')
         .insert({
           user_id: userId,
@@ -191,7 +191,7 @@ export class TotpService {
    */
   async cleanupExpired(userId?: string): Promise<void> {
     try {
-      let query = supabase
+      let query = databaseRepository
         .from('totp_used_codes')
         .delete()
         .lt('expires_at', new Date().toISOString());

@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { createClient, RedisClientType } from 'redis';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { AuthenticatedRequest } from './auth';
 import { SubscriptionTier, TIER_RATE_LIMIT_CONFIG } from '../config/rate-limit';
@@ -52,7 +52,7 @@ async function getUserTier(userId: string, redis: RedisClientType | null): Promi
     if (mem && mem.expiresAt > Date.now()) return mem.tier;
   }
 
-  const { data } = await supabase
+  const { data } = await databaseRepository
     .from('profiles')
     .select('subscription_tier')
     .eq('id', userId)

@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { requestContextStorage } from '../middleware/requestContext';
 import { env } from '../config/env';
@@ -23,7 +23,7 @@ export class PrivacyService {
    */
   async isGlobalFlagEnabled(flag: PrivacyFlag): Promise<boolean> {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from('global_privacy_flags')
         .select('enabled')
         .eq('flag_name', flag)
@@ -66,7 +66,7 @@ export class PrivacyService {
     }
 
     try {
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from('privacy_preferences')
         .select('*')
         .eq('user_id', userId)

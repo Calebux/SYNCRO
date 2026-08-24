@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 
 export interface ReferralStats {
@@ -19,7 +19,7 @@ function generateCode(): string {
 export class ReferralService {
   /** Get (or lazily create) the referral code for a user. */
   async getOrCreateCode(userId: string): Promise<string> {
-    const { data: profile, error } = await supabase
+    const { data: profile, error } = await databaseRepository
       .from('profiles')
       .select('referral_code')
       .eq('id', userId)
@@ -33,7 +33,7 @@ export class ReferralService {
     let code = generateCode();
     let attempts = 0;
     while (attempts < 5) {
-      const { data: existing } = await supabase
+      const { data: existing } = await databaseRepository
         .from('profiles')
         .select('id')
         .eq('referral_code', code)
@@ -44,7 +44,7 @@ export class ReferralService {
       attempts++;
     }
 
-    const { error: updateError } = await supabase
+    const { error: updateError } = await databaseRepository
       .from('profiles')
       .update({ referral_code: code })
       .eq('id', userId);
@@ -55,7 +55,7 @@ export class ReferralService {
 
   /** Validate a referral code at signup and record the referral. */
   async validateAndRecord(referralCode: string, referredUserId: string): Promise<void> {
-    const { data: referrer, error } = await supabase
+    const { data: referrer, error } = await databaseRepository
       .from('profiles')
       .select('id')
       .eq('referral_code', referralCode)
@@ -69,13 +69,13 @@ export class ReferralService {
     if (referrer.id === referredUserId) return; // self-referral guard
 
     // Set referred_by on the new user's profile
-    await supabase
+    await databaseRepository
       .from('profiles')
       .update({ referred_by: referrer.id })
       .eq('id', referredUserId);
 
     // Create referral record
-    await supabase.from('referrals').insert({
+    await databaseRepository.from('referrals').insert({
       referrer_user_id: referrer.id,
       referred_user_id: referredUserId,
       referral_code: referralCode,
@@ -89,7 +89,7 @@ export class ReferralService {
    * Grants reward to referrer.
    */
   async markConverted(referredUserId: string): Promise<void> {
-    const { data: referral, error } = await supabase
+    const { data: referral, error } = await databaseRepository
       .from('referrals')
       .select('id, referrer_user_id, reward_granted')
       .eq('referred_user_id', referredUserId)
@@ -98,7 +98,7 @@ export class ReferralService {
 
     if (error || !referral || referral.reward_granted) return;
 
-    await supabase
+    await databaseRepository
       .from('referrals')
       .update({
         status: 'converted',
@@ -118,7 +118,7 @@ export class ReferralService {
   async getStats(userId: string): Promise<ReferralStats> {
     const code = await this.getOrCreateCode(userId);
 
-    const { data: referrals, error } = await supabase
+    const { data: referrals, error } = await databaseRepository
       .from('referrals')
       .select('status, reward_granted')
       .eq('referrer_user_id', userId);

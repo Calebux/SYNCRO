@@ -1,13 +1,13 @@
 /**
  * CSP Monitoring Service
- * 
+ *
  * Handles Content Security Policy violation monitoring, aggregation, and alerting.
  * Integrates with Sentry for real-time alerts and provides database persistence
  * for historical analysis and trend detection.
  */
 
 import * as Sentry from '@sentry/node';
-import { supabase, trackDbRequest } from '../config/database';
+import { supabase, databaseRepository, trackDbRequest } from '../config/database';
 import logger from '../config/logger';
 
 /**
@@ -96,7 +96,7 @@ export async function persistCspViolation(
     const release = trackDbRequest();
 
     try {
-        const { error } = await supabase
+        const { error } = await databaseRepository
             .from('csp_violations')
             .insert({
                 document_uri: report['document-uri'],
@@ -198,7 +198,7 @@ export async function getCspViolationStats(
     const release = trackDbRequest();
 
     try {
-        let query = supabase
+        let query = databaseRepository
             .from('csp_violation_stats')
             .select('*')
             .order('occurrence_count', { ascending: false });
@@ -364,7 +364,7 @@ export async function getUserCspViolations(
     const release = trackDbRequest();
 
     try {
-        const { data, error } = await supabase
+        const { data, error } = await databaseRepository
             .from('csp_violations')
             .select('*')
             .eq('user_id', userId)
@@ -398,7 +398,7 @@ export async function cleanupOldCspViolations(
         const cutoffDate = new Date();
         cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
 
-        const { data, error } = await supabase
+        const { data, error } = await databaseRepository
             .from('csp_violations')
             .delete()
             .lt('created_at', cutoffDate.toISOString())

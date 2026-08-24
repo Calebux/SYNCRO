@@ -3,7 +3,7 @@
  * Evaluates risk based on subscription approval status and expiration
  */
 
-import { supabase } from '../../../config/database';
+import { supabase, databaseRepository } from '../../../config/database';
 import { Subscription } from '../../../types/subscription';
 import { RiskWeight, RiskContext, RiskWeightConfig, RiskWeightValue } from '../../../types/risk-detection';
 import { RiskFactorEvaluator, weightToNumeric } from './base-evaluator';
@@ -15,7 +15,7 @@ export class ApprovalExpirationEvaluator implements RiskFactorEvaluator {
   async evaluate(subscription: Subscription, context: RiskContext): Promise<RiskWeight> {
     try {
       // Fetch approval for this subscription
-      const { data: approval, error } = await supabase
+      const { data: approval, error } = await databaseRepository
         .from('subscription_approvals')
         .select('*')
         .eq('subscription_id', subscription.id)

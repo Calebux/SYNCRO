@@ -1,8 +1,8 @@
 import { Router, Response } from 'express';
-import { AuthenticatedRequest } from '../middleware/auth';
-import { validate } from '../middleware/validate';
-import { reminderSettingsService } from '../services/reminder-settings-service';
-import logger from '../config/logger';
+import { AuthenticatedRequest } from '../../middleware/auth';
+import { validate } from '../../middleware/validate';
+import { reminderSettingsService } from './reminder.service';
+import logger from '../../config/logger';
 import { z } from 'zod';
 
 const reminderSettingsUpdateSchema = z.object({

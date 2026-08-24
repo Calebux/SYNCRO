@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import crypto from 'crypto';
 
@@ -32,7 +32,7 @@ function signState(state: ChannelState, channelId: string): string {
 
 export class PaymentChannelService {
   async listChannels(userId: string): Promise<PaymentChannelRecord[]> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('payment_channels')
       .select('*')
       .eq('user_id', userId)
@@ -43,7 +43,7 @@ export class PaymentChannelService {
   }
 
   async getChannel(userId: string, channelId: string): Promise<PaymentChannelRecord | null> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('payment_channels')
       .select('*')
       .eq('id', channelId)
@@ -70,7 +70,7 @@ export class PaymentChannelService {
       totalDeposited: depositAmount,
     };
 
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('payment_channels')
       .insert({
         user_id: userId,
@@ -112,7 +112,7 @@ export class PaymentChannelService {
       totalDeposited: state.totalDeposited,
     };
 
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('payment_channels')
       .update({
         balance: nextState.userBalance,
@@ -143,7 +143,7 @@ export class PaymentChannelService {
       totalDeposited: state.totalDeposited + amount,
     };
 
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('payment_channels')
       .update({
         balance: nextState.userBalance,
@@ -170,7 +170,7 @@ export class PaymentChannelService {
       throw new Error('Channel not found or not active');
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('payment_channels')
       .update({
         state: unilateral ? 'dispute' : 'closing',
@@ -186,7 +186,7 @@ export class PaymentChannelService {
   }
 
   async finalizeClose(userId: string, channelId: string): Promise<PaymentChannelRecord> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('payment_channels')
       .update({
         state: 'closed',

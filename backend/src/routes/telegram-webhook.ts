@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { telegramBotService } from '../services/telegram-bot-service';
 import { TelegramTokenService } from '../services/telegram-token-service';
@@ -122,7 +122,7 @@ router.post('/webhook', validateWebhookSecret, async (req: Request, res: Respons
                     const userId = Buffer.from(deepLinkParam, 'base64').toString('utf-8');
 
                     // Validate user exists
-                    const { data: user, error: userError } = await supabase
+                    const { data: user, error: userError } = await databaseRepository
                         .from('profiles')
                         .select('id')
                         .eq('id', userId)
@@ -144,7 +144,7 @@ router.post('/webhook', validateWebhookSecret, async (req: Request, res: Respons
                     }
 
                     // Check if connection already exists
-                    const { data: existing } = await supabase
+                    const { data: existing } = await databaseRepository
                         .from('user_telegram_connections')
                         .select('id')
                         .eq('user_id', userId)
@@ -207,7 +207,7 @@ router.post('/webhook', validateWebhookSecret, async (req: Request, res: Respons
             // Handle /disconnect command
             if (text === '/disconnect') {
                 try {
-                    const { data: connection } = await supabase
+                    const { data: connection } = await databaseRepository
                         .from('user_telegram_connections')
                         .select('user_id')
                         .eq('chat_id', chatId)
@@ -222,7 +222,7 @@ router.post('/webhook', validateWebhookSecret, async (req: Request, res: Respons
                         return res.status(200).json({ ok: true });
                     }
 
-                    const { error: deleteError } = await supabase
+                    const { error: deleteError } = await databaseRepository
                         .from('user_telegram_connections')
                         .delete()
                         .eq('chat_id', chatId);

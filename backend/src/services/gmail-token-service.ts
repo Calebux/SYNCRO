@@ -12,7 +12,7 @@
  */
 
 import { encrypt, decrypt } from '../utils/encryption';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import { ExternalServiceClient } from '../utils/external-service-client';
 import { SingleFlight } from '../utils/single-flight';
 
@@ -32,7 +32,7 @@ export class GmailTokenService {
    */
   static async refreshAccessToken(userId: string): Promise<string> {
     // First, get the account id to use as the single-flight key
-    const { data: account, error: fetchError } = await supabase
+    const { data: account, error: fetchError } = await databaseRepository
       .from('email_accounts')
       .select('*')
       .eq('user_id', userId)
@@ -47,7 +47,7 @@ export class GmailTokenService {
 
     return singleFlight.do(key, async () => {
       // Re-fetch account inside the single-flight to get the latest (in case another process updated it)
-      const { data: latestAccount, error: latestFetchError } = await supabase
+      const { data: latestAccount, error: latestFetchError } = await databaseRepository
         .from('email_accounts')
         .select('*')
         .eq('id', account.id)
@@ -86,7 +86,7 @@ export class GmailTokenService {
         updateData.refresh_token = encrypt(newRefreshToken);
       }
 
-      await supabase
+      await databaseRepository
         .from('email_accounts')
         .update(updateData)
         .eq('id', latestAccount.id);
@@ -99,7 +99,7 @@ export class GmailTokenService {
    * Disconnects a Gmail account by revoking Google tokens and purging local credentials.
    */
   static async disconnectGmailAccount(userId: string): Promise<void> {
-    const { data: account } = await supabase
+    const { data: account } = await databaseRepository
       .from('email_accounts')
       .select('*')
       .eq('user_id', userId)
@@ -131,7 +131,7 @@ export class GmailTokenService {
     }
 
     // 2. Purge local credentials
-    await supabase
+    await databaseRepository
       .from('email_accounts')
       .delete()
       .eq('id', account.id);

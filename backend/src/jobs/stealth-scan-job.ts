@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import logger from '../config/logger';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import { runWithCorrelationId } from '../middleware/requestContext';
 import { stealthScanner } from '../services/stealth-scanner';
 
@@ -17,7 +17,7 @@ export function startStealthScanJob(): void {
   cron.schedule('* * * * *', () =>
     runWithCorrelationId('cron:stealth-scan', async (cid) => {
       try {
-        const { data: users } = await supabase
+        const { data: users } = await databaseRepository
           .from('profiles')
           .select('id')
           .not('stealth_meta_address', 'is', null);

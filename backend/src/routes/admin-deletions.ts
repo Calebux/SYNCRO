@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { adminAuth } from '../middleware/admin';
 import { createAdminLimiter } from '../middleware/rate-limit-factory';
@@ -18,7 +18,7 @@ router.use(adminAuth);
 router.get('/', async (req: Request, res: Response) => {
   try {
     const status = req.query.status as string | undefined;
-    let query = supabase
+    let query = databaseRepository
       .from('account_deletions')
       .select('id, user_id, status, requested_at, scheduled_deletion_at, cancelled_at, completed_at, reason')
       .order('requested_at', { ascending: false })
@@ -49,7 +49,7 @@ router.get('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    const { data: deletion, error: deletionError } = await supabase
+    const { data: deletion, error: deletionError } = await databaseRepository
       .from('account_deletions')
       .select('id, user_id, status, requested_at, scheduled_deletion_at, cancelled_at, completed_at, reason')
       .eq('id', id)
@@ -59,7 +59,7 @@ router.get('/:id', async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: 'Deletion request not found' });
     }
 
-    const { data: auditTrail, error: auditError } = await supabase
+    const { data: auditTrail, error: auditError } = await databaseRepository
       .from('deletion_audit_trail')
       .select('id, step, status, metadata, created_at')
       .eq('deletion_id', id)
@@ -85,7 +85,7 @@ router.post('/:id/process', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    const { data: deletion, error } = await supabase
+    const { data: deletion, error } = await databaseRepository
       .from('account_deletions')
       .select('*')
       .eq('id', id)
@@ -124,7 +124,7 @@ router.post('/:id/cancel', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('account_deletions')
       .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
       .eq('id', id)
@@ -136,7 +136,7 @@ router.post('/:id/cancel', async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: 'Pending deletion not found' });
     }
 
-    await supabase.from('deletion_audit_trail').insert({
+    await databaseRepository.from('deletion_audit_trail').insert({
       deletion_id: id,
       step: 'admin_cancelled',
       status: 'completed',

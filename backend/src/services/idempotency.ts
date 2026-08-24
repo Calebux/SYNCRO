@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import crypto from 'crypto';
 
@@ -62,7 +62,7 @@ export class IdempotencyService<TPayload extends SerializableInput = Serializabl
   ): Promise<{ isDuplicate: boolean; cachedResponse?: TypedIdempotentResponse<TResponse> }> {
     try {
       // Check for existing idempotency record
-      const { data: existing, error } = await supabase
+      const { data: existing, error } = await databaseRepository
         .from('idempotency_keys')
         .select('*')
         .eq('key', key)
@@ -111,7 +111,7 @@ export class IdempotencyService<TPayload extends SerializableInput = Serializabl
       const expiresAt = new Date();
       expiresAt.setHours(expiresAt.getHours() + this.ttlHours);
 
-      const { error } = await supabase.from('idempotency_keys').insert({
+      const { error } = await databaseRepository.from('idempotency_keys').insert({
         key,
         user_id: userId,
         request_hash: requestHash,
@@ -157,7 +157,7 @@ export class IdempotencyService<TPayload extends SerializableInput = Serializabl
     candidate: { name: string; price: number; billing_cycle: string }
   ): Promise<{ duplicates: any[]; message: string | null }> {
     try {
-      const { data: existing, error } = await supabase
+      const { data: existing, error } = await databaseRepository
         .from('subscriptions')
         .select('id, name, price, billing_cycle, email_account_id, status')
         .eq('user_id', userId)
@@ -213,7 +213,7 @@ export class IdempotencyService<TPayload extends SerializableInput = Serializabl
 
   async cleanupExpiredKeys(): Promise<number> {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from('idempotency_keys')
         .delete()
         .lt('expires_at', new Date().toISOString())

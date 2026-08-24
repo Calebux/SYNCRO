@@ -1,5 +1,5 @@
 import cron, { type ScheduledTask } from 'node-cron';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import { subscriptionService } from '../services/subscription-service';
 import logger from '../config/logger';
 import { jobAlertService } from '../services/job-alert-service';
@@ -16,7 +16,7 @@ export function scheduleAutoResume(): void {
 
     try {
       await jobAlertService.runMonitoredJob('auto-resume', async () => {
-        const { data: toResume, error } = await supabase
+        const { data: toResume, error } = await databaseRepository
           .from('subscriptions')
           .select('id, user_id')
           .eq('status', 'paused')

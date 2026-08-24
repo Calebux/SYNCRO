@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 
 const DOMAIN_SEPARATOR = 'syncro:audit:v1';
@@ -113,7 +113,7 @@ export class CommitmentStorageService {
       ciphertext: encrypted.ciphertext,
     });
 
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('commitment_blinding_factors')
       .insert({
         user_id: params.userId,
@@ -135,7 +135,7 @@ export class CommitmentStorageService {
   }
 
   async updateCommitmentIndex(dbId: string, commitmentIndex: number): Promise<boolean> {
-    const { error } = await supabase
+    const { error } = await databaseRepository
       .from('commitment_blinding_factors')
       .update({ commitment_index: commitmentIndex })
       .eq('id', dbId);

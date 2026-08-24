@@ -1,5 +1,5 @@
 import logger from '../config/logger';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import { telegramBotService } from './telegram-bot-service';
 import { userPreferenceService } from './user-preference-service';
 import { normalizeToMonthlyAmount } from '@syncro/shared/subscription-math';
@@ -53,7 +53,7 @@ export class TelegramNotificationService {
       return;
     }
 
-    const { data: subscriptions, error } = await supabase
+    const { data: subscriptions, error } = await databaseRepository
       .from('subscriptions')
       .select('name, price, currency, billing_cycle, status')
       .eq('user_id', userId)
@@ -101,7 +101,7 @@ export class TelegramNotificationService {
   }
 
   async sendWeeklySummariesToAllUsers(): Promise<number> {
-    const { data: connections, error } = await supabase
+    const { data: connections, error } = await databaseRepository
       .from('user_telegram_connections')
       .select('user_id');
 

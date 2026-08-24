@@ -3,7 +3,7 @@
  * Core service for computing and managing subscription risk scores
  */
 
-import { supabase } from "../../config/database";
+import { supabase, databaseRepository } from "../../config/database";
 import logger from "../../config/logger";
 import { Subscription } from "../../types/subscription";
 import { webhookService } from "../webhook-service";
@@ -48,7 +48,7 @@ export class RiskDetectionService {
 
     try {
       // Fetch subscription
-      const { data: subscription, error } = await supabase
+      const { data: subscription, error } = await databaseRepository
         .from("subscriptions")
         .select("*")
         .eq("id", subscriptionId)
@@ -132,13 +132,13 @@ export class RiskDetectionService {
   ): Promise<RiskScore> {
     try {
       // Get old score to check for change
-      const { data: oldScore } = await supabase
+      const { data: oldScore } = await databaseRepository
         .from("subscription_risk_scores")
         .select("risk_level")
         .eq("subscription_id", assessment.subscription_id)
         .single();
 
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from("subscription_risk_scores")
         .upsert(
           {
@@ -186,7 +186,7 @@ export class RiskDetectionService {
     userId: string,
   ): Promise<RiskScore> {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from("subscription_risk_scores")
         .select("*")
         .eq("subscription_id", subscriptionId)
@@ -211,7 +211,7 @@ export class RiskDetectionService {
    */
   async getUserRiskScores(userId: string): Promise<RiskScore[]> {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from("subscription_risk_scores")
         .select("*")
         .eq("user_id", userId)
@@ -250,7 +250,7 @@ export class RiskDetectionService {
       let hasMore = true;
 
       while (hasMore) {
-        const { data: subscriptions, error } = await supabase
+        const { data: subscriptions, error } = await databaseRepository
           .from("subscriptions")
           .select("*")
           .eq("status", "active")
@@ -317,7 +317,7 @@ export class RiskDetectionService {
     errorMessage?: string,
   ): Promise<void> {
     try {
-      const { error } = await supabase
+      const { error } = await databaseRepository
         .from("subscription_renewal_attempts")
         .insert({
           subscription_id: subscriptionId,

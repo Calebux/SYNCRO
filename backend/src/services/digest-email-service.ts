@@ -1,5 +1,5 @@
 import nodemailer from 'nodemailer';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { buildDigestEmailHtml, buildDigestEmailText } from './digest-template';
 import type { MonthlyDigestSummary, DigestAuditRecord } from '../types/digest';
@@ -172,7 +172,7 @@ export class DigestEmailService {
   async writeAuditRecords(records: readonly DigestAuditInput[]): Promise<void> {
     if (records.length === 0) return;
 
-    const { error } = await supabase.from('digest_audit_log').insert(
+    const { error } = await databaseRepository.from('digest_audit_log').insert(
       records.map((record) => ({
         user_id:       record.userId,
         digest_type:   record.digestType,
@@ -192,7 +192,7 @@ export class DigestEmailService {
    * Retrieve the audit history for a user (newest first, capped at 24 records).
    */
   async getAuditHistory(userId: string, limit = 24): Promise<DigestAuditRecord[]> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('digest_audit_log')
       .select('*')
       .eq('user_id', userId)

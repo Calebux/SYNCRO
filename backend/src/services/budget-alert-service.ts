@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { sendSlackAlert } from './slack-service';
 import { calculateMonthlySpend } from '@syncro/shared/subscription-math';
@@ -31,7 +31,7 @@ async function getTeamSlackWebhooks(userIds: readonly string[]): Promise<Map<str
   if (userIds.length === 0) return webhooks;
 
   // Teams the users own take precedence.
-  const { data: ownedTeams } = await supabase
+  const { data: ownedTeams } = await databaseRepository
     .from('teams')
     .select('owner_id, slack_webhook_url')
     .in('owner_id', userIds);
@@ -45,7 +45,7 @@ async function getTeamSlackWebhooks(userIds: readonly string[]): Promise<Map<str
   const remaining = userIds.filter((id) => !webhooks.has(id));
   if (remaining.length === 0) return webhooks;
 
-  const { data: memberships } = await supabase
+  const { data: memberships } = await databaseRepository
     .from('team_members')
     .select('user_id, team_id')
     .in('user_id', remaining);
@@ -54,7 +54,7 @@ async function getTeamSlackWebhooks(userIds: readonly string[]): Promise<Map<str
   const teamIds = uniqueIds(membershipRows.map((row) => row.team_id));
   if (teamIds.length === 0) return webhooks;
 
-  const { data: teams } = await supabase
+  const { data: teams } = await databaseRepository
     .from('teams')
     .select('id, slack_webhook_url')
     .in('id', teamIds);
@@ -95,7 +95,7 @@ export async function checkBudgetAlertsForUsers(userIds?: readonly string[]): Pr
   try {
     const month = currentMonth();
 
-    let profileQuery = supabase
+    let profileQuery = databaseRepository
       .from('profiles')
       .select('id, monthly_budget, budget_alert_threshold')
       .not('monthly_budget', 'is', null);
@@ -114,12 +114,12 @@ export async function checkBudgetAlertsForUsers(userIds?: readonly string[]): Pr
     const ids = profiles.map((p) => p.id);
 
     const [{ data: subRows }, { data: alertRows }] = await Promise.all([
-      supabase
+      databaseRepository
         .from('subscriptions')
         .select('user_id, price, billing_cycle')
         .in('user_id', ids)
         .eq('status', 'active'),
-      supabase
+      databaseRepository
         .from('budget_alert_logs')
         .select('user_id, alert_type')
         .in('user_id', ids)
@@ -169,7 +169,7 @@ export async function checkBudgetAlertsForUsers(userIds?: readonly string[]): Pr
     if (pending.length === 0) return;
 
     // Insert in-app notifications
-    await supabase.from('notifications').insert(
+    await databaseRepository.from('notifications').insert(
       pending.map((alert) => ({
         user_id: alert.userId,
         type: alert.alertType,
@@ -193,7 +193,7 @@ export async function checkBudgetAlertsForUsers(userIds?: readonly string[]): Pr
     }
     await Promise.allSettled(slackSends);
 
-    await supabase.from('budget_alert_logs').upsert(
+    await databaseRepository.from('budget_alert_logs').upsert(
       pending.map((alert) => ({
         user_id: alert.userId,
         alert_type: alert.alertType,
@@ -221,7 +221,7 @@ export async function wouldExceedBudget(
   userId: string,
   newMonthlyAmount: number
 ): Promise<{ wouldExceed: boolean; newTotal: number; budget: number; overage: number } | null> {
-  const { data: profile } = await supabase
+  const { data: profile } = await databaseRepository
     .from('profiles')
     .select('monthly_budget')
     .eq('id', userId)
@@ -229,7 +229,7 @@ export async function wouldExceedBudget(
 
   if (!profile?.monthly_budget) return null;
 
-  const { data: subs } = await supabase
+  const { data: subs } = await databaseRepository
     .from('subscriptions')
     .select('price, billing_cycle')
     .eq('user_id', userId)

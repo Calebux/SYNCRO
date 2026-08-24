@@ -7,7 +7,7 @@ import { renewalLockService } from './renewal-lock-service';
 import { digestService } from './digest-service';
 import { webhookService } from './webhook-service';
 import { complianceService } from './compliance-service';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import { suggestionService } from './suggestion-service';
 import { idempotencyService } from './idempotency';
 import { subscriptionService } from './subscription-service';
@@ -193,7 +193,7 @@ export class SchedulerService {
         logger.info('Running nightly suggestion generation');
         try {
           // Fetch all active user IDs and warm suggestions (errors per user are non-fatal)
-          const { data: users } = await supabase
+          const { data: users } = await databaseRepository
             .from('profiles')
             .select('id');
           let count = 0;

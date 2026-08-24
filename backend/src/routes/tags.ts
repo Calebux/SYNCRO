@@ -12,7 +12,7 @@
 import express, { Response } from 'express';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { createTagSchema, notesSchema, addTagSchema } from '../schemas/tag';
 import { uuidParamSchema } from '../schemas/common';
@@ -32,7 +32,7 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
 
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('subscription_tags')
       .select('id, name, color')
       .eq('user_id', userId)
@@ -58,7 +58,7 @@ router.post('/', validate(createTagSchema), async (req: AuthenticatedRequest, re
 
     const { name, color } = req.body;
 
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('subscription_tags')
       .insert({ user_id: userId, name: name.trim(), color })
       .select()
@@ -90,7 +90,7 @@ router.delete('/:id', validate(uuidParamSchema, 'params'), async (req: Authentic
 
     const { id } = req.params;
 
-    const { error } = await supabase
+    const { error } = await databaseRepository
       .from('subscription_tags')
       .delete()
       .eq('id', id)
@@ -123,7 +123,7 @@ router.post(
       const { tag_id } = req.body;
 
       // Verify ownership of the subscription
-      const { data: sub } = await supabase
+      const { data: sub } = await databaseRepository
         .from('subscriptions')
         .select('user_id')
         .eq('id', subscriptionId)
@@ -134,7 +134,7 @@ router.post(
       }
 
       // Verify tag belongs to user
-      const { data: tag } = await supabase
+      const { data: tag } = await databaseRepository
         .from('subscription_tags')
         .select('id')
         .eq('id', tag_id)
@@ -145,7 +145,7 @@ router.post(
         return res.status(404).json({ success: false, error: 'Tag not found' });
       }
 
-      const { error } = await supabase
+      const { error } = await databaseRepository
         .from('subscription_tags')
         .insert({ subscription_id: subscriptionId, tag_id });
 
@@ -177,7 +177,7 @@ router.delete('/subscriptions/:id/tags/:tagId', validate(uuidParamSchema, 'param
     const { id: subscriptionId, tagId } = req.params;
 
     // Verify subscription ownership
-    const { data: sub } = await supabase
+    const { data: sub } = await databaseRepository
       .from('subscriptions')
       .select('user_id')
       .eq('id', subscriptionId)
@@ -187,7 +187,7 @@ router.delete('/subscriptions/:id/tags/:tagId', validate(uuidParamSchema, 'param
       return res.status(404).json({ success: false, error: 'Subscription not found' });
     }
 
-    const { error } = await supabase
+    const { error } = await databaseRepository
       .from('subscription_tags')
       .delete()
       .eq('subscription_id', subscriptionId)
@@ -225,7 +225,7 @@ router.patch(
       const { id: subscriptionId } = req.params;
       const { notes } = req.body;
 
-      const { error } = await supabase
+      const { error } = await databaseRepository
         .from('subscriptions')
         .update({ notes })
         .eq('id', subscriptionId)

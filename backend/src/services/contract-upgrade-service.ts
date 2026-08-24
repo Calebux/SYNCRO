@@ -1,5 +1,5 @@
 import logger from '../config/logger';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import {
   Contract,
   Keypair,
@@ -469,7 +469,7 @@ export class ContractUpgradeService {
     transactionHash: string; data: Record<string, unknown>;
   }): Promise<void> {
     try {
-      await supabase.from('contract_upgrade_events').insert({
+      await databaseRepository.from('contract_upgrade_events').insert({
         proposal_id: params.proposalId,
         event_type: params.eventType,
         transaction_hash: params.transactionHash,
@@ -483,7 +483,7 @@ export class ContractUpgradeService {
 
   async getUpgradeEvents(limit = 20): Promise<ContractUpgradeEvent[]> {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from('contract_upgrade_events')
         .select('*')
         .order('created_at', { ascending: false })

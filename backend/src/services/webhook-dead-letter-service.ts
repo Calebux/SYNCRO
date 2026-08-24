@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import crypto from 'crypto';
 import { Webhook, WebhookDelivery } from '../types/webhook';
@@ -62,7 +62,7 @@ export class WebhookDeadLetterService {
     reason: string,
     errorMessage: string
   ): Promise<WebhookDeadLetterDelivery> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('webhook_deliveries')
       .update({
         is_dead_letter: true,
@@ -90,7 +90,7 @@ export class WebhookDeadLetterService {
    */
   async getDeadLetterDeliveries(userId: string, webhookId: string): Promise<WebhookDeadLetterDelivery[]> {
     // Verify ownership
-    const { data: webhook } = await supabase
+    const { data: webhook } = await databaseRepository
       .from('webhooks')
       .select('id')
       .eq('id', webhookId)
@@ -101,7 +101,7 @@ export class WebhookDeadLetterService {
       throw new Error('Webhook not found or access denied');
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('webhook_deliveries')
       .select('*')
       .eq('webhook_id', webhookId)
@@ -120,7 +120,7 @@ export class WebhookDeadLetterService {
    * Get all dead-letter deliveries for a user across all webhooks
    */
   async getAllUserDeadLetters(userId: string): Promise<(WebhookDeadLetterDelivery & { webhook_url?: string })[]> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('webhook_deliveries')
       .select(`
         *,
@@ -150,7 +150,7 @@ export class WebhookDeadLetterService {
     idempotencyKey?: string
   ): Promise<WebhookDeadLetterReplay> {
     // Verify the delivery exists and belongs to user's webhook
-    const { data: delivery, error: fetchError } = await supabase
+    const { data: delivery, error: fetchError } = await databaseRepository
       .from('webhook_deliveries')
       .select(`
         *,
@@ -169,7 +169,7 @@ export class WebhookDeadLetterService {
     const key = idempotencyKey || crypto.randomUUID();
 
     try {
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from('webhook_dead_letter_replays')
         .insert({
           webhook_delivery_id: deliveryId,
@@ -183,7 +183,7 @@ export class WebhookDeadLetterService {
       if (error) {
         // If the key already exists, return the existing replay
         if (error.code === '23505') { // Unique constraint violation
-          const { data: existingReplay, error: fetchExistingError } = await supabase
+          const { data: existingReplay, error: fetchExistingError } = await databaseRepository
             .from('webhook_dead_letter_replays')
             .select('*')
             .eq('idempotency_key', key)
@@ -212,7 +212,7 @@ export class WebhookDeadLetterService {
    */
   async getReplayHistory(userId: string, deliveryId: string): Promise<WebhookDeadLetterReplay[]> {
     // Verify ownership
-    const { data: delivery } = await supabase
+    const { data: delivery } = await databaseRepository
       .from('webhook_deliveries')
       .select('*, webhooks!inner(user_id)')
       .eq('id', deliveryId)
@@ -223,7 +223,7 @@ export class WebhookDeadLetterService {
       throw new Error('Delivery not found or access denied');
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('webhook_dead_letter_replays')
       .select('*')
       .eq('webhook_delivery_id', deliveryId)
@@ -246,7 +246,7 @@ export class WebhookDeadLetterService {
     delivery: Pick<WebhookDelivery, 'payload'>,
   ): Promise<WebhookDeadLetterReplay> {
     // Update status to processing
-    await supabase
+    await databaseRepository
       .from('webhook_dead_letter_replays')
       .update({ status: 'processing' })
       .eq('id', replayId);
@@ -272,7 +272,7 @@ export class WebhookDeadLetterService {
           details: { replayId, url: webhook.url },
         });
 
-        const { data: failedData, error: failedError } = await supabase
+        const { data: failedData, error: failedError } = await databaseRepository
           .from('webhook_dead_letter_replays')
           .update({
             status: 'failed',
@@ -332,7 +332,7 @@ export class WebhookDeadLetterService {
         logger.warn(`Replay ${replayId} failed with status ${response.status}`);
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from('webhook_dead_letter_replays')
         .update(updateData)
         .eq('id', replayId)
@@ -343,7 +343,7 @@ export class WebhookDeadLetterService {
 
       // If successful, update the original delivery as well
       if (isSuccess) {
-        await supabase
+        await databaseRepository
           .from('webhook_deliveries')
           .update({
             status: 'success',
@@ -355,14 +355,14 @@ export class WebhookDeadLetterService {
           .eq('id', delivery.id);
 
         // Reset webhook failure count on successful replay
-        const { data: webhook } = await supabase
+        const { data: webhook } = await databaseRepository
           .from('webhooks')
           .select('failure_count')
           .eq('id', delivery.webhook_id)
           .single();
 
         if (webhook) {
-          await supabase
+          await databaseRepository
             .from('webhooks')
             .update({ 
               failure_count: Math.max(0, (webhook.failure_count || 1) - 1),
@@ -377,7 +377,7 @@ export class WebhookDeadLetterService {
       const errorMsg = err instanceof Error ? err.message : String(err);
       logger.error(`Replay ${replayId} encountered error:`, err);
 
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from('webhook_dead_letter_replays')
         .update({
           status: 'failed',
@@ -408,7 +408,7 @@ export class WebhookDeadLetterService {
       most_recent: string;
     }>;
   }> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('webhook_dead_letter_stats')
       .select('*')
       .eq('user_id', userId);

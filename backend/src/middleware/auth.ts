@@ -1,14 +1,14 @@
 import * as crypto from 'crypto';
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { setRequestUserId, setRequestPrivacyMode, setRequestPrivacyPreferences } from './requestContext';
 import * as Sentry from '@sentry/node';
 
 async function loadPrivacyPreferences(userId: string): Promise<void> {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('privacy_preferences')
       .select('*')
       .eq('user_id', userId)
@@ -88,7 +88,7 @@ async function authenticateWithApiKey(
 
   const hash = crypto.createHash('sha256').update(apiKey).digest('hex');
 
-  const { data: keyRecord, error } = await supabase
+  const { data: keyRecord, error } = await databaseRepository
     .from('api_keys')
     .select('user_id, scopes, revoked, last_used_at, request_count')
     .eq('key_hash', hash)
@@ -106,7 +106,7 @@ async function authenticateWithApiKey(
   }
 
   // Update last_used_at and request_count
-  await supabase
+  await databaseRepository
     .from('api_keys')
     .update({
       last_used_at: new Date().toISOString(),
@@ -196,7 +196,7 @@ export async function authenticate(
     }
 
     if (sessionId) {
-      const { data: sessionRecord, error: dbError } = await supabase
+      const { data: sessionRecord, error: dbError } = await databaseRepository
         .from('user_sessions')
         .select('revoked_at')
         .eq('id', sessionId)
@@ -297,7 +297,7 @@ export async function optionalAuthenticate(
 
         let isRevoked = false;
         if (sessionId) {
-          const { data: sessionRecord, error: dbError } = await supabase
+          const { data: sessionRecord, error: dbError } = await databaseRepository
             .from('user_sessions')
             .select('revoked_at')
             .eq('id', sessionId)

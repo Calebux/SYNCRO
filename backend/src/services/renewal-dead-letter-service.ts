@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 
 export interface RenewalDeadLetterEntry {
@@ -41,7 +41,7 @@ export class RenewalDeadLetterService {
     idempotencyKey: string;
     lockHolder: string;
   }): Promise<RenewalAttemptRecord | null> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('renewal_attempts')
       .insert({
         subscription_id: params.subscriptionId,
@@ -56,7 +56,7 @@ export class RenewalDeadLetterService {
 
     if (error) {
       if (error.code === '23505') {
-        const { data: existing } = await supabase
+        const { data: existing } = await databaseRepository
           .from('renewal_attempts')
           .select('*')
           .eq('idempotency_key', params.idempotencyKey)
@@ -75,7 +75,7 @@ export class RenewalDeadLetterService {
     status: RenewalAttemptRecord['status'],
     result?: unknown,
   ): Promise<void> {
-    const { error } = await supabase
+    const { error } = await databaseRepository
       .from('renewal_attempts')
       .update({
         status,
@@ -90,7 +90,7 @@ export class RenewalDeadLetterService {
   }
 
   async getAttemptByKey(idempotencyKey: string): Promise<RenewalAttemptRecord | null> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('renewal_attempts')
       .select('*')
       .eq('idempotency_key', idempotencyKey)
@@ -114,14 +114,14 @@ export class RenewalDeadLetterService {
     failureReason: string;
     errorMessage?: string;
   }): Promise<RenewalDeadLetterEntry> {
-    const { data: existing } = await supabase
+    const { data: existing } = await databaseRepository
       .from('renewal_dead_letter_queue')
       .select('id, failure_count')
       .eq('idempotency_key', params.idempotencyKey)
       .maybeSingle();
 
     if (existing) {
-      const { data, error } = await supabase
+      const { data, error } = await databaseRepository
         .from('renewal_dead_letter_queue')
         .update({
           failure_count: (existing.failure_count ?? 0) + 1,
@@ -139,7 +139,7 @@ export class RenewalDeadLetterService {
       return data as RenewalDeadLetterEntry;
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('renewal_dead_letter_queue')
       .insert({
         subscription_id: params.subscriptionId,
@@ -168,7 +168,7 @@ export class RenewalDeadLetterService {
   }
 
   async getUserDeadLetters(userId: string): Promise<RenewalDeadLetterEntry[]> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('renewal_dead_letter_queue')
       .select('*')
       .eq('user_id', userId)
@@ -192,12 +192,12 @@ export class RenewalDeadLetterService {
     const since7d = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
 
     const [totalRes, last24hRes, last7dRes] = await Promise.all([
-      supabase.from('renewal_dead_letter_queue').select('id', { count: 'exact', head: true }),
-      supabase
+      databaseRepository.from('renewal_dead_letter_queue').select('id', { count: 'exact', head: true }),
+      databaseRepository
         .from('renewal_dead_letter_queue')
         .select('id', { count: 'exact', head: true })
         .gte('dead_letter_at', since24h),
-      supabase
+      databaseRepository
         .from('renewal_dead_letter_queue')
         .select('id', { count: 'exact', head: true })
         .gte('dead_letter_at', since7d),

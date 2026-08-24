@@ -1,6 +1,6 @@
 import { Router, type Response } from 'express';
 import { z } from 'zod';
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import { type AuthenticatedRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { emailRescanService } from '../services/email-rescan-service';
@@ -48,7 +48,7 @@ router.post(
   async (req: AuthenticatedRequest, res: Response) => {
     const { emailAccountId, startDate, endDate } = req.body as z.infer<typeof rescanRequestSchema>;
 
-    const { data: emailAccount, error } = await supabase
+    const { data: emailAccount, error } = await databaseRepository
       .from('email_accounts')
       .select('id, is_connected')
       .eq('id', emailAccountId)

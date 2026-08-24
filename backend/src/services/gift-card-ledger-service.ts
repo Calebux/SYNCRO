@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 
 export interface LedgerEntry {
@@ -14,7 +14,7 @@ export interface LedgerEntry {
 
 export class GiftCardLedgerService {
   async getBalance(userId: string): Promise<number> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('gift_card_balance')
       .select('balance')
       .eq('user_id', userId)
@@ -33,7 +33,7 @@ export class GiftCardLedgerService {
     const currentBalance = await this.getBalance(userId);
     const balanceAfter = currentBalance + amount;
 
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('gift_card_ledger')
       .insert({
         user_id: userId,
@@ -75,7 +75,7 @@ export class GiftCardLedgerService {
 
     const balanceAfter = currentBalance - amount;
 
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('gift_card_ledger')
       .insert({
         user_id: userId,
@@ -98,7 +98,7 @@ export class GiftCardLedgerService {
   }
 
   async getHistory(userId: string, limit = 50): Promise<LedgerEntry[]> {
-    const { data, error } = await supabase
+    const { data, error } = await databaseRepository
       .from('gift_card_ledger')
       .select('*')
       .eq('user_id', userId)
