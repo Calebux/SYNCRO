@@ -97,7 +97,7 @@ export class ContractUpgradeService {
 
     const sim = await rpc.simulateTransaction(tx);
     if (SorobanRpc.Api.isSimulationError(sim)) {
-      throw new Error(\`Simulation failed: \${sim.error}\`);
+      throw new Error(`Simulation failed: ${sim.error}`);
     }
 
     if (sim.result?.retval) {
@@ -131,7 +131,7 @@ export class ContractUpgradeService {
 
     const sim = await rpc.simulateTransaction(tx);
     if (SorobanRpc.Api.isSimulationError(sim)) {
-      throw new Error(\`Simulation failed: \${sim.error}\`);
+      throw new Error(`Simulation failed: ${sim.error}`);
     }
 
     if (sim.result?.retval) {
@@ -157,7 +157,7 @@ export class ContractUpgradeService {
 
     const sim = await rpc.simulateTransaction(tx);
     if (SorobanRpc.Api.isSimulationError(sim)) {
-      throw new Error(\`Simulation failed: \${sim.error}\`);
+      throw new Error(`Simulation failed: ${sim.error}`);
     }
 
     if (sim.result?.retval) {
@@ -183,7 +183,7 @@ export class ContractUpgradeService {
 
     const sim = await rpc.simulateTransaction(tx);
     if (SorobanRpc.Api.isSimulationError(sim)) {
-      throw new Error(\`Simulation failed: \${sim.error}\`);
+      throw new Error(`Simulation failed: ${sim.error}`);
     }
     if (sim.result?.retval) {
       return Number(sim.result.retval.u64()?.toString() || '0');
@@ -208,7 +208,7 @@ export class ContractUpgradeService {
 
     const sim = await rpc.simulateTransaction(tx);
     if (SorobanRpc.Api.isSimulationError(sim)) {
-      throw new Error(\`Simulation failed: \${sim.error}\`);
+      throw new Error(`Simulation failed: ${sim.error}`);
     }
     if (sim.result?.retval) {
       return sim.result.retval.bool() === true;
@@ -233,7 +233,7 @@ export class ContractUpgradeService {
 
     const sim = await rpc.simulateTransaction(tx);
     if (SorobanRpc.Api.isSimulationError(sim)) {
-      throw new Error(\`Simulation failed: \${sim.error}\`);
+      throw new Error(`Simulation failed: ${sim.error}`);
     }
     if (sim.result?.retval) {
       return sim.result.retval.bool() === true;

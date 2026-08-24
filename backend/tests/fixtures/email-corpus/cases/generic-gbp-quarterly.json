@@ -1,0 +1,18 @@
+{
+  "id": "generic-gbp-quarterly",
+  "merchant": "Unknown",
+  "locale": "en",
+  "kind": "positive",
+  "notes": "GBP symbol and a quarterly interval.",
+  "email": {
+    "subject": "Your quarterly invoice",
+    "from": "Harbour Tools <billing@harbour-tools.example>",
+    "body": "Your subscription invoice is ready. You have been billed GBP 45.00 per quarter."
+  },
+  "expected": {
+    "name": "Harbour Tools",
+    "amount": 45.0,
+    "currency": "GBP",
+    "interval": "quarterly"
+  }
+}

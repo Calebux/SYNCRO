@@ -1,0 +1,13 @@
+{
+  "id": "youtube-en-channel-upload",
+  "merchant": "YouTube Premium",
+  "locale": "en",
+  "kind": "negative",
+  "notes": "Clear negative: content notification.",
+  "email": {
+    "subject": "A channel you subscribe to uploaded a video",
+    "from": "YouTube <no-reply@youtube.com>",
+    "body": "A new video was posted by a channel you subscribe to. Watch it now."
+  },
+  "expected": null
+}

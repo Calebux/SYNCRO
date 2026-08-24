@@ -1,0 +1,18 @@
+{
+  "id": "spotify-en-trial-ending",
+  "merchant": "Spotify",
+  "locale": "en",
+  "kind": "positive",
+  "notes": "Trial ending: a charge is scheduled, so this is a real subscription signal.",
+  "email": {
+    "subject": "Your Spotify trial ends in 3 days",
+    "from": "Spotify <no-reply@spotify.com>",
+    "body": "Your free trial ends on the 30th. After that your subscription continues at $10.99/month unless you cancel."
+  },
+  "expected": {
+    "name": "Spotify",
+    "amount": 10.99,
+    "currency": "USD",
+    "interval": "monthly"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "id": "restaurant-en-receipt",
+  "merchant": "Unknown",
+  "locale": "en",
+  "kind": "negative",
+  "notes": "Ambiguous negative: the word 'receipt' plus an amount, but a one-off purchase.",
+  "email": {
+    "subject": "Your receipt",
+    "from": "Corner Cafe <receipts@corner-cafe.example>",
+    "body": "Thanks for visiting. Your receipt total is $18.40. See you next time."
+  },
+  "expected": null
+}

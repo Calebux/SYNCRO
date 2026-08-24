@@ -1,0 +1,18 @@
+{
+  "id": "generic-saas-en-invoice",
+  "merchant": "Unknown",
+  "locale": "en",
+  "kind": "positive",
+  "notes": "Unknown merchant: exercises sender-name fallback rather than the lookup table.",
+  "email": {
+    "subject": "Invoice for your Acme Analytics plan",
+    "from": "Acme Analytics <billing@acme-analytics.example>",
+    "body": "Your subscription invoice is ready. You have been billed $49.00/month."
+  },
+  "expected": {
+    "name": "Acme Analytics",
+    "amount": 49.0,
+    "currency": "USD",
+    "interval": "monthly"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "id": "netflix-en-cancellation-confirmed",
+  "merchant": "Netflix",
+  "locale": "en",
+  "kind": "negative",
+  "notes": "Ambiguous negative: subscription vocabulary but no charge and no active plan.",
+  "email": {
+    "subject": "Your Netflix membership has been cancelled",
+    "from": "Netflix <info@netflix.com>",
+    "body": "Your membership is cancelled and you will not be billed again. You can restart any time before your data is deleted."
+  },
+  "expected": null
+}

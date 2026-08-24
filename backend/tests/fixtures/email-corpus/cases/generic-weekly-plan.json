@@ -1,0 +1,18 @@
+{
+  "id": "generic-weekly-plan",
+  "merchant": "Unknown",
+  "locale": "en",
+  "kind": "positive",
+  "notes": "Weekly interval, less common cadence.",
+  "email": {
+    "subject": "Your weekly plan renewed",
+    "from": "Fresh Box <billing@fresh-box.example>",
+    "body": "Your subscription has been renewed and charged $12.50 per week."
+  },
+  "expected": {
+    "name": "Fresh Box",
+    "amount": 12.5,
+    "currency": "USD",
+    "interval": "weekly"
+  }
+}
