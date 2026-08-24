@@ -1,27 +1,12 @@
-import { Router, Request, Response } from 'express';
-import logger from '../config/logger';
-import { verifyStripeWebhook } from '../services/payment-webhook-verification';
-
-const router = Router();
-
 /**
  * POST /api/webhooks/stripe
- * Inbound Stripe webhook — verified via stripe.webhooks.constructEvent.
+ *
+ * Thin adapter over the shared ingestion pipeline (issue #1283). All
+ * verification, persistence, deduplication, retry and replay behaviour lives in
+ * `services/webhook-ingestion`; this file contributes only the provider choice.
  */
-router.post('/', (req: Request, res: Response) => {
-  const signature = req.headers['stripe-signature'] as string | undefined;
-  const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body));
 
-  const result = verifyStripeWebhook(rawBody, signature, process.env.STRIPE_WEBHOOK_SECRET);
+import { stripeAdapter } from '../services/webhook-ingestion';
+import { createWebhookIngestRouter } from './webhook-ingest-route';
 
-  if (!result.valid) {
-    return res.status(400).json({ error: 'Webhook signature verification failed' });
-  }
-
-  const event = result.event as { type?: string; id?: string };
-  logger.info('[StripeWebhook] Received verified event', { type: event?.type, id: event?.id });
-
-  return res.json({ received: true });
-});
-
-export default router;
+export default createWebhookIngestRouter(stripeAdapter);

@@ -1,0 +1,13 @@
+{
+  "id": "apple-en-app-store-onetime",
+  "merchant": "Apple",
+  "locale": "en",
+  "kind": "negative",
+  "notes": "Ambiguous negative: App Store receipt for a one-time in-app purchase.",
+  "email": {
+    "subject": "Your receipt from Apple",
+    "from": "Apple <no_reply@email.apple.com>",
+    "body": "Receipt for a one-time in-app purchase of $4.99. This is not a recurring charge."
+  },
+  "expected": null
+}

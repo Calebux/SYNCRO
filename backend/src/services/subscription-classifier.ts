@@ -9,7 +9,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import SERVICE_CATEGORIES from './service-categories';
-import logger from '../src/config/logger';
+import logger from '../config/logger';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 

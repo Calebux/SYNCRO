@@ -45,7 +45,7 @@
     "typecheck": "tsc --noEmit",
     "generate:contracts": "node scripts/generate-contract-bindings.cjs",
     "prebuild": "npm run generate:contracts",
-    "build": "tsc",
+    "build": "node init && tsc",
     "test": "jest",
     "prepublishOnly": "npm run lint && npm run typecheck && npm run build"
   },

@@ -6,10 +6,18 @@
   "types": "src/index.ts",
   "typesVersions": {
     "*": {
-      "subscription-math": ["src/subscription-math.ts"],
-      "security": ["src/security.ts"],
-      "crypto": ["src/crypto/index.ts"],
-      "*": ["src/*"]
+      "subscription-math": [
+        "src/subscription-math.ts"
+      ],
+      "security": [
+        "src/security.ts"
+      ],
+      "crypto": [
+        "src/crypto/index.ts"
+      ],
+      "*": [
+        "src/*"
+      ]
     }
   },
   "exports": {
@@ -40,12 +48,17 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "node init && tsc",
     "typecheck": "tsc --noEmit",
     "watch": "tsc --watch",
     "test": "jest"
   },
-  "keywords": ["syncro", "types", "domain-models", "crypto"],
+  "keywords": [
+    "syncro",
+    "types",
+    "domain-models",
+    "crypto"
+  ],
   "license": "ISC",
   "dependencies": {
     "@noble/curves": "^1.8.1",

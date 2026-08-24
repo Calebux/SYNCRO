@@ -11,6 +11,8 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
+    // Issue #1265: backend/src is 100% TypeScript. Keep it that way — no new .js.
+    "allowJs": false,
     "moduleResolution": "node",
     "declaration": true,
     "declarationMap": true,

@@ -1,0 +1,13 @@
+{
+  "id": "audible-en-credit-available",
+  "merchant": "Audible",
+  "locale": "en",
+  "kind": "negative",
+  "notes": "Ambiguous negative: monthly cadence language but no charge.",
+  "email": {
+    "subject": "Your monthly credit is ready",
+    "from": "Audible <no-reply@audible.com>",
+    "body": "Your credit is available now. Pick your next listen any time this month."
+  },
+  "expected": null
+}

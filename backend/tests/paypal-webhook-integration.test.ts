@@ -14,6 +14,19 @@ jest.mock('@sentry/node', () => ({
   captureMessage: jest.fn(),
 }));
 
+
+// Issue #1283: the route now persists the delivery before acknowledging, so the
+// pipeline needs a database. The in-memory fake enforces the real
+// UNIQUE (provider, event_id) constraint, which is what makes the
+// duplicate-delivery assertions below meaningful.
+import { FakeSupabase } from './helpers/fake-supabase';
+
+const fakeDb = new FakeSupabase();
+
+jest.mock('../src/config/database', () => ({
+  supabase: { from: (table: string) => fakeDb.from(table) },
+}));
+
 import paypalWebhookRoutes from '../src/routes/paypal-webhook';
 
 function buildApp(): Express {
@@ -33,6 +46,7 @@ describe('PayPal webhook route integration', () => {
   const originalFetch = global.fetch;
 
   beforeEach(() => {
+    fakeDb.reset();
     originalEnv.PAYPAL_WEBHOOK_ID = process.env.PAYPAL_WEBHOOK_ID;
     originalEnv.PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID;
     originalEnv.PAYPAL_CLIENT_SECRET = process.env.PAYPAL_CLIENT_SECRET;
@@ -101,8 +115,9 @@ describe('PayPal webhook route integration', () => {
       .set('content-type', 'application/json')
       .send(validPayload);
 
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({ received: true });
+    // 202: verified and durably stored; the handler runs asynchronously.
+    expect(res.status).toBe(202);
+    expect(res.body).toEqual({ received: true, eventId: 'WH-58D07950BU892453L' });
   });
 
   it('accepts the same webhook twice (idempotent-replay)', async () => {
@@ -138,8 +153,15 @@ describe('PayPal webhook route integration', () => {
       .set('content-type', 'application/json')
       .send(validPayload);
 
-    expect(res1.status).toBe(200);
+    expect(res1.status).toBe(202);
+    // The redelivery is recognised by (provider, event_id) and not re-stored.
     expect(res2.status).toBe(200);
+    expect(res2.body).toEqual({
+      received: true,
+      duplicate: true,
+      eventId: 'WH-58D07950BU892453L',
+    });
+    expect(fakeDb.rows('webhook_events')).toHaveLength(1);
   });
 
   it('rejects a webhook with PayPal verification FAILURE (rejected-forgery)', async () => {

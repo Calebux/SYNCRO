@@ -100,6 +100,15 @@ describe('EmailRescanService', () => {
       processedCount: 2,
       subscriptionsCreated: 1,
       duplicatesSkipped: 0,
+      // Per-scan LLM cost attribution (issue #1281). Zero here because the
+      // heuristic parser handled both fixtures without an LLM call.
+      llmUsage: {
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        cacheHits: 0,
+        budgetSkips: 0,
+      },
     });
     expect(subscriptionsTable.insert).toHaveBeenCalledWith(expect.objectContaining({
       user_id: mockUserId,

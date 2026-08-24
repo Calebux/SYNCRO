@@ -1,0 +1,13 @@
+{
+  "id": "steam-en-game-purchase",
+  "merchant": "Steam",
+  "locale": "en",
+  "kind": "negative",
+  "notes": "Ambiguous negative: a receipt with an amount, but a one-off purchase.",
+  "email": {
+    "subject": "Thank you for your Steam purchase",
+    "from": "Steam <noreply@steampowered.com>",
+    "body": "Your receipt for a one-time game purchase of $29.99. No recurring charge will be made."
+  },
+  "expected": null
+}

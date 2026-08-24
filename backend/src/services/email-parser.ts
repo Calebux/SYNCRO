@@ -1,4 +1,5 @@
-import { llmParser } from './llm-parser';
+import { llmParser, type LLMParseContext } from './llm-parser';
+import type { TokenUsage } from './llm-budget-service';
 import { normalizeMerchant } from '../../utils/merchant-normalizer';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -9,13 +10,19 @@ interface ParseEmailInput {
   body?: string | null
 }
 
-interface ParsedSubscription {
+export interface ParsedSubscription {
   name: string | null
   amount: number | null
   currency: string | null
   interval: string | null
   signals: string[]
   confidence: number
+  /** Set only when the LLM produced this result (issue #1281). */
+  promptVersion?: string
+  /** Tokens billed for this result; zero when a cached template was reused. */
+  tokenUsage?: TokenUsage
+  /** True when the LLM result came from the template cache. */
+  llmCached?: boolean
 }
 
 interface ExtractedAmount {
@@ -61,9 +68,17 @@ const INTERVAL_MATCHERS: IntervalMatcher[] = [
 
 // ── Exported function ─────────────────────────────────────────────────────────
 
-/** Async variant — tries regex first, falls back to Gemini if confidence < 0.9 */
+/**
+ * Async variant — tries regex first, falls back to Gemini if confidence < 0.9.
+ *
+ * `context` carries the user and scan ids used for LLM budget enforcement and
+ * cost attribution (issue #1281). When the budget is exhausted the LLM call is
+ * skipped and the heuristic result is returned, so a large mailbox scan
+ * degrades in accuracy rather than failing or overspending.
+ */
 export async function parseSubscriptionEmailWithFallback(
   input: ParseEmailInput,
+  context: LLMParseContext = {},
 ): Promise<ParsedSubscription | null> {
   const regexResult = parseSubscriptionEmail(input);
 
@@ -72,7 +87,7 @@ export async function parseSubscriptionEmailWithFallback(
   if (!llmParser.isAvailable) return regexResult;
 
   const combined = `${input.subject ?? ''}\n${input.body ?? ''}`.trim();
-  const llmResult = await llmParser.parse(combined);
+  const llmResult = await llmParser.parse(combined, context);
 
   if (!llmResult) return regexResult;
 
@@ -85,6 +100,9 @@ export async function parseSubscriptionEmailWithFallback(
       interval: llmResult.interval,
       signals: [],
       confidence: llmResult.confidence,
+      promptVersion: llmResult.promptVersion,
+      tokenUsage: llmResult.tokenUsage,
+      llmCached: llmResult.cached,
     };
   }
 

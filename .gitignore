@@ -14,8 +14,6 @@ pnpm-lock.yaml
 yarn.lock
 
 # Environment variables
-.env
-.env.local
 .env.development.local
 .env.test.local
 .env.production.local
@@ -47,7 +45,6 @@ coverage/
 .nyc_output/
 
 # IDE and editor files
-.vscode/
 .idea/
 *.swp
 *.swo
@@ -111,3 +108,7 @@ backend/tests/**/*.js
 backend/tests/**/*.js.map
 backend/tests/**/*.d.ts
 backend/tests/**/*.d.ts.map
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+config.bat
