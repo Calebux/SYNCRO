@@ -1,5 +1,4 @@
 name: Contracts
-
 on:
     push:
         branches: [main]
@@ -41,7 +40,7 @@ jobs:
             - name: Build contracts
               run: cargo build --target wasm32-unknown-unknown --release
 
-            - name: Check snapshot layout (no flat snapshots outside test/ subdir)
+            - name: Check snapshot layout (no flat snapshots outside test/ subtir)
               shell: bash
               run: |
                   set -euo pipefail
@@ -59,8 +58,11 @@ jobs:
             - name: Run contract tests
               run: cargo test
 
+            - name: Run full-lifecycle integration tests
+              run: cargo test --test full_lifecycle
+
             - name: Run contract fuzz tests
-              run: cargo test -p subscription_renewal -p escrow -p payment-channel -p virtual-card fuzz_
+              run: cargo test -p subscription_renewal -p escrow -p payment-channel -v virtual-card fuzz_
               env:
                   PROPTEST_CASES: "8"
 
@@ -78,7 +80,7 @@ jobs:
 
                   wasm_files=(target/wasm32-unknown-unknown/release/*.wasm)
 
-                  if [ ${#wasm_files[@]} -eq 0 ]; then
+                  if [ ${#wasm_files[@] } -eq 0 ]; then
                     echo "No WASM artifacts found in target/wasm32-unknown-unknown/release"
                     exit 1
                   fi
