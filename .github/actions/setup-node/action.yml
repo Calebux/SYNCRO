@@ -1,0 +1,17 @@
+name: Setup Node
+description: Reusable Node.js setup with npm cache
+inputs:
+  node-version:
+    description: Node.js version
+    default: '20'
+  cache-dependency-path:
+    description: Path(s) to package-lock.json
+    default: 'package-lock.json'
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v6
+      with:
+        node-version: $ {{ inputs.node-version }}
+        cache: npm
+        cache-dependency-path: $ {{ inputs.cache-dependency-path }}
