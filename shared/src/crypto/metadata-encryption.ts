@@ -1,3 +1,5 @@
+import { CryptoUnavailableError } from './runtime/errors';
+
 export interface EncryptedData {
   iv: string;
   authTag: string;
@@ -21,6 +23,14 @@ export interface SubscriptionMetadata {
 }
 
 const VALID_CYCLES = new Set(['weekly', 'monthly', 'quarterly', 'yearly']);
+
+function requireWebCrypto(): Crypto {
+  const web = globalThis.crypto;
+  if (!web?.subtle || typeof web.getRandomValues !== 'function') {
+    throw new CryptoUnavailableError('subtle');
+  }
+  return web;
+}
 
 function validateSubscriptionMetadata(data: unknown): data is SubscriptionMetadata {
   if (typeof data !== 'object' || data === null) return false;
@@ -130,9 +140,10 @@ export async function decryptSubscriptionMetadata(
  * ```
  */
 export async function encryptMetadata(plaintext: string, keyHex: string): Promise<EncryptedData> {
+  const web = requireWebCrypto();
   const keyBytes = hexToBytes(keyHex);
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const key = await crypto.subtle.importKey(
+  const iv = web.getRandomValues(new Uint8Array(12));
+  const key = await web.subtle.importKey(
     'raw',
     keyBytes.buffer as ArrayBuffer,
     { name: 'AES-GCM' },
@@ -140,7 +151,7 @@ export async function encryptMetadata(plaintext: string, keyHex: string): Promis
     ['encrypt']
   );
   const plaintextBytes = new TextEncoder().encode(plaintext);
-  const ciphertextBuffer = await crypto.subtle.encrypt(
+  const ciphertextBuffer = await web.subtle.encrypt(
     { name: 'AES-GCM', iv },
     key,
     plaintextBytes
@@ -174,6 +185,7 @@ export async function encryptMetadata(plaintext: string, keyHex: string): Promis
  * ```
  */
 export async function decryptMetadata(encrypted: EncryptedData, keyHex: string): Promise<string> {
+  const web = requireWebCrypto();
   const keyBytes = hexToBytes(keyHex);
   const iv = hexToBytes(encrypted.iv);
   const authTag = hexToBytes(encrypted.authTag);
@@ -181,7 +193,7 @@ export async function decryptMetadata(encrypted: EncryptedData, keyHex: string):
   const ciphertextWithTag = new Uint8Array(ciphertext.length + authTag.length);
   ciphertextWithTag.set(ciphertext);
   ciphertextWithTag.set(authTag, ciphertext.length);
-  const key = await crypto.subtle.importKey(
+  const key = await web.subtle.importKey(
     'raw',
     keyBytes.buffer as ArrayBuffer,
     { name: 'AES-GCM' },
@@ -190,7 +202,7 @@ export async function decryptMetadata(encrypted: EncryptedData, keyHex: string):
   );
 
   try {
-    const plaintextBuffer = await crypto.subtle.decrypt(
+    const plaintextBuffer = await web.subtle.decrypt(
       { name: 'AES-GCM', iv: iv.buffer as ArrayBuffer },
       key,
       ciphertextWithTag.buffer as ArrayBuffer
@@ -201,13 +213,7 @@ export async function decryptMetadata(encrypted: EncryptedData, keyHex: string):
   }
 }
 
-function hexToBytes(hex: string): Uint8Array {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < hex.length; i += 2) {
-    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
-  }
-  return bytes;
-}
+import { cryptoPrimitives } from './runtime/node';
 
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes)

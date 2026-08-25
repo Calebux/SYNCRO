@@ -38,11 +38,20 @@ jobs:
           NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
         run: npm run build
 
+      - name: Fetch baseline report from main
+        continue-on-error: true
+        run: |
+          git fetch origin main --depth=1
+          git show origin/main:client/.next/route-bundle-report.json > /tmp/bundle-size-baseline.json 2>/dev/null || true
+          if [ ! -s /tmp/bundle-size-baseline.json ]; then
+            echo '{"measurement":{"routes":{}}}' > /tmp/bundle-size-baseline.json
+          fi
+
       - name: Check bundle size budgets
         id: check
         working-directory: client
         continue-on-error: true
-        run: node scripts/check-bundle-size.js --json > /tmp/bundle-size-report.json; echo "exit_code=$?" >> $GITHUB_OUTPUT
+        run: node scripts/check-bundle-size.js --json --baseline=/tmp/bundle-size-baseline.json > /tmp/bundle-size-report.json; echo "exit_code=$?" >> $GITHUB_OUTPUT
 
       - name: Read bundle size report and comment PR
         id: report
@@ -59,20 +68,36 @@ jobs:
             }
 
             const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
-            const { measurement, result } = report;
+            const { measurement, result, delta } = report;
             const violations = result.violations || [];
             const warnings = result.warnings || [];
 
             let body = '## 📦 Bundle Size Report\n\n';
 
-            body += `| Metric | Size | Status |\n`;
-            body += `|---|---|---|\n`;
-            body += `| **Total JS** | ${measurement.totalJS} KB | — |\n`;
+            body += '### Per-route delta\n\n';
+            body += `| Route | Previous | Current | Δ |\n`;
+            body += `|---|---:|---:|---:|\n`;
+            const routes = measurement.routes || {};
+            const deltas = delta || {};
+            for (const route of Object.keys(routes).sort()) {
+              const d = deltas[route] || {};
+              const prev = d.previousKB == null ? '—' : `${d.previousKB}`;
+              const cur = routes[route].totalKB;
+              const sign = d.deltaKB == null ? '—' : (d.deltaKB > 0 ? `+${d.deltaKB}` : `${d.deltaKB}`);
+              const icon = violations.some(v => v.route === route) ? '❌' :
+                           warnings.some(w => w.route === route) ? '⚠️' : '✅';
+              body += `| ${icon} ${route} | ${prev} | ${cur} | ${sign} |\n`;
+            }
 
-            for (const [route, data] of Object.entries(measurement.routes)) {
-              const icon = violations.some(v => v.type === 'route' && v.route === route) ? '❌' :
-                           warnings.some(w => w.type === 'route' && w.route === route) ? '⚠️' : '✅';
-              body += `| ${route} | ${data.totalKB} KB | ${icon} |\n`;
+            body += `\n**Total JS:** ${measurement.totalJS} KB\n`;
+
+            const forbidden = measurement.forbidden || {};
+            body += '\n### Auth / landing forbidden deps\n\n';
+            for (const route of ['/', '/auth/2fa']) {
+              const hits = forbidden[route] || [];
+              body += hits.length
+                ? `- ❌ \`${route}\` contains: ${hits.map(h => `\`${h}\``).join(', ')}\n`
+                : `- ✅ \`${route}\` has no charting, crypto, or wallet markers\n`;
             }
 
             if (violations.length > 0) {
@@ -94,7 +119,7 @@ jobs:
             }
 
             body += '\n---\n';
-            body += '_Budgets defined in `client/bundle-size.json`. Exceptions require team review._\n';
+            body += '_Budgets: `client/bundle-size.json`. Raising a budget: `client/docs/BUNDLE_BUDGETS.md`._\n';
 
             await github.rest.issues.createComment({
               ...context.repo,

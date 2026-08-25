@@ -1,4 +1,4 @@
-import * as crypto from 'node:crypto';
+import { cryptoPrimitives } from '../crypto/runtime/node';
 
 /** SYNCRO memo format version. */
 export const SYNCRO_MEMO_VERSION = 'v1' as const;
@@ -55,7 +55,11 @@ export type SyncroMemoOperation =
  * Hash a subscription ID for memo inclusion (first 12 hex chars of SHA-256).
  */
 export function hashSubscriptionId(subscriptionId: string): string {
-  return crypto.createHash('sha256').update(subscriptionId).digest('hex').slice(0, 12);
+  const digest = cryptoPrimitives.sha256(new TextEncoder().encode(subscriptionId));
+  return Array.from(digest)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, 12);
 }
 
 /**

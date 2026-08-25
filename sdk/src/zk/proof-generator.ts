@@ -1,8 +1,9 @@
 /**
- * ZK payment proof generation — browser (WASM) and Node.js native paths.
+ * ZK payment proof generation.
  *
- * Uses Pedersen commitments from @syncro/shared as the proving system.
- * WASM artifacts in ./wasm/ are optional; falls back to native JS prover.
+ * Uses Pedersen commitments from @syncro/shared. Browser vs Node crypto is
+ * selected by the package exports map — this module does not sniff the
+ * environment or fall back between provers.
  */
 
 import {
@@ -34,28 +35,9 @@ export interface VerifyProofInput {
   amount: bigint;
 }
 
-let wasmLoaded = false;
-
-async function loadWasmProver(): Promise<boolean> {
-  if (wasmLoaded) return true;
-  if (typeof window === 'undefined') return false;
-  try {
-    // WASM bundle placeholder — swap with compiled prover when available
-    wasmLoaded = true;
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Generate a ZK payment proof for a subscription renewal.
- * Works in browser (WASM fallback to JS) and Node.js 18+.
- */
 export async function generatePaymentProof(
   input: PaymentProofInput,
 ): Promise<PaymentProofResult> {
-  await loadWasmProver();
 
   const commitment = createPaymentCommitment({
     userId: input.userId,

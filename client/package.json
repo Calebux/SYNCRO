@@ -19,6 +19,7 @@
     "generate-pwa-icons": "node scripts/generate-pwa-icons.js",
     "generate-pwa-screenshot": "node scripts/generate-pwa-screenshot.js",
     "generate-pwa-assets": "npm run generate-pwa-icons && npm run generate-pwa-screenshot",
+    "postbuild": "node scripts/check-bundle-size.js --write-report=.next/route-bundle-report.json --no-fail",
     "check-bundle-size": "node scripts/check-bundle-size.js",
     "e2e": "npx playwright test",
     "e2e:headed": "npx playwright test --headed",

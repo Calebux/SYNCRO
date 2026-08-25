@@ -1,23 +1,25 @@
 "use client";
 
 import { useState, useEffect, Suspense, useCallback } from "react";
+import dynamic from "next/dynamic";
 import WelcomePage from "@/components/pages/welcome";
 import EnterpriseSetup from "@/components/pages/enterprise-setup";
-import DashboardPage from "@/components/pages/dashboard";
 import LandingAuth from "@/components/pages/landing-auth";
-import SubscriptionsPage from "@/components/pages/subscriptions";
-import AnalyticsPage from "@/components/pages/analytics";
 import IntegrationsPage from "@/components/pages/integrations";
-import SettingsPage from "@/components/pages/settings";
-import TeamsPage from "@/components/pages/teams";
-import OnboardingModal from "@/components/modals/onboarding-modal";
-import AddSubscriptionModal from "@/components/modals/add-subscription-modal";
-import UpgradePlanModal from "@/components/modals/upgrade-plan-modal";
 import NotificationsPanel from "@/components/notifications-panel";
-import ManageSubscriptionModal from "@/components/modals/manage-subscription-modal";
-import InsightsModal from "@/components/modals/insights-modal";
 import InsightsPage from "@/components/pages/insights";
-import EditSubscriptionModal from "@/components/modals/edit-subscription-modal";
+
+const DashboardPage = dynamic(() => import("@/components/pages/dashboard"), { ssr: false });
+const SubscriptionsPage = dynamic(() => import("@/components/pages/subscriptions"), { ssr: false });
+const AnalyticsPage = dynamic(() => import("@/components/pages/analytics"), { ssr: false });
+const SettingsPage = dynamic(() => import("@/components/pages/settings"), { ssr: false });
+const TeamsPage = dynamic(() => import("@/components/pages/teams"), { ssr: false });
+const OnboardingModal = dynamic(() => import("@/components/modals/onboarding-modal"), { ssr: false });
+const AddSubscriptionModal = dynamic(() => import("@/components/modals/add-subscription-modal"), { ssr: false });
+const UpgradePlanModal = dynamic(() => import("@/components/modals/upgrade-plan-modal"), { ssr: false });
+const ManageSubscriptionModal = dynamic(() => import("@/components/modals/manage-subscription-modal"), { ssr: false });
+const InsightsModal = dynamic(() => import("@/components/modals/insights-modal"), { ssr: false });
+const EditSubscriptionModal = dynamic(() => import("@/components/modals/edit-subscription-modal"), { ssr: false });
 import { OnboardingTourEnhanced, useOnboardingTourEnhanced } from "@/components/onboarding-tour-enhanced";
 import { Toast, ToastContainer } from "@/components/ui/toast";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";

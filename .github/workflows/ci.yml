@@ -358,10 +358,17 @@ jobs:
         run: npm run build
 
       - name: Run tests
-        # ESM Jest requires the experimental VM modules flag
         env:
           NODE_OPTIONS: --experimental-vm-modules
         run: npm test -- --ci --coverage
+
+      - name: Run crypto tests in a browser-like environment
+        env:
+          NODE_OPTIONS: --experimental-vm-modules
+        run: npm run test:browser -- --ci
+
+      - name: Assert browser crypto entry has no Node builtin
+        run: npm run assert:no-node-crypto
 
       - name: Upload test artifacts on failure
         uses: actions/upload-artifact@v7

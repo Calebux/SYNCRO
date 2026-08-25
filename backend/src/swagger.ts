@@ -6,9 +6,14 @@ const options: swaggerJSDoc.Options = {
     openapi: '3.1.0',
     info: {
       title: 'SYNCRO API',
-      version: '1.0.0',
+      version: '2.0.0',
       description: [
         'Self-custodial subscription management platform API.',
+        '',
+        '## Versioning',
+        '',
+        '- **v2** (`/api/v2`) — current contract: success envelope, RFC 7807 errors, opaque cursor pagination. See docs/api/v2-envelope.md.',
+        '- **v1** (`/api/*` and `/api/v1`) — frozen. Deprecated 2026-08-26; sunset 2027-02-26.',
         '',
         '## Authentication',
         '',
@@ -243,6 +248,7 @@ const options: swaggerJSDoc.Options = {
   apis: [
     './src/openapi/generated-paths.ts',
     './src/openapi/x402-docs.ts',
+    './src/openapi/v2-envelope.ts',
     './src/routes/**/*.ts',
     './src/index.ts',
   ],

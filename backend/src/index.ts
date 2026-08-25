@@ -99,6 +99,8 @@ import paymentChannelsRoutes from './routes/payment-channels';
 import { errorHandler } from './middleware/errorHandler';
 import { swaggerSpec } from './swagger';
 import privacyMetricsAdminRoutes from './routes/admin/privacy-metrics';
+import v1Router from './routes/v1';
+import v2Router from './routes/v2';
 
 
 const app = express();
@@ -251,6 +253,10 @@ app.get('/api/docs.json', (_req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.send(swaggerSpec);
 });
+
+// Versioned APIs. Unversioned `/api/*` below is the frozen v1 surface.
+app.use('/api/v1', v1Router);
+app.use('/api/v2', v2Router);
 
 // API Routes
 app.use('/api/keys', apiKeysRoutes);

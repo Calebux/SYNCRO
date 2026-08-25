@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from "react"
 import { Edit2, Trash2, Mail, Clock, Copy, Lock, LockOpen, Users, Calendar, Check, Download, FileText, Upload, PauseCircle, PlayCircle, ShieldAlert, AlertCircle } from "lucide-react"
 import { exportAllCSV, exportActiveCSV, exportDateRangeCSV } from "@/lib/csv-export"
-import { downloadSubscriptionPDF } from "@/lib/pdf-report"
 import CSVImportModal from "@/components/modals/csv-import-modal"
 
 import { useDebounce } from "@/hooks/use-debounce"
@@ -116,6 +115,7 @@ export default function SubscriptionsPage({
     setShowExportMenu(false)
     setExportingPDF(true)
     try {
+      const { downloadSubscriptionPDF } = await import("@/lib/pdf-report")
       await downloadSubscriptionPDF(displayed)
     } finally {
       setExportingPDF(false)
