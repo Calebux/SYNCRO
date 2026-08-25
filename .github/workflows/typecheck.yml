@@ -65,7 +65,7 @@ jobs:
           (matrix.package == 'shared' && needs.changes.outputs.shared == 'true') ||
           (matrix.package == 'root' && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.client == 'true' || needs.changes.outputs.sdk == 'true' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.root == 'true'))
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         if: |
           needs.changes.outputs.force_full_run == 'true' ||
           (matrix.package == 'backend' && needs.changes.outputs.backend == 'true') ||

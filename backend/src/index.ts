@@ -77,6 +77,7 @@ import { startStealthScanJob } from './jobs/stealth-scan-job';
 import { startChannelMonitorJob } from './jobs/channel-monitor-job';
 import { startChannelSettlementJob, stopChannelSettlementJob } from './jobs/channel-settlement-job';
 import { startJobAlertMonitor, stopJobAlertMonitor } from './jobs/job-alert-monitor';
+import { startWebhookRetryJob, stopWebhookRetryJob } from './jobs/webhook-retry-job';
 import { isDraining } from './lib/shutdown-state';
 import { registerGracefulShutdown } from './lib/graceful-shutdown';
 import giftCardLedgerRoutes from './routes/gift-card-ledger';
@@ -92,6 +93,8 @@ import paymentsRoutes from './routes/payments';
 import paystackWebhookRoutes from './routes/paystack-webhook';
 import stripeWebhookRoutes from './routes/stripe-webhook';
 import paypalWebhookRoutes from './routes/paypal-webhook';
+import adminWebhookEventsRoutes from './routes/admin/webhook-events';
+import { registerWebhookHandlers } from './services/webhook-handlers';
 import adminDeletionsRoutes from './routes/admin-deletions';
 import adminQueuesRoutes, { getQueueHealthMetrics } from './routes/admin-queues';
 import agentWalletsRoutes from './routes/agent-wallets';
@@ -99,8 +102,7 @@ import paymentChannelsRoutes from './routes/payment-channels';
 import { errorHandler } from './middleware/errorHandler';
 import { swaggerSpec } from './swagger';
 import privacyMetricsAdminRoutes from './routes/admin/privacy-metrics';
-import v1Router from './routes/v1';
-import v2Router from './routes/v2';
+import metricsRoutes from './routes/metrics';
 
 
 const app = express();
@@ -142,6 +144,10 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// Inbound webhook handlers must be registered before any delivery is ingested
+// (issue #1283): an unregistered event type is treated as a successful no-op.
+registerWebhookHandlers();
 
 // Payment webhooks require raw body for cryptographic signature verification
 app.use('/api/webhooks/paystack', express.raw({ type: 'application/json' }), paystackWebhookRoutes);
@@ -241,6 +247,10 @@ app.get('/health', async (req, res) => {
   }
 });
 
+// Core SLIs Metrics Endpoint (Prometheus / JSON)
+app.use('/metrics', metricsRoutes);
+app.use('/api/metrics', metricsRoutes);
+
 // Swagger Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.get('/api-docs.json', (_req, res) => {
@@ -296,6 +306,7 @@ app.use('/api/exchange-rates', createExchangeRatesRouter(exchangeRateService));
 app.use('/api/gift-card-ledger', giftCardLedgerRoutes);
 app.use('/api/payments', authenticate, paymentsRoutes);
 app.use('/api/payment-channels', authenticate, paymentChannelsRoutes);
+app.use('/api/admin/webhook-events', adminWebhookEventsRoutes);
 app.use('/api/telegram', telegramWebhookRoutes);
 app.use('/api/calendar', calendarRouter);
 app.use('/api/user-preferences', authenticate, userPreferencesRoutes);
@@ -633,6 +644,7 @@ const server = app.listen(PORT, async () => {
   startChannelMonitorJob();
   startChannelSettlementJob();
   startJobAlertMonitor();
+  startWebhookRetryJob();
 
   telegramCommandService.init();
   if (process.env.TELEGRAM_BOT_TOKEN && !process.env.TELEGRAM_WEBHOOK_SECRET) {
@@ -647,6 +659,7 @@ registerGracefulShutdown(server, {
     stopSettlementBatchJob();
     stopChannelSettlementJob();
     stopJobAlertMonitor();
+    stopWebhookRetryJob();
   },
   stopEventListener: () => eventListener.stop(),
   stopTelegram: () => telegramCommandService.stop(),

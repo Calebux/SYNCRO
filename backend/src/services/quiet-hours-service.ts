@@ -1,3 +1,4 @@
+import { addDays } from 'date-fns';
 import { toZonedTime, fromZonedTime } from 'date-fns-tz';
 import { UserPreferences, NotificationPriority, NotificationPayload } from '../types/reminder';
 import logger from '../config/logger';
@@ -95,16 +96,15 @@ export class QuietHoursService {
       const mm    = String(endMinute).padStart(2, '0');
       const localDateStr = `${year}-${month}-${day}T${hh}:${mm}:00`;
 
-      // fromZonedTime interprets the string as a wall-clock time in `tz`
-      // and returns the corresponding UTC instant.
       let candidate = fromZonedTime(localDateStr, tz);
 
-      // If the candidate is not strictly after currentTime, advance by 24 hours.
-      // Adding exactly 24 h is safe here: DST shifts only affect the wall-clock
-      // representation, not the UTC arithmetic, and we only need "tomorrow's
-      // end time" — not a precise local-midnight boundary.
       if (candidate <= currentTime) {
-        candidate = new Date(candidate.getTime() + 24 * 60 * 60 * 1000);
+        const nextZoned = addDays(zonedNow, 1);
+        const nextYear = nextZoned.getFullYear();
+        const nextMonth = String(nextZoned.getMonth() + 1).padStart(2, '0');
+        const nextDay = String(nextZoned.getDate()).padStart(2, '0');
+        const nextLocalDateStr = `${nextYear}-${nextMonth}-${nextDay}T${hh}:${mm}:00`;
+        candidate = fromZonedTime(nextLocalDateStr, tz);
       }
 
       return candidate;

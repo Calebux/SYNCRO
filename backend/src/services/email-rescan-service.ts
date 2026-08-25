@@ -5,6 +5,7 @@ import logger from '../config/logger';
 import { idempotencyService } from './idempotency';
 import { auditService } from './audit-service';
 import { parseSubscriptionEmailWithFallback } from './email-parser';
+import { llmParser } from './llm-parser';
 import { refreshOutlookToken } from './outlook-service';
 
 export interface RescanOptions {
@@ -23,7 +24,20 @@ export interface RescanResult {
   processedCount: number;
   subscriptionsCreated: number;
   duplicatesSkipped: number;
+  /** LLM token spend attributed to this scan (issue #1281). */
+  llmUsage?: ScanLlmUsage;
   error?: string;
+}
+
+/** Per-scan LLM accounting, so a mailbox scan's cost is attributable. */
+export interface ScanLlmUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  /** Parses served from the template cache instead of the model. */
+  cacheHits: number;
+  /** Parses that fell back to heuristics because a budget was exhausted. */
+  budgetSkips: number;
 }
 
 // Minimal interface representing a raw email fetched from provider
@@ -380,16 +394,40 @@ export class EmailRescanService {
       let processedCount = 0;
       let subscriptionsCreated = 0;
       let duplicatesSkipped = 0;
+      const llmUsage: ScanLlmUsage = {
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        cacheHits: 0,
+        budgetSkips: 0,
+      };
 
       for (const email of emails) {
         processedCount++;
         
-        // 2. Re-parse the email using the current parser stack
-        const candidate = await parseSubscriptionEmailWithFallback({
-          subject: email.subject,
-          from: email.from,
-          body: email.bodyText,
-        });
+        // 2. Re-parse the email using the current parser stack.
+        // The scan id is threaded through so LLM spend is attributable and the
+        // per-user budget can cut this scan off (issue #1281).
+        const candidate = await parseSubscriptionEmailWithFallback(
+          {
+            subject: email.subject,
+            from: email.from,
+            body: email.bodyText,
+          },
+          { userId, scanId: job.id },
+        );
+
+        if (candidate?.tokenUsage) {
+          llmUsage.promptTokens += candidate.tokenUsage.promptTokens;
+          llmUsage.completionTokens += candidate.tokenUsage.completionTokens;
+          llmUsage.totalTokens += candidate.tokenUsage.totalTokens;
+          if (candidate.llmCached) llmUsage.cacheHits++;
+        } else if (
+          llmParser.skipReason === 'user_budget_exhausted' ||
+          llmParser.skipReason === 'global_budget_exhausted'
+        ) {
+          llmUsage.budgetSkips++;
+        }
         
         // Only process high-confidence subscriptions parsed correctly
         if (!candidate || candidate.confidence < 0.8 || !candidate.name || candidate.amount == null || !candidate.interval) {
@@ -455,12 +493,22 @@ export class EmailRescanService {
           processedCount,
           subscriptionsCreated,
           duplicatesSkipped,
+          llmUsage,
         },
         ipAddress,
         userAgent,
       });
 
-      return { jobId: job.id, status: 'completed', processedCount, subscriptionsCreated, duplicatesSkipped };
+      logger.info('Rescan LLM usage', { scanId: job.id, userId, ...llmUsage });
+
+      return {
+        jobId: job.id,
+        status: 'completed',
+        processedCount,
+        subscriptionsCreated,
+        duplicatesSkipped,
+        llmUsage,
+      };
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);

@@ -92,7 +92,7 @@ describe('job-alert-config', () => {
       expect(alerts.some((a) => a.level === 'critical' && a.metric === 'dlqCount24h')).toBe(true);
     });
 
-    it('includes runbook section reference on every alert', () => {
+    it('includes runbook section reference and dedicated runbook path on every alert', () => {
       const job = getCriticalJobById('event-listener')!;
       const alerts = evaluateJobThresholds(job, {
         consecutiveFailures: 10,
@@ -100,6 +100,14 @@ describe('job-alert-config', () => {
       });
 
       expect(alerts[0].runbookSection).toBe('event-listener');
+      expect(alerts[0].runbook).toBe('docs/ops/event-listener-runbook.md');
+    });
+
+    it('defines dedicated ops runbook for every job config', () => {
+      const configs = getCriticalJobConfigs();
+      for (const config of configs) {
+        expect(config.runbook).toMatch(/^docs\/ops\/.+-runbook\.md$/);
+      }
     });
   });
 

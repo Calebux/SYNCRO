@@ -81,12 +81,114 @@ export interface BlockchainLogEntry {
   event_data: Record<string, any>;
 }
 
+
+export interface MigrationProgress {
+  total: number;
+  migrated: number;
+  failed: number;
+  status: 'idle' | 'processing' | 'completed' | 'failed';
+}
+
 /**
  * Blockchain logging service for reminder events
  * This service writes reminder events to on-chain logs via Soroban contracts
  */
 export class BlockchainService {
-  private contractAddress: string | null;
+  // ... (existing constructor and other methods)
+
+  /**
+   * Migrate existing plaintext subscriptions to encrypted format on-chain
+   */
+  async migrateSubscriptions(
+    userId: string,
+    subscriptions: any[],
+    progressCallback: (progress: MigrationProgress) => void
+  ): Promise<void> {
+    let progress: MigrationProgress = {
+      total: subscriptions.length,
+      migrated: 0,
+      failed: 0,
+      status: 'processing'
+    };
+    progressCallback(progress);
+
+    for (const sub of subscriptions) {
+      try {
+        // Idempotency check: check if already completed
+        const { data: migrationRecord } = await supabase
+          .from('subscription_migration_status')
+          .select('id, status')
+          .eq('subscription_id', sub.id)
+          .single();
+        
+        if (migrationRecord?.status === 'completed') {
+          progress.migrated++;
+          progressCallback(progress);
+          continue;
+        }
+
+        // Phase 1: Mark as pending
+        await supabase
+          .from('subscription_migration_status')
+          .upsert({
+            subscription_id: sub.id,
+            user_id: userId,
+            status: 'pending_migration',
+            updated_at: new Date().toISOString(),
+          });
+
+        // Perform migration
+        const encryptedData = await this.encryptSubscriptionData(sub);
+        await this.writeSubscriptionToBlockchain('update', { ...sub, ...encryptedData });
+
+        // Phase 2: Mark as completed
+        await supabase
+          .from('subscription_migration_status')
+          .update({
+            status: 'completed',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('subscription_id', sub.id);
+
+        // Cleanup: Nullify legacy fields
+        await supabase
+          .from('subscriptions')
+          .update({
+            plaintext_data: null,
+            is_encrypted: true,
+          })
+          .eq('id', sub.id);
+
+        progress.migrated++;
+      } catch (e) {
+        logger.error(`Failed to migrate subscription ${sub.id}:`, e);
+        
+        // Record failure in DB for later retry
+        await supabase
+          .from('subscription_migration_status')
+          .upsert({
+            subscription_id: sub.id,
+            user_id: userId,
+            status: 'failed',
+            error: e instanceof Error ? e.message : 'Unknown error',
+            updated_at: new Date().toISOString(),
+          });
+          
+        progress.failed++;
+      }
+      progressCallback(progress);
+    }
+    
+    progress.status = 'completed';
+    progressCallback(progress);
+  }
+
+  // NOTE: Simple encryption mock; replace with actual robust encryption service call
+  private async encryptSubscriptionData(data: any): Promise<any> {
+    return { encrypted_payload: btoa(JSON.stringify(data)) };
+  }
+  
+  // ... (rest of methods)
   private rpcUrl: string;
   private networkPassphrase: string;
   private redisClient: RedisClientType | null = null;

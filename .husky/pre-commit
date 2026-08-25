@@ -1,0 +1,27 @@
+#!/usr/bin/env sh
+# SYNCRO pre-commit (#115): lint, typecheck, conflict markers, TODO policy
+
+# Validate package.json for forbidden "latest" versions when staged
+if git diff --cached --name-only | grep -q "backend/package.json"; then
+  if grep -q '"latest"' backend/package.json; then
+    echo "❌ Error: 'latest' version found in backend/package.json"
+    exit 1
+  fi
+fi
+
+# Lint staged files
+if [ -f backend/.lintstagedrc.json ]; then
+  npx lint-staged --config backend/.lintstagedrc.json --cwd backend || exit 1
+fi
+if [ -f client/.lintstagedrc.json ]; then
+  npx lint-staged --config client/.lintstagedrc.json --cwd client || exit 1
+fi
+
+# Conflict markers
+node scripts/check-conflict-markers.mjs || exit 1
+
+# TODO policy (critical paths must reference #issue)
+node scripts/check-todos.mjs || exit 1
+
+# Typecheck (CI parity with typecheck.yml)
+npm run typecheck || exit 1

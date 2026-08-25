@@ -37,6 +37,12 @@ export class ExchangeRateService {
   private providers: ExchangeRateProvider[];
   private redisCache: RedisCacheAdapter;
 
+  /**
+   * Set of currencies currently being revalidated in the background (SWR).
+   * Prevents multiple concurrent background refreshes for the same currency.
+   */
+  private revalidating = new Set<string>();
+
   constructor(providers: ExchangeRateProvider[], ttlMs?: number) {
     this.providers = providers;
     this.ttl = ttlMs ?? getTtl();
@@ -48,10 +54,11 @@ export class ExchangeRateService {
    * Returns exchange rates for the given base currency.
    * Fetch order:
    *   1. In-memory cache (fastest path, within TTL)
-   *   2. Redis cache (shared between instances, within TTL)
-   *   3. Live providers (tried in order; partial results accepted)
-   *   4. Stale in-memory cache (if all providers fail but a prior entry exists)
-   *   5. Static hardcoded rates (last resort)
+   *   2. Redis cache – live hit (shared between instances, within TTL)
+   *   3. Redis cache – stale hit (SWR: serve stale, revalidate in background)
+   *   4. Live providers (tried in order; partial results accepted)
+   *   5. Stale in-memory cache (if all providers fail but a prior entry exists)
+   *   6. Static hardcoded rates (last resort)
    */
   async getRates(baseCurrency: string): Promise<Record<string, number>> {
     const result = await this.getRatesWithSource(baseCurrency);
@@ -100,6 +107,21 @@ export class ExchangeRateService {
     };
   }
 
+  /**
+   * Returns the current Redis cache hit-rate metric as a fraction in [0, 1].
+   * Returns NaN when no requests have been recorded yet.
+   */
+  getCacheHitRate(): number {
+    return this.redisCache.getMetrics().hitRate;
+  }
+
+  /**
+   * Returns a full snapshot of cache metrics (hits, staleHits, misses, hitRate).
+   */
+  getCacheMetrics() {
+    return this.redisCache.getMetrics();
+  }
+
   /** Test helper: expire cache entry to simulate TTL expiry */
   expireCacheForTesting(baseCurrency: string): void {
     const cached = this.cache.get(baseCurrency);
@@ -119,21 +141,38 @@ export class ExchangeRateService {
       return { source: 'live', rates: cached!.rates };
     }
 
-    // 2. Redis cache (shared between instances)
-    const redisRates = await this.loadFromRedis(baseCurrency);
-    if (redisRates) {
-      // Warm the in-memory cache from Redis so subsequent calls skip Redis
-      this.cache.set(baseCurrency, { rates: redisRates, fetchedAt: Date.now() });
-      return { source: 'live', rates: redisRates };
+    // 2 & 3. Redis cache (shared between instances) — with SWR support
+    const redisResult = await this.redisCache.getWithStatus(REDIS_KEY_PREFIX + baseCurrency);
+
+    if (redisResult.status === 'hit') {
+      const rates = this.parseRedisRates(redisResult.value);
+      if (rates) {
+        // Warm the in-memory cache so subsequent calls skip Redis
+        this.cache.set(baseCurrency, { rates, fetchedAt: Date.now() });
+        return { source: 'live', rates };
+      }
     }
 
-    // 3. Live providers
+    if (redisResult.status === 'stale') {
+      const rates = this.parseRedisRates(redisResult.value);
+      if (rates) {
+        // Serve stale data immediately; kick off a background revalidation
+        this.scheduleBackgroundRevalidation(baseCurrency);
+        // Keep (or refresh) the in-memory stale copy so we don't re-check Redis
+        if (!cached) {
+          this.cache.set(baseCurrency, { rates, fetchedAt: 0 });
+        }
+        return { source: 'stale-cache', rates };
+      }
+    }
+
+    // 4. Live providers
     try {
       const allRates = await this.fetchFromProviders(baseCurrency);
       const fetchedAt = Date.now();
       this.cache.set(baseCurrency, { rates: allRates, fetchedAt });
 
-      // Store in Redis (non-blocking)
+      // Store in Redis with jitter (non-blocking)
       this.redisCache
         .set(REDIS_KEY_PREFIX + baseCurrency, JSON.stringify({ rates: allRates, fetchedAt }))
         .catch(() => undefined);
@@ -163,22 +202,53 @@ export class ExchangeRateService {
   }
 
   /**
-   * Attempt to load cached rates from Redis. Returns null on any failure or
-   * if no key exists. The Redis TTL already enforces freshness — if the key
-   * is present the data is still within the configured window.
+   * Parse raw Redis JSON into a rates object.
+   * Handles both the new `{ rates, fetchedAt }` envelope and plain rate maps.
    */
-  private async loadFromRedis(baseCurrency: string): Promise<Record<string, number> | null> {
+  private parseRedisRates(raw: string): Record<string, number> | null {
     try {
-      const raw = await this.redisCache.get(REDIS_KEY_PREFIX + baseCurrency);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as { rates: Record<string, number>; fetchedAt: number };
-      if (parsed && typeof parsed.rates === 'object') {
-        return parsed.rates;
+      const parsed = JSON.parse(raw) as
+        | { rates: Record<string, number>; fetchedAt: number }
+        | Record<string, number>;
+      if (parsed && typeof parsed === 'object') {
+        if ('rates' in parsed && typeof parsed.rates === 'object') {
+          return parsed.rates;
+        }
+        // Plain rate map (legacy format)
+        return parsed as Record<string, number>;
       }
       return null;
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Trigger a background re-fetch for `baseCurrency` without blocking the
+   * current request.  Guards against duplicate concurrent revalidations.
+   */
+  private scheduleBackgroundRevalidation(baseCurrency: string): void {
+    if (this.revalidating.has(baseCurrency)) return;
+
+    this.revalidating.add(baseCurrency);
+    this.fetchFromProviders(baseCurrency)
+      .then((allRates) => {
+        const fetchedAt = Date.now();
+        this.cache.set(baseCurrency, { rates: allRates, fetchedAt });
+        return this.redisCache.set(
+          REDIS_KEY_PREFIX + baseCurrency,
+          JSON.stringify({ rates: allRates, fetchedAt }),
+        );
+      })
+      .then(() => {
+        logger.debug('SWR background revalidation succeeded', { baseCurrency });
+      })
+      .catch((err) => {
+        logger.warn('SWR background revalidation failed', { baseCurrency, err });
+      })
+      .finally(() => {
+        this.revalidating.delete(baseCurrency);
+      });
   }
 
   /**

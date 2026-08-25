@@ -230,6 +230,49 @@ describe('QuietHoursService — timezone-aware behaviour (Issue #71)', () => {
       const endTime = service.getQuietHoursEndTime(prefs, utcNow);
       expect(endTime.getTime()).toBeGreaterThan(utcNow.getTime());
     });
+
+    /**
+     * DST Spring Forward: 2026-03-08 in America/New_York (clocks jump 02:00 EST -> 03:00 EDT).
+     * Quiet hours: 22:00–08:00.
+     * At 2026-03-08 03:00 UTC (2026-03-07 22:00 EST), next end time is 08:00 EDT on Mar 8 = 12:00 UTC.
+     */
+    it('calculates exact 08:00 EDT wall-clock end time across Spring Forward (23h day)', () => {
+      const prefs = makePrefs({ quiet_hours_timezone: 'America/New_York' });
+      const utcNow = new Date('2026-03-08T03:00:00Z'); // 22:00 EST on Mar 7
+      const endTime = service.getQuietHoursEndTime(prefs, utcNow);
+
+      expect(endTime.toISOString()).toBe('2026-03-08T12:00:00.000Z');
+      expect(service.isInQuietHours(prefs, endTime)).toBe(false);
+    });
+
+    /**
+     * DST Fall Back: 2026-11-01 in America/New_York (clocks fall back 02:00 EDT -> 01:00 EST).
+     * Quiet hours: 22:00–08:00.
+     * At 2026-11-01 03:00 UTC (2026-10-31 23:00 EDT), next end time is 08:00 EST on Nov 1 = 13:00 UTC.
+     * Must NOT yield 12:00 UTC (07:00 EST), which would be inside quiet hours.
+     */
+    it('calculates exact 08:00 EST wall-clock end time across Fall Back (25h day)', () => {
+      const prefs = makePrefs({ quiet_hours_timezone: 'America/New_York' });
+      const utcNow = new Date('2026-11-01T03:00:00Z'); // 23:00 EDT on Oct 31
+      const endTime = service.getQuietHoursEndTime(prefs, utcNow);
+
+      expect(endTime.toISOString()).toBe('2026-11-01T13:00:00.000Z');
+      expect(service.isInQuietHours(prefs, endTime)).toBe(false);
+    });
+
+    /**
+     * DST Fall Back: 2026-10-25 in Europe/London (BST UTC+1 -> GMT UTC+0).
+     * Quiet hours: 22:00–08:00.
+     * At 2026-10-24 22:00 UTC (23:00 BST), next end time is 08:00 GMT on Oct 25 = 08:00 UTC.
+     */
+    it('calculates exact 08:00 GMT end time across European Fall Back', () => {
+      const prefs = makePrefs({ quiet_hours_timezone: 'Europe/London' });
+      const utcNow = new Date('2026-10-24T22:00:00Z'); // 23:00 BST on Oct 24
+      const endTime = service.getQuietHoursEndTime(prefs, utcNow);
+
+      expect(endTime.toISOString()).toBe('2026-10-25T08:00:00.000Z');
+      expect(service.isInQuietHours(prefs, endTime)).toBe(false);
+    });
   });
 
   // ── isAppropriateTimeForDelayedNotifications ───────────────────────────────

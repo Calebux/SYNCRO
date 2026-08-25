@@ -206,6 +206,129 @@ export class DependencyHealthService {
   }
 
   /**
+   * Check Stellar RPC/Horizon connectivity.
+   * Attempts to reach the configured Soroban RPC endpoint to verify
+   * the blockchain node is reachable.
+   * Returns degraded (not unhealthy) when RPC URL is not configured.
+   */
+  async checkRpcHorizon(): Promise<DependencyStatus> {
+    const start = Date.now();
+    try {
+      const rpcUrl = process.env.SOROBAN_RPC_URL;
+
+      if (!rpcUrl) {
+        return {
+          name: 'rpc_horizon',
+          status: 'degraded',
+          latency_ms: Date.now() - start,
+          error: 'SOROBAN_RPC_URL not configured',
+        };
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10_000);
+
+      const response = await fetch(`${rpcUrl}/.well-known/stellar-org`, {
+        method: 'GET',
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        return {
+          name: 'rpc_horizon',
+          status: 'unhealthy',
+          latency_ms: Date.now() - start,
+          error: `RPC endpoint returned status ${response.status}`,
+        };
+      }
+
+      return {
+        name: 'rpc_horizon',
+        status: 'healthy',
+        latency_ms: Date.now() - start,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'RPC/Horizon check failed';
+
+      // Timeout errors are common enough to label clearly
+      if (message.includes('abort') || message.includes('timeout')) {
+        return {
+          name: 'rpc_horizon',
+          status: 'unhealthy',
+          latency_ms: Date.now() - start,
+          error: 'RPC endpoint timed out',
+        };
+      }
+
+      return {
+        name: 'rpc_horizon',
+        status: 'unhealthy',
+        latency_ms: Date.now() - start,
+        error: message,
+      };
+    }
+  }
+
+  /**
+   * Check FX (foreign exchange) provider connectivity.
+   * Attempts to fetch rates from the configured exchange rate provider
+   * to verify the service is reachable.
+   * Returns degraded when FX provider URL is not configured.
+   */
+  async checkFxProvider(): Promise<DependencyStatus> {
+    const start = Date.now();
+    try {
+      // Use the same base URL as the fiat provider
+      const fxUrl = 'https://api.exchangerate-api.com/v4/latest/USD';
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10_000);
+
+      const response = await fetch(fxUrl, {
+        method: 'GET',
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        return {
+          name: 'fx_provider',
+          status: 'unhealthy',
+          latency_ms: Date.now() - start,
+          error: `FX provider returned status ${response.status}`,
+        };
+      }
+
+      return {
+        name: 'fx_provider',
+        status: 'healthy',
+        latency_ms: Date.now() - start,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'FX provider check failed';
+
+      if (message.includes('abort') || message.includes('timeout')) {
+        return {
+          name: 'fx_provider',
+          status: 'unhealthy',
+          latency_ms: Date.now() - start,
+          error: 'FX provider timed out',
+        };
+      }
+
+      return {
+        name: 'fx_provider',
+        status: 'unhealthy',
+        latency_ms: Date.now() - start,
+        error: message,
+      };
+    }
+  }
+
+  /**
    * Check all dependencies
    */
   async checkAllDependencies(): Promise<DependencyStatus[]> {
@@ -214,6 +337,8 @@ export class DependencyHealthService {
       this.checkRedis(),
       this.checkQueue(),
       this.checkProviders(),
+      this.checkRpcHorizon(),
+      this.checkFxProvider(),
     ]);
 
     return [...checks, this.checkScheduler()];
@@ -221,14 +346,14 @@ export class DependencyHealthService {
 
   /**
    * Determine readiness based on critical dependencies
-   * Ready = database + Redis healthy
+   * Ready = critical deps healthy (database, redis, rpc_horizon, fx_provider)
    * Degraded = one critical dep unhealthy
    * Not ready = multiple critical deps unhealthy
    */
   async getReadiness(): Promise<ReadinessStatus> {
     const dependencies = await this.checkAllDependencies();
     
-    const critical = ['database', 'redis'];
+    const critical = ['database', 'redis', 'rpc_horizon', 'fx_provider'];
     const criticalChecks = dependencies.filter(d => critical.includes(d.name));
     const unhealthy = criticalChecks.filter(d => d.status === 'unhealthy');
 

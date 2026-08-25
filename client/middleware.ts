@@ -32,7 +32,7 @@ function generateCSP(
   const cspHeader = [
     `default-src 'self'`,
     `script-src 'self' 'nonce-${nonce}' ${isDev ? "'unsafe-eval'" : "'strict-dynamic'"}`,
-    `style-src 'self' 'unsafe-inline'`, // 'unsafe-inline' is needed for Tailwind/CSS-in-JS, nonce would disable it
+    `style-src 'self' 'nonce-${nonce}'${isDev ? " 'unsafe-inline'" : ''}`,
     `img-src 'self' blob: data: https://res.cloudinary.com https://*.supabase.co https://ui-avatars.com`,
     `font-src 'self' data:`,
     `connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com https://*.stellar.org`,

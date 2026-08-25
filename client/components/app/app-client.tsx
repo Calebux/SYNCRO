@@ -5,22 +5,12 @@ import dynamic from "next/dynamic";
 import WelcomePage from "@/components/pages/welcome";
 import EnterpriseSetup from "@/components/pages/enterprise-setup";
 import LandingAuth from "@/components/pages/landing-auth";
+import SubscriptionsPage from "@/components/pages/subscriptions";
 import IntegrationsPage from "@/components/pages/integrations";
 import NotificationsPanel from "@/components/notifications-panel";
 import InsightsPage from "@/components/pages/insights";
-
-const DashboardPage = dynamic(() => import("@/components/pages/dashboard"), { ssr: false });
-const SubscriptionsPage = dynamic(() => import("@/components/pages/subscriptions"), { ssr: false });
-const AnalyticsPage = dynamic(() => import("@/components/pages/analytics"), { ssr: false });
-const SettingsPage = dynamic(() => import("@/components/pages/settings"), { ssr: false });
-const TeamsPage = dynamic(() => import("@/components/pages/teams"), { ssr: false });
-const OnboardingModal = dynamic(() => import("@/components/modals/onboarding-modal"), { ssr: false });
-const AddSubscriptionModal = dynamic(() => import("@/components/modals/add-subscription-modal"), { ssr: false });
-const UpgradePlanModal = dynamic(() => import("@/components/modals/upgrade-plan-modal"), { ssr: false });
-const ManageSubscriptionModal = dynamic(() => import("@/components/modals/manage-subscription-modal"), { ssr: false });
-const InsightsModal = dynamic(() => import("@/components/modals/insights-modal"), { ssr: false });
-const EditSubscriptionModal = dynamic(() => import("@/components/modals/edit-subscription-modal"), { ssr: false });
-import { OnboardingTourEnhanced, useOnboardingTourEnhanced } from "@/components/onboarding-tour-enhanced";
+import EditSubscriptionModal from "@/components/modals/edit-subscription-modal";
+import { useOnboardingTourEnhanced } from "@/components/onboarding-tour-state";
 import { Toast, ToastContainer } from "@/components/ui/toast";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -68,6 +58,19 @@ import type {
 } from "./app-client.types";
 
 import { UserSettingsProvider } from "@/components/providers/user-settings-provider";
+
+const AnalyticsPage = dynamic(() => import("@/components/pages/analytics"), {
+    loading: () => (
+        <div className="flex items-center justify-center py-20">
+            <LoadingSpinner size="lg" />
+        </div>
+    ),
+});
+
+const OnboardingTourEnhanced = dynamic(
+    () => import("@/components/onboarding-tour-enhanced").then((mod) => mod.OnboardingTourEnhanced),
+    { ssr: false }
+);
 
 export function AppClient({
     initialSubscriptions,

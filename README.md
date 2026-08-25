@@ -19,7 +19,7 @@ Synchro is a decentralized, self-custodial subscription management platform that
 - **Smart Contracts**: Functional Soroban contracts for subscription renewal, escrow, and virtual card interaction on Stellar Testnet.
 - **Overall**: Core MVP functionality is **90% complete** and undergoing final production hardening.
 
-For detailed status, see [./docs/archive/CurrentState.md](file:///c:/Users/HP/Desktop/SYNCRO/./docs/archive/CurrentState.md).
+For detailed status, see [docs/archive/CurrentState.md](./docs/archive/CurrentState.md).
 
 ## Phase 1 (MVP) Workflow
 Supported Payment Method

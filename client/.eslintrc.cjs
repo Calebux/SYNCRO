@@ -7,7 +7,7 @@ module.exports = {
     tsconfigRootDir: __dirname,
   },
   rules: {
-    "@typescript-eslint/no-explicit-any": "off",
+    "@typescript-eslint/no-explicit-any": "warn",
     "@typescript-eslint/no-floating-promises": "off",
     "no-console": "warn",
     "@typescript-eslint/no-unused-vars": "warn",
@@ -52,9 +52,29 @@ module.exports = {
       },
     },
     {
-      files: ["lib/**/*.ts", "components/ui/**/*.tsx"],
+      // Critical payment / webhook paths: forbid new `any` usage (issue #1027)
+      files: [
+        "lib/payment-service.ts",
+        "lib/paypal-service.ts",
+        "lib/paystack-service.ts",
+        "lib/stripe-config.ts",
+        "app/api/payments/**/*.ts",
+        "app/api/webhooks/**/*.ts",
+      ],
       rules: {
-        "@typescript-eslint/no-explicit-any": "off",
+        "@typescript-eslint/no-explicit-any": "error",
+      },
+    },
+    {
+      files: ["lib/**/*.ts", "components/ui/**/*.tsx"],
+      excludedFiles: [
+        "lib/payment-service.ts",
+        "lib/paypal-service.ts",
+        "lib/paystack-service.ts",
+        "lib/stripe-config.ts",
+      ],
+      rules: {
+        "@typescript-eslint/no-explicit-any": "warn",
       },
     },
     {

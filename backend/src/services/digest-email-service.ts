@@ -87,9 +87,8 @@ export class DigestEmailService {
         text:    buildDigestEmailText(summary, this.dashboardUrl),
       });
 
-      logger.info(`Monthly digest sent to ${recipientEmail}`, {
+      logger.info('Monthly digest sent', {
         messageId: info.messageId,
-        userId:    summary.userId,
         period:    summary.periodLabel,
         digestType,
       });
@@ -97,7 +96,7 @@ export class DigestEmailService {
       return { success: true };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      logger.error(`Failed to send monthly digest to ${recipientEmail}:`, err);
+      logger.error('Failed to send monthly digest', err);
       return { success: false, error: message };
     }
   }

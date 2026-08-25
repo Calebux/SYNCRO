@@ -6,10 +6,9 @@ use soroban_sdk::{
     testutils::{Address as _, EnvTestConfig},
     Address, Env,
 };
-use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use super::{
-    SubscriptionRenewalContract, SubscriptionRenewalContractClient, SubscriptionState,
+    ContractError, SubscriptionRenewalContract, SubscriptionRenewalContractClient, SubscriptionState,
 };
 
 fn fuzz_env() -> Env {
@@ -25,7 +24,7 @@ fn fuzz_setup() -> (Env, Address, Address) {
     let id = env.register_contract(None, SubscriptionRenewalContract);
     let admin = Address::generate(&env);
     let client = SubscriptionRenewalContractClient::new(&env, &id);
-    client.init(&admin);
+    client.init(&admin).unwrap();
     (env, id, admin)
 }
 
@@ -47,7 +46,7 @@ proptest! {
 
         client.init_sub(&user, &merchant, &amount, &frequency, &spending_cap, &sub_id);
 
-        let data = client.get_sub(&sub_id);
+        let data = client.get_sub(&sub_id).unwrap();
         prop_assert_eq!(data.amount, amount);
         prop_assert_eq!(data.frequency, frequency);
         prop_assert_eq!(data.spending_cap, spending_cap);
@@ -68,18 +67,24 @@ proptest! {
         let sub_id = 42u64;
 
         client.init_sub(&user, &merchant, &amount, &86400u64, &spending_cap, &sub_id);
-        client.approve_renewal(&sub_id, &1u64, &renew_amount, &10_000u32);
-        client.acquire_renewal_lock(&sub_id, &200u32);
+        client.approve_renewal(&sub_id, &1u64, &renew_amount, &10_000u32).unwrap();
+        client.acquire_renewal_lock(&sub_id, &200u32).unwrap();
 
         let exceeds_cap = spending_cap > 0 && renew_amount > spending_cap;
 
         if exceeds_cap {
-            let result = catch_unwind(AssertUnwindSafe(|| {
-                client.renew(&sub_id, &1u64, &renew_amount, &3u32, &10u32, &20260101u64, &true);
-            }));
-            prop_assert!(result.is_err(), "renewal exceeding cap must panic");
+            let result = client.try_renew(
+                &sub_id, &1u64, &renew_amount, &3u32, &10u32, &20260101u64, &true,
+            );
+            prop_assert_eq!(
+                result.unwrap_err().unwrap(),
+                ContractError::SpendingCapExceeded,
+                "renewal exceeding cap must return SpendingCapExceeded"
+            );
         } else {
-            let ok = client.renew(&sub_id, &1u64, &renew_amount, &3u32, &10u32, &20260101u64, &true);
+            let ok = client
+                .renew(&sub_id, &1u64, &renew_amount, &3u32, &10u32, &20260101u64, &true)
+                .unwrap();
             prop_assert!(ok);
             let spent = client.get_user_spent(&user);
             prop_assert_eq!(spent, renew_amount);
@@ -98,15 +103,15 @@ proptest! {
         let user = Address::generate(&env);
         let merchant = Address::generate(&env);
 
-        client.set_user_cap(&user, &cap);
+        client.set_user_cap(&user, &cap).unwrap();
 
         let sub_a = 1u64;
         let sub_b = 2u64;
         client.init_sub(&user, &merchant, &100i128, &86400u64, &0i128, &sub_a);
         client.init_sub(&user, &merchant, &100i128, &86400u64, &0i128, &sub_b);
 
-        client.approve_renewal(&sub_a, &1u64, &first_amount, &10_000u32);
-        client.acquire_renewal_lock(&sub_a, &200u32);
+        client.approve_renewal(&sub_a, &1u64, &first_amount, &10_000u32).unwrap();
+        client.acquire_renewal_lock(&sub_a, &200u32).unwrap();
         if first_amount <= cap {
             let _ = client.renew(&sub_a, &1u64, &first_amount, &3u32, &10u32, &20260101u64, &true);
         }
@@ -114,19 +119,22 @@ proptest! {
         let spent = client.get_user_spent(&user);
         let remaining = cap.saturating_sub(spent);
 
-        client.approve_renewal(&sub_b, &1u64, &second_amount, &10_000u32);
-        client.acquire_renewal_lock(&sub_b, &200u32);
+        client.approve_renewal(&sub_b, &1u64, &second_amount, &10_000u32).unwrap();
+        client.acquire_renewal_lock(&sub_b, &200u32).unwrap();
 
         if second_amount > remaining {
-            let result = catch_unwind(AssertUnwindSafe(|| {
-                client.renew(&sub_b, &1u64, &second_amount, &3u32, &10u32, &20260201u64, &true);
-            }));
-            prop_assert!(result.is_err(), "global cap overflow must panic");
+            let result = client.try_renew(
+                &sub_b, &1u64, &second_amount, &3u32, &10u32, &20260201u64, &true,
+            );
+            prop_assert_eq!(
+                result.unwrap_err().unwrap(),
+                ContractError::GlobalCapExceeded,
+                "global cap overflow must return GlobalCapExceeded"
+            );
         }
     }
 
-    /// Admin-only set_paused must reject when contract is not initialized for random callers
-    /// (uninitialized contract panics on missing admin storage).
+    /// Admin-only set_paused must return NotInitialized when contract is not initialized.
     #[test]
     fn fuzz_uninitialized_contract_rejects_admin_ops(_seed in 0u64..=1000u64) {
         let env = fuzz_env();
@@ -134,13 +142,15 @@ proptest! {
         let id = env.register_contract(None, SubscriptionRenewalContract);
         let client = SubscriptionRenewalContractClient::new(&env, &id);
 
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            client.set_paused(&true);
-        }));
-        prop_assert!(result.is_err(), "admin ops on uninitialized contract must panic");
+        let result = client.try_set_paused(&true);
+        prop_assert_eq!(
+            result.unwrap_err().unwrap(),
+            ContractError::NotInitialized,
+            "admin ops on uninitialized contract must return NotInitialized"
+        );
     }
 
-    /// Approval single-use: consuming an approval twice must fail.
+    /// Approval single-use: consuming an approval twice must return InvalidApproval.
     #[test]
     fn fuzz_approval_single_use(
         amount in 1i128..=100_000i128,
@@ -154,15 +164,19 @@ proptest! {
         let renew_amount = amount.min(approval_max);
 
         client.init_sub(&user, &merchant, &amount, &86400u64, &0i128, &sub_id);
-        client.approve_renewal(&sub_id, &1u64, &approval_max, &10_000u32);
+        client.approve_renewal(&sub_id, &1u64, &approval_max, &10_000u32).unwrap();
 
-        client.acquire_renewal_lock(&sub_id, &200u32);
+        client.acquire_renewal_lock(&sub_id, &200u32).unwrap();
         let _ = client.renew(&sub_id, &1u64, &renew_amount, &3u32, &10u32, &20260101u64, &true);
 
-        client.acquire_renewal_lock(&sub_id, &200u32);
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            client.renew(&sub_id, &1u64, &renew_amount, &3u32, &10u32, &20260201u64, &true);
-        }));
-        prop_assert!(result.is_err(), "reused approval must panic");
+        client.acquire_renewal_lock(&sub_id, &200u32).unwrap();
+        let result = client.try_renew(
+            &sub_id, &1u64, &renew_amount, &3u32, &10u32, &20260201u64, &true,
+        );
+        prop_assert_eq!(
+            result.unwrap_err().unwrap(),
+            ContractError::InvalidApproval,
+            "reused approval must return InvalidApproval"
+        );
     }
 }

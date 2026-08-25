@@ -14,6 +14,7 @@
 export type AuditAction =
   | "payment.create"
   | "payment.refund"
+  | "payment.persistence_failed"
   | "subscription.import"
   | "subscription.delete"
   | "subscription.bulk_delete"
@@ -25,6 +26,8 @@ export type AuditAction =
   | "privacy.settings_update"
   | "account.delete_request"
   | "invoice.upload"
+  | "admin.settings_update"
+  | "admin.users_list"
 
 export interface AuditEvent {
   /** Opaque user UUID — never email or username */

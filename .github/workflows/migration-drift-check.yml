@@ -31,7 +31,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: 'npm'
@@ -45,7 +45,7 @@ jobs:
           cat drift-file-result.json
 
       - name: Upload file drift report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: drift-file-result
           path: drift-file-result.json
@@ -58,7 +58,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Setup Supabase CLI
-        uses: supabase/setup-cli@v2
+        uses: supabase/setup-cli@v3
         with:
           version: latest
 
@@ -72,7 +72,7 @@ jobs:
         run: supabase db dump --local --schema-only -f /tmp/live-schema.sql
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: 'npm'
@@ -98,7 +98,7 @@ jobs:
 
       - name: Upload local drift report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: drift-local-result
           path: drift-local-result.json
@@ -116,7 +116,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: 'npm'
@@ -138,7 +138,7 @@ jobs:
 
       - name: Upload remote drift report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: drift-remote-result
           path: drift-remote-result.json
@@ -150,7 +150,7 @@ jobs:
     if: github.event_name == 'pull_request' && always()
     steps:
       - name: Download drift reports
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: drift-*-result
           merge-multiple: true

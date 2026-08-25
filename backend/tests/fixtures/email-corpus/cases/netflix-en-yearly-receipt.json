@@ -1,0 +1,18 @@
+{
+  "id": "netflix-en-yearly-receipt",
+  "merchant": "Netflix",
+  "locale": "en",
+  "kind": "positive",
+  "notes": "Annual billing wording ('per year').",
+  "email": {
+    "subject": "Your annual Netflix plan renewed",
+    "from": "Netflix <billing@netflix.com>",
+    "body": "Your subscription has been renewed. You were charged $179.88 per year.\nNext billing date: June 1 next year."
+  },
+  "expected": {
+    "name": "Netflix",
+    "amount": 179.88,
+    "currency": "USD",
+    "interval": "yearly"
+  }
+}

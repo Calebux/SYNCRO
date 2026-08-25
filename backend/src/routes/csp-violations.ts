@@ -22,6 +22,7 @@ import { requireAdmin } from '../middleware/admin';
 import logger from '../config/logger';
 
 const router: Router = Router();
+const CSP_INTERNAL_TOKEN = process.env.CSP_INTERNAL_TOKEN;
 
 /**
  * Validation schema for CSP violation report
@@ -62,6 +63,16 @@ router.post('/', async (req: Request, res: Response) => {
         success: false,
         error: 'This endpoint is for internal use only',
       });
+    }
+
+    if (CSP_INTERNAL_TOKEN) {
+      const providedToken = req.headers['x-csp-internal-token'];
+      if (providedToken !== CSP_INTERNAL_TOKEN) {
+        return res.status(403).json({
+          success: false,
+          error: 'Invalid internal token',
+        });
+      }
     }
 
     // Validate request body

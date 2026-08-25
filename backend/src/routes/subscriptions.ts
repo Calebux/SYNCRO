@@ -12,6 +12,23 @@ import logger from '../config/logger';
 import { BadRequestError } from '../errors';
 import { validateRequest } from '../utils/validation';
 import { cursorPaginationSchema, safeUrlSchema } from '../schemas/common';
+import { createImportLimiter } from '../middleware/rate-limit-factory';
+import type { Subscription } from '../types/subscription';
+
+const SUBSCRIPTION_STATUSES: readonly Subscription['status'][] = [
+  'active',
+  'cancelled',
+  'paused',
+  'trial',
+  'expired',
+];
+
+function parseSubscriptionStatus(value: unknown): Subscription['status'] | undefined {
+  return typeof value === 'string' &&
+    (SUBSCRIPTION_STATUSES as readonly string[]).includes(value)
+    ? (value as Subscription['status'])
+    : undefined;
+}
 
 const router = Router();
 
@@ -108,7 +125,7 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
     });
 
     const result = await subscriptionService.listSubscriptions(req.user!.id, {
-      status: status as any,
+      status: parseSubscriptionStatus(status),
       category: category as string,
       encryptedOnly: encrypted_only === 'true',
       limit: pagination.limit,
@@ -125,8 +142,8 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
         nextCursor: result.nextCursor ?? null,
       },
     });
-  } catch (error: any) {
-    if (error.name === 'PaginationError') {
+  } catch (error: unknown) {
+    if (error instanceof Error && error.name === 'PaginationError') {
       throw new BadRequestError(error.message);
     }
     throw error;
@@ -288,8 +305,8 @@ router.post('/:id/retry-sync', validateSubscriptionOwnership, async (req: Authen
       transactionHash: result.transactionHash,
       error: result.error,
     });
-  } catch (error: any) {
-    if (error.message?.includes('Cooldown period active')) {
+  } catch (error: unknown) {
+    if (error instanceof Error && error.message?.includes('Cooldown period active')) {
       res.status(429).json({
         success: false,
         error: error.message,
@@ -394,8 +411,11 @@ router.post('/bulk', validateBulkSubscriptionOwnership, async (req: Authenticate
         result = await subscriptionService.updateSubscription(req.user!.id, id, data);
       }
       results.push({ id, success: true, result });
-    } catch (error: any) {
-      errors.push({ id, error: error.message || String(error) });
+    } catch (error: unknown) {
+      errors.push({
+        id,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -455,13 +475,13 @@ router.get('/trials/saved-metric', async (req: AuthenticatedRequest, res: Respon
 });
 
 // CSV Import Routes
-router.post('/import/preview', upload.single('file'), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/import/preview', createImportLimiter(), upload.single('file'), async (req: AuthenticatedRequest, res: Response) => {
   if (!req.file) throw new BadRequestError('No file uploaded');
   const preview = await subscriptionService.previewImport(req.user!.id, req.file.buffer);
   res.json({ success: true, data: preview });
 });
 
-router.post('/import/commit', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/import/commit', createImportLimiter(), async (req: AuthenticatedRequest, res: Response) => {
   const { importId } = req.body;
   if (!importId) throw new BadRequestError('Import ID required');
   const result = await subscriptionService.commitImport(req.user!.id, importId);

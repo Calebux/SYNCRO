@@ -41,6 +41,8 @@ export interface CriticalJobConfig {
   };
   /** Anchor in docs/JOB_FAILURE_RUNBOOK.md */
   runbookSection: string;
+  /** Direct path to ops runbook */
+  runbook: string;
 }
 
 const DEFAULT_JOBS: CriticalJobConfig[] = [
@@ -56,6 +58,7 @@ const DEFAULT_JOBS: CriticalJobConfig[] = [
       critical: { consecutiveFailures: 2, failuresPerHour: 15, dlqCount24h: 10 },
     },
     runbookSection: 'reminder-processing',
+    runbook: 'docs/ops/reminder-processing-runbook.md',
   },
   {
     id: 'reminder-scheduling',
@@ -69,6 +72,7 @@ const DEFAULT_JOBS: CriticalJobConfig[] = [
       critical: { consecutiveFailures: 2, failuresPerHour: 5 },
     },
     runbookSection: 'reminder-scheduling',
+    runbook: 'docs/ops/reminder-scheduling-runbook.md',
   },
   {
     id: 'reminder-retries',
@@ -82,6 +86,7 @@ const DEFAULT_JOBS: CriticalJobConfig[] = [
       critical: { consecutiveFailures: 3, failuresPerHour: 25, dlqCount24h: 50 },
     },
     runbookSection: 'reminder-retries',
+    runbook: 'docs/ops/reminder-retries-runbook.md',
   },
   {
     id: 'notification-queue',
@@ -95,6 +100,7 @@ const DEFAULT_JOBS: CriticalJobConfig[] = [
       critical: { failuresPerHour: 50, dlqCount24h: 15 },
     },
     runbookSection: 'notification-queue',
+    runbook: 'docs/ops/notification-queue-runbook.md',
   },
   {
     id: 'event-listener',
@@ -108,6 +114,7 @@ const DEFAULT_JOBS: CriticalJobConfig[] = [
       critical: { consecutiveFailures: 10, failuresPerHour: 30 },
     },
     runbookSection: 'event-listener',
+    runbook: 'docs/ops/event-listener-runbook.md',
   },
   {
     id: 'expiry-processing',
@@ -121,6 +128,7 @@ const DEFAULT_JOBS: CriticalJobConfig[] = [
       critical: { consecutiveFailures: 2, failuresPerHour: 3 },
     },
     runbookSection: 'expiry-processing',
+    runbook: 'docs/ops/expiry-processing-runbook.md',
   },
   {
     id: 'auto-resume',
@@ -134,6 +142,7 @@ const DEFAULT_JOBS: CriticalJobConfig[] = [
       critical: { consecutiveFailures: 2, failuresPerHour: 10 },
     },
     runbookSection: 'auto-resume',
+    runbook: 'docs/ops/auto-resume-runbook.md',
   },
   {
     id: 'webhook-retries',
@@ -147,6 +156,7 @@ const DEFAULT_JOBS: CriticalJobConfig[] = [
       critical: { consecutiveFailures: 5, dlqCount24h: 25 },
     },
     runbookSection: 'webhook-retries',
+    runbook: 'docs/ops/webhook-retries-runbook.md',
   },
   {
     id: 'csp-monitoring',
@@ -160,6 +170,7 @@ const DEFAULT_JOBS: CriticalJobConfig[] = [
       critical: { consecutiveFailures: 4, failuresPerHour: 3 },
     },
     runbookSection: 'csp-monitoring',
+    runbook: 'docs/ops/csp-monitoring-runbook.md',
   },
 ];
 
@@ -226,6 +237,7 @@ export interface TriggeredJobAlert {
   pagingSeverity: PagingSeverity;
   critical: boolean;
   runbookSection: string;
+  runbook: string;
   message: string;
   metric: keyof JobFailureThresholds;
   value: number;
@@ -279,6 +291,7 @@ export function evaluateJobThresholds(
         pagingSeverity: job.pagingSeverity,
         critical: job.critical,
         runbookSection: job.runbookSection,
+        runbook: job.runbook,
         message: `${job.name}: ${metric} (${value}) reached critical threshold (${criticalThreshold})`,
         metric,
         value,
@@ -293,6 +306,7 @@ export function evaluateJobThresholds(
         pagingSeverity: job.pagingSeverity,
         critical: job.critical,
         runbookSection: job.runbookSection,
+        runbook: job.runbook,
         message: `${job.name}: ${metric} (${value}) reached warning threshold (${warningThreshold})`,
         metric,
         value,

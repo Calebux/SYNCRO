@@ -38,24 +38,6 @@ export default function AnalyticsPage({ summary, darkMode, savedBySyncroCount = 
 
   const COLORS = ["#6366f1", "#818cf8", "#a5b4fc", "#c7d2fe", "#e0e7ff"]
 
-  const handleExportCSV = () => {
-    // Basic CSV export
-    const headers = ["Name", "Monthly Price", "Cycle"]
-    const rows = summary.top_subscriptions.map((sub) => [
-      sub.name,
-      formatCurrency(sub.monthly_normalized_price, currency),
-      sub.billing_cycle,
-    ])
-
-    const csv = [headers, ...rows].map((row) => row.join(",")).join("\n")
-    const blob = new Blob([csv], { type: "text/csv" })
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `analytics-${new Date().toISOString().split("T")[0]}.csv`
-    a.click()
-  }
-
   return (
     <div className="space-y-6 sm:space-y-8">
       {/* Stats Overview */}

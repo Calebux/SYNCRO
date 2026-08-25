@@ -17,12 +17,6 @@ const VALIDATED_DOCS = [
 
 const SDK_SAMPLES_PATH = ".validated-samples";
 
-interface ValidationResult {
-  file: string;
-  success: boolean;
-  samples: { language: string; code: string; error?: string }[];
-}
-
 function extractCodeBlocks(markdown) {
   const blocks = [];
   const codeBlockRegex = /```(\w+)\n([\s\S]*?)```/g;
@@ -120,6 +114,47 @@ function validateFile(filePath) {
   };
 }
 
+/**
+ * Reject absolute local file:// markdown links (broken on GitHub / non-Windows).
+ * Scans README and docs/*.md (excluding archive unless linked from active nav).
+ */
+function findAbsoluteFileLinks(repoRoot = process.cwd()) {
+  const targets = [
+    path.join(repoRoot, "README.md"),
+    path.join(repoRoot, "docs", "issue-triage-policy.md"),
+    path.join(repoRoot, "docs", "label-migration.md"),
+    path.join(repoRoot, "CONTRIBUTING.md"),
+  ];
+
+  const docsDir = path.join(repoRoot, "docs");
+  if (fs.existsSync(docsDir)) {
+    for (const name of fs.readdirSync(docsDir)) {
+      if (name.endsWith(".md")) {
+        targets.push(path.join(docsDir, name));
+      }
+    }
+  }
+
+  const fileLinkRegex = /\]\(file:\/\/[^)]+\)|file:\/\/[^\s)]+/gi;
+  const findings = [];
+  const seen = new Set();
+
+  for (const filePath of targets) {
+    if (!fs.existsSync(filePath) || seen.has(filePath)) continue;
+    seen.add(filePath);
+    const content = fs.readFileSync(filePath, "utf8");
+    const matches = content.match(fileLinkRegex);
+    if (matches && matches.length > 0) {
+      findings.push({
+        file: path.relative(repoRoot, filePath),
+        matches: [...new Set(matches)],
+      });
+    }
+  }
+
+  return findings;
+}
+
 function main() {
   console.log("🔍 Validating documentation code samples...\n");
 
@@ -139,6 +174,17 @@ function main() {
 
   console.log(`\n📊 Results: ${results.length - failed.length}/${results.length} files valid\n`);
 
+  console.log("🔍 Checking for absolute file:// links...\n");
+  const fileLinks = findAbsoluteFileLinks();
+  if (fileLinks.length > 0) {
+    console.error("❌ Absolute file:// links are not allowed (use repo-relative Markdown links):");
+    for (const finding of fileLinks) {
+      console.error(`  - ${finding.file}: ${finding.matches.join(", ")}`);
+    }
+    process.exit(1);
+  }
+  console.log("✅ No absolute file:// links found\n");
+
   if (failed.length > 0) {
     console.error("❌ Documentation validation failed!");
     process.exit(1);
@@ -148,4 +194,8 @@ function main() {
   process.exit(0);
 }
 
-main();
+module.exports = { findAbsoluteFileLinks, extractCodeBlocks, validateFile };
+
+if (require.main === module) {
+  main();
+}

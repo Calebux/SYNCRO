@@ -1,0 +1,18 @@
+{
+  "id": "generic-gym-en-membership",
+  "merchant": "Unknown",
+  "locale": "en",
+  "kind": "positive",
+  "notes": "Membership wording instead of 'subscription'.",
+  "email": {
+    "subject": "Your membership payment",
+    "from": "Northside Gym <billing@northside-gym.example>",
+    "body": "Your membership has been charged $29.99 per month. Thanks for training with us."
+  },
+  "expected": {
+    "name": "Northside Gym",
+    "amount": 29.99,
+    "currency": "USD",
+    "interval": "monthly"
+  }
+}

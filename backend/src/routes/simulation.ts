@@ -15,10 +15,7 @@ router.use(authenticate);
 // Rate limit: 5 simulations per hour per user
 router.use(createSimulationLimiter());
 
-const simulationQuerySchema = z.object({
-  days: z.preprocess((val) => parseInt(val as string, 10), z.number().int().min(1).max(365)).default(30),
-  balance: z.preprocess((val) => val === undefined ? undefined : parseFloat(val as string), z.number().optional()),
-});
+type SimulationQuery = z.infer<typeof simulationQuerySchema>;
 
 /**
  * GET /api/simulation
@@ -29,7 +26,7 @@ router.get(
   validate(simulationQuerySchema, 'query'),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { days, balance } = req.query as any;
+      const { days, balance } = req.query as SimulationQuery;
 
       const result = await simulationService.generateSimulation(
         req.user!.id,

@@ -1,3 +1,15 @@
+/**
+ * Sanitizes a CSV cell to prevent formula injection attacks.
+ * 
+ * Excel, Google Sheets, and LibreOffice Calc will execute formulas in cells
+ * that start with =, +, -, @, tab (\t), or carriage return (\r).
+ * 
+ * This function prefixes such cells with a single quote (') to force them
+ * to be treated as text rather than formulas.
+ * 
+ * @param value - The value to sanitize
+ * @returns Sanitized string safe for CSV export
+ */
 export const sanitizeCSVCell = (value: any): string => {
   if (value === null || value === undefined) return ""
 
@@ -17,6 +29,13 @@ export const sanitizeCSVCell = (value: any): string => {
   return stringValue
 }
 
+/**
+ * Generates a safe CSV string from headers and rows with formula injection protection.
+ * 
+ * @param headers - Array of column headers
+ * @param rows - Array of row data (each row is an array of values)
+ * @returns CSV string with all cells sanitized
+ */
 export const generateSafeCSV = (headers: string[], rows: any[][]) => {
   const sanitizedHeaders = headers.map(sanitizeCSVCell)
   const sanitizedRows = rows.map((row) => row.map(sanitizeCSVCell))
@@ -24,6 +43,12 @@ export const generateSafeCSV = (headers: string[], rows: any[][]) => {
   return [sanitizedHeaders.join(","), ...sanitizedRows.map((row) => row.join(","))].join("\n")
 }
 
+/**
+ * Downloads CSV content as a file with a safe filename.
+ * 
+ * @param content - The CSV content to download
+ * @param filename - Base filename (will be sanitized and timestamped)
+ */
 export const downloadCSV = (content: string, filename: string) => {
   // Ensure filename is safe and unique
   const safeFilename = filename.replace(/[^a-z0-9_-]/gi, "_")

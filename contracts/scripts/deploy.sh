@@ -66,6 +66,14 @@ echo "  ContractUpgradeGovernance: $UPGRADE_ID"
 echo ""
 echo "==> Running initialization..."
 bash "$(dirname "$0")/init.sh" "$NETWORK" "$SECRET_KEY" "$RENEWAL_ID" "$LOGGING_ID" "$UPGRADE_ID"
+# Optional: issue a mock testnet asset, fund test accounts, and wire it into
+   # SubscriptionRenewal's escrow token slot. Off by default so this never runs
+   # against mainnet by accident.
+   if [ "${SETUP_MOCK_TOKEN:-false}" = "true" ]; then
+     echo ""
+     echo "==> Setting up mock token for testing..."
+     bash "$(dirname "$0")/setup-mock-token.sh" "$NETWORK" "$RENEWAL_ID"
+   fi
 
 echo ""
 echo "==> Add to backend/.env:"

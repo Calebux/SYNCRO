@@ -1,0 +1,13 @@
+{
+  "id": "steam-en-guard-code",
+  "merchant": "Steam",
+  "locale": "en",
+  "kind": "negative",
+  "notes": "Clear negative: security code email.",
+  "email": {
+    "subject": "Your Steam Guard code",
+    "from": "Steam <noreply@steampowered.com>",
+    "body": "Use this code to sign in. Do not share it with anyone."
+  },
+  "expected": null
+}

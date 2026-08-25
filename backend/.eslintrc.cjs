@@ -65,7 +65,14 @@ module.exports = {
       },
     },
     {
-      files: ["src/config/**/*.ts", "src/middleware/**/*.ts", "src/schemas/**/*.ts"],
+      // Critical paths: forbid new `any` usage (issue #1027)
+      files: [
+        "src/config/**/*.ts",
+        "src/middleware/**/*.ts",
+        "src/schemas/**/*.ts",
+        "src/routes/**/*.ts",
+        "src/services/webhook*.ts",
+      ],
       rules: {
         "@typescript-eslint/no-explicit-any": "error",
       },

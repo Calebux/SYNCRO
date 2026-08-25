@@ -157,11 +157,22 @@ router.post(
         return res.status(409).json({ success: false, error: 'A pending invitation already exists for this email' });
       }
 
+      // Resolve invitee by email via Admin API (typed loosely — SDK may lack getUserByEmail)
+      type AdminUserLookup = {
+        getUserByEmail?: (
+          email: string,
+        ) => Promise<{ data: { user: { id: string } | null } | null }>;
+      };
+      const adminAuth = supabase.auth.admin as unknown as AdminUserLookup;
+      const inviteeLookup = adminAuth.getUserByEmail
+        ? await adminAuth.getUserByEmail(email)
+        : { data: { user: null } };
+
       const { data: alreadyMember } = await supabase
         .from('team_members')
         .select('id')
         .eq('team_id', ctx.teamId)
-        .eq('user_id', (await (supabase.auth.admin as any)?.getUserByEmail?.(email))?.data?.user?.id ?? '')
+        .eq('user_id', inviteeLookup?.data?.user?.id ?? '')
         .limit(1)
         .single();
 

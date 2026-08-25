@@ -3,7 +3,7 @@ import Stripe from 'stripe';
 import logger from '../config/logger';
 import { webhookSignatureAlertService } from './webhook-signature-alert-service';
 
-export type PaymentWebhookProvider = 'stripe' | 'paystack' | 'paypal';
+export type PaymentWebhookProvider = 'stripe' | 'paystack' | 'paypal' | 'telegram';
 
 export interface WebhookVerificationResult {
   valid: boolean;
@@ -186,5 +186,69 @@ export async function verifyPayPalWebhook(
     const message = err instanceof Error ? err.message : String(err);
     webhookSignatureAlertService.recordFailure(provider, { reason: message });
     return { valid: false, provider, error: message };
+  }
+}
+
+/**
+ * Verify a Telegram Bot webhook using constant-time secret-token comparison
+ * (issue #1069).
+ *
+ * Telegram uses a simple shared-secret model: the bot owner sets a secret token
+ * when registering the webhook; every inbound update carries that token in the
+ * X-Telegram-Bot-Api-Secret-Token header.  We use crypto.timingSafeEqual so
+ * the comparison time is independent of where the strings differ, preventing
+ * timing-oracle attacks.
+ *
+ * @param header  Value of X-Telegram-Bot-Api-Secret-Token from the request
+ * @param secret  The expected TELEGRAM_WEBHOOK_SECRET env value
+ * @param rawBody Raw request body (parsed so we can return it as the event)
+ */
+export function verifyTelegramWebhook(
+  header: string | undefined,
+  secret: string | undefined,
+  rawBody: Buffer | string,
+): WebhookVerificationResult {
+  const provider: PaymentWebhookProvider = 'telegram';
+
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      webhookSignatureAlertService.recordFailure(provider, { reason: 'secret_not_configured' });
+      return { valid: false, provider, error: 'TELEGRAM_WEBHOOK_SECRET not configured' };
+    }
+    // Allow through in non-production when secret is intentionally omitted.
+    logger.warn('[TelegramWebhook] TELEGRAM_WEBHOOK_SECRET not set — skipping check (non-production)');
+    return { valid: true, provider };
+  }
+
+  if (!header) {
+    webhookSignatureAlertService.recordFailure(provider, { reason: 'missing_header' });
+    return { valid: false, provider, error: 'Missing X-Telegram-Bot-Api-Secret-Token header' };
+  }
+
+  const secretBuf = Buffer.from(secret, 'utf8');
+  const headerBuf = Buffer.from(header, 'utf8');
+
+  // Constant-time comparison — pad to equal length before comparing so the
+  // byte loop runs for the same number of iterations regardless of mismatch.
+  const lengthsMatch = secretBuf.length === headerBuf.length;
+  const padded = lengthsMatch
+    ? headerBuf
+    : Buffer.concat([headerBuf, Buffer.alloc(Math.max(0, secretBuf.length - headerBuf.length))]).slice(0, secretBuf.length);
+
+  const valid = lengthsMatch && crypto.timingSafeEqual(secretBuf, padded);
+
+  if (!valid) {
+    webhookSignatureAlertService.recordFailure(provider, { reason: 'signature_mismatch' });
+    return { valid: false, provider, error: 'Telegram secret token mismatch' };
+  }
+
+  webhookSignatureAlertService.recordSuccess(provider);
+
+  try {
+    const body = Buffer.isBuffer(rawBody) ? rawBody.toString('utf8') : rawBody;
+    const event = JSON.parse(body);
+    return { valid: true, provider, event };
+  } catch {
+    return { valid: true, provider };
   }
 }

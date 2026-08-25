@@ -6,6 +6,15 @@ The SYNCRO backend implements comprehensive rate limiting to protect against bru
 
 ## Protected Endpoints
 
+### Login / credential endpoints
+- **Endpoints**:
+  - `POST /api/integrations/icloud/connect`
+  - `POST /api/integrations/yahoo/connect`
+- **Limit**: 5 requests per 15 minutes per IP
+- **Purpose**: Slows credential stuffing against mailbox connect flows
+- **Key**: IP address
+- **Limiter**: `createLoginLimiter()`
+
 ### Team Invitation Endpoints
 - **Endpoint**: `POST /api/team/invite`
 - **Limit**: 20 requests per hour per user
@@ -19,12 +28,56 @@ The SYNCRO backend implements comprehensive rate limiting to protect against bru
 - **Limit**: 10 requests per 15 minutes per user
 - **Purpose**: Prevents brute force attacks on MFA operations
 - **Key**: User ID (authenticated requests only)
+- **Limiter**: `createMfaLimiter()`
+
+### Import mutations
+- **Endpoints**:
+  - `POST /api/subscriptions/import/preview`
+  - `POST /api/subscriptions/import/commit`
+- **Limit**: 5 requests per hour per user
+- **Limiter**: `createImportLimiter()`
+
+### Payment mutations
+- **Endpoints**:
+  - `POST /api/payments/paystack/initialize`
+  - `GET /api/payments/paystack/verify/:reference`
+- **Limit**: 10 requests per hour per user/IP
+- **Limiter**: `createPaymentLimiter()`
+
+### Refund mutations
+- **Endpoint**: `POST /api/payments/refund`
+- **Limit**: 5 requests per hour per user
+- **Limiter**: `createRefundLimiter()` (stricter than payment)
+
+### API key mutations
+- **Endpoint**: `POST /api/keys`
+- **Limit**: 10 requests per hour per user
+- **Limiter**: `createApiKeyLimiter()`
 
 ### Admin Endpoints
 - **Endpoints**: All `/api/admin/*` endpoints
 - **Limit**: 100 requests per hour per IP address
 - **Purpose**: Prevents API key brute force attacks
 - **Key**: IP address
+
+### Subscription-tier limiter
+Sensitive mutation routes may also use `createSubscriptionTierLimiter({ sensitive: true })`
+which applies `TIER_RATE_LIMIT_CONFIG.sensitiveMultiplier` (10% of tier budget).
+
+## Route-class limit summary
+
+| Route class | Default max | Window | Key | Factory method |
+|-------------|-------------|--------|-----|----------------|
+| login | 5 | 15 min | IP | `createLoginLimiter` |
+| mfa | 10 | 15 min | user | `createMfaLimiter` |
+| import | 5 | 1 hour | user | `createImportLimiter` |
+| payment | 10 | 1 hour | user/IP | `createPaymentLimiter` |
+| refund | 5 | 1 hour | user | `createRefundLimiter` |
+| api-key | 10 | 1 hour | user | `createApiKeyLimiter` |
+| team-invite | 20 | 1 hour | user | `createTeamInviteLimiter` |
+| admin | 100 | 1 hour | IP | `createAdminLimiter` |
+
+Abuse of any class returns **HTTP 429** with `Retry-After` and `X-RateLimit-*` headers.
 
 ## Configuration
 
@@ -43,6 +96,20 @@ RATE_LIMIT_TEAM_INVITE_WINDOW_HOURS=1
 RATE_LIMIT_MFA_MAX=10
 RATE_LIMIT_MFA_WINDOW_MINUTES=15
 
+# Login / credential Limits
+RATE_LIMIT_LOGIN_MAX=5
+RATE_LIMIT_LOGIN_WINDOW_MINUTES=15
+
+# Import / payment / refund / API key
+RATE_LIMIT_IMPORT_MAX=5
+RATE_LIMIT_IMPORT_WINDOW_HOURS=1
+RATE_LIMIT_PAYMENT_MAX=10
+RATE_LIMIT_PAYMENT_WINDOW_HOURS=1
+RATE_LIMIT_REFUND_MAX=5
+RATE_LIMIT_REFUND_WINDOW_HOURS=1
+RATE_LIMIT_API_KEY_MAX=10
+RATE_LIMIT_API_KEY_WINDOW_HOURS=1
+
 # Admin Limits
 RATE_LIMIT_ADMIN_MAX=100
 RATE_LIMIT_ADMIN_WINDOW_HOURS=1
@@ -56,6 +123,12 @@ RATE_LIMIT_ADMIN_WINDOW_HOURS=1
 | `RATE_LIMIT_TEAM_INVITE_WINDOW_HOURS` | 1 | Time window in hours |
 | `RATE_LIMIT_MFA_MAX` | 10 | Maximum MFA attempts per window |
 | `RATE_LIMIT_MFA_WINDOW_MINUTES` | 15 | Time window in minutes |
+| `RATE_LIMIT_LOGIN_MAX` | 5 | Maximum login/credential attempts per window |
+| `RATE_LIMIT_LOGIN_WINDOW_MINUTES` | 15 | Login window in minutes |
+| `RATE_LIMIT_IMPORT_MAX` | 5 | Maximum import operations per window |
+| `RATE_LIMIT_PAYMENT_MAX` | 10 | Maximum payment operations per window |
+| `RATE_LIMIT_REFUND_MAX` | 5 | Maximum refund operations per window |
+| `RATE_LIMIT_API_KEY_MAX` | 10 | Maximum API key mutations per window |
 | `RATE_LIMIT_ADMIN_MAX` | 100 | Maximum admin requests per window |
 | `RATE_LIMIT_ADMIN_WINDOW_HOURS` | 1 | Time window in hours |
 | `RATE_LIMIT_REDIS_ENABLED` | `true` if URL provided | Enable Redis backing |

@@ -105,3 +105,34 @@ Update this section after each testnet deployment.
 
 Network: `testnet`  
 Last deployed: _(fill in after first deployment)_
+
+To also issue a mock testnet asset and fund test accounts with it (see below), set `SETUP_MOCK_TOKEN=true`:
+
+   \`\`\`bash
+   SETUP_MOCK_TOKEN=true bash scripts/deploy.sh testnet
+   \`\`\`
+
+   ---
+
+   ## Mock Token Setup (Testnet)
+
+   `scripts/setup-mock-token.sh` issues a mock Stellar asset for exercising the
+   escrow-locking flow (`renew` / `claim_escrow`) end-to-end on testnet, without
+   needing a real payment rail:
+
+   \`\`\`bash
+   cd contracts
+   bash scripts/setup-mock-token.sh testnet <renewal_contract_id>
+   \`\`\`
+
+   This will:
+   1. Generate (or reuse) a funded issuer identity for the mock asset
+   2. Deploy the asset's Stellar Asset Contract (SAC) — this is the token address used by `SubscriptionRenewal`
+   3. Generate a couple of funded test-user identities, establish trustlines, and mint each of them a mock balance
+   4. If a `SubscriptionRenewal` contract id is passed in, invoke `set_token_contract` to wire the mock token in as the escrow asset
+   5. Save everything (issuer, token contract id, test user addresses) to `scripts/mock-token-testnet.env`
+
+   Override the asset code, mint amount, or number of test users with `TOKEN_CODE`, `MINT_AMOUNT`, or `NUM_TEST_USERS` env vars.
+
+   ---
+   

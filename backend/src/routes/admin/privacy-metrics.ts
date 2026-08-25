@@ -135,6 +135,29 @@ router.get('/privacy-metrics', async (_req: AuthenticatedRequest, res: Response)
   }
 });
 
+/**
+ * Sanitizes a CSV cell to prevent formula injection.
+ * Cells starting with =, +, -, @, tab, or carriage return are prefixed with a single quote.
+ */
+function sanitizeCSVCell(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  
+  const stringValue = String(value);
+  const dangerousChars = ['=', '+', '-', '@', '\t', '\r'];
+  
+  // Prevent formula injection
+  if (dangerousChars.some((char) => stringValue.startsWith(char))) {
+    return `'${stringValue}`;
+  }
+  
+  // Escape quotes and wrap in quotes if contains comma, newline, or quote
+  if (stringValue.includes(',') || stringValue.includes('\n') || stringValue.includes('"')) {
+    return `"${stringValue.replace(/"/g, '""')}"`;
+  }
+  
+  return stringValue;
+}
+
 router.get('/privacy-metrics.csv', async (_req: AuthenticatedRequest, res: Response) => {
   try {
     const metricsBase = await getPrivacyMetricsAggregates();
@@ -153,7 +176,7 @@ router.get('/privacy-metrics.csv', async (_req: AuthenticatedRequest, res: Respo
       'gdpr_export_requests_count',
       'gdpr_deletion_requests_count',
       'generated_at',
-    ];
+    ].map(sanitizeCSVCell);
 
     const row = [
       payload.privacy_mode_enabled_rate_percent,
@@ -165,7 +188,7 @@ router.get('/privacy-metrics.csv', async (_req: AuthenticatedRequest, res: Respo
       payload.gdpr_export_requests_count,
       payload.gdpr_deletion_requests_count,
       payload.generated_at,
-    ].map((v) => (v === null || v === undefined ? '' : String(v)));
+    ].map(sanitizeCSVCell);
 
     const csv = [headers.join(','), row.join(',')].join('\n');
 

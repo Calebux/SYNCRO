@@ -47,6 +47,22 @@ packages must have a manifest + `.env.example` that agree; no-env packages must
 Stellar settings — see `backend/src/config/env.ts` and
 [blockchain-feature-flags.md](./blockchain-feature-flags.md).
 
+### Backend cache tuning (issue #1092)
+
+Redis TTL caching is used for both FX rates and merchant metadata.  All
+variables are optional with safe defaults and are documented in
+`backend/.env.example`:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `EXCHANGE_RATE_TTL_MS` | `900000` (15 min) | Live TTL for FX-rate Redis entries |
+| `EXCHANGE_RATE_CACHE_JITTER_FACTOR` | `0.1` | Random jitter (0–1) added to TTL to avoid stampedes |
+| `EXCHANGE_RATE_CACHE_SWR_FACTOR` | `0.5` | Stale-while-revalidate window as a fraction of TTL |
+| `MERCHANT_CACHE_TTL_MS` | `1800000` (30 min) | Live TTL for merchant-metadata Redis entries |
+
+Jitter and SWR factors are shared by both services through `RedisCacheAdapter`.
+Set `EXCHANGE_RATE_CACHE_SWR_FACTOR=0` to disable stale-while-revalidate.
+
 ### Client (required to build — `client/scripts/env.manifest.js`)
 
 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,

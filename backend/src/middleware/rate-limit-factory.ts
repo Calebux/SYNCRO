@@ -131,6 +131,111 @@ export class RateLimiterFactory {
   }
 
   /**
+   * Login / credential submission — IP-keyed (5 / 15 min default).
+   * Apply to auth-adjacent endpoints (IMAP connect, recovery, etc.).
+   */
+  static createLoginLimiter(): RateLimitRequestHandler {
+    return rateLimit({
+      windowMs: rateLimitConfig.login.windowMs,
+      max: rateLimitConfig.login.max,
+      message: rateLimitConfig.login.message,
+      standardHeaders: true,
+      legacyHeaders: true,
+      validate: false,
+      keyGenerator: ipKeyGenerator,
+      store: this.redisStore || undefined,
+      handler: (req, res, _next) => {
+        createRateLimitHandler('login')(req, res);
+        res.status(429).json(rateLimitConfig.login.message);
+      },
+    });
+  }
+
+  /** CSV / bulk import mutations — 5 / hour / user */
+  static createImportLimiter(): RateLimitRequestHandler {
+    return rateLimit({
+      windowMs: rateLimitConfig.import.windowMs,
+      max: rateLimitConfig.import.max,
+      message: rateLimitConfig.import.message,
+      standardHeaders: true,
+      legacyHeaders: true,
+      validate: false,
+      keyGenerator: userKeyGenerator,
+      store: this.redisStore || undefined,
+      handler: (req, res, _next) => {
+        createRateLimitHandler('import')(req, res);
+        res.status(429).json(rateLimitConfig.import.message);
+      },
+      skip: (req) => {
+        const authReq = req as AuthenticatedRequest;
+        return !authReq.user?.id;
+      },
+    });
+  }
+
+  /** Payment initialize / capture — 10 / hour / user */
+  static createPaymentLimiter(): RateLimitRequestHandler {
+    return rateLimit({
+      windowMs: rateLimitConfig.payment.windowMs,
+      max: rateLimitConfig.payment.max,
+      message: rateLimitConfig.payment.message,
+      standardHeaders: true,
+      legacyHeaders: true,
+      validate: false,
+      keyGenerator: userKeyGenerator,
+      store: this.redisStore || undefined,
+      handler: (req, res, _next) => {
+        createRateLimitHandler('payment')(req, res);
+        res.status(429).json(rateLimitConfig.payment.message);
+      },
+    });
+  }
+
+  /** Refund mutations — 5 / hour / user (stricter than payment) */
+  static createRefundLimiter(): RateLimitRequestHandler {
+    return rateLimit({
+      windowMs: rateLimitConfig.refund.windowMs,
+      max: rateLimitConfig.refund.max,
+      message: rateLimitConfig.refund.message,
+      standardHeaders: true,
+      legacyHeaders: true,
+      validate: false,
+      keyGenerator: userKeyGenerator,
+      store: this.redisStore || undefined,
+      handler: (req, res, _next) => {
+        createRateLimitHandler('refund')(req, res);
+        res.status(429).json(rateLimitConfig.refund.message);
+      },
+      skip: (req) => {
+        const authReq = req as AuthenticatedRequest;
+        return !authReq.user?.id;
+      },
+    });
+  }
+
+  /** API key create / revoke — 10 / hour / user */
+  static createApiKeyLimiter(): RateLimitRequestHandler {
+    return rateLimit({
+      windowMs: rateLimitConfig.apiKey.windowMs,
+      max: rateLimitConfig.apiKey.max,
+      message: rateLimitConfig.apiKey.message,
+      standardHeaders: true,
+      legacyHeaders: true,
+      validate: false,
+      keyGenerator: userKeyGenerator,
+      store: this.redisStore || undefined,
+      handler: (req, res, _next) => {
+        createRateLimitHandler('api-key')(req, res);
+        res.status(429).json(rateLimitConfig.apiKey.message);
+      },
+      skip: (req) => {
+        const authReq = req as AuthenticatedRequest;
+        return !authReq.user?.id;
+      },
+    });
+  }
+
+  /**
    * Create rate limiter for admin endpoints
    * 100 requests per hour per IP
    */
@@ -329,6 +434,11 @@ export class RateLimiterFactory {
 // Export individual limiter creators for convenience
 export const createTeamInviteLimiter = () => RateLimiterFactory.createTeamInviteLimiter();
 export const createMfaLimiter = () => RateLimiterFactory.createMfaLimiter();
+export const createLoginLimiter = () => RateLimiterFactory.createLoginLimiter();
+export const createImportLimiter = () => RateLimiterFactory.createImportLimiter();
+export const createPaymentLimiter = () => RateLimiterFactory.createPaymentLimiter();
+export const createRefundLimiter = () => RateLimiterFactory.createRefundLimiter();
+export const createApiKeyLimiter = () => RateLimiterFactory.createApiKeyLimiter();
 export const createAdminLimiter = () => RateLimiterFactory.createAdminLimiter();
 export const createSimulationLimiter = () => RateLimiterFactory.createSimulationLimiter();
 export const createStealthAddressLimiter = () => RateLimiterFactory.createStealthAddressLimiter();

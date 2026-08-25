@@ -6,6 +6,9 @@ import { adminAuth } from '../middleware/admin';
 import { createMerchantSchema, updateMerchantSchema, merchantQuerySchema } from '../schemas/merchant';
 import { validateRequest } from '../utils/validation';
 import { PaginationError } from '../utils/pagination';
+import { z } from 'zod';
+
+type MerchantQuery = z.infer<typeof merchantQuerySchema>;
 
 const router: Router = Router();
 
@@ -18,7 +21,7 @@ router.get(
   validate(merchantQuerySchema, 'query'),
   async (req: Request, res: Response) => {
     try {
-      const { limit, offset, category } = req.query as any;
+      const { limit, offset, category } = req.query as MerchantQuery;
 
       const result = await merchantService.listMerchants({
         category,
@@ -31,12 +34,12 @@ router.get(
         data: result.merchants,
         pagination: { total: result.total, limit, offset },
       });
-    } catch (error: any) {
-      if (error.name === 'PaginationError') {
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === 'PaginationError') {
         res.status(400).json({
           success: false,
           error: error.message,
-          code: error.code,
+          code: (error as { code?: string }).code,
         });
         return;
       }

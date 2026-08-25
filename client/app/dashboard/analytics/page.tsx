@@ -1,12 +1,16 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import AnalyticsPage from "@/components/pages/analytics"
+import dynamic from "next/dynamic"
 import { analyticsApi, type AnalyticsSummary } from "@/lib/api/analytics"
 import { useTheme } from "next-themes"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BarChart3, AlertTriangle, PlusCircle } from "lucide-react"
 import Link from "next/link"
+
+const AnalyticsPage = dynamic(() => import("@/components/pages/analytics"), {
+  loading: () => <AnalyticsLoadingSkeleton />,
+})
 
 // ─── Empty state ──────────────────────────────────────────────────────────────
 

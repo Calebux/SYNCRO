@@ -59,6 +59,16 @@ livenessProbe:
 - Determining if service can handle requests
 - Checking if critical dependencies are available
 
+**Critical vs. Optional Dependencies**:
+- **Critical** (readiness blocks): Database, Redis, RPC/Horizon, FX Provider
+- **Optional** (degraded allowed): Queue, Providers (external API keys), Scheduler
+
+**Behavior**:
+- ✅ Checks critical dependencies (database, Redis, RPC/Horizon, FX provider)
+- ✅ Returns 503 if any critical dep is unhealthy
+- ✅ Allows degraded state for non-critical services
+- ✅ RPC/Horizon and FX provider report `degraded` when not configured (no blocking)
+
 **Response (HTTP 200 if ready, 503 if not)**:
 ```json
 {
@@ -85,6 +95,16 @@ livenessProbe:
       "name": "providers",
       "status": "healthy",
       "latency_ms": 0
+    },
+    {
+      "name": "rpc_horizon",
+      "status": "healthy",
+      "latency_ms": 10
+    },
+    {
+      "name": "fx_provider",
+      "status": "healthy",
+      "latency_ms": 8
     }
   ]
 }
@@ -113,14 +133,14 @@ livenessProbe:
 ```
 
 **Critical vs. Optional Dependencies**:
-- **Critical** (readiness blocks): Database, Redis
-- **Optional** (degraded allowed): Queue, Providers
+- **Critical** (readiness blocks): Database, Redis, RPC/Horizon, FX Provider
+- **Optional** (degraded allowed): Queue, Providers (external API keys), Scheduler
 
 **Behavior**:
-- ✅ Checks critical dependencies (database, Redis)
-- ✅ Returns 503 if critical deps are unhealthy
+- ✅ Checks critical dependencies (database, Redis, RPC/Horizon, FX provider)
+- ✅ Returns 503 if any critical dep is unhealthy
 - ✅ Allows degraded state for non-critical services
-- ❌ Slightly higher latency than liveness probe
+- ✅ RPC/Horizon and FX provider report `degraded` when not configured (no blocking)
 
 **Deployment Use Case**:
 ```yaml
@@ -329,8 +349,9 @@ To add a new dependency check:
 
 1. Add a `check<Service>()` method to `DependencyHealthService`
 2. Include it in `checkAllDependencies()`
-3. Classify as critical or optional (only `database` and `redis` block readiness)
+3. Classify as critical or optional (critical deps: `database`, `redis`, `rpc_horizon`, `fx_provider`)
 4. Update this document with dependency details
+5. Add the check to both backend (`dependency-health-service.ts`) and client (`client/app/api/health/ready/route.ts`) readiness probes
 
 Example:
 ```typescript

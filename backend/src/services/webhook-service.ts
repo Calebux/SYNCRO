@@ -9,7 +9,7 @@ import {
   WebhookCreateInput, 
   WebhookUpdateInput 
 } from '../types/webhook';
-import { webhookDeadLetterService } from './webhook-dead-letter-service';
+import { webhookDeadLetterService, WebhookDeadLetterReplay } from './webhook-dead-letter-service';
 import { ExternalServiceClient } from '../utils/external-service-client';
 import { emitSecurityEvent } from './audit-service';
 import { getRequestId } from '../middleware/requestContext';
@@ -221,8 +221,38 @@ export class WebhookService {
       .update(payloadString)
       .digest('hex');
 
+    // ── SSRF guard (dispatch-time, with DNS resolution) ───────────────────
+    // The webhook URL was validated at creation/update time by the schema, but
+    // we re-validate here with a DNS lookup to protect against:
+    //   - DNS rebinding attacks
+    //   - Webhooks that were registered before SSRF checks were added
+    //   - Any URL that bypassed schema validation
     try {
-      const data = await this.client.request<any>(webhook.url, {
+      await validateOutboundUrl(webhook.url, { resolveDns: true });
+    } catch (ssrfErr) {
+      const reason = ssrfErr instanceof SSRFError ? ssrfErr.message : String(ssrfErr);
+      logger.warn(`SSRF check blocked webhook delivery ${deliveryId}: ${reason}`, {
+        webhookId: webhook.id,
+        url: webhook.url,
+      });
+      emitSecurityEvent('webhook.ssrf_blocked', {
+        severity: 'high',
+        resourceType: 'webhook',
+        resourceId: webhook.id,
+        reason,
+        details: { deliveryId, url: webhook.url },
+      });
+      return await this.handleDeliveryFailure(
+        deliveryId,
+        webhook.id,
+        0,
+        `SSRF protection blocked delivery: ${reason}`,
+      );
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
+    try {
+      const data = await this.client.request<unknown>(webhook.url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -234,9 +264,11 @@ export class WebhookService {
 
       // ExternalServiceClient throws on !response.ok, so we handle it in catch
       return await this.updateDeliverySuccess(deliveryId, 200, JSON.stringify(data).substring(0, 1000));
-    } catch (err: any) {
-      const status = err.message.includes('status') ? parseInt(err.message.match(/\d+/)?.[0] || '0') : 0;
+    } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : String(err);
+      const status = errorMsg.includes('status')
+        ? parseInt(errorMsg.match(/\d+/)?.[0] || '0', 10)
+        : 0;
       return await this.handleDeliveryFailure(deliveryId, webhook.id, status, errorMsg);
     }
   }
@@ -455,7 +487,7 @@ export class WebhookService {
   /**
    * Execute a replay for a dead-letter delivery
    */
-  async executeDeadLetterReplay(userId: string, replayId: string): Promise<any> {
+  async executeDeadLetterReplay(userId: string, replayId: string): Promise<WebhookDeadLetterReplay> {
     // Fetch the replay
     const { data: replay, error: replayError } = await supabase
       .from('webhook_dead_letter_replays')
@@ -467,7 +499,7 @@ export class WebhookService {
       throw new Error('Replay request not found');
     }
 
-    const delivery = replay.webhook_deliveries;
+    const delivery = replay.webhook_deliveries as WebhookDelivery & { webhooks: Webhook };
     const webhook = delivery.webhooks;
 
     // Verify ownership

@@ -144,7 +144,7 @@ router.get('/summary', async (req: AuthenticatedRequest, res: Response) => {
  */
 router.get('/budgets', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { data: budgets, error } = await (analyticsService as any).getUserBudgets(req.user!.id);
+    const { data: budgets, error } = await analyticsService.getUserBudgets(req.user!.id);
     if (error) throw error;
     res.json({ success: true, data: budgets });
   } catch (error) {

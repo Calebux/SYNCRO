@@ -186,7 +186,9 @@ impl SubscriptionLoggingContract {
             .get(&DataKey::CommitmentCount)
             .unwrap_or(0);
 
-        let next_index = commitment_index + 1;
+        let next_index = commitment_index
+            .checked_add(1)
+            .expect("commitment index overflow");
         env.storage()
             .instance()
             .set(&DataKey::CommitmentCount, &next_index);
@@ -299,9 +301,12 @@ impl SubscriptionLoggingContract {
             .get(&DataKey::MerkleRootCount)
             .unwrap_or(0);
 
+        let next_root_count = root_count
+            .checked_add(1)
+            .expect("merkle root count overflow");
         env.storage()
             .instance()
-            .set(&DataKey::MerkleRootCount, &(root_count + 1));
+            .set(&DataKey::MerkleRootCount, &next_root_count);
 
         // Create Merkle root record
         let merkle_root = MerkleRoot {

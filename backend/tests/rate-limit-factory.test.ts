@@ -86,6 +86,16 @@ describe('RateLimiterFactory', () => {
     });
   });
 
+  describe('sensitive mutation limiters', () => {
+    it('creates login, import, payment, refund, and api-key limiters', () => {
+      expect(RateLimiterFactory.createLoginLimiter()).toBeDefined();
+      expect(RateLimiterFactory.createImportLimiter()).toBeDefined();
+      expect(RateLimiterFactory.createPaymentLimiter()).toBeDefined();
+      expect(RateLimiterFactory.createRefundLimiter()).toBeDefined();
+      expect(RateLimiterFactory.createApiKeyLimiter()).toBeDefined();
+    });
+  });
+
   describe('createAdminLimiter', () => {
     it('should create admin limiter with correct configuration', () => {
       const limiter = RateLimiterFactory.createAdminLimiter();

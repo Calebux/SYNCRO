@@ -58,7 +58,7 @@ describe('JobAlertService', () => {
       expect(metrics.consecutiveFailures).toBe(0);
     });
 
-    it('emits Sentry alert when critical threshold is breached', async () => {
+    it('emits Sentry alert with dedicated ops runbook when critical threshold is breached', async () => {
       jobAlertService.recordJobOutcome('reminder-scheduling', false, new Error('fail 1'));
       jobAlertService.recordJobOutcome('reminder-scheduling', false, new Error('fail 2'));
 
@@ -71,6 +71,12 @@ describe('JobAlertService', () => {
             alert_type: 'job_failure',
             job_id: 'reminder-scheduling',
             paging_severity: 'page',
+          }),
+          contexts: expect.objectContaining({
+            job_alert: expect.objectContaining({
+              runbook_section: 'reminder-scheduling',
+              runbook: 'docs/ops/reminder-scheduling-runbook.md',
+            }),
           }),
         }),
       );

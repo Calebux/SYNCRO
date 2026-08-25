@@ -86,6 +86,8 @@ describe('GET /health/ready', () => {
         { name: 'redis', status: 'healthy', latency_ms: 2 },
         { name: 'queue', status: 'healthy', latency_ms: 1 },
         { name: 'providers', status: 'healthy', latency_ms: 0 },
+        { name: 'rpc_horizon', status: 'healthy', latency_ms: 10 },
+        { name: 'fx_provider', status: 'healthy', latency_ms: 8 },
         { name: 'scheduler', status: 'healthy' },
       ],
     });
@@ -94,7 +96,9 @@ describe('GET /health/ready', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.status).toBe('ready');
-    expect(response.body.dependencies).toHaveLength(5);
+    expect(response.body.dependencies).toHaveLength(7);
+    expect(response.body.dependencies.find((d: { name: string }) => d.name === 'rpc_horizon')).toBeDefined();
+    expect(response.body.dependencies.find((d: { name: string }) => d.name === 'fx_provider')).toBeDefined();
     expect(response.body.dependencies.find((d: { name: string }) => d.name === 'scheduler')).toBeDefined();
   });
 

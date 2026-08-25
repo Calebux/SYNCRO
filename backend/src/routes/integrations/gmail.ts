@@ -5,6 +5,7 @@ import {
   getGmailProfile,
   scanGmailSubscriptions,
 } from '../../services/gmail-service'
+import { encrypt, decrypt } from '../../utils/encryption'
 import { createState, consumeState } from '../../../utils/oauth-state'
 import { supabase } from '../../config/database'
 import { AuthenticatedRequest } from '../../middleware/auth'
@@ -44,8 +45,9 @@ router.get('/callback', async (req: AuthenticatedRequest, res: Response, next: N
           user_id: req.user!.id,
           provider: 'gmail',
           email: profile.emailAddress,
-          access_token: tokens.access_token,
-          refresh_token: tokens.refresh_token ?? null,
+          // Encrypt tokens at rest using AES-256-GCM (issue #1076)
+          access_token: encrypt(tokens.access_token),
+          refresh_token: tokens.refresh_token ? encrypt(tokens.refresh_token) : null,
           token_expiry: tokens.expiry_date ? new Date(tokens.expiry_date).toISOString() : null,
           updated_at: new Date().toISOString(),
         },
@@ -85,9 +87,13 @@ router.post('/scan', async (req: AuthenticatedRequest, res: Response, next: Next
       return res.status(400).json({ error: 'Missing accessToken' })
     }
 
+    // Decrypt tokens if they were stored encrypted (issue #1076)
+    const decryptedAccessToken = decrypt(accessToken)
+    const decryptedRefreshToken = refreshToken ? decrypt(refreshToken) : undefined
+
     const subscriptions = await scanGmailSubscriptions({
-      accessToken,
-      refreshToken,
+      accessToken: decryptedAccessToken,
+      refreshToken: decryptedRefreshToken,
       sinceDays,
       maxResults,
     })

@@ -39,6 +39,7 @@ export const POST = createAuthenticatedApiRoute(
         planName: body.planName,
         userId: user.id,
         userEmail: user.email || "",
+        requestId: context.requestId,
       },
     );
 
@@ -53,7 +54,14 @@ export const POST = createAuthenticatedApiRoute(
       action: "payment.create",
       resourceType: "payment",
       resourceId: result.transactionId,
-      metadata: { provider: body.provider, currency: body.currency },
+      metadata: {
+        provider: body.provider,
+        currency: body.currency,
+        requestId: context.requestId,
+        ...(result.persistenceDegraded
+          ? { persistenceDegraded: true, needsReconciliation: true }
+          : {}),
+      },
     })
 
     return createSuccessResponse(
@@ -62,8 +70,19 @@ export const POST = createAuthenticatedApiRoute(
           id: result.transactionId,
           amount: body.amount,
           currency: body.currency,
-          status: "succeeded",
+          status: result.requiresAction
+            ? "pending"
+            : result.persistenceDegraded
+              ? "succeeded_unreconciled"
+              : "succeeded",
           createdAt: new Date(),
+          ...(result.persistenceDegraded
+            ? {
+                persistenceDegraded: true,
+                needsReconciliation: true,
+                message: result.error,
+              }
+            : {}),
         },
       },
       HttpStatus.CREATED,

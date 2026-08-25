@@ -4,6 +4,7 @@ import {
   verifyStripeWebhook,
   verifyPaystackWebhook,
   verifyPayPalWebhook,
+  verifyTelegramWebhook,
 } from '../src/services/payment-webhook-verification';
 import { WebhookSignatureAlertService } from '../src/services/webhook-signature-alert-service';
 
@@ -160,5 +161,203 @@ describe('WebhookSignatureAlertService', () => {
     service.recordFailure('paystack');
     service.recordSuccess('paystack');
     expect(service.getFailureCount('paystack')).toBe(0);
+  });
+});
+
+describe('verifyTelegramWebhook', () => {
+  const secret = 'super-secret-telegram-token';
+  const payload = JSON.stringify({ update_id: 1, message: { text: '/start' } });
+
+  afterEach(() => {
+    delete process.env.NODE_ENV;
+  });
+
+  it('should accept a correct secret token', () => {
+    const result = verifyTelegramWebhook(secret, secret, payload);
+    expect(result.valid).toBe(true);
+    expect(result.event).toBeDefined();
+  });
+
+  it('should reject a forged / wrong secret token', () => {
+    const result = verifyTelegramWebhook('forged-token', secret, payload);
+    expect(result.valid).toBe(false);
+    expect(result.error).toMatch(/mismatch/i);
+  });
+
+  it('should reject when the header is missing', () => {
+    const result = verifyTelegramWebhook(undefined, secret, payload);
+    expect(result.valid).toBe(false);
+    expect(result.error).toMatch(/missing/i);
+  });
+
+  it('should reject in production when secret is not configured', () => {
+    process.env.NODE_ENV = 'production';
+    const result = verifyTelegramWebhook(secret, undefined, payload);
+    expect(result.valid).toBe(false);
+    expect(result.error).toMatch(/not configured/i);
+  });
+
+  it('should allow through in non-production when secret is not configured', () => {
+    process.env.NODE_ENV = 'test';
+    const result = verifyTelegramWebhook(secret, undefined, payload);
+    expect(result.valid).toBe(true);
+  });
+
+  it('should reject a token that differs only in length (no timing shortcut)', () => {
+    // This proves the padded constant-time path is exercised without panicking.
+    const shorterToken = secret.slice(0, -3);
+    const result = verifyTelegramWebhook(shorterToken, secret, payload);
+    expect(result.valid).toBe(false);
+  });
+
+  it('should reject a token that is longer than the secret', () => {
+    const longerToken = secret + 'extra';
+    const result = verifyTelegramWebhook(longerToken, secret, payload);
+    expect(result.valid).toBe(false);
+  });
+});
+
+describe('Forged signature rejection — all providers', () => {
+  it('Stripe: completely fabricated signature is rejected', () => {
+    const payload = JSON.stringify({ id: 'evt_fake', type: 'payment_intent.created' });
+    const result = verifyStripeWebhook(payload, 't=9999,v1=deadbeefdeadbeef', 'whsec_real_secret');
+    expect(result.valid).toBe(false);
+  });
+
+  it('Stripe: replayed signature with wrong payload is rejected', () => {
+    const secret = 'whsec_test_replay';
+    const stripe = new Stripe('sk_test_placeholder', { apiVersion: '2025-02-24.acacia' });
+    const originalPayload = JSON.stringify({ id: 'evt_orig' });
+    const sig = stripe.webhooks.generateTestHeaderString({
+      payload: originalPayload,
+      secret,
+    });
+    // Attacker replays signature but changes body content
+    const tamperedPayload = JSON.stringify({ id: 'evt_tampered', amount: 999999 });
+    const result = verifyStripeWebhook(tamperedPayload, sig, secret);
+    expect(result.valid).toBe(false);
+  });
+
+  it('Paystack: all-zeros signature is rejected', () => {
+    const payload = JSON.stringify({ event: 'charge.success' });
+    const result = verifyPaystackWebhook(payload, '0'.repeat(128), 'sk_live_real');
+    expect(result.valid).toBe(false);
+  });
+
+  it('Paystack: tampered body invalidates HMAC', () => {
+    const secret = 'sk_test_paystack';
+    const original = JSON.stringify({ event: 'charge.success', data: { amount: 100 } });
+    const sig = crypto.createHmac('sha512', secret).update(original).digest('hex');
+    // Attacker changes amount in body but keeps same sig
+    const tampered = JSON.stringify({ event: 'charge.success', data: { amount: 999999 } });
+    const result = verifyPaystackWebhook(tampered, sig, secret);
+    expect(result.valid).toBe(false);
+  });
+
+  it('Telegram: empty string token is rejected', () => {
+    const result = verifyTelegramWebhook('', 'real-secret', '{}');
+    expect(result.valid).toBe(false);
+  });
+
+  it('Telegram: token with correct prefix but extra chars is rejected', () => {
+    const secret = 'my-secret-token';
+    const result = verifyTelegramWebhook(secret + '-injected', secret, '{}');
+    expect(result.valid).toBe(false);
+  });
+});
+
+describe('verifyTelegramWebhook', () => {
+  const secret = 'super-secret-telegram-token';
+  const payload = JSON.stringify({ update_id: 1, message: { text: '/start' } });
+
+  afterEach(() => {
+    delete process.env.NODE_ENV;
+  });
+
+  it('should accept a correct secret token', () => {
+    const result = verifyTelegramWebhook(secret, secret, payload);
+    expect(result.valid).toBe(true);
+    expect(result.event).toBeDefined();
+  });
+
+  it('should reject a forged / wrong secret token', () => {
+    const result = verifyTelegramWebhook('forged-token', secret, payload);
+    expect(result.valid).toBe(false);
+    expect(result.error).toMatch(/mismatch/i);
+  });
+
+  it('should reject when the header is missing', () => {
+    const result = verifyTelegramWebhook(undefined, secret, payload);
+    expect(result.valid).toBe(false);
+    expect(result.error).toMatch(/missing/i);
+  });
+
+  it('should reject in production when secret is not configured', () => {
+    process.env.NODE_ENV = 'production';
+    const result = verifyTelegramWebhook(secret, undefined, payload);
+    expect(result.valid).toBe(false);
+    expect(result.error).toMatch(/not configured/i);
+  });
+
+  it('should allow through in non-production when secret is not configured', () => {
+    process.env.NODE_ENV = 'test';
+    const result = verifyTelegramWebhook(secret, undefined, payload);
+    expect(result.valid).toBe(true);
+  });
+
+  it('should reject a token that differs only in length (no timing shortcut)', () => {
+    const shorterToken = secret.slice(0, -3);
+    const result = verifyTelegramWebhook(shorterToken, secret, payload);
+    expect(result.valid).toBe(false);
+  });
+
+  it('should reject a token that is longer than the secret', () => {
+    const longerToken = secret + 'extra';
+    const result = verifyTelegramWebhook(longerToken, secret, payload);
+    expect(result.valid).toBe(false);
+  });
+});
+
+describe('Forged signature rejection — all providers', () => {
+  it('Stripe: completely fabricated signature is rejected', () => {
+    const payload = JSON.stringify({ id: 'evt_fake', type: 'payment_intent.created' });
+    const result = verifyStripeWebhook(payload, 't=9999,v1=deadbeefdeadbeef', 'whsec_real_secret');
+    expect(result.valid).toBe(false);
+  });
+
+  it('Stripe: replayed signature with tampered payload is rejected', () => {
+    const secret = 'whsec_test_replay';
+    const stripe = new Stripe('sk_test_placeholder', { apiVersion: '2025-02-24.acacia' });
+    const originalPayload = JSON.stringify({ id: 'evt_orig' });
+    const sig = stripe.webhooks.generateTestHeaderString({ payload: originalPayload, secret });
+    const tamperedPayload = JSON.stringify({ id: 'evt_tampered', amount: 999999 });
+    const result = verifyStripeWebhook(tamperedPayload, sig, secret);
+    expect(result.valid).toBe(false);
+  });
+
+  it('Paystack: all-zeros signature is rejected', () => {
+    const payload = JSON.stringify({ event: 'charge.success' });
+    const result = verifyPaystackWebhook(payload, '0'.repeat(128), 'sk_live_real');
+    expect(result.valid).toBe(false);
+  });
+
+  it('Paystack: tampered body with original HMAC is rejected', () => {
+    const secret = 'sk_test_paystack';
+    const original = JSON.stringify({ event: 'charge.success', data: { amount: 100 } });
+    const sig = crypto.createHmac('sha512', secret).update(original).digest('hex');
+    const tampered = JSON.stringify({ event: 'charge.success', data: { amount: 999999 } });
+    const result = verifyPaystackWebhook(tampered, sig, secret);
+    expect(result.valid).toBe(false);
+  });
+
+  it('Telegram: empty string token is rejected', () => {
+    const result = verifyTelegramWebhook('', 'real-secret', '{}');
+    expect(result.valid).toBe(false);
+  });
+
+  it('Telegram: token with correct prefix but extra chars is rejected', () => {
+    const secret = 'my-secret-token';
+    const result = verifyTelegramWebhook(secret + '-injected', secret, '{}');
+    expect(result.valid).toBe(false);
   });
 });

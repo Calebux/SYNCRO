@@ -115,7 +115,7 @@ fn test_update_subscription() {
         &None,
         &Some(new_amount),
         &Some(new_renewal),
-        &Some(new_encrypted_blob),
+        &Some(new_encrypted_blob.clone()),
     );
 
     // Verify updates were applied

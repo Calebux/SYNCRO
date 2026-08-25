@@ -1,13 +1,15 @@
 import { supabase } from '../config/database';
 import logger from '../config/logger';
 import crypto from 'crypto';
-import { WebhookDelivery } from '../types/webhook';
+import { Webhook, WebhookDelivery } from '../types/webhook';
+import { emitSecurityEvent } from './audit-service';
+import { validateOutboundUrl, SSRFError } from '../utils/ssrf-protection';
 
 export interface WebhookDeadLetterDelivery {
   id: string;
   webhook_id: string;
   event_type: string;
-  payload: any;
+  payload: Record<string, unknown> | WebhookDelivery['payload'];
   response_code: number | null;
   response_body: string | null;
   status: 'pending' | 'success' | 'failed' | 'retrying';
@@ -19,6 +21,17 @@ export interface WebhookDeadLetterDelivery {
   dead_letter_reason: string | null;
   last_error_message: string | null;
   created_at: string;
+}
+
+interface DeadLetterRow extends WebhookDeadLetterDelivery {
+  webhooks?: { id: string; user_id: string; url?: string };
+}
+
+interface DeadLetterStatsRow {
+  webhook_id: string;
+  total_dead_letter_deliveries?: number;
+  dead_letters_24h?: number;
+  most_recent_dead_letter?: string | null;
 }
 
 export interface WebhookDeadLetterReplay {
@@ -122,7 +135,7 @@ export class WebhookDeadLetterService {
       throw error;
     }
 
-    return data?.map((d: any) => ({
+    return (data as DeadLetterRow[] | null)?.map((d) => ({
       ...d,
       webhook_url: d.webhooks?.url,
     })) || [];
@@ -227,7 +240,11 @@ export class WebhookDeadLetterService {
   /**
    * Execute a replay for a dead-letter delivery
    */
-  async executeReplay(replayId: string, webhook: any, delivery: any): Promise<WebhookDeadLetterReplay> {
+  async executeReplay(
+    replayId: string,
+    webhook: Pick<Webhook, 'id' | 'url' | 'secret'>,
+    delivery: Pick<WebhookDelivery, 'payload'>,
+  ): Promise<WebhookDeadLetterReplay> {
     // Update status to processing
     await supabase
       .from('webhook_dead_letter_replays')
@@ -235,6 +252,42 @@ export class WebhookDeadLetterService {
       .eq('id', replayId);
 
     try {
+      // ── SSRF guard (replay-time, with DNS resolution) ─────────────────
+      // Dead-letter replays re-use the original webhook URL which may have
+      // been registered before SSRF checks were added, or the DNS record
+      // may have changed since registration (rebinding).
+      try {
+        await validateOutboundUrl(webhook.url, { resolveDns: true });
+      } catch (ssrfErr) {
+        const reason = ssrfErr instanceof SSRFError ? ssrfErr.message : String(ssrfErr);
+        logger.warn(`SSRF check blocked dead-letter replay ${replayId}: ${reason}`, {
+          webhookId: webhook.id,
+          url: webhook.url,
+        });
+        emitSecurityEvent('webhook.ssrf_blocked', {
+          severity: 'high',
+          resourceType: 'webhook',
+          resourceId: webhook.id,
+          reason,
+          details: { replayId, url: webhook.url },
+        });
+
+        const { data: failedData, error: failedError } = await supabase
+          .from('webhook_dead_letter_replays')
+          .update({
+            status: 'failed',
+            error_message: `SSRF protection blocked replay: ${reason}`,
+            completed_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', replayId)
+          .select()
+          .single();
+
+        if (failedError) throw failedError;
+        return failedData as WebhookDeadLetterReplay;
+      }
+      // ─────────────────────────────────────────────────────────────────
       const payloadString = JSON.stringify(delivery.payload);
       const signature = crypto
         .createHmac('sha256', webhook.secret)
@@ -256,7 +309,14 @@ export class WebhookDeadLetterService {
       const responseText = await response.text();
       const isSuccess = response.ok;
 
-      const updateData: any = {
+      const updateData: {
+        response_code: number;
+        response_body: string;
+        completed_at: string;
+        updated_at: string;
+        status?: 'success' | 'failed';
+        error_message?: string;
+      } = {
         response_code: response.status,
         response_body: responseText.substring(0, 1000),
         completed_at: new Date().toISOString(),
@@ -367,14 +427,21 @@ export class WebhookDeadLetterService {
       };
     }
 
-    const total_dead_letters = data.reduce((sum: number, row: any) => sum + (row.total_dead_letter_deliveries || 0), 0);
-    const dead_letters_24h = data.reduce((sum: number, row: any) => sum + (row.dead_letters_24h || 0), 0);
+    const rows = data as DeadLetterStatsRow[];
+    const total_dead_letters = rows.reduce(
+      (sum, row) => sum + (row.total_dead_letter_deliveries || 0),
+      0,
+    );
+    const dead_letters_24h = rows.reduce(
+      (sum, row) => sum + (row.dead_letters_24h || 0),
+      0,
+    );
 
     return {
       total_dead_letters,
       dead_letters_24h,
       dead_letters_7d: total_dead_letters, // We'd need another view for this
-      by_webhook: data.map((row: any) => ({
+      by_webhook: rows.map((row) => ({
         webhook_id: row.webhook_id,
         webhook_url: '', // Would need to join webhooks table
         count: row.total_dead_letter_deliveries,

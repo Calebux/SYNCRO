@@ -10,14 +10,17 @@
     "shared"
   ],
   "scripts": {
-    "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit",
-    "typecheck:root": "tsc --noEmit",
+    "prepare": "node -e \"try{require('fs').accessSync('.git');require('child_process').execSync('chmod +x .husky/pre-commit',{stdio:'ignore'})}catch(e){}\"",
+    "typecheck": "npm run typecheck --workspaces --if-present && npx -p typescript@5.9.3 tsc --noEmit",
+    "typecheck:root": "npx -p typescript@5.9.3 tsc --noEmit",
     "typecheck:backend": "npm run typecheck -w backend",
     "typecheck:client": "npm run typecheck -w client",
     "typecheck:sdk": "npm run typecheck -w sdk",
     "typecheck:shared": "npm run typecheck -w shared",
     "generate:openapi": "cd backend && npm run swagger:export",
     "lint:todos": "node scripts/check-todos.mjs",
+    "lint:conflicts": "node scripts/check-conflict-markers.mjs",
+    "precommit:check": "bash scripts/pre-commit-checks.sh",
     "check:migrations": "node scripts/check-migration-drift.js",
     "check:migrations:verify-db": "node scripts/check-migration-drift.js --verify-db --strict",
     "check:migrations:verify-schema": "node scripts/check-migration-drift.js --verify-schema --strict",
@@ -25,7 +28,9 @@
     "cleanup:migrations": "node scripts/cleanup-duplicate-migrations.js"
   },
   "devDependencies": {
-    "@types/node": "^25.6.0"
+    "@types/node": "^25.6.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.2"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.0",

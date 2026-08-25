@@ -44,10 +44,10 @@ Hardening threads required before public MVP launch.
 
 | Cluster | Representative issues | Area labels | Target |
 |---------|----------------------|-------------|--------|
-| **Payments & webhooks** | #496 (PayPal stub), Stripe/Paystack webhook hardening | `area/client`, `area/backend` | E3 |
-| **Bundle & performance** | [#697](https://github.com/Calebux/SYNCRO/issues/697) bundle budgets, #698 Redis API latency storage | `area/client`, `area/backend` | E4 |
-| **Integrations** | #494 (DB-backed suggestions), Telegram bot enrichment, email parsing | `area/backend`, `area/client` | E2 |
-| **Tech debt governance** | [#120](https://github.com/Calebux/SYNCRO/issues/120) roadmap, DEBT.md policy | `area/governance` | E5 |
+| **Payments & webhooks** | #496 (PayPal stub), Stripe/Paystack webhook hardening | `area:frontend`, `area:backend` | E3 |
+| **Bundle & performance** | [#697](https://github.com/Calebux/SYNCRO/issues/697) bundle budgets, #698 Redis API latency storage | `area:frontend`, `area:backend` | E4 |
+| **Integrations** | #494 (DB-backed suggestions), Telegram bot enrichment, email parsing | `area:backend`, `area:frontend` | E2 |
+| **Tech debt governance** | [#120](https://github.com/Calebux/SYNCRO/issues/120) roadmap, DEBT.md policy | `area:governance` | E5 |
 
 ### M3 — MVP launch 🎯
 
@@ -83,7 +83,7 @@ Use these for context when grooming new work — patterns and resolutions are do
 ## How to use this roadmap
 
 1. **Weekly grooming** — Pull the next open item from M2/M3 into sprint; confirm it maps to an exit criterion (E1–E7).
-2. **New issues** — Tag with `area/`, `priority/`, and link the milestone (M2/M3) in the issue body.
+2. **New issues** — Tag with `area:`, `priority:`, and link the milestone (M2/M3) in the issue body. See [label-migration.md](./label-migration.md).
 3. **Closing MVP** — When E1–E7 are all green, open a release issue, run smoke tests, and update [CurrentState.md](./archive/CurrentState.md).
 
 **Related docs:** [DEBT.md](../DEBT.md) · [issue-triage-policy.md](./issue-triage-policy.md) · [branch-protection.md](./branch-protection.md)

@@ -1,12 +1,4 @@
-import { getBlockchainFlags } from '../../shared/blockchain-flags';
-import { deriveSubscriptionEncryptionKey, deriveKeyHex } from '../../shared/src/crypto/key-derivation';
-import {
-  encodeStealthMetaAddress,
-  generateStealthMetaAddress,
-  type StealthMetaAddress,
-} from '../../shared/src/types/stealth';
-import { StealthKeyConverter } from '../../shared/src/crypto/stealth-keys';
-import { isTorBrowser } from './tor-detection';
+import { Buffer } from 'buffer';
 
 type WalletInfo = {
   publicKey: string;
@@ -28,6 +20,35 @@ class StellarWalletService {
 
   constructor() {
     this.loadSession();
+  }
+
+  async deriveEncryptionKey(secretKey: string): Promise<Buffer> {
+    const encoder = new TextEncoder();
+    const baseKeyMaterial = encoder.encode(secretKey);
+
+    const baseKey = await crypto.subtle.importKey(
+      'raw',
+      baseKeyMaterial,
+      { name: 'HKDF' },
+      false,
+      ['deriveKey']
+    );
+
+    const derivedKey = await crypto.subtle.deriveKey(
+      {
+        name: 'HKDF',
+        hash: 'SHA-256',
+        salt: new Uint8Array(0),
+        info: encoder.encode('syncro:on-chain-subscription-encryption-v1'),
+      },
+      baseKey,
+      { name: 'AES-GCM', length: 256 },
+      true,
+      ['encrypt', 'decrypt']
+    );
+
+    const exportedKey = await crypto.subtle.exportKey('raw', derivedKey);
+    return Buffer.from(exportedKey);
   }
 
   async connect(network: 'testnet' | 'mainnet' = 'testnet'): Promise<WalletInfo> {

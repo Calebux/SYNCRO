@@ -82,21 +82,21 @@ export class DigestService {
       const prefs = await this.getDigestPreferences(userId);
 
       if (digestType === 'monthly' && !prefs.digestEnabled) {
-        logger.debug(`Digest skipped for user ${userId} — digest_enabled=false`);
+        logger.debug('Digest skipped — digest_enabled=false');
         return { success: true, skipped: true };
       }
 
       const summary = await buildMonthlySummary(userId);
 
       if (!summary.userEmail) {
-        logger.warn(`No email address found for user ${userId}, skipping digest`);
+        logger.warn('No email address found for user, skipping digest');
         return { success: false, error: 'No email address on file' };
       }
 
       return digestEmailService.sendMonthlyDigest(summary.userEmail, summary, digestType);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      logger.error(`sendDigestForUser failed for ${userId}:`, err);
+      logger.error('sendDigestForUser failed', err);
       return { success: false, error: message };
     }
   }
@@ -158,7 +158,7 @@ export class DigestService {
         const summary = summaries.get(userId);
 
         if (!summary?.userEmail) {
-          logger.warn(`No email address found for user ${userId}, skipping digest`);
+          logger.warn('No email address found for user, skipping digest');
           result.failed++;
           continue;
         }

@@ -35,8 +35,8 @@ router.get('/history', async (req: AuthenticatedRequest, res: Response) => {
     const limit = validateLimit(req.query.limit, 100, 50);
     const history = await giftCardLedgerService.getHistory(req.user!.id, limit);
     res.json({ success: true, data: history });
-  } catch (error: any) {
-    if (error.name === 'PaginationError') {
+  } catch (error: unknown) {
+    if (error instanceof Error && error.name === 'PaginationError') {
       throw new BadRequestError(error.message);
     }
     throw error;
@@ -49,7 +49,7 @@ router.post('/top-up', validate(topUpSchema), async (req: AuthenticatedRequest, 
     const { amount, description } = req.body;
     const entry = await giftCardLedgerService.topUp(req.user!.id, amount, description);
     res.status(201).json({ success: true, data: entry });
-  } catch (err: any) {
+  } catch (err: unknown) {
     const appError = parseDbError(err);
     if (appError) {
       return res.status(appError.status).json({ success: false, error: appError.message, field: appError.field });
@@ -64,8 +64,8 @@ router.post('/deduct', validate(deductSchema), async (req: AuthenticatedRequest,
   try {
     const entry = await giftCardLedgerService.deduct(req.user!.id, subscriptionId, amount, description);
     res.status(201).json({ success: true, data: entry });
-  } catch (err: any) {
-    if (err.message?.startsWith('Insufficient balance')) {
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message?.startsWith('Insufficient balance')) {
       throw new BadRequestError(err.message);
     }
     throw err;

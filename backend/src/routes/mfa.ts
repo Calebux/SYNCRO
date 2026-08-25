@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import { supabase } from '../config/database';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
-import { recoveryCodeService } from '../services/mfa-service';
+import { recoveryCodeService, totpService } from '../services/mfa-service';
 import { TotpRateLimiter } from '../lib/totp-rate-limiter';
 import { createMfaLimiter } from '../middleware/rate-limit-factory';
 import logger from '../config/logger';
@@ -12,6 +12,160 @@ import { verifyRecoveryCodeSchema, mfaNotifySchema, requireTwoFaSchema } from '.
 const router: Router = Router();
 const totpRateLimiter = new TotpRateLimiter();
 router.use(authenticate);
+
+// ---------------------------------------------------------------------------
+// POST /api/2fa/totp/verify
+// Verify a TOTP code with single-use enforcement and rate limiting
+// ---------------------------------------------------------------------------
+
+router.post(
+  '/2fa/totp/verify',
+  createMfaLimiter(),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const sessionId = req.user!.id;
+
+    // Check if user is locked out due to too many failures
+    if (totpRateLimiter.isLocked(sessionId)) {
+      const remainingMs = totpRateLimiter.getRemainingLockoutMs(sessionId);
+      const remainingMinutes = Math.ceil(remainingMs / 60000);
+      
+      await emitSecurityEvent('mfa.totp_lockout_active', {
+        severity: 'high',
+        actorId: req.user!.id,
+        resourceType: 'mfa',
+        reason: 'TOTP verification attempted while locked out',
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'] as string | undefined,
+        details: { remainingMinutes },
+      });
+
+      return res.status(429).json({
+        success: false,
+        error: `Too many failed attempts. Please try again in ${remainingMinutes} minute(s).`,
+      });
+    }
+
+    try {
+      const { token, secret } = req.body;
+
+      if (!token || !secret) {
+        return res.status(400).json({
+          success: false,
+          error: 'Missing required fields: token and secret',
+        });
+      }
+
+      // Verify TOTP with single-use enforcement
+      const valid = await totpService.verify(req.user!.id, secret, token);
+
+      if (!valid) {
+        totpRateLimiter.recordFailure(sessionId);
+
+        const failureCount = totpRateLimiter.getFailureCount(sessionId);
+        const locked = totpRateLimiter.isLocked(sessionId);
+
+        await emitSecurityEvent('mfa.totp_verification_failed', {
+          severity: locked ? 'high' : 'medium',
+          actorId: req.user!.id,
+          resourceType: 'mfa',
+          reason: locked ? 'TOTP lockout threshold reached' : 'Invalid TOTP code',
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'] as string | undefined,
+          details: { failureCount, locked },
+        });
+
+        if (locked) {
+          await emitSecurityEvent('mfa.failure_threshold_reached', {
+            severity: 'high',
+            actorId: req.user!.id,
+            resourceType: 'mfa',
+            reason: 'TOTP failure threshold exceeded',
+            ipAddress: req.ip,
+            userAgent: req.headers['user-agent'] as string | undefined,
+          });
+          
+          const remainingMs = totpRateLimiter.getRemainingLockoutMs(sessionId);
+          const remainingMinutes = Math.ceil(remainingMs / 60000);
+          
+          return res.status(429).json({
+            success: false,
+            error: `Too many failed attempts. Account locked for ${remainingMinutes} minute(s).`,
+          });
+        }
+
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid or already-used TOTP code',
+        });
+      }
+
+      // Success - reset failure count
+      totpRateLimiter.reset(sessionId);
+
+      await emitSecurityEvent('mfa.totp_verification_success', {
+        severity: 'info',
+        actorId: req.user!.id,
+        resourceType: 'mfa',
+        reason: 'TOTP verification successful',
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'] as string | undefined,
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      logger.error('POST /api/2fa/totp/verify error:', error);
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to verify TOTP code',
+      });
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// POST /api/2fa/totp/generate
+// Generate a new TOTP secret for the authenticated user
+// ---------------------------------------------------------------------------
+
+router.post('/2fa/totp/generate', createMfaLimiter(), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    // Get user email from Supabase auth
+    const { data: authData, error: authError } = await supabase.auth.admin.getUserById(req.user!.id);
+
+    if (authError || !authData.user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found',
+      });
+    }
+
+    const userEmail = authData.user.email || req.user!.id;
+    const { secret, otpauth_url } = totpService.generateSecret(userEmail);
+
+    await emitSecurityEvent('mfa.totp_secret_generated', {
+      severity: 'info',
+      actorId: req.user!.id,
+      resourceType: 'mfa',
+      reason: 'New TOTP secret generated',
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'] as string | undefined,
+    });
+
+    res.status(201).json({
+      success: true,
+      data: {
+        secret,
+        otpauth_url,
+      },
+    });
+  } catch (error) {
+    logger.error('POST /api/2fa/totp/generate error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to generate TOTP secret',
+    });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // POST /api/2fa/recovery-codes/generate
