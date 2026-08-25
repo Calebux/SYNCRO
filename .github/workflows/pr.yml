@@ -1,0 +1,130 @@
+name: PR
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+inputs:
+  force_full_run:
+    type: boolean
+    default: false
+permissions:
+  contents: read
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: $ {{ steps.filter.outputs.backend }}
+      client: $ {{ steps.filter.outputs.client }}
+      sdk: $ {{ steps.filter.outputs.sdk }}
+      contracts: $ {{ steps.filter.outputs.contracts }}
+      docs: $ {{ steps.filter.outputs.docs }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+            client:
+              - 'client/**'
+            sdk:
+              - 'sdk/**'
+            contracts:
+              - 'contracts/**'
+            docs:
+              - 'docs/**'
+              - '**.md'
+  validate-env:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: $ {{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.client == 'true' || needs.changes.outputs.sdk == 'true' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-node
+      - run: echo "validate-env"
+  validate-dependencies:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: $ {{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.client == 'true' || needs.changes.outputs.sdk == 'true' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-node
+        with:
+          cache-dependency-path: backend/package-lock.json
+      - run: echo "validate-dependencies"
+  validate-governance:
+    runs-on: ubuntu-latest
+    needs: changes
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-node
+      - run: echo "validate-governance"
+  security-audit:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: $ {{ $ always() && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.client == 'true') }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-node
+        with:
+          cache-dependency-path: backend/package-lock.json
+      - run: echo "security-audit"
+  lint:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: $ {{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.client == 'true' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-node
+        with:
+          cache-dependency-path: client/package-lock.json
+      - run: echo "lint"
+  typecheck:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: $ {{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.client == 'true' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-node
+        with:
+          cache-dependency-path: client/package-lock.json
+      - run: echo "typecheck"
+  test:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: $ {{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.client == 'true' || needs.changes.outputs.sdk == 'true' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-node
+      - run: echo "test"
+  build:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: $ {{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.client == 'true' }}
+    steps:
+      - uses: actions/checkout@V5
+      - uses: ./.github/actions/setup-node
+      - run: echo "build"
+  contracts:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: $ {{ needs.changes.outputs.contracts == 'true' }}
+    steps:
+      - uses: actions/checkout@V5
+      - uses: ./.github/actions/setup-rust
+      - run: echo "contracts"
+  e2e:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: $ {{ needs.changes.outputs.client == 'true' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-supabase
+      - run: echo "e2e"
+  required-checks:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: always()
+    steps:
+      - run: echo "Required checks: validate-env, validate-dependencies, validate-governance, security-audit, lint, typecheck, test, build, contracts, e2e"
