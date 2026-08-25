@@ -1,0 +1,1 @@
+#contracts/contracts/tests/full_lifecycle.rs
