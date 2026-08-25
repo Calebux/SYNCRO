@@ -95,7 +95,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   // Insert webhook event record BEFORE processing to mark as in-flight
-  const { error: insertError, data: newRecord } = await supabase
+  const { error: insertError } = await supabase
     .from("webhook_events")
     .insert({
       provider: "stripe",
@@ -187,10 +187,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // Mark event as successfully processed
+    // Scope by both provider and event_id so a matching event_id from another
+    // provider can never be marked as processed by this handler.
     await supabase
       .from("webhook_events")
       .update({ processed: true, processed_at: new Date().toISOString() })
-      .eq("id", newRecord.id)
+      .eq("provider", "stripe")
+      .eq("event_id", event.id)
 
     return NextResponse.json({ received: true })
   } catch (err) {
@@ -200,10 +203,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       error: err instanceof Error ? err.message : String(err),
     })
     // Mark as failed so it can be retried/investigated
+    // Scope by both provider and event_id so a matching event_id from another
+    // provider can never be marked as failed by this handler.
     await supabase
       .from("webhook_events")
       .update({ processed: false, processed_at: null })
-      .eq("id", newRecord.id)
+      .eq("provider", "stripe")
+      .eq("event_id", event.id)
     
     return createErrorResponse(ApiErrors.internalError("Unexpected error processing webhook"))
   }

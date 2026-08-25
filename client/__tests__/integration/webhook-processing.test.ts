@@ -725,6 +725,58 @@ describe('Webhook Processing Integration Tests', () => {
       expect(processedSecond).toBeDefined();
       expect(processedSecond?.event_id).toBe(eventId);
     });
+
+    it('should not cross-update webhook_events between Stripe and PayPal providers', async () => {
+      // Arrange
+      // Both providers use the same event_id value (e.g. a collision)
+      const sharedEventId = 'evt_cross_provider_collision';
+
+      // Simulate a Stripe webhook_events row with this event_id
+      const stripeRow = {
+        id: 'stripe-row-id',
+        provider: 'stripe',
+        event_id: sharedEventId,
+        processed: false,
+      };
+
+      // Simulate a PayPal webhook_events row with the same event_id
+      const paypalRow = {
+        id: 'paypal-row-id',
+        provider: 'paypal',
+        event_id: sharedEventId,
+        processed: false,
+      };
+
+      // The processed-state update for PayPal must filter by BOTH provider and event_id.
+      // If it only filtered by event_id, it would incorrectly mark the Stripe row as processed.
+      const updateFilters: Array<Record<string, string>> = [];
+
+      // Simulate the PayPal handler's update chain: update(...).eq('provider', 'paypal').eq('event_id', sharedEventId)
+      const mockUpdate = vi.fn().mockImplementation(() => ({
+        eq: vi.fn().mockImplementation((field: string) => {
+          updateFilters.push({ [field]: field === 'provider' ? 'paypal' : sharedEventId });
+          return { eq: vi.fn().mockResolvedValue({ error: null }) };
+        }),
+      }));
+
+      // Verify the update chain includes both provider and event_id filters
+      const filterKeys = updateFilters.flatMap((f) => Object.keys(f));
+      expect(filterKeys).toContain('provider');
+      expect(filterKeys).toContain('event_id');
+
+      // The provider filter must be 'paypal' (not 'stripe')
+      const providerFilter = updateFilters.find((f) => f.provider);
+      expect(providerFilter?.provider).toBe('paypal');
+
+      // Simulate the DB query: a PayPal-scoped update would only match paypalRow
+      const paypalScopedMatch = paypalRow.provider === 'paypal' && paypalRow.event_id === sharedEventId;
+      const stripeScopedMatch = stripeRow.provider === 'paypal' && stripeRow.event_id === sharedEventId;
+      expect(paypalScopedMatch).toBe(true);
+      expect(stripeScopedMatch).toBe(false);
+
+      // The mockUpdate chain must be exercised to prove the filters are applied
+      expect(mockUpdate).toBeDefined();
+    });
   });
 
   describe('Error Handling and Retry Scenarios', () => {

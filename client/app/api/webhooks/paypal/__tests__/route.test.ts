@@ -116,6 +116,61 @@ describe('PayPal Webhook Handler', () => {
             expect(data.received).toBe(true)
         })
 
+        it('should scope processed-state update by both provider and event_id', async () => {
+            const eqCalls: string[][] = []
+            const mockUpdate = vi.fn().mockImplementation((field) => {
+                eqCalls.push([field])
+                return {
+                    eq: vi.fn().mockImplementation((field2) => {
+                        eqCalls.push([field2])
+                        return { eq: vi.fn().mockResolvedValue({ error: null }) }
+                    }),
+                }
+            })
+
+            vi.mock('@/lib/supabase/server', () => ({
+                createClient: () => ({
+                    from: () => ({
+                        select: () => ({
+                            eq: () => ({
+                                single: vi.fn().mockResolvedValue({ data: null }),
+                            }),
+                        }),
+                        insert: vi.fn().mockResolvedValue({ error: null }),
+                        update: mockUpdate,
+                    }),
+                }),
+            }))
+
+            const mockRequest = new NextRequest('http://localhost:3000/api/webhooks/paypal', {
+                method: 'POST',
+                body: JSON.stringify(mockWebhookEvent),
+            })
+
+            const response = await POST(mockRequest)
+            const data = await response.json()
+
+            expect(response.status).toBe(200)
+            expect(data.received).toBe(true)
+
+            // The processed-state update must be scoped by provider AND event_id
+            // so a matching event_id from another provider cannot be cross-updated.
+            const updateCalls = mockUpdate.mock.calls
+            const processedUpdate = updateCalls.find(
+                (call) => call[0] && call[0].processed === true
+            )
+            expect(processedUpdate).toBeDefined()
+            expect(processedUpdate![0]).toEqual({
+                processed: true,
+                processed_at: expect.any(String),
+            })
+
+            // Verify the update chain filters by provider and event_id
+            const eqFields = eqCalls.flat()
+            expect(eqFields).toContain('provider')
+            expect(eqFields).toContain('event_id')
+        })
+
         it('should handle PAYMENT.CAPTURE.DENIED event', async () => {
             const deniedEvent = {
                 ...mockWebhookEvent,

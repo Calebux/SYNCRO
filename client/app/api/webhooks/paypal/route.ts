@@ -171,7 +171,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Store webhook event BEFORE processing to prevent concurrent duplicate processing
-        const { error: insertError, data: newRecord } = await supabase
+        const { error: insertError } = await supabase
             .from('webhook_events')
             .insert({
                 provider: 'paypal',
@@ -229,10 +229,13 @@ export async function POST(request: NextRequest) {
         }
 
         // Mark event as processed
+        // Scope by both provider and event_id so a matching event_id from another
+        // provider can never be marked as processed by this handler.
         await supabase
             .from('webhook_events')
             .update({ processed: true, processed_at: new Date().toISOString() })
-            .eq('id', newRecord.id)
+            .eq('provider', 'paypal')
+            .eq('event_id', event.id)
 
         return NextResponse.json({ received: true })
     } catch (error) {

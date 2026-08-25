@@ -231,6 +231,82 @@ describe('Stripe Webhook Duplicate Delivery Prevention', () => {
       expect(mockSupabase.from).toBeDefined()
     })
 
+    it('should scope processed-state update by both provider and event_id', async () => {
+      const eqFields: string[] = []
+      const mockUpdate = vi.fn().mockImplementation((field) => {
+        return {
+          eq: vi.fn().mockImplementation((field2) => {
+            eqFields.push(field2)
+            return { eq: vi.fn().mockResolvedValue({ error: null }) }
+          }),
+        }
+      })
+
+      const mockSupabase = {
+        from: vi.fn().mockReturnValue({
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              maybeSingle: vi.fn().mockResolvedValue({
+                data: null,
+                error: null,
+              }),
+            }),
+          }),
+          insert: vi.fn().mockReturnValue({
+            select: vi.fn().mockReturnValue({
+              single: vi.fn().mockResolvedValue({
+                data: { id: 'webhook-id' },
+                error: null,
+              }),
+            }),
+          }),
+          update: mockUpdate,
+        }),
+      }
+
+      vi.doMock('@/lib/supabase/server', () => ({
+        createClient: () => mockSupabase,
+      }))
+
+      const mockRequest = new NextRequest('http://localhost:3000/api/webhooks/stripe', {
+        method: 'POST',
+        headers: {
+          'stripe-signature': 'valid-signature',
+        },
+        body: JSON.stringify(mockStripeEvent),
+      })
+
+      vi.doMock('@/lib/stripe-config', () => ({
+        getStripeInstance: () => ({
+          webhooks: {
+            constructEvent: vi.fn().mockReturnValue(mockStripeEvent),
+          },
+        }),
+      }))
+
+      const response = await POST(mockRequest)
+      const data = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(data.received).toBe(true)
+
+      // The processed-state update must be scoped by provider AND event_id
+      // so a matching event_id from another provider cannot be cross-updated.
+      const updateCalls = mockUpdate.mock.calls
+      const processedUpdate = updateCalls.find(
+        (call) => call[0] && call[0].processed === true
+      )
+      expect(processedUpdate).toBeDefined()
+      expect(processedUpdate![0]).toEqual({
+        processed: true,
+        processed_at: expect.any(String),
+      })
+
+      // Verify the update chain filters by provider and event_id
+      expect(eqFields).toContain('provider')
+      expect(eqFields).toContain('event_id')
+    })
+
     it('should handle payment_intent.payment_failed event', async () => {
       const failedEvent = {
         ...mockStripeEvent,
