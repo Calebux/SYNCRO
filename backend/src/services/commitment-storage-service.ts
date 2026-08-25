@@ -181,6 +181,80 @@ export class CommitmentStorageService {
       dbId: dbRecord?.id ?? null,
     };
   }
+
+  /**
+   * Archive pruned log entries off-chain after on-chain `prune_logs` succeeds.
+   * Stores enough metadata to rebuild Merkle inclusion proofs for evicted entries.
+   */
+  async archivePrunedLogs(params: {
+    userId: string;
+    subscriptionId: string;
+    entries: Array<{
+      logIndex: number;
+      leafHash: Buffer;
+      eventType: string;
+      eventData: Record<string, unknown>;
+      timestamp: number;
+    }>;
+    merkleRoot: Buffer;
+    rootStartIndex: number;
+    rootEndIndex: number;
+  }): Promise<{ archived: number }> {
+    if (params.entries.length === 0) {
+      return { archived: 0 };
+    }
+
+    const rows = params.entries.map((entry) => ({
+      user_id: params.userId,
+      subscription_id: params.subscriptionId,
+      log_index: entry.logIndex,
+      leaf_hash: entry.leafHash,
+      event_type: entry.eventType,
+      event_data: entry.eventData,
+      logged_at: new Date(entry.timestamp * 1000).toISOString(),
+      merkle_root: params.merkleRoot,
+      merkle_start_index: params.rootStartIndex,
+      merkle_end_index: params.rootEndIndex,
+    }));
+
+    const { error } = await supabase.from('archived_subscription_logs').insert(rows);
+
+    if (error) {
+      logger.error('Failed to archive pruned subscription logs:', error);
+      throw new Error(`Failed to archive pruned logs: ${error.message}`);
+    }
+
+    return { archived: rows.length };
+  }
+
+  /**
+   * Fetch archived log leaf data for Merkle proof reconstruction.
+   */
+  async getArchivedLogLeaf(
+    subscriptionId: string,
+    logIndex: number,
+  ): Promise<{ leafHash: Buffer; eventData: Record<string, unknown> } | null> {
+    const { data, error } = await supabase
+      .from('archived_subscription_logs')
+      .select('leaf_hash, event_data')
+      .eq('subscription_id', subscriptionId)
+      .eq('log_index', logIndex)
+      .maybeSingle();
+
+    if (error) {
+      logger.error('Failed to fetch archived log leaf:', error);
+      throw new Error(`Failed to fetch archived log: ${error.message}`);
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    return {
+      leafHash: Buffer.from(data.leaf_hash),
+      eventData: data.event_data as Record<string, unknown>,
+    };
+  }
 }
 
 export const commitmentStorageService = new CommitmentStorageService();

@@ -6,7 +6,6 @@
   },
   "auth": [
     [],
-    [],
     []
   ],
   "ledger": {
@@ -38,15 +37,7 @@
                 "map": [
                   {
                     "key": {
-                      "bytes": "46a099082ec8b6c70b5722aa6cb7bfc356897b4c33432afefd72787f01b02d87"
-                    },
-                    "val": {
-                      "bool": true
-                    }
-                  },
-                  {
-                    "key": {
-                      "bytes": "f24f0421ae5c5146eaf2eecff82191854d0866f34e237c55e474236dbc8aa903"
+                      "bytes": "81469d8a18e520d6a9572bc80344c847c70496839ee75a2ae107560e795ac12c"
                     },
                     "val": {
                       "bool": true

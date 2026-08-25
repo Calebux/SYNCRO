@@ -19,7 +19,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
                 },
                 {
-                  "i128": "100"
+                  "i128": "1000"
                 },
                 {
                   "u32": 0
@@ -28,7 +28,7 @@
                   "u64": "0"
                 },
                 {
-                  "i128": "0"
+                  "i128": "100"
                 },
                 {
                   "i128": "0"
@@ -40,6 +40,32 @@
         }
       ]
     ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "function_name": "process_payment",
+              "args": [
+                {
+                  "u32": 1
+                },
+                {
+                  "i128": "80"
+                },
+                {
+                  "string": "m1"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [],
     []
   ],
   "ledger": {
@@ -78,6 +104,26 @@
           "data": {
             "contract_data": {
               "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "key": {
+                "ledger_key_nonce": {
+                  "nonce": "5541220902715666415"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
               "key": {
                 "vec": [
@@ -97,7 +143,7 @@
                       "symbol": "balance"
                     },
                     "val": {
-                      "i128": "100"
+                      "i128": "920"
                     }
                   },
                   {
@@ -121,7 +167,7 @@
                       "symbol": "daily_limit"
                     },
                     "val": {
-                      "i128": "0"
+                      "i128": "100"
                     }
                   },
                   {
@@ -205,7 +251,7 @@
                       "symbol": "daily_spent"
                     },
                     "val": {
-                      "i128": "0"
+                      "i128": "80"
                     }
                   },
                   {
@@ -221,7 +267,7 @@
                       "symbol": "monthly_spent"
                     },
                     "val": {
-                      "i128": "0"
+                      "i128": "80"
                     }
                   }
                 ]
@@ -258,6 +304,18 @@
                       "val": {
                         "u32": 1
                       }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "TxCounter"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u32": 1
+                      }
                     }
                   ]
                 }
@@ -284,5 +342,42 @@
       }
     ]
   },
-  "events": []
+  "events": [
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "daily_limit_exceeded"
+              },
+              {
+                "symbol": "card"
+              }
+            ],
+            "data": {
+              "vec": [
+                {
+                  "u32": 1
+                },
+                {
+                  "i128": "30"
+                },
+                {
+                  "i128": "80"
+                },
+                {
+                  "i128": "100"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": true
+    }
+  ]
 }

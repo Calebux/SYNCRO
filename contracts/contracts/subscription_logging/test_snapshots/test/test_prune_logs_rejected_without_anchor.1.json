@@ -17,7 +17,7 @@
               "function_name": "record_log",
               "args": [
                 {
-                  "u64": "999"
+                  "u64": "77"
                 },
                 {
                   "vec": [
@@ -27,65 +27,7 @@
                   ]
                 },
                 {
-                  "string": "Approved"
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "record_log",
-              "args": [
-                {
-                  "u64": "999"
-                },
-                {
-                  "vec": [
-                    {
-                      "symbol": "Renewal"
-                    }
-                  ]
-                },
-                {
-                  "string": "Renewed"
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "record_log",
-              "args": [
-                {
-                  "u64": "999"
-                },
-                {
-                  "vec": [
-                    {
-                      "symbol": "Cancellation"
-                    }
-                  ]
-                },
-                {
-                  "string": "Cancelled"
+                  "string": "first"
                 }
               ]
             }
@@ -119,7 +61,7 @@
                     "symbol": "LogWindowMeta"
                   },
                   {
-                    "u64": "999"
+                    "u64": "77"
                   }
                 ]
               },
@@ -139,7 +81,7 @@
                       "symbol": "total_logged"
                     },
                     "val": {
-                      "u64": "3"
+                      "u64": "1"
                     }
                   }
                 ]
@@ -163,7 +105,7 @@
                     "symbol": "Logs"
                   },
                   {
-                    "u64": "999"
+                    "u64": "77"
                   }
                 ]
               },
@@ -177,7 +119,7 @@
                           "symbol": "data"
                         },
                         "val": {
-                          "string": "Approved"
+                          "string": "first"
                         }
                       },
                       {
@@ -197,87 +139,7 @@
                           "symbol": "sub_id"
                         },
                         "val": {
-                          "u64": "999"
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "timestamp"
-                        },
-                        "val": {
-                          "u64": "0"
-                        }
-                      }
-                    ]
-                  },
-                  {
-                    "map": [
-                      {
-                        "key": {
-                          "symbol": "data"
-                        },
-                        "val": {
-                          "string": "Renewed"
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "event"
-                        },
-                        "val": {
-                          "vec": [
-                            {
-                              "symbol": "Renewal"
-                            }
-                          ]
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "sub_id"
-                        },
-                        "val": {
-                          "u64": "999"
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "timestamp"
-                        },
-                        "val": {
-                          "u64": "0"
-                        }
-                      }
-                    ]
-                  },
-                  {
-                    "map": [
-                      {
-                        "key": {
-                          "symbol": "data"
-                        },
-                        "val": {
-                          "string": "Cancelled"
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "event"
-                        },
-                        "val": {
-                          "vec": [
-                            {
-                              "symbol": "Cancellation"
-                            }
-                          ]
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "sub_id"
-                        },
-                        "val": {
-                          "u64": "999"
+                          "u64": "77"
                         }
                       },
                       {
@@ -368,46 +230,6 @@
               "key": {
                 "ledger_key_nonce": {
                   "nonce": "801925984706572462"
-                }
-              },
-              "durability": "temporary",
-              "val": "void"
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 6311999
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "ledger_key_nonce": {
-                  "nonce": "1033654523790656264"
-                }
-              },
-              "durability": "temporary",
-              "val": "void"
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 6311999
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "ledger_key_nonce": {
-                  "nonce": "5541220902715666415"
                 }
               },
               "durability": "temporary",

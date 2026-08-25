@@ -17,17 +17,17 @@
               "function_name": "record_log",
               "args": [
                 {
-                  "u64": "999"
+                  "u64": "42"
                 },
                 {
                   "vec": [
                     {
-                      "symbol": "Approval"
+                      "symbol": "Reminder"
                     }
                   ]
                 },
                 {
-                  "string": "Approved"
+                  "string": "entry_0"
                 }
               ]
             }
@@ -46,17 +46,17 @@
               "function_name": "record_log",
               "args": [
                 {
-                  "u64": "999"
+                  "u64": "42"
                 },
                 {
                   "vec": [
                     {
-                      "symbol": "Renewal"
+                      "symbol": "Reminder"
                     }
                   ]
                 },
                 {
-                  "string": "Renewed"
+                  "string": "entry_1"
                 }
               ]
             }
@@ -75,17 +75,75 @@
               "function_name": "record_log",
               "args": [
                 {
-                  "u64": "999"
+                  "u64": "42"
                 },
                 {
                   "vec": [
                     {
-                      "symbol": "Cancellation"
+                      "symbol": "Reminder"
                     }
                   ]
                 },
                 {
-                  "string": "Cancelled"
+                  "string": "entry_2"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "function_name": "record_log",
+              "args": [
+                {
+                  "u64": "42"
+                },
+                {
+                  "vec": [
+                    {
+                      "symbol": "Reminder"
+                    }
+                  ]
+                },
+                {
+                  "string": "entry_3"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "function_name": "record_log",
+              "args": [
+                {
+                  "u64": "42"
+                },
+                {
+                  "vec": [
+                    {
+                      "symbol": "Reminder"
+                    }
+                  ]
+                },
+                {
+                  "string": "entry_4"
                 }
               ]
             }
@@ -119,7 +177,7 @@
                     "symbol": "LogWindowMeta"
                   },
                   {
-                    "u64": "999"
+                    "u64": "42"
                   }
                 ]
               },
@@ -139,7 +197,7 @@
                       "symbol": "total_logged"
                     },
                     "val": {
-                      "u64": "3"
+                      "u64": "5"
                     }
                   }
                 ]
@@ -163,7 +221,7 @@
                     "symbol": "Logs"
                   },
                   {
-                    "u64": "999"
+                    "u64": "42"
                   }
                 ]
               },
@@ -177,7 +235,7 @@
                           "symbol": "data"
                         },
                         "val": {
-                          "string": "Approved"
+                          "string": "entry_0"
                         }
                       },
                       {
@@ -187,7 +245,7 @@
                         "val": {
                           "vec": [
                             {
-                              "symbol": "Approval"
+                              "symbol": "Reminder"
                             }
                           ]
                         }
@@ -197,7 +255,7 @@
                           "symbol": "sub_id"
                         },
                         "val": {
-                          "u64": "999"
+                          "u64": "42"
                         }
                       },
                       {
@@ -217,7 +275,7 @@
                           "symbol": "data"
                         },
                         "val": {
-                          "string": "Renewed"
+                          "string": "entry_1"
                         }
                       },
                       {
@@ -227,7 +285,7 @@
                         "val": {
                           "vec": [
                             {
-                              "symbol": "Renewal"
+                              "symbol": "Reminder"
                             }
                           ]
                         }
@@ -237,7 +295,7 @@
                           "symbol": "sub_id"
                         },
                         "val": {
-                          "u64": "999"
+                          "u64": "42"
                         }
                       },
                       {
@@ -257,7 +315,7 @@
                           "symbol": "data"
                         },
                         "val": {
-                          "string": "Cancelled"
+                          "string": "entry_2"
                         }
                       },
                       {
@@ -267,7 +325,7 @@
                         "val": {
                           "vec": [
                             {
-                              "symbol": "Cancellation"
+                              "symbol": "Reminder"
                             }
                           ]
                         }
@@ -277,7 +335,87 @@
                           "symbol": "sub_id"
                         },
                         "val": {
-                          "u64": "999"
+                          "u64": "42"
+                        }
+                      },
+                      {
+                        "key": {
+                          "symbol": "timestamp"
+                        },
+                        "val": {
+                          "u64": "0"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "map": [
+                      {
+                        "key": {
+                          "symbol": "data"
+                        },
+                        "val": {
+                          "string": "entry_3"
+                        }
+                      },
+                      {
+                        "key": {
+                          "symbol": "event"
+                        },
+                        "val": {
+                          "vec": [
+                            {
+                              "symbol": "Reminder"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "symbol": "sub_id"
+                        },
+                        "val": {
+                          "u64": "42"
+                        }
+                      },
+                      {
+                        "key": {
+                          "symbol": "timestamp"
+                        },
+                        "val": {
+                          "u64": "0"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "map": [
+                      {
+                        "key": {
+                          "symbol": "data"
+                        },
+                        "val": {
+                          "string": "entry_4"
+                        }
+                      },
+                      {
+                        "key": {
+                          "symbol": "event"
+                        },
+                        "val": {
+                          "vec": [
+                            {
+                              "symbol": "Reminder"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "symbol": "sub_id"
+                        },
+                        "val": {
+                          "u64": "42"
                         }
                       },
                       {
@@ -388,6 +526,46 @@
               "key": {
                 "ledger_key_nonce": {
                   "nonce": "1033654523790656264"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "ledger_key_nonce": {
+                  "nonce": "2032731177588607455"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "ledger_key_nonce": {
+                  "nonce": "4837995959683129791"
                 }
               },
               "durability": "temporary",
