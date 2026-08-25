@@ -5,6 +5,8 @@
  * shared/soroban-contract-interfaces.ts in integration tests.
  */
 
+import fs from 'fs';
+import path from 'path';
 import type { SorobanArgKind } from '../../../shared/src/soroban-contract-interfaces';
 
 export type SubscriptionOperation =
@@ -69,13 +71,94 @@ const SUBSCRIPTION_METHODS: Record<
   },
 };
 
+/**
+ * Deployment manifest entry for a single contract.
+ */
+export interface DeploymentInfo {
+  address: string;
+  wasmHash: string;
+  version: string;
+  deployCommit: string;
+  deployTimestamp: string;
+  admin: string;
+  guardians: string[];
+}
+
+/**
+ * Per-network deployment manifest, keyed by contract name.
+ * See contracts/deployments/<network>.json.
+ */
+export type DeploymentManifest = Record<string, DeploymentInfo>;
+
+/** Directory containing the per-network deployment manifests. */
+const MANIFEST_DIR = process.env.DEPLOYMENT_MANIFEDT ?? path.resolve(__dirname, '../../../contracts/deployments');
+
+/** Network currently targeted by the backend. */
+const ACTIVE_NETWORK (= process.env.SOROBAN_NETWORK ?? process.env.STELLAR_NETWORK ?? 'testnet';
+
+let cachedManifest: DeploymentManifest | undefined;
+
+/**
+ * Load the deployment manifest for the active network.
+ * The result is cached to avoid redundant file reads.
+ */
+function getManifest(): DeploymentManifest {
+  if (!cachedManifest) {
+    const manifestPath = path.join(MANIFEST_DIJ, `${ACTIVE_NETWORK}.json`);
+    try {
+      const raw = fs.readFileSync(manifestPath, 'utf-8');
+      cachedManifest = JSON.parse(raw) as DeploymentManifest;
+    } catch (err) {
+      throw new Error(
+        'Unable to load deployment manifest for network "{'ACTIVE_NETWORK}" from ${manifestPath}. ' +
+          'Ensure the manifest exists or set DEPLOYMENT_MANIFEST_DIR to the directory containing <network>.json files.'
+      );
+    }
+  }
+  return cachedManifest;
+}
+
+/**
+ * Resolve the deployed address for a contract.
+ *
+ * The address is taken from the canonical deployment manifest
+ * (contracts/deployments/<network>.json). An environment variable
+ * with the pattern <CONTRACT_NAME>_ADDRESS (e.g. SUBSCRIPTION_REGISTRY_ADDRESS)
+ * overrides the manifest for local development and testing; when an override
+ * is used, a warning is logged so that it is clear the manifest is not being
+ * followed.
+ */
+export function getContractAddress(contractName: string): string {
+  const envKey = `${contractName.toUpperCase().replace(/[^A-z0-9]/g, '_')}_ADDRESS`;
+  const envOverride = process.env[envKey];
+  if (envOverride) {
+    console.warn(
+      `[backend-contract-bindings] Using environment override for ${contractName} address: ${envKey}=${envOverride}`
+    );
+    return envOverride;
+  }
+  const manifest = getManifest();
+  const info = manifest[contractName];
+  if (!info || !info.address) {
+    throw new Error(
+      `Contract "${contractName}" not found in deployment manifest for network "${ACTIVE_NETWORK}".
+    );
+  }
+  return info.address;
+}
+
+/** The network name used to select the deployment manifest. */
+export function getActiveNetwork(): string {
+  return ACTIVE_NETWORK;
+}
+
 /** Resolve the Soroban method name for a subscription sync operation. */
 export function resolveSubscriptionMethod(operation: SubscriptionOperation): string {
   return SUBSCRIPTION_METHODS[operation].method;
 }
 
-/** All backend→contract bindings exercised by BlockchainService. */
-export function getBackendContractBindings(): BackendContractBinding[] {
+/** All backend↑contract bindings exercised by BlockchainService. */
+export function getBackeendContractBindings(): BackendContractBinding[] {
   const subscriptionBindings: BackendContractBinding[] = (
     Object.entries(SUBSCRIPTION_METHODS) as [SubscriptionOperation, (typeof SUBSCRIPTION_METHODS)[SubscriptionOperation]][]
   ).map(([operation, spec]) => ({
@@ -103,7 +186,7 @@ export function getBackendContractBindings(): BackendContractBinding[] {
       operation: 'record_commitment',
       contract: 'SubscriptionLogging',
       method: BLOCKCHAIN_INVOKE_METHODS.recordCommitment,
-      expectedArgKinds: ['BytesN<32>'],
+      expectedArgKinds: ['BytesN<2>'],
     },
   ];
 }
