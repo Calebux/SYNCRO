@@ -14,6 +14,10 @@ import { subscriptionService } from './subscription-service';
 import { jobAlertService } from './job-alert-service';
 import { agentWalletRotationService } from './agent-wallet-rotation';
 import { telegramNotificationService } from './telegram-notification-service';
+import { getTTLBumpWorker } from '../workers/ttl-bump-worker';
+import { getArchivalWorker } from '../workers/archival-worker';
+import { getTTLConfig } from '../config/ttl-config';
+import { blockchainService } from './blockchain-service';
 
 export class SchedulerService {
   private jobs: cron.ScheduledTask[] = [];
@@ -267,6 +271,59 @@ export class SchedulerService {
         }
       }),
     );
+
+    // ── TTL Management: Daily at midnight UTC: TTL bump worker ────────────
+    // Scans contract entries with TTL near expiration and extends them.
+    // Schedule is configurable via TTL_WORKER_SCHEDULE env var (default: 0 0 * * * = daily midnight)
+    const ttlConfig = getTTLConfig();
+    if (ttlConfig.enableTtlBumping) {
+      this.jobs.push(
+        cron.schedule(ttlConfig.workerSchedule, async () => {
+          logger.info('Running TTL bump worker');
+          try {
+            const ttlBumpWorker = getTTLBumpWorker(blockchainService);
+            const stats = await jobAlertService.runMonitoredJob('ttl-bump-worker', () =>
+              ttlBumpWorker.run(),
+            );
+            logger.info('TTL bump worker completed', {
+              totalProcessed: stats.totalProcessed,
+              totalBumped: stats.totalBumped,
+              totalFailed: stats.totalFailed,
+              durationMs: stats.durationMs,
+            });
+          } catch (error) {
+            logger.error('Error in TTL bump worker:', error);
+          }
+        }),
+      );
+      logger.info(`TTL bump worker scheduled: ${ttlConfig.workerSchedule}`);
+    }
+
+    // ── TTL Management: Daily at 2 AM UTC: Archival worker ────────────────
+    // Detects expired entries and creates snapshots + on-chain archival records.
+    // Schedule is configurable via TTL_ARCHIVAL_SCHEDULE env var (default: 0 2 * * * = daily 2 AM)
+    if (ttlConfig.enableArchival) {
+      this.jobs.push(
+        cron.schedule(ttlConfig.archivalSchedule, async () => {
+          logger.info('Running archival worker');
+          try {
+            const archivalWorker = getArchivalWorker(blockchainService);
+            const stats = await jobAlertService.runMonitoredJob('archival-worker', () =>
+              archivalWorker.run(),
+            );
+            logger.info('Archival worker completed', {
+              totalScanned: stats.totalScanned,
+              totalArchived: stats.totalArchived,
+              totalFailed: stats.totalFailed,
+              durationMs: stats.durationMs,
+            });
+          } catch (error) {
+            logger.error('Error in archival worker:', error);
+          }
+        }),
+      );
+      logger.info(`Archival worker scheduled: ${ttlConfig.archivalSchedule}`);
+    }
 
     logger.info(`Started ${this.jobs.length} scheduled jobs`);
   }

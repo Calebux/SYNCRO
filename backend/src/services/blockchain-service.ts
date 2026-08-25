@@ -1181,6 +1181,191 @@ export class BlockchainService {
       return "[unavailable]";
     }
   }
+
+  /**
+   * TTL Management: Extend a contract entry's time-to-live.
+   * Idempotent: calling with the same newTtl multiple times is safe.
+   */
+  async extendTTL(
+    entryKey: string,
+    newTtl: number,
+    workerKeyPath?: string,
+  ): Promise<{ txHash: string; sequence: number }> {
+    const startTime = Date.now();
+    const { TTL_CONTRACT_HELPERS } = require("../blockchain/ttl-contract-helpers");
+
+    logger.info("Extending entry TTL", {
+      entryKey: entryKey.substring(0, 16),
+      newTtl,
+    });
+
+    try {
+      // Validate inputs
+      if (!TTL_CONTRACT_HELPERS.validateEntryKey(entryKey)) {
+        throw new Error(`Invalid entry key: ${entryKey}`);
+      }
+      if (!TTL_CONTRACT_HELPERS.validateTTL(newTtl)) {
+        throw new Error(`Invalid TTL value: ${newTtl}`);
+      }
+
+      const args = TTL_CONTRACT_HELPERS.prepareExtendTTLArgs(entryKey, newTtl);
+      const result = await this.invokeContractWithRetry(
+        TTL_CONTRACT_HELPERS.TTL_CONTRACT_METHODS.extendTTL,
+        args,
+      );
+
+      logger.info("TTL extended successfully", {
+        entryKey: entryKey.substring(0, 16),
+        txHash: result.transactionHash,
+        durationMs: Date.now() - startTime,
+      });
+
+      return {
+        txHash: result.transactionHash,
+        sequence: 0, // Sequence extracted from confirmed transaction if needed
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error("Failed to extend TTL", {
+        entryKey: entryKey.substring(0, 16),
+        error: errorMessage,
+        durationMs: Date.now() - startTime,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * TTL Management: Read the current TTL of a contract entry.
+   * Returns the ledger sequence at which the entry expires.
+   */
+  async getTTL(entryKey: string): Promise<number> {
+    const startTime = Date.now();
+    const { TTL_CONTRACT_HELPERS } = require("../blockchain/ttl-contract-helpers");
+
+    logger.info("Reading entry TTL", {
+      entryKey: entryKey.substring(0, 16),
+    });
+
+    try {
+      // Validate input
+      if (!TTL_CONTRACT_HELPERS.validateEntryKey(entryKey)) {
+        throw new Error(`Invalid entry key: ${entryKey}`);
+      }
+
+      const args = TTL_CONTRACT_HELPERS.prepareGetTTLArgs(entryKey);
+
+      if (!this.contractAddress) {
+        throw new Error("SOROBAN_CONTRACT_ADDRESS not configured");
+      }
+
+      const rpc = new SorobanRpc.Server(this.rpcUrl);
+      const contract = new Contract(this.contractAddress);
+
+      const secret = await secretProvider.getSecret("STELLAR_SECRET_KEY");
+      if (!secret) {
+        throw new Error("STELLAR_SECRET_KEY not configured");
+      }
+
+      const sourceKeypair = Keypair.fromSecret(secret);
+      const account = await rpc.getAccount(sourceKeypair.publicKey());
+
+      const tx = new TransactionBuilder(account, {
+        fee: "100",
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(contract.call(TTL_CONTRACT_HELPERS.TTL_CONTRACT_METHODS.getTTL, ...args))
+        .setTimeout(30)
+        .build();
+
+      const sim = await rpc.simulateTransaction(tx);
+      if (SorobanRpc.Api.isSimulationError(sim)) {
+        throw new Error(`Simulation failed: ${sim.error}`);
+      }
+
+      if (sim.result && sim.result.retval) {
+        const ttlValue = TTL_CONTRACT_HELPERS.extractU64FromScVal(sim.result.retval);
+        logger.info("TTL read successfully", {
+          entryKey: entryKey.substring(0, 16),
+          ttl: ttlValue,
+          durationMs: Date.now() - startTime,
+        });
+        return ttlValue;
+      }
+
+      throw new Error("Failed to extract TTL from contract response");
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error("Failed to read TTL", {
+        entryKey: entryKey.substring(0, 16),
+        error: errorMessage,
+        durationMs: Date.now() - startTime,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * TTL Management: Mark an entry as archived with a snapshot hash proof.
+   * Records immutable proof of archival on-chain.
+   */
+  async markArchived(
+    entryKey: string,
+    snapshotHash: string,
+    operatorId: string,
+  ): Promise<{ txHash: string; sequence: number }> {
+    const startTime = Date.now();
+    const { TTL_CONTRACT_HELPERS } = require("../blockchain/ttl-contract-helpers");
+
+    logger.info("Marking entry as archived", {
+      entryKey: entryKey.substring(0, 16),
+      snapshotHash: snapshotHash.substring(0, 16),
+      operatorId,
+    });
+
+    try {
+      // Validate inputs
+      if (!TTL_CONTRACT_HELPERS.validateEntryKey(entryKey)) {
+        throw new Error(`Invalid entry key: ${entryKey}`);
+      }
+      if (!TTL_CONTRACT_HELPERS.validateSnapshotHash(snapshotHash)) {
+        throw new Error(`Invalid snapshot hash: ${snapshotHash}`);
+      }
+
+      const args = TTL_CONTRACT_HELPERS.prepareMarkArchivedArgs(
+        entryKey,
+        snapshotHash,
+      );
+      const result = await this.invokeContractWithRetry(
+        TTL_CONTRACT_HELPERS.TTL_CONTRACT_METHODS.markArchived,
+        args,
+      );
+
+      logger.info("Entry marked as archived successfully", {
+        entryKey: entryKey.substring(0, 16),
+        txHash: result.transactionHash,
+        operatorId,
+        durationMs: Date.now() - startTime,
+      });
+
+      return {
+        txHash: result.transactionHash,
+        sequence: 0, // Sequence extracted from confirmed transaction if needed
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error("Failed to mark entry as archived", {
+        entryKey: entryKey.substring(0, 16),
+        error: errorMessage,
+        operatorId,
+        durationMs: Date.now() - startTime,
+      });
+      throw error;
+    }
+  }
 }
 
 export const blockchainService = new BlockchainService();
