@@ -1,0 +1,5 @@
+# Pinned toolchain for local + CI + the DevContainer.
+[toolchain]
+channel = "1.91.0"
+targets = ["wasm32-unknown-unknown"]
+components = ["rustfmt", "clippy"]

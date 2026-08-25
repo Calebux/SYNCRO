@@ -384,6 +384,10 @@ impl RecurringAllowanceContract {
 
 // ── Unit Tests ───────────────────────────────────────────────────────────────
 
+
+#[cfg(test)]
+mod negative;
+
 #[cfg(test)]
 mod test {
     use super::*;

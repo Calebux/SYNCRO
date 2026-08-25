@@ -463,6 +463,9 @@ impl AllowanceContract {
 
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod negative;
+
 
 #[cfg(test)]
 mod fuzz;

@@ -7,6 +7,9 @@ use soroban_sdk::{
 
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod negative;
+
 
 // ── Storage Keys ─────────────────────────────────────────────────────────────
 

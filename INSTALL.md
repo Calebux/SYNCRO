@@ -1,4 +1,29 @@
+# Installing SYNCRO
+
+One command from a clean clone:
+
+```bash
+git clone https://github.com/Calebux/SYNCRO.git
+cd SYNCRO
+npm run bootstrap
+```
+
+That installs workspace dependencies, copies env templates, and (when Docker + the Supabase CLI are available) applies migrations. Then:
+
+```bash
+npm run doctor          # report any missing toolchain pieces
+npm run dev -w backend  # http://localhost:3001
+npm run dev -w client   # http://localhost:3000
+```
+
+Pinned toolchains live in `.nvmrc` (Node 20), `rust-toolchain.toml` (Rust 1.91 + wasm32), and `.devcontainer/` (Node, Rust, Soroban CLI 23.0.0). Open the repo in a Dev Container for the same path.
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full local workflow.
+
+---
+
 # Installing the SYNCRO tech-debt policy
+
 
 Five files, dropped into your repo at these paths:
 

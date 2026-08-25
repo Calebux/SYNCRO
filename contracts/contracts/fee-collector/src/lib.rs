@@ -2,6 +2,9 @@
 
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod negative;
+
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, Symbol, Vec,
