@@ -1,12 +1,19 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, Env, String};
 use super::*;
+
+fn test_env() -> Env {
+    Env::new_with_config(EnvTestConfig {
+        capture_snapshot_at_drop: false,
+        ..EnvTestConfig::default()
+    })
+}
 
 
 #[test]
 fn neg_initialize_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( GuardianContract, ());
     let client = GuardianContractClient::new(&env, &id);
@@ -15,7 +22,7 @@ fn neg_initialize_unauthorized() {
 
 #[test]
 fn neg_initialize_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( GuardianContract, ());
     let client = GuardianContractClient::new(&env, &id);
@@ -25,7 +32,7 @@ fn neg_initialize_wrong_state() {
 
 #[test]
 fn neg_register_contract_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( GuardianContract, ());
     let client = GuardianContractClient::new(&env, &id);
@@ -34,7 +41,7 @@ fn neg_register_contract_unauthorized() {
 
 #[test]
 fn neg_register_contract_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( GuardianContract, ());
     let client = GuardianContractClient::new(&env, &id);
@@ -44,7 +51,7 @@ fn neg_register_contract_wrong_state() {
 
 #[test]
 fn neg_unregister_contract_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( GuardianContract, ());
     let client = GuardianContractClient::new(&env, &id);
@@ -53,7 +60,7 @@ fn neg_unregister_contract_unauthorized() {
 
 #[test]
 fn neg_unregister_contract_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( GuardianContract, ());
     let client = GuardianContractClient::new(&env, &id);
@@ -63,7 +70,7 @@ fn neg_unregister_contract_wrong_state() {
 
 #[test]
 fn neg_emergency_pause_all_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( GuardianContract, ());
     let client = GuardianContractClient::new(&env, &id);
@@ -72,7 +79,7 @@ fn neg_emergency_pause_all_unauthorized() {
 
 #[test]
 fn neg_emergency_pause_all_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( GuardianContract, ());
     let client = GuardianContractClient::new(&env, &id);
@@ -82,7 +89,7 @@ fn neg_emergency_pause_all_wrong_state() {
 
 #[test]
 fn neg_emergency_unpause_all_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( GuardianContract, ());
     let client = GuardianContractClient::new(&env, &id);
@@ -91,7 +98,7 @@ fn neg_emergency_unpause_all_unauthorized() {
 
 #[test]
 fn neg_emergency_unpause_all_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( GuardianContract, ());
     let client = GuardianContractClient::new(&env, &id);
@@ -101,7 +108,7 @@ fn neg_emergency_unpause_all_wrong_state() {
 
 #[test]
 fn neg_get_guardian_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( GuardianContract, ());
     let client = GuardianContractClient::new(&env, &id);
@@ -110,7 +117,7 @@ fn neg_get_guardian_unauthorized() {
 
 #[test]
 fn neg_get_guardian_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( GuardianContract, ());
     let client = GuardianContractClient::new(&env, &id);
@@ -120,7 +127,7 @@ fn neg_get_guardian_wrong_state() {
 
 #[test]
 fn neg_get_registered_contracts_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( GuardianContract, ());
     let client = GuardianContractClient::new(&env, &id);
@@ -129,7 +136,7 @@ fn neg_get_registered_contracts_unauthorized() {
 
 #[test]
 fn neg_get_registered_contracts_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( GuardianContract, ());
     let client = GuardianContractClient::new(&env, &id);
@@ -139,7 +146,7 @@ fn neg_get_registered_contracts_wrong_state() {
 
 #[test]
 fn neg_get_contract_count_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( GuardianContract, ());
     let client = GuardianContractClient::new(&env, &id);
@@ -148,7 +155,7 @@ fn neg_get_contract_count_unauthorized() {
 
 #[test]
 fn neg_get_contract_count_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( GuardianContract, ());
     let client = GuardianContractClient::new(&env, &id);
@@ -158,7 +165,7 @@ fn neg_get_contract_count_wrong_state() {
 
 #[test]
 fn neg_is_contract_registered_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( GuardianContract, ());
     let client = GuardianContractClient::new(&env, &id);
@@ -167,7 +174,7 @@ fn neg_is_contract_registered_unauthorized() {
 
 #[test]
 fn neg_is_contract_registered_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( GuardianContract, ());
     let client = GuardianContractClient::new(&env, &id);

@@ -1,12 +1,19 @@
 #![cfg(test)]
 
-use soroban_sdk::{contract, contractimpl, testutils::Address as _, vec, Address, Env};
+use soroban_sdk::{contract, contractimpl, testutils::{Address as _, EnvTestConfig}, vec, Address, Env};
 use super::*;
+
+fn test_env() -> Env {
+    Env::new_with_config(EnvTestConfig {
+        capture_snapshot_at_drop: false,
+        ..EnvTestConfig::default()
+    })
+}
 
 
 #[test]
 fn neg_init_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -15,7 +22,7 @@ fn neg_init_unauthorized() {
 
 #[test]
 fn neg_init_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -25,7 +32,7 @@ fn neg_init_wrong_state() {
 
 #[test]
 fn neg_set_paused_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -34,7 +41,7 @@ fn neg_set_paused_unauthorized() {
 
 #[test]
 fn neg_set_paused_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -44,7 +51,7 @@ fn neg_set_paused_wrong_state() {
 
 #[test]
 fn neg_is_paused_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -53,7 +60,7 @@ fn neg_is_paused_unauthorized() {
 
 #[test]
 fn neg_is_paused_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -63,7 +70,7 @@ fn neg_is_paused_wrong_state() {
 
 #[test]
 fn neg_set_logging_contract_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -72,7 +79,7 @@ fn neg_set_logging_contract_unauthorized() {
 
 #[test]
 fn neg_set_logging_contract_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -82,7 +89,7 @@ fn neg_set_logging_contract_wrong_state() {
 
 #[test]
 fn neg_set_token_contract_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -91,7 +98,7 @@ fn neg_set_token_contract_unauthorized() {
 
 #[test]
 fn neg_set_token_contract_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -101,7 +108,7 @@ fn neg_set_token_contract_wrong_state() {
 
 #[test]
 fn neg_get_token_contract_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -110,7 +117,7 @@ fn neg_get_token_contract_unauthorized() {
 
 #[test]
 fn neg_get_token_contract_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -120,7 +127,7 @@ fn neg_get_token_contract_wrong_state() {
 
 #[test]
 fn neg_acquire_renewal_lock_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -129,7 +136,7 @@ fn neg_acquire_renewal_lock_unauthorized() {
 
 #[test]
 fn neg_acquire_renewal_lock_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -139,7 +146,7 @@ fn neg_acquire_renewal_lock_wrong_state() {
 
 #[test]
 fn neg_release_renewal_lock_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -148,7 +155,7 @@ fn neg_release_renewal_lock_unauthorized() {
 
 #[test]
 fn neg_release_renewal_lock_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -158,7 +165,7 @@ fn neg_release_renewal_lock_wrong_state() {
 
 #[test]
 fn neg_get_renewal_lock_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -167,7 +174,7 @@ fn neg_get_renewal_lock_unauthorized() {
 
 #[test]
 fn neg_get_renewal_lock_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -177,7 +184,7 @@ fn neg_get_renewal_lock_wrong_state() {
 
 #[test]
 fn neg_init_sub_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -186,7 +193,7 @@ fn neg_init_sub_unauthorized() {
 
 #[test]
 fn neg_init_sub_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -196,7 +203,7 @@ fn neg_init_sub_wrong_state() {
 
 #[test]
 fn neg_cancel_sub_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -205,7 +212,7 @@ fn neg_cancel_sub_unauthorized() {
 
 #[test]
 fn neg_cancel_sub_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -215,7 +222,7 @@ fn neg_cancel_sub_wrong_state() {
 
 #[test]
 fn neg_approve_renewal_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -224,7 +231,7 @@ fn neg_approve_renewal_unauthorized() {
 
 #[test]
 fn neg_approve_renewal_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -234,7 +241,7 @@ fn neg_approve_renewal_wrong_state() {
 
 #[test]
 fn neg_renew_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -243,7 +250,7 @@ fn neg_renew_unauthorized() {
 
 #[test]
 fn neg_renew_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -253,7 +260,7 @@ fn neg_renew_wrong_state() {
 
 #[test]
 fn neg_get_escrow_balance_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -262,7 +269,7 @@ fn neg_get_escrow_balance_unauthorized() {
 
 #[test]
 fn neg_get_escrow_balance_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -272,7 +279,7 @@ fn neg_get_escrow_balance_wrong_state() {
 
 #[test]
 fn neg_claim_escrow_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -281,7 +288,7 @@ fn neg_claim_escrow_unauthorized() {
 
 #[test]
 fn neg_claim_escrow_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -291,7 +298,7 @@ fn neg_claim_escrow_wrong_state() {
 
 #[test]
 fn neg_get_sub_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -300,7 +307,7 @@ fn neg_get_sub_unauthorized() {
 
 #[test]
 fn neg_get_sub_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -310,7 +317,7 @@ fn neg_get_sub_wrong_state() {
 
 #[test]
 fn neg_get_lifecycle_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -319,7 +326,7 @@ fn neg_get_lifecycle_unauthorized() {
 
 #[test]
 fn neg_get_lifecycle_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -329,7 +336,7 @@ fn neg_get_lifecycle_wrong_state() {
 
 #[test]
 fn neg_set_window_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -338,7 +345,7 @@ fn neg_set_window_unauthorized() {
 
 #[test]
 fn neg_set_window_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -348,7 +355,7 @@ fn neg_set_window_wrong_state() {
 
 #[test]
 fn neg_get_window_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -357,7 +364,7 @@ fn neg_get_window_unauthorized() {
 
 #[test]
 fn neg_get_window_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -367,7 +374,7 @@ fn neg_get_window_wrong_state() {
 
 #[test]
 fn neg_set_user_cap_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -376,7 +383,7 @@ fn neg_set_user_cap_unauthorized() {
 
 #[test]
 fn neg_set_user_cap_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -386,7 +393,7 @@ fn neg_set_user_cap_wrong_state() {
 
 #[test]
 fn neg_get_user_cap_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -395,7 +402,7 @@ fn neg_get_user_cap_unauthorized() {
 
 #[test]
 fn neg_get_user_cap_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -405,7 +412,7 @@ fn neg_get_user_cap_wrong_state() {
 
 #[test]
 fn neg_get_user_spent_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -414,7 +421,7 @@ fn neg_get_user_spent_unauthorized() {
 
 #[test]
 fn neg_get_user_spent_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -424,7 +431,7 @@ fn neg_get_user_spent_wrong_state() {
 
 #[test]
 fn neg_set_team_threshold_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -433,7 +440,7 @@ fn neg_set_team_threshold_unauthorized() {
 
 #[test]
 fn neg_set_team_threshold_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -443,7 +450,7 @@ fn neg_set_team_threshold_wrong_state() {
 
 #[test]
 fn neg_get_team_threshold_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -452,7 +459,7 @@ fn neg_get_team_threshold_unauthorized() {
 
 #[test]
 fn neg_get_team_threshold_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -462,7 +469,7 @@ fn neg_get_team_threshold_wrong_state() {
 
 #[test]
 fn neg_set_signing_window_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -471,7 +478,7 @@ fn neg_set_signing_window_unauthorized() {
 
 #[test]
 fn neg_set_signing_window_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -481,7 +488,7 @@ fn neg_set_signing_window_wrong_state() {
 
 #[test]
 fn neg_get_signing_window_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -490,7 +497,7 @@ fn neg_get_signing_window_unauthorized() {
 
 #[test]
 fn neg_get_signing_window_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -500,7 +507,7 @@ fn neg_get_signing_window_wrong_state() {
 
 #[test]
 fn neg_request_multisig_renewal_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -509,7 +516,7 @@ fn neg_request_multisig_renewal_unauthorized() {
 
 #[test]
 fn neg_request_multisig_renewal_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -519,7 +526,7 @@ fn neg_request_multisig_renewal_wrong_state() {
 
 #[test]
 fn neg_sign_multisig_renewal_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -528,7 +535,7 @@ fn neg_sign_multisig_renewal_unauthorized() {
 
 #[test]
 fn neg_sign_multisig_renewal_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -538,7 +545,7 @@ fn neg_sign_multisig_renewal_wrong_state() {
 
 #[test]
 fn neg_cancel_multisig_renewal_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -547,7 +554,7 @@ fn neg_cancel_multisig_renewal_unauthorized() {
 
 #[test]
 fn neg_cancel_multisig_renewal_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -557,7 +564,7 @@ fn neg_cancel_multisig_renewal_wrong_state() {
 
 #[test]
 fn neg_expire_multisig_renewal_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -566,7 +573,7 @@ fn neg_expire_multisig_renewal_unauthorized() {
 
 #[test]
 fn neg_expire_multisig_renewal_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -576,7 +583,7 @@ fn neg_expire_multisig_renewal_wrong_state() {
 
 #[test]
 fn neg_get_multisig_request_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -585,7 +592,7 @@ fn neg_get_multisig_request_unauthorized() {
 
 #[test]
 fn neg_get_multisig_request_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -595,7 +602,7 @@ fn neg_get_multisig_request_wrong_state() {
 
 #[test]
 fn neg_requires_multisig_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -604,7 +611,7 @@ fn neg_requires_multisig_unauthorized() {
 
 #[test]
 fn neg_requires_multisig_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionRenewalContract, ());
     let client = SubscriptionRenewalContractClient::new(&env, &id);
@@ -650,7 +657,7 @@ impl ReentrantProbeToken {
 
 #[test]
 fn malicious_token_reentrancy_is_contained() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register(ReentrantProbeToken, ());
     let token = ReentrantProbeTokenClient::new(&env, &id);

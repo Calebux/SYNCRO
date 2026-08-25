@@ -1,12 +1,19 @@
 #![cfg(test)]
 
-use soroban_sdk::{contract, contractimpl, testutils::Address as _, Address, Env};
+use soroban_sdk::{contract, contractimpl, testutils::{Address as _, EnvTestConfig}, Address, Env};
 use super::*;
+
+fn test_env() -> Env {
+    Env::new_with_config(EnvTestConfig {
+        capture_snapshot_at_drop: false,
+        ..EnvTestConfig::default()
+    })
+}
 
 
 #[test]
 fn neg_init_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AllowanceContract, ());
     let client = AllowanceContractClient::new(&env, &id);
@@ -15,7 +22,7 @@ fn neg_init_unauthorized() {
 
 #[test]
 fn neg_init_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AllowanceContract, ());
     let client = AllowanceContractClient::new(&env, &id);
@@ -25,7 +32,7 @@ fn neg_init_wrong_state() {
 
 #[test]
 fn neg_pause_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AllowanceContract, ());
     let client = AllowanceContractClient::new(&env, &id);
@@ -34,7 +41,7 @@ fn neg_pause_unauthorized() {
 
 #[test]
 fn neg_pause_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AllowanceContract, ());
     let client = AllowanceContractClient::new(&env, &id);
@@ -44,7 +51,7 @@ fn neg_pause_wrong_state() {
 
 #[test]
 fn neg_unpause_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AllowanceContract, ());
     let client = AllowanceContractClient::new(&env, &id);
@@ -53,7 +60,7 @@ fn neg_unpause_unauthorized() {
 
 #[test]
 fn neg_unpause_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AllowanceContract, ());
     let client = AllowanceContractClient::new(&env, &id);
@@ -63,7 +70,7 @@ fn neg_unpause_wrong_state() {
 
 #[test]
 fn neg_is_paused_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AllowanceContract, ());
     let client = AllowanceContractClient::new(&env, &id);
@@ -72,7 +79,7 @@ fn neg_is_paused_unauthorized() {
 
 #[test]
 fn neg_is_paused_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AllowanceContract, ());
     let client = AllowanceContractClient::new(&env, &id);
@@ -82,7 +89,7 @@ fn neg_is_paused_wrong_state() {
 
 #[test]
 fn neg_grant_allowance_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AllowanceContract, ());
     let client = AllowanceContractClient::new(&env, &id);
@@ -91,7 +98,7 @@ fn neg_grant_allowance_unauthorized() {
 
 #[test]
 fn neg_grant_allowance_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AllowanceContract, ());
     let client = AllowanceContractClient::new(&env, &id);
@@ -101,7 +108,7 @@ fn neg_grant_allowance_wrong_state() {
 
 #[test]
 fn neg_revoke_allowance_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AllowanceContract, ());
     let client = AllowanceContractClient::new(&env, &id);
@@ -110,7 +117,7 @@ fn neg_revoke_allowance_unauthorized() {
 
 #[test]
 fn neg_revoke_allowance_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AllowanceContract, ());
     let client = AllowanceContractClient::new(&env, &id);
@@ -120,7 +127,7 @@ fn neg_revoke_allowance_wrong_state() {
 
 #[test]
 fn neg_update_caps_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AllowanceContract, ());
     let client = AllowanceContractClient::new(&env, &id);
@@ -129,7 +136,7 @@ fn neg_update_caps_unauthorized() {
 
 #[test]
 fn neg_update_caps_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AllowanceContract, ());
     let client = AllowanceContractClient::new(&env, &id);
@@ -139,7 +146,7 @@ fn neg_update_caps_wrong_state() {
 
 #[test]
 fn neg_consume_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AllowanceContract, ());
     let client = AllowanceContractClient::new(&env, &id);
@@ -148,7 +155,7 @@ fn neg_consume_unauthorized() {
 
 #[test]
 fn neg_consume_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AllowanceContract, ());
     let client = AllowanceContractClient::new(&env, &id);
@@ -158,7 +165,7 @@ fn neg_consume_wrong_state() {
 
 #[test]
 fn neg_get_allowance_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AllowanceContract, ());
     let client = AllowanceContractClient::new(&env, &id);
@@ -167,7 +174,7 @@ fn neg_get_allowance_unauthorized() {
 
 #[test]
 fn neg_get_allowance_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AllowanceContract, ());
     let client = AllowanceContractClient::new(&env, &id);
@@ -177,7 +184,7 @@ fn neg_get_allowance_wrong_state() {
 
 #[test]
 fn neg_get_allowance_count_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AllowanceContract, ());
     let client = AllowanceContractClient::new(&env, &id);
@@ -186,7 +193,7 @@ fn neg_get_allowance_count_unauthorized() {
 
 #[test]
 fn neg_get_allowance_count_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AllowanceContract, ());
     let client = AllowanceContractClient::new(&env, &id);
@@ -196,7 +203,7 @@ fn neg_get_allowance_count_wrong_state() {
 
 #[test]
 fn neg_available_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AllowanceContract, ());
     let client = AllowanceContractClient::new(&env, &id);
@@ -205,7 +212,7 @@ fn neg_available_unauthorized() {
 
 #[test]
 fn neg_available_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AllowanceContract, ());
     let client = AllowanceContractClient::new(&env, &id);
@@ -251,7 +258,7 @@ impl ReentrantProbeToken {
 
 #[test]
 fn malicious_token_reentrancy_is_contained() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register(ReentrantProbeToken, ());
     let token = ReentrantProbeTokenClient::new(&env, &id);

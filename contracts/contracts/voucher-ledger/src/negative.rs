@@ -1,12 +1,19 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, Address, BytesN, Env};
+use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, BytesN, Env};
 use super::*;
+
+fn test_env() -> Env {
+    Env::new_with_config(EnvTestConfig {
+        capture_snapshot_at_drop: false,
+        ..EnvTestConfig::default()
+    })
+}
 
 
 #[test]
 fn neg_init_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( VoucherLedgerContract, ());
     let client = VoucherLedgerContractClient::new(&env, &id);
@@ -15,7 +22,7 @@ fn neg_init_unauthorized() {
 
 #[test]
 fn neg_init_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( VoucherLedgerContract, ());
     let client = VoucherLedgerContractClient::new(&env, &id);
@@ -25,7 +32,7 @@ fn neg_init_wrong_state() {
 
 #[test]
 fn neg_mint_voucher_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( VoucherLedgerContract, ());
     let client = VoucherLedgerContractClient::new(&env, &id);
@@ -34,7 +41,7 @@ fn neg_mint_voucher_unauthorized() {
 
 #[test]
 fn neg_mint_voucher_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( VoucherLedgerContract, ());
     let client = VoucherLedgerContractClient::new(&env, &id);
@@ -44,7 +51,7 @@ fn neg_mint_voucher_wrong_state() {
 
 #[test]
 fn neg_redeem_voucher_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( VoucherLedgerContract, ());
     let client = VoucherLedgerContractClient::new(&env, &id);
@@ -53,7 +60,7 @@ fn neg_redeem_voucher_unauthorized() {
 
 #[test]
 fn neg_redeem_voucher_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( VoucherLedgerContract, ());
     let client = VoucherLedgerContractClient::new(&env, &id);
@@ -63,7 +70,7 @@ fn neg_redeem_voucher_wrong_state() {
 
 #[test]
 fn neg_void_voucher_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( VoucherLedgerContract, ());
     let client = VoucherLedgerContractClient::new(&env, &id);
@@ -72,7 +79,7 @@ fn neg_void_voucher_unauthorized() {
 
 #[test]
 fn neg_void_voucher_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( VoucherLedgerContract, ());
     let client = VoucherLedgerContractClient::new(&env, &id);
@@ -82,7 +89,7 @@ fn neg_void_voucher_wrong_state() {
 
 #[test]
 fn neg_get_voucher_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( VoucherLedgerContract, ());
     let client = VoucherLedgerContractClient::new(&env, &id);
@@ -91,7 +98,7 @@ fn neg_get_voucher_unauthorized() {
 
 #[test]
 fn neg_get_voucher_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( VoucherLedgerContract, ());
     let client = VoucherLedgerContractClient::new(&env, &id);
@@ -101,7 +108,7 @@ fn neg_get_voucher_wrong_state() {
 
 #[test]
 fn neg_balance_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( VoucherLedgerContract, ());
     let client = VoucherLedgerContractClient::new(&env, &id);
@@ -110,7 +117,7 @@ fn neg_balance_unauthorized() {
 
 #[test]
 fn neg_balance_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( VoucherLedgerContract, ());
     let client = VoucherLedgerContractClient::new(&env, &id);
@@ -120,7 +127,7 @@ fn neg_balance_wrong_state() {
 
 #[test]
 fn neg_is_active_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( VoucherLedgerContract, ());
     let client = VoucherLedgerContractClient::new(&env, &id);
@@ -129,7 +136,7 @@ fn neg_is_active_unauthorized() {
 
 #[test]
 fn neg_is_active_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( VoucherLedgerContract, ());
     let client = VoucherLedgerContractClient::new(&env, &id);

@@ -1,12 +1,19 @@
 #![cfg(test)]
 
-use soroban_sdk::{Bytes, BytesN, Env};
+use soroban_sdk::{testutils::EnvTestConfig, Bytes, BytesN, Env};
 use super::*;
+
+fn test_env() -> Env {
+    Env::new_with_config(EnvTestConfig {
+        capture_snapshot_at_drop: false,
+        ..EnvTestConfig::default()
+    })
+}
 
 
 #[test]
 fn neg_verify_and_record_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( ZkPaymentVerifier, ());
     let client = ZkPaymentVerifierClient::new(&env, &id);
@@ -15,7 +22,7 @@ fn neg_verify_and_record_unauthorized() {
 
 #[test]
 fn neg_verify_and_record_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( ZkPaymentVerifier, ());
     let client = ZkPaymentVerifierClient::new(&env, &id);
@@ -25,7 +32,7 @@ fn neg_verify_and_record_wrong_state() {
 
 #[test]
 fn neg_is_nullifier_used_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( ZkPaymentVerifier, ());
     let client = ZkPaymentVerifierClient::new(&env, &id);
@@ -34,7 +41,7 @@ fn neg_is_nullifier_used_unauthorized() {
 
 #[test]
 fn neg_is_nullifier_used_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( ZkPaymentVerifier, ());
     let client = ZkPaymentVerifierClient::new(&env, &id);

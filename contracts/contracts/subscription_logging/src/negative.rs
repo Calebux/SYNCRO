@@ -1,12 +1,19 @@
 #![cfg(test)]
 
-use soroban_sdk::{vec, testutils::Address as _, Address, BytesN, Env, String};
+use soroban_sdk::{vec, testutils::{Address as _, EnvTestConfig}, Address, BytesN, Env, String};
 use super::*;
+
+fn test_env() -> Env {
+    Env::new_with_config(EnvTestConfig {
+        capture_snapshot_at_drop: false,
+        ..EnvTestConfig::default()
+    })
+}
 
 
 #[test]
 fn neg_init_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionLoggingContract, ());
     let client = SubscriptionLoggingContractClient::new(&env, &id);
@@ -15,7 +22,7 @@ fn neg_init_unauthorized() {
 
 #[test]
 fn neg_init_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionLoggingContract, ());
     let client = SubscriptionLoggingContractClient::new(&env, &id);
@@ -25,7 +32,7 @@ fn neg_init_wrong_state() {
 
 #[test]
 fn neg_record_log_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionLoggingContract, ());
     let client = SubscriptionLoggingContractClient::new(&env, &id);
@@ -34,7 +41,7 @@ fn neg_record_log_unauthorized() {
 
 #[test]
 fn neg_record_log_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionLoggingContract, ());
     let client = SubscriptionLoggingContractClient::new(&env, &id);
@@ -44,7 +51,7 @@ fn neg_record_log_wrong_state() {
 
 #[test]
 fn neg_get_logs_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionLoggingContract, ());
     let client = SubscriptionLoggingContractClient::new(&env, &id);
@@ -53,7 +60,7 @@ fn neg_get_logs_unauthorized() {
 
 #[test]
 fn neg_get_logs_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionLoggingContract, ());
     let client = SubscriptionLoggingContractClient::new(&env, &id);
@@ -63,7 +70,7 @@ fn neg_get_logs_wrong_state() {
 
 #[test]
 fn neg_record_commitment_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionLoggingContract, ());
     let client = SubscriptionLoggingContractClient::new(&env, &id);
@@ -72,7 +79,7 @@ fn neg_record_commitment_unauthorized() {
 
 #[test]
 fn neg_record_commitment_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionLoggingContract, ());
     let client = SubscriptionLoggingContractClient::new(&env, &id);
@@ -82,7 +89,7 @@ fn neg_record_commitment_wrong_state() {
 
 #[test]
 fn neg_get_commitment_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionLoggingContract, ());
     let client = SubscriptionLoggingContractClient::new(&env, &id);
@@ -91,7 +98,7 @@ fn neg_get_commitment_unauthorized() {
 
 #[test]
 fn neg_get_commitment_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionLoggingContract, ());
     let client = SubscriptionLoggingContractClient::new(&env, &id);
@@ -101,7 +108,7 @@ fn neg_get_commitment_wrong_state() {
 
 #[test]
 fn neg_get_commitment_count_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionLoggingContract, ());
     let client = SubscriptionLoggingContractClient::new(&env, &id);
@@ -110,7 +117,7 @@ fn neg_get_commitment_count_unauthorized() {
 
 #[test]
 fn neg_get_commitment_count_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionLoggingContract, ());
     let client = SubscriptionLoggingContractClient::new(&env, &id);
@@ -120,7 +127,7 @@ fn neg_get_commitment_count_wrong_state() {
 
 #[test]
 fn neg_get_commitments_range_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionLoggingContract, ());
     let client = SubscriptionLoggingContractClient::new(&env, &id);
@@ -129,7 +136,7 @@ fn neg_get_commitments_range_unauthorized() {
 
 #[test]
 fn neg_get_commitments_range_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionLoggingContract, ());
     let client = SubscriptionLoggingContractClient::new(&env, &id);
@@ -139,7 +146,7 @@ fn neg_get_commitments_range_wrong_state() {
 
 #[test]
 fn neg_anchor_merkle_root_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionLoggingContract, ());
     let client = SubscriptionLoggingContractClient::new(&env, &id);
@@ -148,7 +155,7 @@ fn neg_anchor_merkle_root_unauthorized() {
 
 #[test]
 fn neg_anchor_merkle_root_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionLoggingContract, ());
     let client = SubscriptionLoggingContractClient::new(&env, &id);
@@ -158,7 +165,7 @@ fn neg_anchor_merkle_root_wrong_state() {
 
 #[test]
 fn neg_get_merkle_root_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionLoggingContract, ());
     let client = SubscriptionLoggingContractClient::new(&env, &id);
@@ -167,7 +174,7 @@ fn neg_get_merkle_root_unauthorized() {
 
 #[test]
 fn neg_get_merkle_root_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionLoggingContract, ());
     let client = SubscriptionLoggingContractClient::new(&env, &id);
@@ -177,7 +184,7 @@ fn neg_get_merkle_root_wrong_state() {
 
 #[test]
 fn neg_get_merkle_root_count_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionLoggingContract, ());
     let client = SubscriptionLoggingContractClient::new(&env, &id);
@@ -186,7 +193,7 @@ fn neg_get_merkle_root_count_unauthorized() {
 
 #[test]
 fn neg_get_merkle_root_count_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionLoggingContract, ());
     let client = SubscriptionLoggingContractClient::new(&env, &id);
@@ -196,7 +203,7 @@ fn neg_get_merkle_root_count_wrong_state() {
 
 #[test]
 fn neg_verify_merkle_membership_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionLoggingContract, ());
     let client = SubscriptionLoggingContractClient::new(&env, &id);
@@ -205,7 +212,7 @@ fn neg_verify_merkle_membership_unauthorized() {
 
 #[test]
 fn neg_verify_merkle_membership_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( SubscriptionLoggingContract, ());
     let client = SubscriptionLoggingContractClient::new(&env, &id);

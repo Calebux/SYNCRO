@@ -1,12 +1,19 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, Env};
 use super::*;
+
+fn test_env() -> Env {
+    Env::new_with_config(EnvTestConfig {
+        capture_snapshot_at_drop: false,
+        ..EnvTestConfig::default()
+    })
+}
 
 
 #[test]
 fn neg_init_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -15,7 +22,7 @@ fn neg_init_unauthorized() {
 
 #[test]
 fn neg_init_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -25,7 +32,7 @@ fn neg_init_wrong_state() {
 
 #[test]
 fn neg_get_admin_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -34,7 +41,7 @@ fn neg_get_admin_unauthorized() {
 
 #[test]
 fn neg_get_admin_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -44,7 +51,7 @@ fn neg_get_admin_wrong_state() {
 
 #[test]
 fn neg_get_pending_admin_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -53,7 +60,7 @@ fn neg_get_pending_admin_unauthorized() {
 
 #[test]
 fn neg_get_pending_admin_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -63,7 +70,7 @@ fn neg_get_pending_admin_wrong_state() {
 
 #[test]
 fn neg_transfer_admin_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -72,7 +79,7 @@ fn neg_transfer_admin_unauthorized() {
 
 #[test]
 fn neg_transfer_admin_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -82,7 +89,7 @@ fn neg_transfer_admin_wrong_state() {
 
 #[test]
 fn neg_cancel_transfer_admin_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -91,7 +98,7 @@ fn neg_cancel_transfer_admin_unauthorized() {
 
 #[test]
 fn neg_cancel_transfer_admin_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -101,7 +108,7 @@ fn neg_cancel_transfer_admin_wrong_state() {
 
 #[test]
 fn neg_accept_admin_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -110,7 +117,7 @@ fn neg_accept_admin_unauthorized() {
 
 #[test]
 fn neg_accept_admin_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -120,7 +127,7 @@ fn neg_accept_admin_wrong_state() {
 
 #[test]
 fn neg_register_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -129,7 +136,7 @@ fn neg_register_unauthorized() {
 
 #[test]
 fn neg_register_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -139,7 +146,7 @@ fn neg_register_wrong_state() {
 
 #[test]
 fn neg_update_scopes_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -148,7 +155,7 @@ fn neg_update_scopes_unauthorized() {
 
 #[test]
 fn neg_update_scopes_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -158,7 +165,7 @@ fn neg_update_scopes_wrong_state() {
 
 #[test]
 fn neg_revoke_agent_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -167,7 +174,7 @@ fn neg_revoke_agent_unauthorized() {
 
 #[test]
 fn neg_revoke_agent_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -177,7 +184,7 @@ fn neg_revoke_agent_wrong_state() {
 
 #[test]
 fn neg_is_authorized_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -186,7 +193,7 @@ fn neg_is_authorized_unauthorized() {
 
 #[test]
 fn neg_is_authorized_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -196,7 +203,7 @@ fn neg_is_authorized_wrong_state() {
 
 #[test]
 fn neg_require_authorized_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -205,7 +212,7 @@ fn neg_require_authorized_unauthorized() {
 
 #[test]
 fn neg_require_authorized_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -215,7 +222,7 @@ fn neg_require_authorized_wrong_state() {
 
 #[test]
 fn neg_has_scope_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -224,7 +231,7 @@ fn neg_has_scope_unauthorized() {
 
 #[test]
 fn neg_has_scope_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -234,7 +241,7 @@ fn neg_has_scope_wrong_state() {
 
 #[test]
 fn neg_require_scope_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
@@ -243,7 +250,7 @@ fn neg_require_scope_unauthorized() {
 
 #[test]
 fn neg_require_scope_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);

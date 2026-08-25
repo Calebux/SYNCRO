@@ -1,12 +1,19 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, Address, BytesN, Env, Symbol};
+use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, BytesN, Env, Symbol};
 use super::*;
+
+fn test_env() -> Env {
+    Env::new_with_config(EnvTestConfig {
+        capture_snapshot_at_drop: false,
+        ..EnvTestConfig::default()
+    })
+}
 
 
 #[test]
 fn neg_init_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AttestationContract, ());
     let client = AttestationContractClient::new(&env, &id);
@@ -15,7 +22,7 @@ fn neg_init_unauthorized() {
 
 #[test]
 fn neg_init_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AttestationContract, ());
     let client = AttestationContractClient::new(&env, &id);
@@ -25,7 +32,7 @@ fn neg_init_wrong_state() {
 
 #[test]
 fn neg_issue_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AttestationContract, ());
     let client = AttestationContractClient::new(&env, &id);
@@ -34,7 +41,7 @@ fn neg_issue_unauthorized() {
 
 #[test]
 fn neg_issue_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AttestationContract, ());
     let client = AttestationContractClient::new(&env, &id);
@@ -44,7 +51,7 @@ fn neg_issue_wrong_state() {
 
 #[test]
 fn neg_revoke_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AttestationContract, ());
     let client = AttestationContractClient::new(&env, &id);
@@ -53,7 +60,7 @@ fn neg_revoke_unauthorized() {
 
 #[test]
 fn neg_revoke_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AttestationContract, ());
     let client = AttestationContractClient::new(&env, &id);
@@ -63,7 +70,7 @@ fn neg_revoke_wrong_state() {
 
 #[test]
 fn neg_verify_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AttestationContract, ());
     let client = AttestationContractClient::new(&env, &id);
@@ -72,7 +79,7 @@ fn neg_verify_unauthorized() {
 
 #[test]
 fn neg_verify_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AttestationContract, ());
     let client = AttestationContractClient::new(&env, &id);
@@ -82,7 +89,7 @@ fn neg_verify_wrong_state() {
 
 #[test]
 fn neg_get_record_unauthorized() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AttestationContract, ());
     let client = AttestationContractClient::new(&env, &id);
@@ -91,7 +98,7 @@ fn neg_get_record_unauthorized() {
 
 #[test]
 fn neg_get_record_wrong_state() {
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( AttestationContract, ());
     let client = AttestationContractClient::new(&env, &id);

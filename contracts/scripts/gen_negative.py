@@ -76,27 +76,27 @@ CLIENT = {
 }
 
 IMPORTS = {
-    "default": "use soroban_sdk::{testutils::Address as _, Address, Env};",
-    "attestation": "use soroban_sdk::{testutils::Address as _, Address, BytesN, Env, Symbol};",
-    "escrow": "use soroban_sdk::{testutils::Address as _, Address, Env, String};",
-    "fee-collector": "use soroban_sdk::{testutils::Address as _, vec, Address, Env};",
-    "fx-oracle": "use soroban_sdk::{testutils::Address as _, Address, Env, String};",
-    "guardian": "use soroban_sdk::{testutils::Address as _, Address, Env, String};",
-    "payment-splitter": "use soroban_sdk::{testutils::Address as _, vec, Address, Env};",
-    "resolver-registry": "use soroban_sdk::{testutils::Address as _, Address, Env};",
-    "stealth-announcement": "use soroban_sdk::{testutils::Address as _, Address, BytesN, Env};",
-    "subscription_logging": "use soroban_sdk::{testutils::Address as _, Address, BytesN, Env, String};",
-    "subscription_nft": "use soroban_sdk::{testutils::Address as _, Address, Env};",
-    "subscription_refund": "use soroban_sdk::{testutils::Address as _, Address, Env, String};",
-    "voucher-ledger": "use soroban_sdk::{testutils::Address as _, Address, BytesN, Env};",
+    "default": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, Env};",
+    "attestation": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, BytesN, Env, Symbol};",
+    "escrow": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, Env, String};",
+    "fee-collector": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, vec, Address, Env};",
+    "fx-oracle": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, Env, String};",
+    "guardian": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, Env, String};",
+    "payment-splitter": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, vec, Address, Env};",
+    "resolver-registry": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, Env};",
+    "stealth-announcement": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, BytesN, Env};",
+    "subscription_logging": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, BytesN, Env, String};",
+    "subscription_nft": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, Env};",
+    "subscription_refund": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, Env, String};",
+    "voucher-ledger": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, BytesN, Env};",
     "zk-payment-verifier": "use soroban_sdk::{Bytes, BytesN, Env};",
-    "virtual-card": "use soroban_sdk::{testutils::Address as _, Address, Env};",
-    "loyalty_rewards": "use soroban_sdk::{testutils::Address as _, Address, Env};",
-    "allowance": "use soroban_sdk::{testutils::Address as _, Address, Env};",
-    "payment-adapter": "use soroban_sdk::{testutils::Address as _, Address, Env};",
-    "recurring_allowance": "use soroban_sdk::{testutils::Address as _, Address, Env};",
-    "agent-registry": "use soroban_sdk::{testutils::Address as _, Address, Env};",
-    "subscription_renewal": "use soroban_sdk::{testutils::Address as _, Address, Env};",
+    "virtual-card": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, Env};",
+    "loyalty_rewards": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, Env};",
+    "allowance": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, Env};",
+    "payment-adapter": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, Env};",
+    "recurring_allowance": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, Env};",
+    "agent-registry": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, Env};",
+    "subscription_renewal": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, Env};",
 }
 
 
@@ -206,7 +206,7 @@ def generate_crate(crate: str):
             f"""
 #[test]
 fn neg_{name}_unauthorized() {{
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( {contract}, ());
     let client = {client_ty}::new(&env, &id);
@@ -215,7 +215,7 @@ fn neg_{name}_unauthorized() {{
 
 #[test]
 fn neg_{name}_wrong_state() {{
-    let env = Env::default();
+    let env = test_env();
     env.mock_all_auths();
     let id = env.register( {contract}, ());
     let client = {client_ty}::new(&env, &id);
@@ -228,6 +228,13 @@ fn neg_{name}_wrong_state() {{
 
 {imports}
 use super::*;
+
+fn test_env() -> Env {
+    Env::new_with_config(EnvTestConfig {
+        capture_snapshot_at_drop: false,
+        ..EnvTestConfig::default()
+    })
+}
 
 {''.join(tests)}
 """

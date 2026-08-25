@@ -2,7 +2,7 @@
 
 use super::*;
 use soroban_sdk::{
-    contract, contractimpl, contracttype, testutils::{Address as _, Ledger},
+    contract, contractimpl, contracttype, testutils::{Address as _, EnvTestConfig, Ledger},
     token::{StellarAssetClient, TokenClient}, Address, Env,
 };
 
@@ -67,7 +67,10 @@ impl ReentrantToken {
 
 #[test]
 fn malicious_token_reentrancy_on_finalize_is_rejected() {
-    let env = Env::default();
+    let env = Env::new_with_config(EnvTestConfig {
+        capture_snapshot_at_drop: false,
+        ..EnvTestConfig::default()
+    });
     env.mock_all_auths();
 
     let channel_id_addr = env.register_contract(None, PaymentChannelContract);
@@ -95,7 +98,10 @@ fn malicious_token_reentrancy_on_finalize_is_rejected() {
 
 #[test]
 fn double_spend_finalize_rejected() {
-    let env = Env::default();
+    let env = Env::new_with_config(EnvTestConfig {
+        capture_snapshot_at_drop: false,
+        ..EnvTestConfig::default()
+    });
     env.mock_all_auths();
     let admin = Address::generate(&env);
     let depositor = Address::generate(&env);
@@ -116,7 +122,10 @@ fn double_spend_finalize_rejected() {
 
 #[test]
 fn over_withdrawal_via_negative_watchtower_state_rejected() {
-    let env = Env::default();
+    let env = Env::new_with_config(EnvTestConfig {
+        capture_snapshot_at_drop: false,
+        ..EnvTestConfig::default()
+    });
     env.mock_all_auths();
     let admin = Address::generate(&env);
     let depositor = Address::generate(&env);
