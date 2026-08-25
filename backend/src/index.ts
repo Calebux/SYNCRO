@@ -103,6 +103,7 @@ import { errorHandler } from './middleware/errorHandler';
 import { swaggerSpec } from './swagger';
 import privacyMetricsAdminRoutes from './routes/admin/privacy-metrics';
 import metricsRoutes from './routes/metrics';
+import { createApiRouter } from './router/mount';
 
 
 const app = express();
@@ -267,8 +268,8 @@ app.get('/api/docs.json', (_req, res) => {
 // API Routes
 app.use('/api/keys', apiKeysRoutes);
 app.use('/api/subscriptions', subscriptionShareRoutes);
-app.use('/api/subscriptions', subscriptionRoutes);
-app.use('/api/subscriptions', subscriptionDedupRoutes);
+// app.use('/api/subscriptions', subscriptionRoutes); // Migrated to registry
+// app.use('/api/subscriptions', subscriptionDedupRoutes);
 app.use('/api/risk-score', riskScoreRoutes);
 app.use('/api/simulation', simulationRoutes);
 app.use('/api/merchants', merchantRoutes);
@@ -288,7 +289,7 @@ app.use('/api/csp-violations', cspViolationsRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/compliance', complianceRoutes);
 app.use('/api/tags', tagsRoutes);
-app.use('/api/user', userRoutes);
+// app.use('/api/user', userRoutes); // Migrated to registry
 app.use('/api/sessions', sessionRoutes);
 app.use('/api/digest', digestRoutes);
 app.use('/api/mfa', mfaRoutes);
@@ -308,7 +309,11 @@ app.use('/api/calendar', calendarRouter);
 app.use('/api/user-preferences', authenticate, userPreferencesRoutes);
 app.use('/api/reminder-settings', authenticate, reminderSettingsRoutes);
 
-app.get('/api/reminders/status', (req, res) => {
+  // Registry-based routes (v2)
+  const apiRouter = createApiRouter();
+  app.use(apiRouter);
+
+  app.get('/api/reminders/status', (req, res) => {
   const status = schedulerService.getStatus();
   res.json(status);
 });

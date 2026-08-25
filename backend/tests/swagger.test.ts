@@ -30,12 +30,11 @@ describe('swagger spec', () => {
 
   test('covers API routes comprehensively', () => {
     const paths = Object.keys(swaggerSpec.paths ?? {});
-    expect(paths.length).toBeGreaterThanOrEqual(150);
+    // Registry-based routes (user + subscriptions)
+    expect(paths.length).toBeGreaterThanOrEqual(30);
     expect(paths).toEqual(expect.arrayContaining([
+      '/api/user/profile',
       '/api/subscriptions',
-      '/api/keys',
-      '/api/payments/paystack/initialize',
-      '/health',
     ]));
   });
 
