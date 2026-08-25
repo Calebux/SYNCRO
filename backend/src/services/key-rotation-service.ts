@@ -1,6 +1,7 @@
 import { supabase } from '../config/database';
 import { deriveKeyHex } from '../../../shared/src/crypto/key-derivation';
 import logger from '../config/logger';
+import { secretProvider } from './secret-provider';
 
 export interface KeyRotationInitResult {
   success: boolean;
@@ -31,6 +32,16 @@ export interface ReEncryptionResult {
  * Service to handle encryption key rotation when user changes wallet
  */
 export class KeyRotationService {
+  private async resolveVersionedKey(reference: string, purpose: string): Promise<string> {
+    if (!reference.startsWith('secret://')) return reference;
+    const [name, version] = reference.slice('secret://'.length).split('@');
+    const value = await secretProvider.get(
+      { name, version },
+      { caller: 'key-rotation-service', purpose },
+    );
+    if (!value) throw new Error(`Secret version not found: ${name}@${version ?? 'current'}`);
+    return value;
+  }
   /**
    * Derives an encryption key from a Stellar wallet public key using HKDF-SHA256
    */
@@ -154,6 +165,8 @@ export class KeyRotationService {
     newEncryptionKey: string
   ): Promise<ReEncryptionResult> {
     try {
+      oldEncryptionKey = await this.resolveVersionedKey(oldEncryptionKey, 'decrypt-old-version');
+      newEncryptionKey = await this.resolveVersionedKey(newEncryptionKey, 'encrypt-new-version');
       // 1. Update progress status to in_progress
       await supabase
         .from('subscription_reencryption_progress')

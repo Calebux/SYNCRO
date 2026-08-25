@@ -19,7 +19,9 @@
     "test:smoke:verbose": "VERBOSE=1 npx -p jest jest -c tests/smoke/jest.smoke.config.js --verbose",
     "setup:smoke-user": "ts-node ../scripts/setup-smoke-test-user.ts",
     "swagger:export": "npm run openapi:generate && ts-node scripts/export-swagger.ts",
-    "openapi:generate": "ts-node scripts/generate-openapi-paths.ts",
+    "openapi:generate": "npm run contracts:generate",
+    "contracts:generate": "ts-node scripts/generate-api-contracts.ts",
+    "contracts:check": "npm run contracts:generate && git diff --exit-code -- src/openapi/generated-contracts.ts ../sdk/src/generated/api-contracts.ts",
     "db:migrate": "supabase db push",
     "db:migrate:prod": "supabase db push --db-url \"$PRODUCTION_DB_URL\"",
     "db:reset": "supabase db reset",
@@ -36,6 +38,7 @@
     "audit:routes": "node scripts/validate-route-validation.js"
   },
   "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.883.0",
     "@bull-board/api": "^6.7.10",
     "@bull-board/express": "^6.7.10",
     "@sentry/node": "^10.60.0",
@@ -98,6 +101,7 @@
     "@types/swagger-jsdoc": "^6.0.4",
     "@types/swagger-ui-express": "^4.1.8",
     "@types/web-push": "^3.6.4",
+    "ajv": "^8.17.1",
     "@typescript-eslint/eslint-plugin": "^8.62.0",
     "@typescript-eslint/parser": "^8.57.2",
     "eslint": "^10.5.0",
