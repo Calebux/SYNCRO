@@ -142,6 +142,53 @@ For detailed information about directory ownership, responsibilities, and triage
 - [CODEOWNERS](./.github/CODEOWNERS) - GitHub enforcement
 - [Code Review Process](./docs/code-review-process.md) - Review procedures
 
+## Local Development Infrastructure
+
+SYNCRO provides a Docker Compose configuration for local development with PostgreSQL and Redis.
+
+### Quick Start
+
+```bash
+# Start local services
+docker compose up -d
+
+# Verify services are healthy
+docker compose ps
+
+# Stop services (preserves data)
+docker compose down
+
+# Stop services and remove data volumes
+docker compose down -v
+```
+
+### PostgreSQL
+
+- **Service name**: `postgres` (for container-to-container communication)
+- **Local port**: `5432`
+- **Database**: `synchro`
+- **Username**: `postgres`
+- **Password**: `postgres` (local development only)
+- **Connection string**: `postgresql://postgres:postgres@localhost:5432/synchro`
+
+For backend services running inside Docker, use:
+```
+postgresql://postgres:postgres@postgres:5432/synchro
+```
+
+### Redis
+
+- **Service name**: `redis` (for container-to-container communication)
+- **Local port**: `6379`
+- **Connection URL**: `redis://localhost:6379`
+
+For backend services running inside Docker, use:
+```
+redis://redis:6379
+```
+
+**Note**: These credentials are for local development only. Never use these values in production.
+
 ## Environment Variables
 
 Each package declares its environment variables in a manifest that drives both
