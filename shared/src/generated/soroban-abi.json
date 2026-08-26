@@ -1,0 +1,143 @@
+{
+  "contracts": [
+    {
+      "contract": "SubscriptionRegistry",
+      "source": "contracts/contracts/src/subscription_registry.rs",
+      "functions": [
+        {
+          "name": "create_subscription",
+          "args": [
+            {
+              "name": "user",
+              "kind": "Address"
+            },
+            {
+              "name": "service_id",
+              "kind": "String"
+            },
+            {
+              "name": "billing_interval",
+              "kind": "U64"
+            },
+            {
+              "name": "expected_amount",
+              "kind": "I128"
+            },
+            {
+              "name": "next_renewal",
+              "kind": "U64"
+            }
+          ]
+        },
+        {
+          "name": "update_subscription",
+          "args": [
+            {
+              "name": "subscription_id",
+              "kind": "BytesN32"
+            },
+            {
+              "name": "user",
+              "kind": "Address"
+            },
+            {
+              "name": "service_id",
+              "kind": "Option"
+            },
+            {
+              "name": "billing_interval",
+              "kind": "Option"
+            },
+            {
+              "name": "expected_amount",
+              "kind": "Option"
+            },
+            {
+              "name": "next_renewal",
+              "kind": "Option"
+            }
+          ]
+        },
+        {
+          "name": "cancel_subscription",
+          "args": [
+            {
+              "name": "subscription_id",
+              "kind": "BytesN32"
+            },
+            {
+              "name": "caller",
+              "kind": "Address"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "contract": "SubscriptionLogging",
+      "source": "contracts/contracts/subscription_logging/src/lib.rs",
+      "functions": [
+        {
+          "name": "record_log",
+          "args": [
+            {
+              "name": "sub_id",
+              "kind": "U64"
+            },
+            {
+              "name": "event",
+              "kind": "String"
+            },
+            {
+              "name": "data",
+              "kind": "String"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "contract": "SubscriptionRenewal",
+      "source": "contracts/contracts/subscription_renewal/src/lib.rs",
+      "functions": [
+        {
+          "name": "renew",
+          "args": [
+            {
+              "name": "owner",
+              "kind": "Address"
+            },
+            {
+              "name": "sub_id",
+              "kind": "U64"
+            },
+            {
+              "name": "approval_id",
+              "kind": "U64"
+            },
+            {
+              "name": "amount",
+              "kind": "I128"
+            },
+            {
+              "name": "max_retries",
+              "kind": "U64"
+            },
+            {
+              "name": "cooldown_ledgers",
+              "kind": "U64"
+            },
+            {
+              "name": "cycle_id",
+              "kind": "U64"
+            },
+            {
+              "name": "succeed",
+              "kind": "Bool"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

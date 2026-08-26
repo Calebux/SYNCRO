@@ -9,6 +9,8 @@
       "subscription-math": ["src/subscription-math.ts"],
       "security": ["src/security.ts"],
       "crypto": ["src/crypto/index.ts"],
+      "generated": ["src/generated/index.ts"],
+      "domain": ["src/domain/index.ts"],
       "*": ["src/*"]
     }
   },
@@ -17,6 +19,16 @@
       "types": "./src/index.ts",
       "import": "./src/index.ts",
       "require": "./dist/index.js"
+    },
+    "./generated": {
+      "types": "./src/generated/index.ts",
+      "import": "./src/generated/index.ts",
+      "require": "./dist/generated/index.js"
+    },
+    "./domain": {
+      "types": "./src/domain/index.ts",
+      "import": "./src/domain/index.ts",
+      "require": "./dist/domain/index.js"
     },
     "./subscription-math": {
       "types": "./src/subscription-math.ts",
@@ -40,13 +52,28 @@
     }
   },
   "scripts": {
+    "generate:db": "node ../scripts/generate-db-types.mjs",
+    "generate:contracts": "node ../scripts/generate-contract-types.mjs",
+    "generate": "npm run generate:db && npm run generate:contracts",
+    "check:generated": "node ../scripts/check-generated-types.mjs",
+    "prebuild": "npm run generate",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "watch": "tsc --watch",
-    "test": "jest"
+    "test": "jest",
+    "prepublishOnly": "node ../scripts/assert-ci-publish.mjs && npm run build"
   },
   "keywords": ["syncro", "types", "domain-models", "crypto"],
   "license": "ISC",
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "dependencies": {
     "@noble/curves": "^1.8.1",
     "@noble/hashes": "^1.7.1",

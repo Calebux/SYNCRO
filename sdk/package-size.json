@@ -1,0 +1,5 @@
+{
+  "unpackedSizeBytes": 400000,
+  "warnRatio": 0.9,
+  "notes": "Budget for `npm pack` unpacked size of @syncro/sdk (measured 337266 on 2026-08-26)."
+}

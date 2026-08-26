@@ -7,16 +7,23 @@
     "backend",
     "client",
     "sdk",
-    "shared"
+    "shared",
+    "contracts"
   ],
   "scripts": {
     "prepare": "node -e \"try{require('fs').accessSync('.git');require('child_process').execSync('chmod +x .husky/pre-commit',{stdio:'ignore'})}catch(e){}\"",
-    "typecheck": "npm run typecheck --workspaces --if-present && npx -p typescript@5.9.3 tsc --noEmit",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck --filter=!@syncro/contracts && npm run typecheck:root",
     "typecheck:root": "npx -p typescript@5.9.3 tsc --noEmit",
     "typecheck:backend": "npm run typecheck -w backend",
     "typecheck:client": "npm run typecheck -w client",
     "typecheck:sdk": "npm run typecheck -w sdk",
     "typecheck:shared": "npm run typecheck -w shared",
+    "generate": "npm run generate -w shared && npm run generate:contracts -w sdk",
+    "check:generated": "node scripts/check-generated-types.mjs",
+    "check:changeset": "node scripts/check-changeset.mjs",
     "generate:openapi": "cd backend && npm run swagger:export",
     "lint:todos": "node scripts/check-todos.mjs",
     "lint:conflicts": "node scripts/check-conflict-markers.mjs",
@@ -25,12 +32,17 @@
     "check:migrations:verify-db": "node scripts/check-migration-drift.js --verify-db --strict",
     "check:migrations:verify-schema": "node scripts/check-migration-drift.js --verify-schema --strict",
     "schema:snapshot": "bash scripts/generate-schema-snapshot.sh",
-    "cleanup:migrations": "node scripts/cleanup-duplicate-migrations.js"
+    "cleanup:migrations": "node scripts/cleanup-duplicate-migrations.js",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "changeset publish"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.29.5",
     "@types/node": "^25.6.0",
     "husky": "^9.1.7",
-    "lint-staged": "^15.5.2"
+    "lint-staged": "^15.5.2",
+    "turbo": "^2.5.4"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.0",

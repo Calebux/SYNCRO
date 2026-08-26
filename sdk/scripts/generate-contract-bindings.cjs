@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Generate TypeScript contract bindings from Soroban WASM ABI or canonical interfaces.
+ * Generate TypeScript contract bindings from the shared ABI snapshot
+ * (shared/src/generated/soroban-abi.json), or from a Soroban WASM ABI.
  *
  * Usage:
  *   node scripts/generate-contract-bindings.cjs [--wasm path/to/contract.wasm]
@@ -9,8 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const { SOROBAN_CONTRACT_INTERFACES } = require('../../shared/dist/soroban-contract-interfaces.js');
-
+const ABI_JSON = path.join(__dirname, '../../shared/src/generated/soroban-abi.json');
 const OUTPUT_DIR = path.join(__dirname, '../src/generated');
 
 const ARG_TYPE_MAP = {
@@ -19,10 +19,21 @@ const ARG_TYPE_MAP = {
   U64: 'bigint',
   I128: 'bigint',
   BytesN32: 'Uint8Array',
+  Bytes: 'Uint8Array',
   Bool: 'boolean',
   Option: 'unknown | null',
   Vec: 'unknown[]',
+  U32: 'number',
 };
+
+function loadAbi() {
+  if (!fs.existsSync(ABI_JSON)) {
+    throw new Error(
+      `Missing ${ABI_JSON}. Run: node scripts/generate-contract-types.mjs`,
+    );
+  }
+  return JSON.parse(fs.readFileSync(ABI_JSON, 'utf8'));
+}
 
 async function extractFromWasm(wasmPath) {
   const { Spec } = require('@stellar/stellar-sdk/contract');
@@ -54,20 +65,22 @@ function mapXdrType(typeDef) {
     scSpecTypeBytes: 'Uint8Array',
     scSpecTypeOption: 'unknown | null',
     scSpecTypeVec: 'unknown[]',
+    scSpecTypeU32: 'number',
   };
   return mapping[switchName] ?? 'unknown';
 }
 
-function extractFromInterfaces() {
+function extractFromAbi() {
+  const abi = loadAbi();
   const functions = [];
-  for (const iface of SOROBAN_CONTRACT_INTERFACES) {
+  for (const iface of abi.contracts) {
     for (const fn of iface.functions) {
       functions.push({
         contract: iface.contract,
         name: fn.name,
         args: fn.args.map((arg, i) => ({
-          name: `arg${i}`,
-          type: ARG_TYPE_MAP[arg] ?? 'unknown',
+          name: arg.name || `arg${i}`,
+          type: ARG_TYPE_MAP[arg.kind] ?? 'unknown',
         })),
       });
     }
@@ -86,6 +99,7 @@ function generateInterfaces(functions) {
   const lines = [
     '/**',
     ' * AUTO-GENERATED — do not edit manually.',
+    ' * Source: shared/src/generated/soroban-abi.json',
     ' * Run: npm run generate:contracts -w sdk',
     ' */',
     '',
@@ -125,6 +139,7 @@ function generateTransactionBuilders(functions) {
   const lines = [
     '/**',
     ' * AUTO-GENERATED typed transaction builder helpers.',
+    ' * Source: shared/src/generated/soroban-abi.json',
     ' * Run: npm run generate:contracts -w sdk',
     ' */',
     '',
@@ -192,8 +207,8 @@ async function main() {
     console.log(`Extracting ABI from WASM: ${wasmPath}`);
     functions = await extractFromWasm(wasmPath);
   } else {
-    console.log('No --wasm provided; using SOROBAN_CONTRACT_INTERFACES from @syncro/shared');
-    functions = extractFromInterfaces();
+    console.log('Using shared/src/generated/soroban-abi.json');
+    functions = extractFromAbi();
   }
 
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });

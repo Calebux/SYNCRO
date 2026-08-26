@@ -84,6 +84,11 @@ Thumbs.db
 .cache
 .parcel-cache
 
+# Turbo
+.turbo
+**/.turbo
+
+
 # Next.js (if used)
 .next/
 out/

@@ -1,5 +1,6 @@
 /**
  * AUTO-GENERATED typed transaction builder helpers.
+ * Source: shared/src/generated/soroban-abi.json
  * Run: npm run generate:contracts -w sdk
  */
 
@@ -35,7 +36,7 @@ export function buildContractInvoke<T extends keyof GeneratedContractMap>(
 export function buildSubscriptionRegistryCreateSubscription(
   contractId: string,
   sourceAccount: string,
-  args: { arg0: string; arg1: string; arg2: bigint; arg3: bigint; arg4: bigint },
+  args: { user: string; service_id: string; billing_interval: bigint; expected_amount: bigint; next_renewal: bigint },
 ): BuiltTransaction {
   return {
     contractId,
@@ -48,7 +49,7 @@ export function buildSubscriptionRegistryCreateSubscription(
 export function buildSubscriptionRegistryUpdateSubscription(
   contractId: string,
   sourceAccount: string,
-  args: { arg0: Uint8Array; arg1: string; arg2: unknown | null; arg3: unknown | null; arg4: unknown | null; arg5: unknown | null },
+  args: { subscription_id: Uint8Array; user: string; service_id: unknown | null; billing_interval: unknown | null; expected_amount: unknown | null; next_renewal: unknown | null },
 ): BuiltTransaction {
   return {
     contractId,
@@ -61,7 +62,7 @@ export function buildSubscriptionRegistryUpdateSubscription(
 export function buildSubscriptionRegistryCancelSubscription(
   contractId: string,
   sourceAccount: string,
-  args: { arg0: Uint8Array; arg1: string },
+  args: { subscription_id: Uint8Array; caller: string },
 ): BuiltTransaction {
   return {
     contractId,
@@ -74,7 +75,7 @@ export function buildSubscriptionRegistryCancelSubscription(
 export function buildSubscriptionLoggingRecordLog(
   contractId: string,
   sourceAccount: string,
-  args: { arg0: bigint; arg1: string; arg2: string },
+  args: { sub_id: bigint; event: string; data: string },
 ): BuiltTransaction {
   return {
     contractId,
@@ -87,7 +88,7 @@ export function buildSubscriptionLoggingRecordLog(
 export function buildSubscriptionRenewalRenew(
   contractId: string,
   sourceAccount: string,
-  args: { arg0: string; arg1: bigint; arg2: bigint; arg3: bigint; arg4: bigint; arg5: bigint; arg6: bigint; arg7: boolean },
+  args: { owner: string; sub_id: bigint; approval_id: bigint; amount: bigint; max_retries: bigint; cooldown_ledgers: bigint; cycle_id: bigint; succeed: boolean },
 ): BuiltTransaction {
   return {
     contractId,
