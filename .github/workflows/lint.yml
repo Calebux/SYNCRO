@@ -39,15 +39,36 @@ jobs:
       - uses: actions/checkout@v7
       - name: Verify no implementation artifacts in root
         run: |
-          ALLOWED="README.md CONTRIBUTING.md AGENTS.md CLAUDE.md requirements.txt"
+          # Allowlist of files permitted at repository root
+          # Implementation and one-off documentation should be in docs/
+          ALLOWED="README.md CONTRIBUTING.md INSTALL.md AGENTS.md CLAUDE.md DEBT.md TODO.md LICENSE LICENSE.md requirements.txt PULL_REQUEST_TEMPLATE.md"
+
           for file in *.md *.txt; do
             if [ -f "$file" ]; then
               if ! echo "$ALLOWED" | grep -w -q "$file"; then
-                echo "❌ Error: $file found in root. Move long-form implementation artifacts to docs/archive/."
+                echo "❌ Error: $file found in root. Move implementation artifacts to docs/."
                 exit 1
               fi
             fi
           done
+
+          # Check for common cleanup script remnants that should never exist
+          FORBIDDEN="fix.js fix1.js fix2.js fix3.js fix4.js fix5.js fix6.js fix7.js fix8.js fix9.js fix10.js fix11.js fix12.js fixall.js fixall2.js fixconflicts.js fixconflicts2.js fixline91.js fixtsconfig.js findbackticks.js pr_body.txt create_issues.sh update_issues.sh update_issues2.sh"
+          for file in $FORBIDDEN; do
+            if [ -f "$file" ]; then
+              echo "❌ Error: $file (one-off script) should not exist in root. Delete or move to scripts/."
+              exit 1
+            fi
+          done
+
+          # Check for zero-byte placeholder files
+          for file in 100 500; do
+            if [ -f "$file" ] && [ ! -s "$file" ]; then
+              echo "❌ Error: $file (zero-byte placeholder) should not exist."
+              exit 1
+            fi
+          done
+
           echo "✅ Root directory is clean"
 
   lint-backend:
