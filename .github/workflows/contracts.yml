@@ -5,10 +5,14 @@ on:
         branches: [main]
         paths:
             - "contracts/**"
+            - "sdk/src/generated/**"
+            - "shared/src/soroban-contract-interfaces.ts"
     pull_request:
         branches: [main]
         paths:
             - "contracts/**"
+            - "sdk/src/generated/**"
+            - "shared/src/soroban-contract-interfaces.ts"
 
 permissions:
     contents: read
@@ -64,6 +68,13 @@ jobs:
               env:
                   PROPTEST_CASES: "8"
 
+            - name: Upload WASM artifacts
+              uses: actions/upload-artifact@v7
+              with:
+                  name: contract-wasm
+                  path: contracts/target/wasm32-unknown-unknown/release/*.wasm
+                  retention-days: 1
+
             - name: Verify backend contract interface alignment
               working-directory: ..
               run: |
@@ -91,3 +102,118 @@ jobs:
                       echo "WARNING: Contract exceeds 64KB limit"
                     fi
                   done
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Issue #1300 — fail CI when committed bindings differ from a fresh
+    # generation against the current contract interfaces.
+    # ──────────────────────────────────────────────────────────────────────────
+    check-bindings-stale:
+        name: Check SDK bindings are not stale
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: "20"
+                  cache: "npm"
+                  cache-dependency-path: shared/package-lock.json
+
+            - name: Build shared package
+              run: |
+                  npm ci --ignore-scripts --prefix shared 2>/dev/null || npm install --ignore-scripts --prefix shared
+                  npm run build --prefix shared
+
+            - name: Check SDK bindings are up-to-date
+              run: |
+                  node sdk/scripts/generate-contract-bindings.cjs --check
+              # This step regenerates bindings in-memory and compares the hash
+              # to the hash stamped in the committed sdk/src/generated/contracts.ts.
+              # It exits non-zero (failing CI) when they differ.
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Issue #1300 — regenerate bindings from WASM when contracts change,
+    # and verify the committed files match.
+    # ──────────────────────────────────────────────────────────────────────────
+    regenerate-bindings-from-wasm:
+        name: Regenerate SDK bindings from WASM and verify
+        runs-on: ubuntu-latest
+        needs: build-contracts
+        timeout-minutes: 15
+
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: "20"
+
+            - name: Download WASM artifacts
+              uses: actions/download-artifact@v7
+              with:
+                  name: contract-wasm
+                  path: contracts/target/wasm32-unknown-unknown/release/
+
+            - name: Install SDK dependencies
+              run: npm ci --ignore-scripts --prefix sdk 2>/dev/null || npm install --ignore-scripts --prefix sdk
+
+            - name: Regenerate bindings from WASM
+              run: |
+                  node sdk/scripts/generate-contract-bindings.cjs \
+                    --wasm-dir contracts/target/wasm32-unknown-unknown/release
+
+            - name: Fail if committed bindings differ from WASM-generated ones
+              run: |
+                  if ! git diff --exit-code sdk/src/generated/; then
+                    echo ""
+                    echo "ERROR: The SDK bindings in sdk/src/generated/ are out of sync"
+                    echo "with the current WASM ABI.  Run:"
+                    echo ""
+                    echo "  node sdk/scripts/generate-contract-bindings.cjs --wasm-dir contracts/target/wasm32-unknown-unknown/release"
+                    echo ""
+                    echo "Commit the updated files before merging."
+                    exit 1
+                  fi
+                  echo "SDK bindings match WASM ABI."
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Issue #1300 — runtime version mismatch warning via CONTRACT_BINDINGS_VERSION
+    # ──────────────────────────────────────────────────────────────────────────
+    verify-version-stamp:
+        name: Verify CONTRACT_BINDINGS_VERSION is present in generated files
+        runs-on: ubuntu-latest
+        needs: check-bindings-stale
+
+        steps:
+            - uses: actions/checkout@v7
+
+            - name: Check version stamp exists
+              run: |
+                  if ! grep -q "CONTRACT_BINDINGS_VERSION" sdk/src/generated/contracts.ts; then
+                    echo "ERROR: CONTRACT_BINDINGS_VERSION constant missing from sdk/src/generated/contracts.ts"
+                    echo "Run: node sdk/scripts/generate-contract-bindings.cjs"
+                    exit 1
+                  fi
+                  echo "Version stamp present:"
+                  grep "CONTRACT_BINDINGS_VERSION" sdk/src/generated/contracts.ts
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Issue #1299 — fail CI when the API surface report diverges from index.ts
+    # ──────────────────────────────────────────────────────────────────────────
+    check-api-surface:
+        name: Check SDK API surface report
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: "20"
+
+            - name: Verify api-surface.md is up to date
+              run: node sdk/scripts/check-api-surface.cjs
+

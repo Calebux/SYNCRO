@@ -291,3 +291,65 @@ ${lines >= 80 && branches >= 75 && functions >= 85 && statements >= 80 ? '✅ Al
         with:
           name: shared-coverage-report
           path: shared/coverage/
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Issue #1304 — Integration suite against a local Soroban sandbox.
+  # Runs on: changes to contracts/, sdk/, or workflow_dispatch with full run.
+  # ──────────────────────────────────────────────────────────────────────────
+  sdk-integration:
+    name: SDK Integration Suite (Soroban Sandbox)
+    runs-on: ubuntu-latest
+    needs: changes
+    if: |
+      github.event.inputs.force_full_run == 'true' ||
+      contains(github.event.pull_request.labels.*.name, 'run-integration')
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: sdk
+    env:
+      SOROBAN_RPC_URL: http://localhost:8000/soroban/rpc
+      SOROBAN_NETWORK_PASSPHRASE: "Standalone Network ; February 2017"
+      INTEGRATION_API_KEY: ci-integration-key
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: sdk/package-lock.json
+
+      - name: Install Rust + wasm32 target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: contracts
+
+      - name: Install Stellar CLI
+        run: cargo install --locked stellar-cli --features opt
+
+      - name: Install SDK dependencies
+        working-directory: sdk
+        run: npm install
+
+      - name: Install shared dependencies and build
+        working-directory: shared
+        run: |
+          npm install
+          npm run build
+
+      - name: Run SDK integration suite (starts sandbox, deploys contracts, runs tests)
+        working-directory: sdk
+        run: npm run test:integration
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: sdk-integration-results
+          path: sdk/coverage/
