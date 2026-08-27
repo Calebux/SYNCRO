@@ -1,12 +1,9 @@
 import { Router, Response } from 'express';
 import { notificationDeadLetterService } from '../services/notification-dead-letter-service';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest } from '../middleware/auth';
 import logger from '../config/logger';
 
 const router: Router = Router();
-
-// All routes require authentication
-router.use(authenticate);
 
 /**
  * GET /api/notifications/dead-letter

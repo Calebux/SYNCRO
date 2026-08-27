@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { supabase } from '../config/database';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/rbac';
 import { validate } from '../middleware/validate';
 import { emailService } from '../services/email-service';
@@ -11,7 +11,6 @@ import { NotFoundError } from '../errors';
 
 const router: Router = Router();
 
-router.use(authenticate);
 
 // ---------------------------------------------------------------------------
 // Helpers

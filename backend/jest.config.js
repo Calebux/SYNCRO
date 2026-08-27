@@ -32,7 +32,6 @@ module.exports = {
         'src/**/*.ts',
         '!src/**/*.d.ts',
         '!src/types/**',
-        '!src/swagger.ts',
         '!src/**/*.example.ts',
     ],
     // Ratchet, not a target — see coverage-thresholds.json. Set at the measured

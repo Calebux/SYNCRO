@@ -1,12 +1,10 @@
 import { Router, Response } from 'express';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest } from '../middleware/auth';
 import logger from '../config/logger';
 import { stealthScanner } from '../services/stealth-scanner';
 import { emitSecurityEvent } from '../services/audit-service';
 
 const router = Router();
-
-router.use(authenticate);
 
 /**
  * POST /api/privacy/stealth/recover

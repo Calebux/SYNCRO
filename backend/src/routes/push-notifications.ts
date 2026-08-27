@@ -1,14 +1,12 @@
 import { Router, Request, Response } from 'express';
 import { supabase } from '../config/database';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import logger from '../config/logger';
 import { pushSubscribeSchema } from '../schemas/push-notification';
 import { enqueueNotification } from '../jobs/notification-queue';
 
 const router: Router = Router();
-
-router.use(authenticate);
 
 const subscribeSchema = z.object({
   endpoint: z.string().url(),

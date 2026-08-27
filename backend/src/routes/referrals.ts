@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { referralService } from '../services/referral-service';
 import logger from '../config/logger';
@@ -11,7 +11,7 @@ const router = Router();
  * GET /api/referrals/code
  * Returns the authenticated user's referral code (generates one if missing).
  */
-router.get('/code', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/code', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const code = await referralService.getOrCreateCode(req.user!.id);
     const link = `${process.env.FRONTEND_URL || 'https://syncro.app'}/ref/${code}`;
@@ -26,7 +26,7 @@ router.get('/code', authenticate, async (req: AuthenticatedRequest, res: Respons
  * GET /api/referrals/stats
  * Returns referral count, conversions, and rewards earned.
  */
-router.get('/stats', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/stats', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const stats = await referralService.getStats(req.user!.id);
     res.json(stats);

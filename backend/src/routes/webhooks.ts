@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { webhookService } from '../services/webhook-service';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/rbac';
 import { validate } from '../middleware/validate';
 import logger from '../config/logger';
@@ -9,8 +9,6 @@ import { uuidParamSchema } from '../schemas/common';
 
 const router: Router = Router();
 
-// All routes require authentication
-router.use(authenticate);
 
 /**
  * POST /api/webhooks

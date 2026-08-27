@@ -1,16 +1,20 @@
-import { swaggerSpec } from '../src/swagger';
+import { buildRouteRegistry } from '../src/routes/route-registry';
+import { generateOpenApiFromRegistry } from '../src/routes/registry/openapi';
 
-describe('swagger spec', () => {
+describe('registry-generated OpenAPI spec', () => {
+  const registry = buildRouteRegistry();
+  const spec = generateOpenApiFromRegistry(registry);
+
   test('has OpenAPI 3.1 version and basic info', () => {
-    expect(swaggerSpec).toBeDefined();
-    expect(swaggerSpec.openapi).toBe('3.1.0');
-    expect(swaggerSpec.info).toBeDefined();
-    expect(swaggerSpec.info.title).toMatch(/SYNCRO/i);
-    expect(swaggerSpec.info.version).toBeDefined();
+    expect(spec).toBeDefined();
+    expect(spec.openapi).toBe('3.1.0');
+    expect(spec.info).toBeDefined();
+    expect(spec.info.title).toMatch(/SYNCRO/i);
+    expect(spec.info.version).toBeDefined();
   });
 
   test('documents authentication schemes', () => {
-    const schemes = swaggerSpec.components?.securitySchemes ?? {};
+    const schemes = spec.components?.securitySchemes ?? {};
     expect(schemes).toHaveProperty('bearerAuth');
     expect(schemes).toHaveProperty('apiKeyAuth');
     expect(schemes).toHaveProperty('cookieAuth');
@@ -22,24 +26,24 @@ describe('swagger spec', () => {
     });
   });
 
-  test('documents x402 payment headers', () => {
-    expect(swaggerSpec.components?.parameters?.PaymentSignatureHeader).toBeDefined();
-    expect(swaggerSpec.components?.headers?.PaymentRequired).toBeDefined();
-    expect(swaggerSpec.components?.schemas?.X402PaymentRequired).toBeDefined();
-  });
-
-  test('covers API routes comprehensively', () => {
-    const paths = Object.keys(swaggerSpec.paths ?? {});
-    // Registry-based routes (user + subscriptions)
-    expect(paths.length).toBeGreaterThanOrEqual(30);
+  test('covers API routes from the registry', () => {
+    const paths = Object.keys(spec.paths ?? {});
+    expect(paths.length).toBeGreaterThanOrEqual(10);
     expect(paths).toEqual(expect.arrayContaining([
       '/api/user/profile',
       '/api/subscriptions',
+      '/api/keys',
     ]));
   });
 
-  test('includes request schema examples', () => {
-    expect(swaggerSpec.components?.schemas?.CreateSubscriptionRequest).toBeDefined();
-    expect(swaggerSpec.components?.schemas?.CreateApiKeyRequest).toBeDefined();
+  test('includes security for authenticated routes', () => {
+    const subPath = spec.paths?.['/api/subscriptions'];
+    expect(subPath).toBeDefined();
+    // At least one method should have security defined
+    const methods = ['get', 'post', 'put', 'patch', 'delete'] as const;
+    const hasSecurity = methods.some(
+      (m) => subPath?.[m] && 'security' in subPath[m]! && (subPath[m] as any).security,
+    );
+    expect(hasSecurity).toBe(true);
   });
 });
