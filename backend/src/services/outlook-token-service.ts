@@ -1,5 +1,6 @@
 import { encrypt, decrypt } from '../utils/encryption';
 import { supabase } from '../config/database';
+import { env } from '../config/env';
 import { ExternalServiceClient } from '../utils/external-service-client';
 import { SingleFlight } from '../utils/single-flight';
 
@@ -48,15 +49,15 @@ export class OutlookTokenService {
 
       const decryptedRefreshToken = decrypt(latestAccount.refresh_token);
 
-      const tenant = process.env.MICROSOFT_TENANT_ID ?? 'common';
+      const tenant = env.MICROSOFT_TENANT_ID ?? 'common';
       const data = await outlookClient.request<OutlookTokenResponse>(
         `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams({
-            client_id: process.env.MICROSOFT_CLIENT_ID ?? '',
-            client_secret: process.env.MICROSOFT_CLIENT_SECRET ?? '',
+            client_id: env.MICROSOFT_CLIENT_ID ?? '',
+            client_secret: env.MICROSOFT_CLIENT_SECRET ?? '',
             refresh_token: decryptedRefreshToken,
             grant_type: 'refresh_token',
           }).toString(),

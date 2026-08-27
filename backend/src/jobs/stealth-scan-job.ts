@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { supabase } from '../config/database';
 import { runWithCorrelationId } from '../middleware/requestContext';
 import { stealthScanner } from '../services/stealth-scanner';
@@ -9,7 +10,7 @@ import { stealthScanner } from '../services/stealth-scanner';
  * Runs every minute to meet the <1 minute detection SLA.
  */
 export function startStealthScanJob(): void {
-  if (process.env.STEALTH_SCANNER_ENABLED !== 'true') {
+  if (env.STEALTH_SCANNER_ENABLED !== 'true') {
     logger.info('Stealth scan job disabled (STEALTH_SCANNER_ENABLED != true)');
     return;
   }
