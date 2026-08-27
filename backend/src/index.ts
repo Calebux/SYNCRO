@@ -68,6 +68,14 @@ import { healthService } from './services/health-service';
 import { dependencyHealthService } from './services/dependency-health-service';
 import { eventListener } from './services/event-listener';
 import { expiryService } from './services/expiry-service';
+import { outboxPublisher } from './lib/outbox-publisher';
+import {
+  auditLogSubscriber,
+  riskScoreSubscriber,
+  reminderScheduleSubscriber,
+  analyticsInvalidationSubscriber,
+  digestUpdateSubscriber,
+} from './services/subscribers';
 import { authenticate } from './middleware/auth'
 import { adminAuth } from './middleware/admin';
 import { createAdminLimiter, RateLimiterFactory } from './middleware/rate-limit-factory';
@@ -625,6 +633,29 @@ const server = app.listen(PORT, async () => {
     logger.warn('Rate limiting initialization failed, using memory store:', error);
   }
 
+  outboxPublisher.register('subscription.created', auditLogSubscriber.handle.bind(auditLogSubscriber));
+  outboxPublisher.register('subscription.updated', auditLogSubscriber.handle.bind(auditLogSubscriber));
+  outboxPublisher.register('subscription.deleted', auditLogSubscriber.handle.bind(auditLogSubscriber));
+  outboxPublisher.register('subscription.cancelled', auditLogSubscriber.handle.bind(auditLogSubscriber));
+  outboxPublisher.register('subscription.created', riskScoreSubscriber.handle.bind(riskScoreSubscriber));
+  outboxPublisher.register('renewal.succeeded', riskScoreSubscriber.handle.bind(riskScoreSubscriber));
+  outboxPublisher.register('renewal.failed', riskScoreSubscriber.handle.bind(riskScoreSubscriber));
+  outboxPublisher.register('payment.failed', riskScoreSubscriber.handle.bind(riskScoreSubscriber));
+  outboxPublisher.register('subscription.created', reminderScheduleSubscriber.handle.bind(reminderScheduleSubscriber));
+  outboxPublisher.register('subscription.restored', reminderScheduleSubscriber.handle.bind(reminderScheduleSubscriber));
+  outboxPublisher.register('subscription.updated', reminderScheduleSubscriber.handle.bind(reminderScheduleSubscriber));
+  outboxPublisher.register('subscription.deleted', reminderScheduleSubscriber.handle.bind(reminderScheduleSubscriber));
+  outboxPublisher.register('subscription.cancelled', reminderScheduleSubscriber.handle.bind(reminderScheduleSubscriber));
+  outboxPublisher.register('subscription.created', analyticsInvalidationSubscriber.handle.bind(analyticsInvalidationSubscriber));
+  outboxPublisher.register('subscription.updated', analyticsInvalidationSubscriber.handle.bind(analyticsInvalidationSubscriber));
+  outboxPublisher.register('subscription.deleted', analyticsInvalidationSubscriber.handle.bind(analyticsInvalidationSubscriber));
+  outboxPublisher.register('subscription.cancelled', analyticsInvalidationSubscriber.handle.bind(analyticsInvalidationSubscriber));
+  outboxPublisher.register('subscription.created', digestUpdateSubscriber.handle.bind(digestUpdateSubscriber));
+  outboxPublisher.register('subscription.updated', digestUpdateSubscriber.handle.bind(digestUpdateSubscriber));
+  outboxPublisher.register('subscription.deleted', digestUpdateSubscriber.handle.bind(digestUpdateSubscriber));
+  outboxPublisher.register('subscription.cancelled', digestUpdateSubscriber.handle.bind(digestUpdateSubscriber));
+  outboxPublisher.start();
+
   startHealthSnapshotInterval();
   await eventListener.start();
   const elHealth = eventListener.getHealth();
@@ -659,5 +690,6 @@ registerGracefulShutdown(server, {
   },
   stopEventListener: () => eventListener.stop(),
   stopTelegram: () => telegramCommandService.stop(),
+  stopOutboxPublisher: () => outboxPublisher.stop(),
   clearHealthSnapshotInterval,
 });
