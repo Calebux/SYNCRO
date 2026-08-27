@@ -374,6 +374,9 @@ impl SubscriptionRenewalContract {
 
     /// Set the logging contract address. Admin only.
     pub fn set_logging_contract(env: Env, address: Address) {
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
         Self::require_admin(&env);
         env.storage()
             .instance()
@@ -382,6 +385,9 @@ impl SubscriptionRenewalContract {
 
     /// Set the token (asset) contract used to move funds into/out of escrow. Admin only.
        pub fn set_token_contract(env: Env, address: Address) {
+           if Self::is_paused(env.clone()) {
+               panic!("Protocol is paused");
+           }
            Self::require_admin(&env);
            env.storage()
                .instance()
@@ -1036,6 +1042,9 @@ impl SubscriptionRenewalContract {
        /// for that subscription may call this. Transfers the full escrowed amount
        /// from the contract's custody to the merchant and zeroes the balance.
        pub fn claim_escrow(env: Env, sub_id: u64) -> i128 {
+           if Self::is_paused(env.clone()) {
+               panic!("Protocol is paused");
+           }
            let key = PersistentKey::Subscription(sub_id);
            let data: SubscriptionData = env
                .storage()
@@ -1086,6 +1095,9 @@ impl SubscriptionRenewalContract {
 
     /// Set a billing window for a subscription. Admin only.
     pub fn set_window(env: Env, sub_id: u64, billing_start: u64, billing_end: u64) {
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
         Self::require_admin(&env);
         if billing_start >= billing_end {
             panic!("Invalid window: start must be before end");
@@ -1112,6 +1124,9 @@ impl SubscriptionRenewalContract {
 
     /// Set global spending cap for a user. Admin only.
     pub fn set_user_cap(env: Env, user: Address, cap: i128) {
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
         Self::require_admin(&env);
         env.storage()
             .persistent()
@@ -1141,6 +1156,9 @@ impl SubscriptionRenewalContract {
     /// `threshold` is denominated in stroops (1 XLM = 10_000_000 stroops).
     /// Renewals exceeding this amount require multi-sig approval.
     pub fn set_team_threshold(env: Env, team_id: u64, threshold: i128) {
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
         Self::require_admin(&env);
         if threshold < 0 {
             panic!("Threshold must be non-negative");
@@ -1168,6 +1186,9 @@ impl SubscriptionRenewalContract {
     /// Set the signing window duration for a team. Admin only.
     /// `window_secs` is the number of seconds signers have to co-sign.
     pub fn set_signing_window(env: Env, team_id: u64, window_secs: u64) {
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
         Self::require_admin(&env);
         if window_secs == 0 {
             panic!("Signing window must be positive");
@@ -1269,6 +1290,9 @@ impl SubscriptionRenewalContract {
         request_id: u64,
         signer: Address,
     ) {
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
         signer.require_auth();
 
         let ms_key = PersistentKey::MultiSig(sub_id, request_id);
@@ -1378,6 +1402,9 @@ impl SubscriptionRenewalContract {
 
     /// Cancel a pending multi-sig renewal request. Admin only.
     pub fn cancel_multisig_renewal(env: Env, sub_id: u64, request_id: u64) {
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
         Self::require_admin(&env);
 
         let ms_key = PersistentKey::MultiSig(sub_id, request_id);
@@ -1423,6 +1450,9 @@ impl SubscriptionRenewalContract {
     /// Expire a multi-sig request if its signing window has elapsed.
     /// Can be called by anyone (e.g., a cron job) to garbage-collect stale requests.
     pub fn expire_multisig_renewal(env: Env, sub_id: u64, request_id: u64) {
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
         let ms_key = PersistentKey::MultiSig(sub_id, request_id);
 
         let mut request: MultiSigRequest = env

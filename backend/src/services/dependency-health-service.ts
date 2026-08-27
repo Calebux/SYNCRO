@@ -345,30 +345,18 @@ export class DependencyHealthService {
   }
 
   /**
-   * Determine readiness based on critical dependencies
-   * Ready = critical deps healthy (database, redis, rpc_horizon, fx_provider)
-   * Degraded = one critical dep unhealthy
-   * Not ready = multiple critical deps unhealthy
+   * Determine readiness based on critical dependencies.
+   *
+   * Critical dependencies are hard dependencies the service cannot function
+   * without: `database`, `redis`, `rpc_horizon`, `fx_provider`. The service
+   * only reports `ready` when every critical dependency is `healthy`; any
+   * critical dependency that is `degraded` or `unhealthy` flips the service to
+   * `not_ready` so the readiness probe never returns 200 for a service whose
+   * hard dependencies are down.
    */
   async getReadiness(): Promise<ReadinessStatus> {
     const dependencies = await this.checkAllDependencies();
-    
-    const critical = ['database', 'redis', 'rpc_horizon', 'fx_provider'];
-    const criticalChecks = dependencies.filter(d => critical.includes(d.name));
-    const unhealthy = criticalChecks.filter(d => d.status === 'unhealthy');
-
-    let status: 'ready' | 'not_ready' = 'ready';
-    let message = 'All critical dependencies healthy';
-
-    if (unhealthy.length > 0) {
-      status = 'not_ready';
-      message = `Critical dependencies unhealthy: ${unhealthy.map(d => d.name).join(', ')}`;
-    } else {
-      const degraded = dependencies.filter(d => d.status === 'degraded');
-      if (degraded.length > 0) {
-        message = `Some dependencies degraded: ${degraded.map(d => d.name).join(', ')}`;
-      }
-    }
+    const { status, message } = computeReadiness(dependencies);
 
     return {
       status,
@@ -389,6 +377,44 @@ export class DependencyHealthService {
       uptime_ms: Date.now() - this.startTime,
     };
   }
+}
+
+/**
+ * Pure readiness decision: given the dependency statuses, decide whether the
+ * service is ready to accept traffic.
+ *
+ * Readiness fails (`not_ready`) when any critical dependency is not `healthy`
+ * (i.e. `degraded` or `unhealthy`). Non-critical dependencies may be degraded
+ * without failing readiness.
+ *
+ * Critical dependencies (hard dependencies): database, redis, rpc_horizon,
+ * fx_provider.
+ */
+export function computeReadiness(
+  dependencies: DependencyStatus[],
+  criticalNames: readonly string[] = ['database', 'redis', 'rpc_horizon', 'fx_provider'],
+): { status: 'ready' | 'not_ready'; message: string } {
+  const critical = dependencies.filter((d) => criticalNames.includes(d.name));
+  const unavailable = critical.filter((d) => d.status !== 'healthy');
+
+  if (unavailable.length > 0) {
+    return {
+      status: 'not_ready',
+      message: `Critical dependencies unavailable: ${unavailable
+        .map((d) => `${d.name} (${d.status})`)
+        .join(', ')}`,
+    };
+  }
+
+  const degraded = dependencies.filter((d) => d.status === 'degraded');
+  if (degraded.length > 0) {
+    return {
+      status: 'ready',
+      message: `Some dependencies degraded: ${degraded.map((d) => d.name).join(', ')}`,
+    };
+  }
+
+  return { status: 'ready', message: 'All critical dependencies healthy' };
 }
 
 export const dependencyHealthService = new DependencyHealthService();
