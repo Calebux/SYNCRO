@@ -25,6 +25,14 @@ pub enum Scope {
     Approvals = 4,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AgentRecord {
+    pub scopes: u32,
+    pub registered_at: u64,
+    pub active: bool,
+}
+
 
 
 #[contracttype]
@@ -139,19 +147,16 @@ impl AgentRegistry {
     }
 
 
-    /// Register a new agent. Admin only.
-    pub fn register(env: Env, agent: Address) -> Result<(), Error> {
+    /// Register a new agent with the provided scope mask. Admin only.
+    pub fn register(env: Env, agent: Address, initial_scopes: u32) -> Result<(), Error> {
         Self::require_admin(&env)?;
 
-        // Store an explicit u32 scope mask (initially empty). The previous
-        // implementation stored a `bool` here, which is a different type than
-        // the `u32` read by `has_scope`/`update_scopes` — reading it back as a
-        // u32 would panic on the type mismatch. Initialising to 0 keeps the
-        // stored type consistent and means a freshly registered agent has no
-        // scopes until `update_scopes` grants them.
-        env.storage()
-            .persistent()
-            .set(&DataKey::Agent(agent.clone()), &0u32);
+        let record = AgentRecord {
+            scopes: initial_scopes,
+            registered_at: env.ledger().timestamp(),
+            active: true,
+        };
+        env.storage().persistent().set(&DataKey::Agent(agent.clone()), &record);
 
         env.events()
             .publish((symbol_short!("agent"), symbol_short!("reg")), agent);
@@ -166,13 +171,20 @@ impl AgentRegistry {
     ) -> Result<(), Error> {
         Self::require_admin(&env)?;
 
-        if !env.storage().persistent().has(&DataKey::Agent(agent.clone())) {
+        let mut record: AgentRecord = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Agent(agent.clone()))
+            .ok_or(Error::Unauthorized)?;
+        if !record.active {
             return Err(Error::Unauthorized);
         }
 
+        record.scopes = scopes;
+
         env.storage()
             .persistent()
-            .set(&DataKey::Agent(agent.clone()), &scopes);
+            .set(&DataKey::Agent(agent.clone()), &record);
 
         env.events().publish(
             (symbol_short!("agent"), symbol_short!("scopes")),
@@ -187,9 +199,13 @@ impl AgentRegistry {
     pub fn revoke_agent(env: Env, agent: Address) -> Result<(), Error> {
         Self::require_admin(&env)?;
 
-        env.storage()
+        let mut record: AgentRecord = env
+            .storage()
             .persistent()
-            .remove(&DataKey::Agent(agent.clone()));
+            .get(&DataKey::Agent(agent.clone()))
+            .ok_or(Error::Unauthorized)?;
+        record.active = false;
+        env.storage().persistent().set(&DataKey::Agent(agent.clone()), &record);
 
         env.events().publish(
             (symbol_short!("agent"), symbol_short!("revoke")),
@@ -201,7 +217,11 @@ impl AgentRegistry {
 
     /// Check if an agent is authorized.
     pub fn is_authorized(env: Env, agent: Address) -> bool {
-        env.storage().persistent().has(&DataKey::Agent(agent))
+        env.storage()
+            .persistent()
+            .get::<_, AgentRecord>(&DataKey::Agent(agent))
+            .map(|record| record.active)
+            .unwrap_or(false)
     }
 
     /// Panic if an agent is not authorized.
@@ -211,13 +231,13 @@ impl AgentRegistry {
         }
     }
 
-       pub fn has_scope(env: Env, agent: Address, scope: Scope) -> bool {
+    pub fn has_scope(env: Env, agent: Address, scope: Scope) -> bool {
         match env
             .storage()
             .persistent()
-            .get::<_, u32>(&DataKey::Agent(agent))
+            .get::<_, AgentRecord>(&DataKey::Agent(agent))
         {
-            Some(mask) => (mask & scope as u32) != 0,
+            Some(record) => record.active && (record.scopes & scope as u32) != 0,
             None => false,
         }
     }

@@ -22,12 +22,13 @@ fn test_registration_and_revocation() {
     assert!(!client.is_authorized(&agent));
 
     // Register
-    client.register(&agent);
+    client.register(&agent, &0);
     assert!(client.is_authorized(&agent));
 
     // Revoke
     client.revoke_agent(&agent);
     assert!(!client.is_authorized(&agent));
+    assert!(!client.has_scope(&agent, &Scope::Renewals));
 }
 
 #[test]
@@ -85,7 +86,7 @@ fn test_register_then_grant_and_check_scopes() {
     let agent = Address::generate(&env);
 
     client.init(&admin);
-    client.register(&agent);
+    client.register(&agent, &0);
 
     // A freshly registered agent starts with NO scopes. This exercises the fix
     // for the previous type mismatch (register stored a bool, has_scope read a
@@ -132,7 +133,7 @@ fn test_require_scope_succeeds_with_scope() {
     let agent = Address::generate(&env);
 
     client.init(&admin);
-    client.register(&agent);
+    client.register(&agent, &0);
     client.update_scopes(&agent, &(Scope::GiftCards as u32));
 
     // Should not panic.
@@ -152,7 +153,7 @@ fn test_require_scope_panics_without_scope() {
     let agent = Address::generate(&env);
 
     client.init(&admin);
-    client.register(&agent);
+    client.register(&agent, &0);
     // Grant only Renewals, then demand GiftCards.
     client.update_scopes(&agent, &(Scope::Renewals as u32));
 
@@ -237,6 +238,6 @@ fn test_new_admin_can_administer_after_transfer() {
     client.accept_admin();
 
     // The new admin can perform privileged operations.
-    client.register(&agent);
+    client.register(&agent, &0);
     assert!(client.is_authorized(&agent));
 }
