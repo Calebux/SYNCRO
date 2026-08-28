@@ -40,6 +40,7 @@ This index catalogs all documentation in the SYNCRO repository, organized by cat
 
 ### Architecture & Design
 - [adr/](adr/) - Architecture Decision Records
+- [DOMAIN_GLOSSARY_AND_DATA_MODEL.md](DOMAIN_GLOSSARY_AND_DATA_MODEL.md) - Canonical Domain Glossary & Data Model Specification
 - [shared-business-logic.md](shared-business-logic.md) - Shared logic documentation
 - [blockchain-feature-flags.md](blockchain-feature-flags.md) - Feature flag system
 

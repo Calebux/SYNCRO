@@ -6,7 +6,7 @@ import { sha256 } from "@noble/hashes/sha256";
  * Stealth meta-address containing the recipient's view and spend public keys
  * (secp256k1, compressed hex, 66 chars each).
  */
-export interface StealthMetaAddress {
+export interface StealthMetaAddressInput {
   viewPublicKey: string;
   spendPublicKey: string;
 }
@@ -38,7 +38,7 @@ export interface EphemeralStealthResult {
  * @returns { ephemeralPubkey, stealthAddress } — both as compressed-point hex strings.
  */
 export function deriveEphemeralStealthAddress(
-  metaAddress: StealthMetaAddress,
+  metaAddress: StealthMetaAddressInput,
   entropy: string,
 ): EphemeralStealthResult {
   const n = secp256k1.CURVE.n;
@@ -121,25 +121,3 @@ export function detectStealthDestination(
   return bytesToHex(P.toRawBytes(true));
 }
 
-/**
- * Recipient-side stealth detection: given ephemeral pubkey R from a tx memo,
- * derive the one-time destination P = spend_pubkey + hash(view_privkey * R)*G.
- */
-export function detectStealthDestination(
-  viewPrivateKeyHex: string,
-  spendPublicKeyHex: string,
-  ephemeralPubkeyHex: string,
-): string {
-  const n = secp256k1.CURVE.n;
-  const viewScalar = BigInt("0x" + viewPrivateKeyHex) % n;
-  if (viewScalar === 0n) throw new Error("Invalid view private key");
-
-  const R = secp256k1.ProjectivePoint.fromHex(ephemeralPubkeyHex);
-  const S = R.multiply(viewScalar);
-  const h = BigInt("0x" + bytesToHex(sha256(S.toRawBytes(true)))) % n;
-
-  const spendPoint = secp256k1.ProjectivePoint.fromHex(spendPublicKeyHex);
-  const P = spendPoint.add(secp256k1.ProjectivePoint.BASE.multiply(h));
-
-  return bytesToHex(P.toRawBytes(true));
-}
