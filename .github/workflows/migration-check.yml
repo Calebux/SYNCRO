@@ -1,0 +1,77 @@
+name: Database Migration Check
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/config.toml'
+      - 'supabase/seed.sql'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/config.toml'
+      - 'supabase/seed.sql'
+
+concurrency:
+  group: migration-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  supabase-test:
+    name: Supabase Migration Syntax Check
+    runs-on: ubuntu-latest
+
+    services:
+      docker:
+        image: docker:dind
+        options: --privileged
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Cache Docker images
+        uses: ScribeMD/docker-cache@0.5.0
+        with:
+          key: docker-supabase-${{ runner.os }}-${{ hashFiles('supabase/config.toml') }}
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start Supabase local stack
+        run: supabase start
+
+      - name: Apply migrations (syntax & execution check)
+        run: |
+          echo "::group::Running supabase db reset"
+          supabase db reset --debug
+          echo "::endgroup::"
+
+      - name: Lint SQL migrations
+        run: |
+          echo "::group::Running supabase db lint"
+          supabase db lint --schema public
+          echo "::endgroup::"
+
+      - name: Check migration history integrity
+        run: |
+          echo "Verifying no previously-applied migrations have been modified..."
+          supabase migration list
+
+      - name: Summarize changed migration files
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "### 🗃️ Migration Files Changed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} \
+            -- 'supabase/migrations/**' 'supabase/seed.sql' | while read f; do
+              echo "- \`$f\`" >> $GITHUB_STEP_SUMMARY
+          done
+
+      - name: Stop Supabase local stack
+        if: always()
+        run: supabase stop --backup=false

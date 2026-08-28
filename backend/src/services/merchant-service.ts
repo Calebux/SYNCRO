@@ -3,14 +3,34 @@ import logger from '../config/logger';
 import type { Merchant, MerchantCreateInput, MerchantUpdateInput } from '../types/merchant';
 
 export class MerchantService {
+    private async discoverMetadata(name: string): Promise<{ cancellation_url: string | null }> {
+        // Implement a heuristic-based discovery for cancellation URLs.
+        // E.g. Netflix -> netflix.com/cancel
+        try {
+            const normalized = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (normalized.length > 0) {
+                return { cancellation_url: `https://www.${normalized}.com/cancel` };
+            }
+        } catch (e) {
+            logger.warn(`Failed to discover metadata for ${name}:`, e);
+        }
+        return { cancellation_url: null };
+    }
+
     async createMerchant(input: MerchantCreateInput): Promise<Merchant> {
+        let cancellation_url = input.cancellation_url;
+        if (!cancellation_url) {
+            const discovered = await this.discoverMetadata(input.name);
+            cancellation_url = discovered.cancellation_url;
+        }
+
         const { data: merchant, error } = await supabase
             .from('merchants')
             .insert({
                 name: input.name,
                 logo_url: input.logo_url || null,
                 category: input.category || null,
-                cancellation_url: input.cancellation_url || null,
+                cancellation_url: cancellation_url || null,
                 gift_card_supported: input.gift_card_supported || false,
             })
             .select()
