@@ -8,7 +8,8 @@ use soroban_sdk::{
 };
 
 use super::{
-    ContractError, SubscriptionRenewalContract, SubscriptionRenewalContractClient, SubscriptionState,
+    ContractError, SubscriptionRenewalContract, SubscriptionRenewalContractClient,
+    SubscriptionState,
 };
 
 fn fuzz_env() -> Env {
@@ -68,7 +69,7 @@ proptest! {
 
         client.init_sub(&user, &merchant, &amount, &86400u64, &spending_cap, &sub_id);
         client.approve_renewal(&sub_id, &1u64, &renew_amount, &10_000u32).unwrap();
-        client.acquire_renewal_lock(&sub_id, &200u32).unwrap();
+        client.acquire_renewal_lock(&sub_id, &200u32, &admin).unwrap();
 
         let exceeds_cap = spending_cap > 0 && renew_amount > spending_cap;
 
@@ -111,7 +112,7 @@ proptest! {
         client.init_sub(&user, &merchant, &100i128, &86400u64, &0i128, &sub_b);
 
         client.approve_renewal(&sub_a, &1u64, &first_amount, &10_000u32).unwrap();
-        client.acquire_renewal_lock(&sub_a, &200u32).unwrap();
+        client.acquire_renewal_lock(&sub_a, &200u32, &admin).unwrap();
         if first_amount <= cap {
             let _ = client.renew(&sub_a, &1u64, &first_amount, &3u32, &10u32, &20260101u64, &true);
         }
@@ -120,7 +121,7 @@ proptest! {
         let remaining = cap.saturating_sub(spent);
 
         client.approve_renewal(&sub_b, &1u64, &second_amount, &10_000u32).unwrap();
-        client.acquire_renewal_lock(&sub_b, &200u32).unwrap();
+        client.acquire_renewal_lock(&sub_b, &200u32, &admin).unwrap();
 
         if second_amount > remaining {
             let result = client.try_renew(
@@ -166,10 +167,10 @@ proptest! {
         client.init_sub(&user, &merchant, &amount, &86400u64, &0i128, &sub_id);
         client.approve_renewal(&sub_id, &1u64, &approval_max, &10_000u32).unwrap();
 
-        client.acquire_renewal_lock(&sub_id, &200u32).unwrap();
+        client.acquire_renewal_lock(&sub_id, &200u32, &admin).unwrap();
         let _ = client.renew(&sub_id, &1u64, &renew_amount, &3u32, &10u32, &20260101u64, &true);
 
-        client.acquire_renewal_lock(&sub_id, &200u32).unwrap();
+        client.acquire_renewal_lock(&sub_id, &200u32, &admin).unwrap();
         let result = client.try_renew(
             &sub_id, &1u64, &renew_amount, &3u32, &10u32, &20260201u64, &true,
         );

@@ -113,18 +113,38 @@ fn test_different_services_independent_nullifiers() {
     let blinding_factor = BytesN::from_array(&env, &[42u8; 32]);
 
     let commitment_a = commitment::compute_commitment(
-        &env, &user_id, &service_a, amount, timestamp, &blinding_factor,
+        &env,
+        &user_id,
+        &service_a,
+        amount,
+        timestamp,
+        &blinding_factor,
     );
     let commitment_b = commitment::compute_commitment(
-        &env, &user_id, &service_b, amount, timestamp, &blinding_factor,
+        &env,
+        &user_id,
+        &service_b,
+        amount,
+        timestamp,
+        &blinding_factor,
     );
 
     // Both should succeed — different services produce different nullifiers
     assert!(client.verify_and_record(
-        &user_id, &service_a, &amount, &timestamp, &blinding_factor, &commitment_a,
+        &user_id,
+        &service_a,
+        &amount,
+        &timestamp,
+        &blinding_factor,
+        &commitment_a,
     ));
     assert!(client.verify_and_record(
-        &user_id, &service_b, &amount, &timestamp, &blinding_factor, &commitment_b,
+        &user_id,
+        &service_b,
+        &amount,
+        &timestamp,
+        &blinding_factor,
+        &commitment_b,
     ));
 }
 
@@ -143,10 +163,20 @@ fn test_is_nullifier_used() {
 
     let user_id = Bytes::from_slice(&env, b"user_alice");
     let expected = commitment::compute_commitment(
-        &env, &user_id, &service_id, 1500u128, 1700000000u64, &blinding_factor,
+        &env,
+        &user_id,
+        &service_id,
+        1500u128,
+        1700000000u64,
+        &blinding_factor,
     );
     client.verify_and_record(
-        &user_id, &service_id, &1500u128, &1700000000u64, &blinding_factor, &expected,
+        &user_id,
+        &service_id,
+        &1500u128,
+        &1700000000u64,
+        &blinding_factor,
+        &expected,
     );
 
     assert!(client.is_nullifier_used(&nullifier));

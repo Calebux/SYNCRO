@@ -1,8 +1,8 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype,
-    panic_with_error, token, Address, Env, String,
+    contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,
+    Address, Env, String,
 };
 
 // ── Storage keys ──────────────────────────────────────────────────────────────
@@ -633,7 +633,14 @@ mod test {
         Symbol, Val,
     };
 
-    fn setup() -> (Env, Address, Address, Address, Address, TokenClient<'static>) {
+    fn setup() -> (
+        Env,
+        Address,
+        Address,
+        Address,
+        Address,
+        TokenClient<'static>,
+    ) {
         let env = Env::default();
         env.mock_all_auths();
 
@@ -669,7 +676,13 @@ mod test {
         let desc = String::from_str(&env, "Enterprise SaaS subscription");
 
         let id = escrow.create_escrow(
-            &payer, &payee, &arbiter, &token, &1_000_000_000i128, &expiry, &desc,
+            &payer,
+            &payee,
+            &arbiter,
+            &token,
+            &1_000_000_000i128,
+            &expiry,
+            &desc,
         );
         assert_eq!(id, 1);
 
@@ -707,7 +720,13 @@ mod test {
         let desc = String::from_str(&env, "Test");
 
         let id = escrow.create_escrow(
-            &payer, &payee, &arbiter, &token, &1_000_000_000i128, &expiry, &desc,
+            &payer,
+            &payee,
+            &arbiter,
+            &token,
+            &1_000_000_000i128,
+            &expiry,
+            &desc,
         );
         escrow.deposit(&id);
 
@@ -726,7 +745,13 @@ mod test {
         let desc = String::from_str(&env, "Test");
 
         let id = escrow.create_escrow(
-            &payer, &payee, &arbiter, &token, &500_000_000i128, &expiry, &desc,
+            &payer,
+            &payee,
+            &arbiter,
+            &token,
+            &500_000_000i128,
+            &expiry,
+            &desc,
         );
         escrow.deposit(&id);
 
@@ -750,7 +775,13 @@ mod test {
         let desc = String::from_str(&env, "Test");
 
         let id = escrow.create_escrow(
-            &payer, &payee, &arbiter, &token, &500_000_000i128, &expiry, &desc,
+            &payer,
+            &payee,
+            &arbiter,
+            &token,
+            &500_000_000i128,
+            &expiry,
+            &desc,
         );
         escrow.deposit(&id);
         escrow.approve_release(&id);
@@ -771,7 +802,13 @@ mod test {
         let desc = String::from_str(&env, "Test");
 
         let id = escrow.create_escrow(
-            &payer, &payee, &arbiter, &token, &500_000_000i128, &expiry, &desc,
+            &payer,
+            &payee,
+            &arbiter,
+            &token,
+            &500_000_000i128,
+            &expiry,
+            &desc,
         );
         escrow.deposit(&id);
         escrow.approve_release(&id);
@@ -798,7 +835,13 @@ mod test {
 
         // Arbiter same as payee — should panic
         escrow.create_escrow(
-            &payer, &payee, &payee, &token, &1_000_000_000i128, &expiry, &desc,
+            &payer,
+            &payee,
+            &payee,
+            &token,
+            &1_000_000_000i128,
+            &expiry,
+            &desc,
         );
     }
 
@@ -815,7 +858,13 @@ mod test {
 
         // Payer same as payee — should panic
         escrow.create_escrow(
-            &payer, &payer, &arbiter, &token, &1_000_000_000i128, &expiry, &desc,
+            &payer,
+            &payer,
+            &arbiter,
+            &token,
+            &1_000_000_000i128,
+            &expiry,
+            &desc,
         );
     }
 
@@ -830,7 +879,13 @@ mod test {
         let desc = String::from_str(&env, "Test");
 
         let id = escrow.create_escrow(
-            &payer, &payee, &arbiter, &token, &1_000_000_000i128, &expiry, &desc,
+            &payer,
+            &payee,
+            &arbiter,
+            &token,
+            &1_000_000_000i128,
+            &expiry,
+            &desc,
         );
         escrow.deposit(&id);
         escrow.raise_dispute(&id, &payer);
@@ -855,7 +910,13 @@ mod test {
         let desc = String::from_str(&env, "Test");
 
         let id = escrow.create_escrow(
-            &payer, &payee, &arbiter, &token, &1_000_000_000i128, &expiry, &desc,
+            &payer,
+            &payee,
+            &arbiter,
+            &token,
+            &1_000_000_000i128,
+            &expiry,
+            &desc,
         );
         escrow.deposit(&id);
         escrow.raise_dispute(&id, &payee);
@@ -877,18 +938,28 @@ mod test {
         let desc = String::from_str(&env, "Test");
 
         let id = escrow.create_escrow(
-            &payer, &payee, &arbiter, &token, &1_000_000_000i128, &expiry, &desc,
+            &payer,
+            &payee,
+            &arbiter,
+            &token,
+            &1_000_000_000i128,
+            &expiry,
+            &desc,
         );
 
         // Check payer balance before deposit
         let payer_balance_before = token_client.balance(&payer);
-        let contract_balance_before = token_client.balance(&env.register_contract(None, EscrowContract));
+        let contract_balance_before =
+            token_client.balance(&env.register_contract(None, EscrowContract));
 
         escrow.deposit(&id);
 
         // Funds have moved from payer to contract
         let payer_balance_after = token_client.balance(&payer);
-        assert_eq!(payer_balance_after, payer_balance_before - 1_000_000_000i128);
+        assert_eq!(
+            payer_balance_after,
+            payer_balance_before - 1_000_000_000i128
+        );
 
         // Without arbiter approval, payee cannot release
         // (tested by test_release_without_arbiter_approval_fails above)
@@ -912,9 +983,7 @@ mod test {
         let desc = String::from_str(&env, "Test");
         let amount = 1_000_000_000i128;
 
-        let id = escrow.create_escrow(
-            &payer, &payee, &arbiter, &token, &amount, &expiry, &desc,
-        );
+        let id = escrow.create_escrow(&payer, &payee, &arbiter, &token, &amount, &expiry, &desc);
         escrow.deposit(&id);
         escrow.raise_dispute(&id, &payer);
 
@@ -946,9 +1015,7 @@ mod test {
         let desc = String::from_str(&env, "Test");
         let amount = 1_000_000_000i128;
 
-        let id = escrow.create_escrow(
-            &payer, &payee, &arbiter, &token, &amount, &expiry, &desc,
-        );
+        let id = escrow.create_escrow(&payer, &payee, &arbiter, &token, &amount, &expiry, &desc);
         escrow.deposit(&id);
         escrow.raise_dispute(&id, &payee);
 
@@ -980,9 +1047,7 @@ mod test {
         let desc = String::from_str(&env, "Test");
         let amount = 1_000_000_000i128;
 
-        let id = escrow.create_escrow(
-            &payer, &payee, &arbiter, &token, &amount, &expiry, &desc,
-        );
+        let id = escrow.create_escrow(&payer, &payee, &arbiter, &token, &amount, &expiry, &desc);
         escrow.deposit(&id);
         escrow.raise_dispute(&id, &payer);
 
@@ -1011,9 +1076,7 @@ mod test {
         let desc = String::from_str(&env, "Test");
         let amount = 1_000_000_000i128;
 
-        let id = escrow.create_escrow(
-            &payer, &payee, &arbiter, &token, &amount, &expiry, &desc,
-        );
+        let id = escrow.create_escrow(&payer, &payee, &arbiter, &token, &amount, &expiry, &desc);
         escrow.deposit(&id);
         escrow.raise_dispute(&id, &payee);
 
@@ -1043,7 +1106,13 @@ mod test {
         let desc = String::from_str(&env, "Test");
 
         let id = escrow.create_escrow(
-            &payer, &payee, &arbiter, &token, &1_000_000_000i128, &expiry, &desc,
+            &payer,
+            &payee,
+            &arbiter,
+            &token,
+            &1_000_000_000i128,
+            &expiry,
+            &desc,
         );
         escrow.deposit(&id);
         escrow.raise_dispute(&id, &payer);
@@ -1063,9 +1132,7 @@ mod test {
         let desc = String::from_str(&env, "Test");
         let amount = 999_999i128; // Odd amount that doesn't divide evenly
 
-        let id = escrow.create_escrow(
-            &payer, &payee, &arbiter, &token, &amount, &expiry, &desc,
-        );
+        let id = escrow.create_escrow(&payer, &payee, &arbiter, &token, &amount, &expiry, &desc);
         escrow.deposit(&id);
         escrow.raise_dispute(&id, &payer);
 
@@ -1083,7 +1150,7 @@ mod test {
 
         // Verify total conservation
         assert_eq!(payee_received + payer_received, amount);
-        
+
         // Verify payee got approximately 33.33%
         // (999,999 * 3333) / 10000 = 333,299 (integer division)
         assert_eq!(payee_received, 333_299i128);
@@ -1101,9 +1168,7 @@ mod test {
         let desc = String::from_str(&env, "Test");
         let amount = 987_654_321i128;
 
-        let id = escrow.create_escrow(
-            &payer, &payee, &arbiter, &token, &amount, &expiry, &desc,
-        );
+        let id = escrow.create_escrow(&payer, &payee, &arbiter, &token, &amount, &expiry, &desc);
         escrow.deposit(&id);
         escrow.raise_dispute(&id, &payer);
 

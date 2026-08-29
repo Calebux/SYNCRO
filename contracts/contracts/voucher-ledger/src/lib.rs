@@ -113,7 +113,11 @@ impl VoucherLedgerContract {
         if face_value <= 0 {
             return Err(VoucherError::InvalidAmount);
         }
-        if env.storage().persistent().has(&DataKey::VoucherCode(code_hash.clone())) {
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::VoucherCode(code_hash.clone()))
+        {
             return Err(VoucherError::DuplicateVoucher);
         }
 

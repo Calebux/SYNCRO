@@ -9,7 +9,14 @@ use soroban_sdk::{
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
-fn setup() -> (Env, Address, Address, Address, Address, TokenClient<'static>) {
+fn setup() -> (
+    Env,
+    Address,
+    Address,
+    Address,
+    Address,
+    TokenClient<'static>,
+) {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -44,14 +51,10 @@ fn happy_path_open_close_and_top_up() {
     let deposit = 100i128;
     let depositor_before = token_client.balance(&depositor);
 
-    let channel_id =
-        client.open_channel(&depositor, &counterparty, &token, &deposit, &10);
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &deposit, &10);
 
     // Depositor balance should have decreased by `deposit`.
-    assert_eq!(
-        token_client.balance(&depositor),
-        depositor_before - deposit
-    );
+    assert_eq!(token_client.balance(&depositor), depositor_before - deposit);
 
     // Top-up
     client.top_up(&channel_id, &25, &depositor);
@@ -74,7 +77,6 @@ fn happy_path_open_close_and_top_up() {
     let closed = client.get_channel(&channel_id).unwrap();
     assert_eq!(closed.state, ChannelState::Closed);
     assert_eq!(closed.sequence, 1);
-
 }
 
 #[test]
@@ -82,8 +84,7 @@ fn dispute_path_overrides_stale_close() {
     let (env, _admin, depositor, counterparty, token, _token_client) = setup();
     let client = register_contract(&env);
 
-    let channel_id =
-        client.open_channel(&depositor, &counterparty, &token, &100, &100);
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &100, &100);
     client.initiate_close(&channel_id, &90, &10, &1, &depositor);
     client.dispute(&channel_id, &80, &20, &2, &depositor, &counterparty);
 
@@ -99,8 +100,7 @@ fn finalize_releases_after_timeout() {
     let (env, _admin, depositor, counterparty, token, _token_client) = setup();
     let client = register_contract(&env);
 
-    let channel_id =
-        client.open_channel(&depositor, &counterparty, &token, &100, &1);
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &100, &1);
     client.initiate_close(&channel_id, &70, &30, &1, &depositor);
 
     env.ledger().set_timestamp(10);
@@ -115,16 +115,15 @@ fn finalize_rejects_stale_sequence() {
     let (env, _admin, depositor, counterparty, token, _token_client) = setup();
     let client = register_contract(&env);
 
-    let channel_id =
-        client.open_channel(&depositor, &counterparty, &token, &100, &100);
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &100, &100);
     client.initiate_close(&channel_id, &70, &30, &1, &depositor);
 
     let closing = client.get_channel(&channel_id).unwrap();
     env.ledger().set_timestamp(closing.dispute_deadline + 1);
-    
+
     let result = client.try_finalize(&channel_id, &0);
     assert_eq!(result, Err(Ok(Error::StaleState)));
-    
+
     let channel = client.get_channel(&channel_id).unwrap();
     assert_eq!(channel.state, ChannelState::Closing);
 }
@@ -134,16 +133,15 @@ fn finalize_rejects_wrong_sequence() {
     let (env, _admin, depositor, counterparty, token, _token_client) = setup();
     let client = register_contract(&env);
 
-    let channel_id =
-        client.open_channel(&depositor, &counterparty, &token, &100, &100);
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &100, &100);
     client.initiate_close(&channel_id, &70, &30, &1, &depositor);
 
     let closing = client.get_channel(&channel_id).unwrap();
     env.ledger().set_timestamp(closing.dispute_deadline + 1);
-    
+
     let result = client.try_finalize(&channel_id, &999);
     assert_eq!(result, Err(Ok(Error::StaleState)));
-    
+
     let channel = client.get_channel(&channel_id).unwrap();
     assert_eq!(channel.state, ChannelState::Closing);
 }
@@ -153,16 +151,15 @@ fn finalize_blocked_before_dispute_window() {
     let (env, _admin, depositor, counterparty, token, _token_client) = setup();
     let client = register_contract(&env);
 
-    let channel_id =
-        client.open_channel(&depositor, &counterparty, &token, &100, &100);
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &100, &100);
     client.initiate_close(&channel_id, &70, &30, &1, &depositor);
 
     let closing = client.get_channel(&channel_id).unwrap();
     env.ledger().set_timestamp(closing.dispute_deadline - 1);
-    
+
     let result = client.try_finalize(&channel_id, &1);
     assert_eq!(result, Err(Ok(Error::DisputeWindowActive)));
-    
+
     let channel = client.get_channel(&channel_id).unwrap();
     assert_eq!(channel.state, ChannelState::Closing);
 }
@@ -172,13 +169,12 @@ fn initiate_close_rejects_stale_sequence() {
     let (env, _admin, depositor, counterparty, token, _token_client) = setup();
     let client = register_contract(&env);
 
-    let channel_id =
-        client.open_channel(&depositor, &counterparty, &token, &100, &100);
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &100, &100);
     client.submit_state(&channel_id, &60, &40, &5, &depositor, &counterparty);
 
     let result = client.try_initiate_close(&channel_id, &70, &30, &3, &depositor);
     assert_eq!(result, Err(Ok(Error::StaleState)));
-    
+
     let channel = client.get_channel(&channel_id).unwrap();
     assert_eq!(channel.state, ChannelState::Open);
     assert_eq!(channel.sequence, 5);
@@ -189,13 +185,12 @@ fn dispute_rejects_stale_sequence() {
     let (env, _admin, depositor, counterparty, token, _token_client) = setup();
     let client = register_contract(&env);
 
-    let channel_id =
-        client.open_channel(&depositor, &counterparty, &token, &100, &100);
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &100, &100);
     client.initiate_close(&channel_id, &70, &30, &5, &depositor);
 
     let result = client.try_dispute(&channel_id, &80, &20, &3, &depositor, &counterparty);
     assert_eq!(result, Err(Ok(Error::StaleState)));
-    
+
     let channel = client.get_channel(&channel_id).unwrap();
     assert_eq!(channel.state, ChannelState::Closing);
     assert_eq!(channel.sequence, 5);
@@ -206,13 +201,12 @@ fn top_up_blocked_during_closing() {
     let (env, _admin, depositor, counterparty, token, _token_client) = setup();
     let client = register_contract(&env);
 
-    let channel_id =
-        client.open_channel(&depositor, &counterparty, &token, &100, &100);
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &100, &100);
     client.initiate_close(&channel_id, &70, &30, &1, &depositor);
 
     let result = client.try_top_up(&channel_id, &50, &depositor);
     assert_eq!(result, Err(Ok(Error::InvalidState)));
-    
+
     let channel = client.get_channel(&channel_id).unwrap();
     assert_eq!(channel.balance_a, 70);
     assert_eq!(channel.state, ChannelState::Closing);
@@ -223,14 +217,13 @@ fn top_up_blocked_during_dispute() {
     let (env, _admin, depositor, counterparty, token, _token_client) = setup();
     let client = register_contract(&env);
 
-    let channel_id =
-        client.open_channel(&depositor, &counterparty, &token, &100, &100);
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &100, &100);
     client.initiate_close(&channel_id, &70, &30, &1, &depositor);
     client.dispute(&channel_id, &80, &20, &2, &depositor, &counterparty);
 
     let result = client.try_top_up(&channel_id, &50, &depositor);
     assert_eq!(result, Err(Ok(Error::InvalidState)));
-    
+
     let channel = client.get_channel(&channel_id).unwrap();
     assert_eq!(channel.balance_a, 80);
     assert_eq!(channel.state, ChannelState::Dispute);
@@ -241,15 +234,14 @@ fn dispute_rejected_after_window_expires() {
     let (env, _admin, depositor, counterparty, token, _token_client) = setup();
     let client = register_contract(&env);
 
-    let channel_id =
-        client.open_channel(&depositor, &counterparty, &token, &100, &10);
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &100, &10);
     client.initiate_close(&channel_id, &70, &30, &1, &depositor);
 
     env.ledger().set_timestamp(20);
-    
+
     let result = client.try_dispute(&channel_id, &80, &20, &2, &depositor, &counterparty);
     assert_eq!(result, Err(Ok(Error::DisputeWindowExpired)));
-    
+
     let channel = client.get_channel(&channel_id).unwrap();
     assert_eq!(channel.state, ChannelState::Closing);
 }
@@ -259,8 +251,7 @@ fn finalize_disburses_tokens_to_both_parties() {
     let (env, _admin, depositor, counterparty, token, token_client) = setup();
     let client = register_contract(&env);
 
-    let channel_id =
-        client.open_channel(&depositor, &counterparty, &token, &200, &10);
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &200, &10);
     client.initiate_close(&channel_id, &120, &80, &1, &depositor);
 
     let depositor_before = token_client.balance(&depositor);
@@ -272,7 +263,10 @@ fn finalize_disburses_tokens_to_both_parties() {
     client.finalize(&channel_id, &1);
 
     assert_eq!(token_client.balance(&depositor), depositor_before + 120);
-    assert_eq!(token_client.balance(&counterparty), counterparty_before + 80);
+    assert_eq!(
+        token_client.balance(&counterparty),
+        counterparty_before + 80
+    );
 
     let closed = client.get_channel(&channel_id).unwrap();
     assert_eq!(closed.state, ChannelState::Closed);
@@ -283,8 +277,7 @@ fn finalize_cannot_be_called_twice() {
     let (env, _admin, depositor, counterparty, token, _token_client) = setup();
     let client = register_contract(&env);
 
-    let channel_id =
-        client.open_channel(&depositor, &counterparty, &token, &100, &5);
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &100, &5);
     client.initiate_close(&channel_id, &100, &0, &1, &depositor);
 
     let channel = client.get_channel(&channel_id).unwrap();
@@ -301,8 +294,7 @@ fn finalize_drains_contract_balance_by_fully_disbursing_deposit() {
     let (env, _admin, depositor, counterparty, token, token_client) = setup();
     let client = register_contract(&env);
 
-    let channel_id =
-        client.open_channel(&depositor, &counterparty, &token, &300, &10);
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &300, &10);
     client.initiate_close(&channel_id, &200, &100, &1, &depositor);
 
     let channel = client.get_channel(&channel_id).unwrap();
@@ -319,8 +311,7 @@ fn finalize_before_deadline_is_rejected() {
     let (env, _admin, depositor, counterparty, token, _token_client) = setup();
     let client = register_contract(&env);
 
-    let channel_id =
-        client.open_channel(&depositor, &counterparty, &token, &100, &1000);
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &100, &1000);
     client.initiate_close(&channel_id, &100, &0, &1, &depositor);
 
     let result = client.try_finalize(&channel_id, &1);
@@ -332,8 +323,7 @@ fn finalize_open_channel_is_rejected() {
     let (env, _admin, depositor, counterparty, token, _token_client) = setup();
     let client = register_contract(&env);
 
-    let channel_id =
-        client.open_channel(&depositor, &counterparty, &token, &100, &10);
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &100, &10);
 
     let result = client.try_finalize(&channel_id, &0);
     assert_eq!(result, Err(Ok(Error::InvalidState)));
@@ -364,7 +354,9 @@ fn channel_counter_overflow_guard() {
     client.init(&admin);
 
     env.as_contract(&contract_id, || {
-        env.storage().instance().set(&DataKey::ChannelCount, &u64::MAX);
+        env.storage()
+            .instance()
+            .set(&DataKey::ChannelCount, &u64::MAX);
     });
 
     let result = client.try_open_channel(&depositor, &counterparty, &token, &100, &10);

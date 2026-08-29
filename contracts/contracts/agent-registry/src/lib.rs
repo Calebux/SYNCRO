@@ -15,7 +15,6 @@ pub enum Error {
     NotPendingAdmin = 6,
 }
 
-
 #[contracttype]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -32,8 +31,6 @@ pub struct AgentRecord {
     pub registered_at: u64,
     pub active: bool,
 }
-
-
 
 #[contracttype]
 #[derive(Clone)]
@@ -113,10 +110,8 @@ impl AgentRegistry {
 
         env.storage().instance().remove(&DataKey::PendingAdmin);
 
-        env.events().publish(
-            (symbol_short!("admin"), symbol_short!("xfer_cxl")),
-            (),
-        );
+        env.events()
+            .publish((symbol_short!("admin"), symbol_short!("xfer_cxl")), ());
 
         Ok(())
     }
@@ -138,14 +133,11 @@ impl AgentRegistry {
         env.storage().instance().set(&DataKey::Admin, &pending);
         env.storage().instance().remove(&DataKey::PendingAdmin);
 
-        env.events().publish(
-            (symbol_short!("admin"), symbol_short!("xfer_ok")),
-            pending,
-        );
+        env.events()
+            .publish((symbol_short!("admin"), symbol_short!("xfer_ok")), pending);
 
         Ok(())
     }
-
 
     /// Register a new agent with the provided scope mask. Admin only.
     pub fn register(env: Env, agent: Address, initial_scopes: u32) -> Result<(), Error> {
@@ -156,7 +148,9 @@ impl AgentRegistry {
             registered_at: env.ledger().timestamp(),
             active: true,
         };
-        env.storage().persistent().set(&DataKey::Agent(agent.clone()), &record);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Agent(agent.clone()), &record);
 
         env.events()
             .publish((symbol_short!("agent"), symbol_short!("reg")), agent);
@@ -164,11 +158,7 @@ impl AgentRegistry {
         Ok(())
     }
 
-    pub fn update_scopes(
-        env: Env,
-        agent: Address,
-        scopes: u32,
-    ) -> Result<(), Error> {
+    pub fn update_scopes(env: Env, agent: Address, scopes: u32) -> Result<(), Error> {
         Self::require_admin(&env)?;
 
         let mut record: AgentRecord = env
@@ -194,7 +184,6 @@ impl AgentRegistry {
         Ok(())
     }
 
-
     /// Revoke an agent's authorization. Admin only.
     pub fn revoke_agent(env: Env, agent: Address) -> Result<(), Error> {
         Self::require_admin(&env)?;
@@ -205,12 +194,12 @@ impl AgentRegistry {
             .get(&DataKey::Agent(agent.clone()))
             .ok_or(Error::Unauthorized)?;
         record.active = false;
-        env.storage().persistent().set(&DataKey::Agent(agent.clone()), &record);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Agent(agent.clone()), &record);
 
-        env.events().publish(
-            (symbol_short!("agent"), symbol_short!("revoke")),
-            agent,
-        );
+        env.events()
+            .publish((symbol_short!("agent"), symbol_short!("revoke")), agent);
 
         Ok(())
     }
@@ -242,7 +231,7 @@ impl AgentRegistry {
         }
     }
 
-      /// Enforce agent authorization + scope
+    /// Enforce agent authorization + scope
     pub fn require_scope(env: Env, agent: Address, scope: Scope) {
         agent.require_auth();
 
@@ -250,7 +239,6 @@ impl AgentRegistry {
             panic!("agent missing required scope");
         }
     }
-
 }
 
 mod test;

@@ -1,7 +1,8 @@
 #![cfg(test)]
 
 use soroban_sdk::{
-    testutils::{Address as _, Ledger}, vec, Address, BytesN, Env, String,
+    testutils::{Address as _, Ledger},
+    vec, Address, BytesN, Env, String,
 };
 
 use super::*;
@@ -15,7 +16,12 @@ fn setup() -> (Env, Address, Address, Address, Address) {
     let guardian3 = Address::generate(&env);
 
     let contract_id = env.register(ContractUpgradeGovernance, ());
-    let guardians = vec![&env, guardian1.clone(), guardian2.clone(), guardian3.clone()];
+    let guardians = vec![
+        &env,
+        guardian1.clone(),
+        guardian2.clone(),
+        guardian3.clone(),
+    ];
     let client = ContractUpgradeGovernanceClient::new(&env, &contract_id);
 
     client.init(&admin, &guardians);
@@ -26,10 +32,8 @@ fn setup() -> (Env, Address, Address, Address, Address) {
 #[test]
 fn test_initialize() {
     let (env, admin, g1, g2, g3) = setup();
-    let client = ContractUpgradeGovernanceClient::new(
-        &env,
-        &env.register(ContractUpgradeGovernance, ()),
-    );
+    let client =
+        ContractUpgradeGovernanceClient::new(&env, &env.register(ContractUpgradeGovernance, ()));
 
     let guardians = vec![&env, g1.clone(), g2.clone(), g3.clone()];
     client.init(&admin, &guardians);
@@ -120,7 +124,13 @@ fn test_approve_upgrade_reaches_threshold() {
     let new_hash = BytesN::from_array(&env, &[2u8; 32]);
     let old_hash = BytesN::from_array(&env, &[1u8; 32]);
 
-    let pid = client.propose_upgrade(&g1, &target, &new_hash, &old_hash, &String::from_str(&env, "v2"));
+    let pid = client.propose_upgrade(
+        &g1,
+        &target,
+        &new_hash,
+        &old_hash,
+        &String::from_str(&env, "v2"),
+    );
 
     // First approval (1 of 2)
     client.approve_upgrade(&pid, &g2);
@@ -147,7 +157,13 @@ fn test_duplicate_approval_rejected() {
     let target = String::from_str(&env, "CAFEBABE");
     let new_hash = BytesN::from_array(&env, &[2u8; 32]);
     let old_hash = BytesN::from_array(&env, &[1u8; 32]);
-    let pid = client.propose_upgrade(&g1, &target, &new_hash, &old_hash, &String::from_str(&env, "v2"));
+    let pid = client.propose_upgrade(
+        &g1,
+        &target,
+        &new_hash,
+        &old_hash,
+        &String::from_str(&env, "v2"),
+    );
 
     client.approve_upgrade(&pid, &g1);
     client.approve_upgrade(&pid, &g1);
@@ -166,7 +182,13 @@ fn test_execute_upgrade_after_timelock() {
     let new_hash = BytesN::from_array(&env, &[2u8; 32]);
     let old_hash = BytesN::from_array(&env, &[1u8; 32]);
 
-    let pid = client.propose_upgrade(&g1, &target, &new_hash, &old_hash, &String::from_str(&env, "v2"));
+    let pid = client.propose_upgrade(
+        &g1,
+        &target,
+        &new_hash,
+        &old_hash,
+        &String::from_str(&env, "v2"),
+    );
     client.approve_upgrade(&pid, &g1);
     client.approve_upgrade(&pid, &g2);
 
@@ -174,7 +196,8 @@ fn test_execute_upgrade_after_timelock() {
     assert_eq!(proposal.state, ProposalState::Approved);
 
     // Jump forward past the default timelock (172800 seconds)
-    env.ledger().set_timestamp(env.ledger().timestamp() + DEFAULT_TIMELOCK_SECONDS + 1);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + DEFAULT_TIMELOCK_SECONDS + 1);
 
     // Now execute
     let exec_hash = BytesN::from_array(&env, &[2u8; 32]);
@@ -202,10 +225,17 @@ fn test_rollback_upgrade() {
     let new_hash = BytesN::from_array(&env, &[2u8; 32]);
     let old_hash = BytesN::from_array(&env, &[1u8; 32]);
 
-    let pid = client.propose_upgrade(&g1, &target, &new_hash, &old_hash, &String::from_str(&env, "v2"));
+    let pid = client.propose_upgrade(
+        &g1,
+        &target,
+        &new_hash,
+        &old_hash,
+        &String::from_str(&env, "v2"),
+    );
     client.approve_upgrade(&pid, &g1);
     client.approve_upgrade(&pid, &g2);
-    env.ledger().set_timestamp(env.ledger().timestamp() + DEFAULT_TIMELOCK_SECONDS + 1);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + DEFAULT_TIMELOCK_SECONDS + 1);
     client.execute_upgrade(&pid, &g1, &new_hash);
 
     // Admin rollback
@@ -227,10 +257,17 @@ fn test_rollback_cannot_be_replayed() {
     let new_hash = BytesN::from_array(&env, &[2u8; 32]);
     let old_hash = BytesN::from_array(&env, &[1u8; 32]);
 
-    let pid = client.propose_upgrade(&g1, &target, &new_hash, &old_hash, &String::from_str(&env, "v2"));
+    let pid = client.propose_upgrade(
+        &g1,
+        &target,
+        &new_hash,
+        &old_hash,
+        &String::from_str(&env, "v2"),
+    );
     client.approve_upgrade(&pid, &g1);
     client.approve_upgrade(&pid, &g2);
-    env.ledger().set_timestamp(env.ledger().timestamp() + DEFAULT_TIMELOCK_SECONDS + 1);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + DEFAULT_TIMELOCK_SECONDS + 1);
     client.execute_upgrade(&pid, &g1, &new_hash);
 
     client.rollback_upgrade(&admin, &old_hash);
@@ -251,7 +288,13 @@ fn test_execute_before_timelock_fails() {
     let new_hash = BytesN::from_array(&env, &[2u8; 32]);
     let old_hash = BytesN::from_array(&env, &[1u8; 32]);
 
-    let pid = client.propose_upgrade(&g1, &target, &new_hash, &old_hash, &String::from_str(&env, "v2"));
+    let pid = client.propose_upgrade(
+        &g1,
+        &target,
+        &new_hash,
+        &old_hash,
+        &String::from_str(&env, "v2"),
+    );
     client.approve_upgrade(&pid, &g1);
     client.approve_upgrade(&pid, &g2);
 

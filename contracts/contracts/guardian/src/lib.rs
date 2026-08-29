@@ -122,7 +122,7 @@ impl GuardianContract {
 
         env.storage().instance().set(&DataKey::Guardian, &guardian);
         env.storage().instance().set(&DataKey::Initialized, &true);
-        
+
         // Initialize empty contract list
         let contracts: Vec<RegisteredContract> = Vec::new(&env);
         env.storage()
@@ -143,11 +143,7 @@ impl GuardianContract {
             panic_with_error!(env, GuardianError::NotInitialized);
         }
 
-        let guardian: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Guardian)
-            .unwrap();
+        let guardian: Address = env.storage().instance().get(&DataKey::Guardian).unwrap();
         guardian.require_auth();
     }
 
@@ -189,11 +185,7 @@ impl GuardianContract {
             .persistent()
             .set(&DataKey::RegisteredContracts, &contracts);
 
-        ContractRegistered {
-            contract,
-            name,
-        }
-        .publish(&env);
+        ContractRegistered { contract, name }.publish(&env);
     }
 
     /// Unregister a contract from guardian management.
@@ -226,10 +218,7 @@ impl GuardianContract {
                     .persistent()
                     .set(&DataKey::RegisteredContracts, &contracts);
 
-                ContractUnregistered {
-                    contract,
-                }
-                .publish(&env);
+                ContractUnregistered { contract }.publish(&env);
             }
             None => {
                 panic_with_error!(&env, GuardianError::ContractNotFound);
@@ -261,7 +250,7 @@ impl GuardianContract {
 
         for i in 0..contracts.len() {
             let mut reg = contracts.get(i).unwrap();
-            
+
             // Call the contract's set_paused function
             // We use a generic interface that expects a set_paused(bool) function
             let result = env.try_invoke_contract::<_, ()>(
@@ -292,7 +281,7 @@ impl GuardianContract {
             .set(&DataKey::RegisteredContracts, &contracts);
 
         let guardian: Address = env.storage().instance().get(&DataKey::Guardian).unwrap();
-        
+
         EmergencyPauseAll {
             guardian,
             contracts_paused: paused_count,
@@ -325,7 +314,7 @@ impl GuardianContract {
 
         for i in 0..contracts.len() {
             let mut reg = contracts.get(i).unwrap();
-            
+
             // Call the contract's set_paused function
             let result = env.try_invoke_contract::<_, ()>(
                 &reg.address,
@@ -355,7 +344,7 @@ impl GuardianContract {
             .set(&DataKey::RegisteredContracts, &contracts);
 
         let guardian: Address = env.storage().instance().get(&DataKey::Guardian).unwrap();
-        
+
         EmergencyUnpauseAll {
             guardian,
             contracts_unpaused: unpaused_count,

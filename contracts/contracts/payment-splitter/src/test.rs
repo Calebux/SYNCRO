@@ -26,12 +26,8 @@ fn fund_and_approve(ctx: &Ctx, amount: i128) {
     let sac = StellarAssetClient::new(&ctx.env, &ctx.token);
     for p in &ctx.payers {
         sac.mint(p, &amount);
-        ctx.token_client.approve(
-            p,
-            &ctx.splitter.address,
-            &amount,
-            &1_000_000u32,
-        );
+        ctx.token_client
+            .approve(p, &ctx.splitter.address, &amount, &1_000_000u32);
     }
 }
 
@@ -101,13 +97,9 @@ fn test_equal_three_way_split() {
         ],
     );
 
-    let split_id = ctx.splitter.configure_split(
-        &ctx.caller,
-        &ctx.token,
-        &ctx.merchant,
-        &total,
-        &payers,
-    );
+    let split_id =
+        ctx.splitter
+            .configure_split(&ctx.caller, &ctx.token, &ctx.merchant, &total, &payers);
 
     assert_eq!(split_id, 1);
     assert_eq!(ctx.splitter.split_count(), 1);
@@ -172,26 +164,15 @@ fn test_two_way_split_with_rounding_dust() {
     let sac = StellarAssetClient::new(&ctx.env, &ctx.token);
     for p in &ctx.payers[0..2] {
         sac.mint(p, &(total * 2)); // plenty of balance
-        ctx.token_client.approve(
-            p,
-            &ctx.splitter.address,
-            &(total * 2),
-            &1_000_000u32,
-        );
+        ctx.token_client
+            .approve(p, &ctx.splitter.address, &(total * 2), &1_000_000u32);
     }
 
-    let payers = make_payers(
-        &ctx.env,
-        &[(&ctx.payers[0], 3334), (&ctx.payers[1], 6666)],
-    );
+    let payers = make_payers(&ctx.env, &[(&ctx.payers[0], 3334), (&ctx.payers[1], 6666)]);
 
-    let split_id = ctx.splitter.configure_split(
-        &ctx.caller,
-        &ctx.token,
-        &ctx.merchant,
-        &total,
-        &payers,
-    );
+    let split_id =
+        ctx.splitter
+            .configure_split(&ctx.caller, &ctx.token, &ctx.merchant, &total, &payers);
 
     ctx.splitter.execute_split(&ctx.caller, &split_id);
 
@@ -213,17 +194,13 @@ fn test_single_payer_full_amount() {
     let total: i128 = 500_000;
 
     StellarAssetClient::new(&ctx.env, &ctx.token).mint(&ctx.payers[0], &total);
-    ctx.token_client.approve(
-        &ctx.payers[0],
-        &ctx.splitter.address,
-        &total,
-        &1_000_000u32,
-    );
+    ctx.token_client
+        .approve(&ctx.payers[0], &ctx.splitter.address, &total, &1_000_000u32);
 
     let payers = make_payers(&ctx.env, &[(&ctx.payers[0], 10_000)]);
-    let split_id = ctx
-        .splitter
-        .configure_split(&ctx.caller, &ctx.token, &ctx.merchant, &total, &payers);
+    let split_id =
+        ctx.splitter
+            .configure_split(&ctx.caller, &ctx.token, &ctx.merchant, &total, &payers);
 
     ctx.splitter.execute_split(&ctx.caller, &split_id);
 
@@ -241,9 +218,9 @@ fn test_execute_twice_panics() {
     fund_and_approve(&ctx, total);
 
     let payers = make_payers(&ctx.env, &[(&ctx.payers[0], 10_000)]);
-    let split_id = ctx
-        .splitter
-        .configure_split(&ctx.caller, &ctx.token, &ctx.merchant, &total, &payers);
+    let split_id =
+        ctx.splitter
+            .configure_split(&ctx.caller, &ctx.token, &ctx.merchant, &total, &payers);
 
     ctx.splitter.execute_split(&ctx.caller, &split_id);
     // Second call must panic.
@@ -257,10 +234,7 @@ fn test_execute_twice_panics() {
 fn test_shares_not_summing_to_100pct_rejected() {
     let ctx = setup();
     // 5000 + 4999 = 9999, not 10 000.
-    let payers = make_payers(
-        &ctx.env,
-        &[(&ctx.payers[0], 5000), (&ctx.payers[1], 4999)],
-    );
+    let payers = make_payers(&ctx.env, &[(&ctx.payers[0], 5000), (&ctx.payers[1], 4999)]);
     ctx.splitter.configure_split(
         &ctx.caller,
         &ctx.token,
@@ -277,10 +251,7 @@ fn test_shares_not_summing_to_100pct_rejected() {
 fn test_shares_exceeding_100pct_rejected() {
     let ctx = setup();
     // 5001 + 5000 = 10 001.
-    let payers = make_payers(
-        &ctx.env,
-        &[(&ctx.payers[0], 5001), (&ctx.payers[1], 5000)],
-    );
+    let payers = make_payers(&ctx.env, &[(&ctx.payers[0], 5001), (&ctx.payers[1], 5000)]);
     ctx.splitter.configure_split(
         &ctx.caller,
         &ctx.token,
@@ -341,13 +312,7 @@ fn test_zero_share_rejected() {
 fn test_merchant_as_payer_rejected() {
     let ctx = setup();
     // Merchant is in the payer list.
-    let payers = make_payers(
-        &ctx.env,
-        &[
-            (&ctx.merchant, 5000),
-            (&ctx.payers[0], 5000),
-        ],
-    );
+    let payers = make_payers(&ctx.env, &[(&ctx.merchant, 5000), (&ctx.payers[0], 5000)]);
     ctx.splitter.configure_split(
         &ctx.caller,
         &ctx.token,
@@ -383,9 +348,9 @@ fn test_unauthorized_caller_cannot_execute() {
     fund_and_approve(&ctx, total);
 
     let payers = make_payers(&ctx.env, &[(&ctx.payers[0], 10_000)]);
-    let split_id = ctx
-        .splitter
-        .configure_split(&ctx.caller, &ctx.token, &ctx.merchant, &total, &payers);
+    let split_id =
+        ctx.splitter
+            .configure_split(&ctx.caller, &ctx.token, &ctx.merchant, &total, &payers);
 
     let rogue = Address::generate(&ctx.env);
     // Rogue address is neither the original caller nor the admin.
@@ -401,9 +366,9 @@ fn test_admin_can_execute() {
     fund_and_approve(&ctx, total);
 
     let payers = make_payers(&ctx.env, &[(&ctx.payers[0], 10_000)]);
-    let split_id = ctx
-        .splitter
-        .configure_split(&ctx.caller, &ctx.token, &ctx.merchant, &total, &payers);
+    let split_id =
+        ctx.splitter
+            .configure_split(&ctx.caller, &ctx.token, &ctx.merchant, &total, &payers);
 
     // Admin executes instead of original caller.
     ctx.splitter.execute_split(&ctx.admin, &split_id);
@@ -418,9 +383,9 @@ fn test_cancel_pending_split() {
     let ctx = setup();
     let total: i128 = 100_000;
     let payers = make_payers(&ctx.env, &[(&ctx.payers[0], 10_000)]);
-    let split_id = ctx
-        .splitter
-        .configure_split(&ctx.caller, &ctx.token, &ctx.merchant, &total, &payers);
+    let split_id =
+        ctx.splitter
+            .configure_split(&ctx.caller, &ctx.token, &ctx.merchant, &total, &payers);
 
     ctx.splitter.cancel_split(&ctx.caller, &split_id);
 
@@ -438,9 +403,9 @@ fn test_execute_cancelled_split_panics() {
     fund_and_approve(&ctx, total);
 
     let payers = make_payers(&ctx.env, &[(&ctx.payers[0], 10_000)]);
-    let split_id = ctx
-        .splitter
-        .configure_split(&ctx.caller, &ctx.token, &ctx.merchant, &total, &payers);
+    let split_id =
+        ctx.splitter
+            .configure_split(&ctx.caller, &ctx.token, &ctx.merchant, &total, &payers);
 
     ctx.splitter.cancel_split(&ctx.caller, &split_id);
     ctx.splitter.execute_split(&ctx.caller, &split_id); // must panic
@@ -454,9 +419,9 @@ fn test_unauthorized_cancel_rejected() {
     let ctx = setup();
     let total: i128 = 100_000;
     let payers = make_payers(&ctx.env, &[(&ctx.payers[0], 10_000)]);
-    let split_id = ctx
-        .splitter
-        .configure_split(&ctx.caller, &ctx.token, &ctx.merchant, &total, &payers);
+    let split_id =
+        ctx.splitter
+            .configure_split(&ctx.caller, &ctx.token, &ctx.merchant, &total, &payers);
 
     let rogue = Address::generate(&ctx.env);
     ctx.splitter.cancel_split(&rogue, &split_id); // must panic
@@ -506,13 +471,9 @@ fn test_atomic_failure_no_partial_transfer() {
         ],
     );
 
-    let split_id = ctx.splitter.configure_split(
-        &ctx.caller,
-        &ctx.token,
-        &ctx.merchant,
-        &total,
-        &payers,
-    );
+    let split_id =
+        ctx.splitter
+            .configure_split(&ctx.caller, &ctx.token, &ctx.merchant, &total, &payers);
 
     // This must panic: payers[2] has no allowance → token reverts → whole tx reverts.
     ctx.splitter.execute_split(&ctx.caller, &split_id);
@@ -580,9 +541,9 @@ fn test_executed_at_timestamp_recorded() {
     fund_and_approve(&ctx, total);
 
     let payers = make_payers(&ctx.env, &[(&ctx.payers[0], 10_000)]);
-    let split_id = ctx
-        .splitter
-        .configure_split(&ctx.caller, &ctx.token, &ctx.merchant, &total, &payers);
+    let split_id =
+        ctx.splitter
+            .configure_split(&ctx.caller, &ctx.token, &ctx.merchant, &total, &payers);
 
     // Advance ledger time.
     ctx.env.ledger().with_mut(|l| {

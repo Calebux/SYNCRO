@@ -245,7 +245,9 @@ impl ResolverRegistry {
             resolved_at: 0,
         };
 
-        env.storage().persistent().set(&DataKey::Case(case_id), &case);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Case(case_id), &case);
         env.storage().instance().set(&DataKey::CaseCount, &case_id);
 
         CaseOpened {
@@ -322,11 +324,7 @@ impl ResolverRegistry {
             let mut args: Vec<Val> = Vec::new(&env);
             args.push_back(case.escrow_id.into_val(&env));
             args.push_back(winning.into_val(&env));
-            env.invoke_contract::<()>(
-                &case.escrow,
-                &Symbol::new(&env, "resolve_dispute"),
-                args,
-            );
+            env.invoke_contract::<()>(&case.escrow, &Symbol::new(&env, "resolve_dispute"), args);
 
             CaseResolved {
                 case_id,
@@ -337,7 +335,9 @@ impl ResolverRegistry {
             .publish(&env);
         }
 
-        env.storage().persistent().set(&DataKey::Case(case_id), &case);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Case(case_id), &case);
     }
 
     // ── Queries ───────────────────────────────────────────────────

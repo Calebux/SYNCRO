@@ -150,9 +150,7 @@ fn test_period_reset_aligns_to_boundaries() {
 
     ctx.allowance.consume(&id, &10);
     // Jump ~2.5 periods forward.
-    ctx.env
-        .ledger()
-        .set_timestamp(start + 2 * MONTH + DAY);
+    ctx.env.ledger().set_timestamp(start + 2 * MONTH + DAY);
     ctx.allowance.consume(&id, &10);
 
     let a = ctx.allowance.get_allowance(&id);
@@ -222,14 +220,8 @@ fn test_double_revoke_fails() {
 #[should_panic(expected = "Error(Contract, #8)")]
 fn test_cannot_grant_to_self() {
     let ctx = setup();
-    ctx.allowance.grant_allowance(
-        &ctx.owner,
-        &ctx.owner,
-        &ctx.token,
-        &50,
-        &600,
-        &MONTH,
-    );
+    ctx.allowance
+        .grant_allowance(&ctx.owner, &ctx.owner, &ctx.token, &50, &600, &MONTH);
 }
 
 #[test]
@@ -319,14 +311,9 @@ fn test_independent_allowances_are_isolated() {
     let ctx = setup();
     let merchant2 = Address::generate(&ctx.env);
     let id1 = grant(&ctx, 50, 600, MONTH);
-    let id2 = ctx.allowance.grant_allowance(
-        &ctx.owner,
-        &merchant2,
-        &ctx.token,
-        &10,
-        &100,
-        &DAY,
-    );
+    let id2 = ctx
+        .allowance
+        .grant_allowance(&ctx.owner, &merchant2, &ctx.token, &10, &100, &DAY);
 
     ctx.allowance.consume(&id1, &50);
     ctx.allowance.consume(&id2, &10);

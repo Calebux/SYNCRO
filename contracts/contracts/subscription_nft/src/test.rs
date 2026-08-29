@@ -228,7 +228,8 @@ fn test_transfer_blocked_when_overdue() {
     let bob = Address::generate(&ctx.env);
     let id = mint_default(&ctx, &alice, 1);
 
-    ctx.client.update_renewal_state(&1u64, &RenewalState::Overdue);
+    ctx.client
+        .update_renewal_state(&1u64, &RenewalState::Overdue);
     ctx.client.transfer(&id, &bob);
 }
 
@@ -240,7 +241,8 @@ fn test_transfer_blocked_when_cancelled() {
     let bob = Address::generate(&ctx.env);
     let id = mint_default(&ctx, &alice, 1);
 
-    ctx.client.update_renewal_state(&1u64, &RenewalState::Cancelled);
+    ctx.client
+        .update_renewal_state(&1u64, &RenewalState::Cancelled);
     ctx.client.transfer(&id, &bob);
 }
 
@@ -251,7 +253,8 @@ fn test_transfer_allowed_when_current() {
     let bob = Address::generate(&ctx.env);
     let id = mint_default(&ctx, &alice, 1);
 
-    ctx.client.update_renewal_state(&1u64, &RenewalState::Current);
+    ctx.client
+        .update_renewal_state(&1u64, &RenewalState::Current);
     ctx.client.transfer(&id, &bob);
     assert_eq!(ctx.client.owner_of(&id), bob);
 }
@@ -263,7 +266,8 @@ fn test_transfer_allowed_in_grace_period() {
     let bob = Address::generate(&ctx.env);
     let id = mint_default(&ctx, &alice, 1);
 
-    ctx.client.update_renewal_state(&1u64, &RenewalState::GracePeriod);
+    ctx.client
+        .update_renewal_state(&1u64, &RenewalState::GracePeriod);
     ctx.client.transfer(&id, &bob);
     assert_eq!(ctx.client.owner_of(&id), bob);
 }
@@ -352,11 +356,13 @@ fn test_update_renewal_state_persists() {
     let owner = Address::generate(&ctx.env);
     mint_default(&ctx, &owner, 1);
 
-    ctx.client.update_renewal_state(&1u64, &RenewalState::Overdue);
+    ctx.client
+        .update_renewal_state(&1u64, &RenewalState::Overdue);
     let nft = ctx.client.get_token(&1u64);
     assert_eq!(nft.renewal_state, RenewalState::Overdue);
 
-    ctx.client.update_renewal_state(&1u64, &RenewalState::Current);
+    ctx.client
+        .update_renewal_state(&1u64, &RenewalState::Current);
     let nft2 = ctx.client.get_token(&1u64);
     assert_eq!(nft2.renewal_state, RenewalState::Current);
 }
@@ -365,7 +371,8 @@ fn test_update_renewal_state_persists() {
 #[should_panic(expected = "Error(Contract, #5)")]
 fn test_update_renewal_state_nonexistent_sub_panics() {
     let ctx = setup();
-    ctx.client.update_renewal_state(&999u64, &RenewalState::Overdue);
+    ctx.client
+        .update_renewal_state(&999u64, &RenewalState::Overdue);
 }
 
 // ─── pause ────────────────────────────────────────────────────────────────────

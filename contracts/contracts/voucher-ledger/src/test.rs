@@ -4,7 +4,13 @@ use super::*;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, BytesN, Env};
 
-fn setup() -> (Env, Address, Address, Address, VoucherLedgerContractClient<'static>) {
+fn setup() -> (
+    Env,
+    Address,
+    Address,
+    Address,
+    VoucherLedgerContractClient<'static>,
+) {
     let env = Env::default();
     env.mock_all_auths();
 

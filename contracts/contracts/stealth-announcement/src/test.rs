@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use crate::{AnnouncementError, StealthAnnouncement, StealthAnnouncementContract, MAX_PAGE_SIZE};
+    use crate::{
+        AnnouncementError, StealthAnnouncement, StealthAnnouncementContract, MAX_PAGE_SIZE,
+    };
     use soroban_sdk::testutils::{Address as _, Events as _, Ledger as _};
     use soroban_sdk::{Address, Bytes, Env};
     use std::panic::catch_unwind;
@@ -25,10 +27,7 @@ mod tests {
 
     /// Build the typed client on demand.  Using the client directly
     /// auto-unwraps Results (panics on error).
-    fn client<'a>(
-        env: &'a Env,
-        id: &'a Address,
-    ) -> StealthAnnouncementContractClient<'a> {
+    fn client<'a>(env: &'a Env, id: &'a Address) -> StealthAnnouncementContractClient<'a> {
         StealthAnnouncementContractClient::new(env, id)
     }
 
@@ -47,7 +46,10 @@ mod tests {
     /// Assert that a closure panics, returning the panic payload.
     fn assert_panics<F: FnOnce() + std::panic::UnwindSafe>(f: F) {
         let result = catch_unwind(f);
-        assert!(result.is_err(), "expected the call to panic but it succeeded");
+        assert!(
+            result.is_err(),
+            "expected the call to panic but it succeeded"
+        );
     }
 
     // ------------------------------------------------------------------------
@@ -240,10 +242,7 @@ mod tests {
         let r = c.get_announcements_range(&2, &7);
         assert_eq!(r.len(), 6);
         for i in 0..r.len() {
-            assert_eq!(
-                r.get_unchecked(i).announcement_index,
-                (2 + i as u64)
-            );
+            assert_eq!(r.get_unchecked(i).announcement_index, (2 + i as u64));
         }
     }
 

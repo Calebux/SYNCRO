@@ -1,19 +1,21 @@
 #![no_std]
+use agent_registry::{AgentRegistryClient, Scope};
 use soroban_sdk::{
-       contract, contractevent, contractimpl, contracttype, token, xdr::ToXdr, Address, Bytes, Env,
-       IntoVal,
-   };
+    contract, contracterror, contractevent, contractimpl, contracttype, token, xdr::ToXdr, Address,
+    Bytes, Env, IntoVal,
+};
 use subscription_logging::SubscriptionLoggingContractClient;
 
 /// Storage keys for contract-level state (admin, pause flag).
 #[contracttype]
 #[derive(Clone)]
 enum ContractKey {
-       Admin,
-       Paused,
-       LoggingContract,
-       TokenContract,
-   }
+    Admin,
+    Paused,
+    LoggingContract,
+    TokenContract,
+    AgentRegistry,
+}
 
 /// Tagged persistent storage keys.
 #[contracttype]
@@ -23,6 +25,7 @@ enum PersistentKey {
     Approval(u64, u64),
     Cycle(u64),
     RenewalLock(u64),
+    RenewalLockCooldown(u64),
     Lifecycle(u64),
     Window(u64),
     UserCap(Address),
@@ -30,7 +33,7 @@ enum PersistentKey {
     MultiSig(u64, u64),
     TeamThreshold(u64),
     SigningWindow(u64),
-       /// Escrowed balance awaiting merchant claim, keyed by subscription id.
+    /// Escrowed balance awaiting merchant claim, keyed by subscription id.
     EscrowBalance(u64),
 }
 
@@ -40,6 +43,40 @@ enum PersistentKey {
 pub struct RenewalLockData {
     pub locked_at: u32,
     pub lock_timeout: u32,
+    pub acquired_by: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RenewalLockCooldownData {
+    pub released_at: u32,
+    pub released_by: Address,
+}
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum ContractError {
+    AlreadyInitialized = 1,
+    NotInitialized = 2,
+    SubscriptionNotFound = 3,
+    AlreadyCancelled = 4,
+    SubscriptionFailed = 5,
+    InvalidApproval = 6,
+    DuplicateCycle = 7,
+    CooldownActive = 8,
+    SpendingCapExceeded = 9,
+    GlobalCapExceeded = 10,
+    InvalidWindow = 11,
+    OutsideRenewalWindow = 12,
+    LifecycleNotFound = 13,
+    RenewalLockActive = 14,
+    RenewalLockRequired = 15,
+    RenewalLockExpired = 16,
+    NoRenewalLock = 17,
+    ProtocolPaused = 18,
+    RenewalLockUnauthorized = 19,
+    RenewalLockCooldown = 20,
 }
 
 /// Renewal approval bound to subscription, amount, and expiration
@@ -96,46 +133,46 @@ pub struct RenewalSuccess {
 }
 
 /// Off-chain-indexing events for the subscription lifecycle. These follow the
-   /// two-part (family, action) topic convention documented in
-   /// docs/contract-event-schema.md, joining "subscription" as a canonical family
-   /// alongside "escrow", "channel", etc.
-   #[contractevent]
-   pub struct SubscriptionCreated {
-       pub sub_id: u64,
-       pub owner: Address,
-       pub merchant: Address,
-       pub amount: i128,
-       pub frequency: u64,
-   }
-
-   #[contractevent]
-   pub struct SubscriptionRenewed {
-       pub sub_id: u64,
-       pub owner: Address,
-       pub merchant: Address,
-       pub amount: i128,
-   }
-
-   #[contractevent]
-   pub struct SubscriptionCanceled {
-       pub sub_id: u64,
-       pub owner: Address,
-   }
+/// two-part (family, action) topic convention documented in
+/// docs/contract-event-schema.md, joining "subscription" as a canonical family
+/// alongside "escrow", "channel", etc.
+#[contractevent]
+pub struct SubscriptionCreated {
+    pub sub_id: u64,
+    pub owner: Address,
+    pub merchant: Address,
+    pub amount: i128,
+    pub frequency: u64,
+}
 
 #[contractevent]
-   pub struct EscrowLocked {
-       pub sub_id: u64,
-       pub merchant: Address,
-       pub amount: i128,
-       pub total_escrowed: i128,
-   }
+pub struct SubscriptionRenewed {
+    pub sub_id: u64,
+    pub owner: Address,
+    pub merchant: Address,
+    pub amount: i128,
+}
 
-   #[contractevent]
-   pub struct EscrowClaimed {
-       pub sub_id: u64,
-       pub merchant: Address,
-       pub amount: i128,
-   }
+#[contractevent]
+pub struct SubscriptionCanceled {
+    pub sub_id: u64,
+    pub owner: Address,
+}
+
+#[contractevent]
+pub struct EscrowLocked {
+    pub sub_id: u64,
+    pub merchant: Address,
+    pub amount: i128,
+    pub total_escrowed: i128,
+}
+
+#[contractevent]
+pub struct EscrowClaimed {
+    pub sub_id: u64,
+    pub merchant: Address,
+    pub amount: i128,
+}
 
 #[contractevent]
 pub struct RenewalFailed {
@@ -199,6 +236,12 @@ pub struct RenewalLockExpired {
     pub sub_id: u64,
     pub original_locked_at: u32,
     pub expired_at: u32,
+}
+
+#[contractevent]
+pub struct RenewalLockRejected {
+    pub sub_id: u64,
+    pub caller: Address,
 }
 
 #[contractevent]
@@ -330,6 +373,7 @@ pub struct TeamThresholdUpdated {
 const DEFAULT_MULTISIG_THRESHOLD: i128 = 10_000_000;
 /// Default signing window: 24 hours in seconds
 const DEFAULT_SIGNING_WINDOW_SECS: u64 = 86_400;
+const RENEWAL_LOCK_COOLDOWN: u32 = 1;
 
 #[contract]
 pub struct SubscriptionRenewalContract;
@@ -381,29 +425,88 @@ impl SubscriptionRenewalContract {
     }
 
     /// Set the token (asset) contract used to move funds into/out of escrow. Admin only.
-       pub fn set_token_contract(env: Env, address: Address) {
-           Self::require_admin(&env);
-           env.storage()
-               .instance()
-               .set(&ContractKey::TokenContract, &address);
-       }
+    pub fn set_token_contract(env: Env, address: Address) {
+        Self::require_admin(&env);
+        env.storage()
+            .instance()
+            .set(&ContractKey::TokenContract, &address);
+    }
 
-       /// Query the configured token contract address, if any.
-       pub fn get_token_contract(env: Env) -> Option<Address> {
-           env.storage().instance().get(&ContractKey::TokenContract)
-       }
+    /// Set the agent registry used to authorize scoped renewal agents.
+    pub fn set_agent_registry(env: Env, address: Address) {
+        Self::require_admin(&env);
+        env.storage()
+            .instance()
+            .set(&ContractKey::AgentRegistry, &address);
+    }
+
+    /// Query the configured token contract address, if any.
+    pub fn get_token_contract(env: Env) -> Option<Address> {
+        env.storage().instance().get(&ContractKey::TokenContract)
+    }
 
     // ── Renewal lock management ────────────────────────────────────
 
     /// Acquire a processing lock for a subscription renewal.
     /// Prevents concurrent renewal execution by multiple workers.
-    pub fn acquire_renewal_lock(env: Env, sub_id: u64, lock_timeout: u32) {
+    pub fn acquire_renewal_lock(
+        env: Env,
+        sub_id: u64,
+        lock_timeout: u32,
+        caller: Address,
+    ) -> Result<(), ContractError> {
         if Self::is_paused(env.clone()) {
-            panic!("Protocol is paused");
+            RenewalLockRejected { sub_id, caller }.publish(&env);
+            return Err(ContractError::ProtocolPaused);
         }
+
+        let subscription: Option<SubscriptionData> = env
+            .storage()
+            .persistent()
+            .get(&PersistentKey::Subscription(sub_id));
+
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&ContractKey::Admin)
+            .expect("Contract not initialized");
+        let is_agent = env
+            .storage()
+            .instance()
+            .get::<ContractKey, Address>(&ContractKey::AgentRegistry)
+            .map(|registry| {
+                AgentRegistryClient::new(&env, &registry).has_scope(&caller, &Scope::Renewals)
+            })
+            .unwrap_or(false);
+        if caller != admin
+            && subscription
+                .as_ref()
+                .map(|subscription| caller != subscription.owner)
+                .unwrap_or(true)
+            && !is_agent
+        {
+            RenewalLockRejected { sub_id, caller }.publish(&env);
+            return Err(ContractError::RenewalLockUnauthorized);
+        }
+        caller.require_auth();
 
         let lock_key = PersistentKey::RenewalLock(sub_id);
         let current_ledger = env.ledger().sequence();
+
+        if let Some(cooldown) = env
+            .storage()
+            .persistent()
+            .get::<PersistentKey, RenewalLockCooldownData>(&PersistentKey::RenewalLockCooldown(
+                sub_id,
+            ))
+        {
+            if cooldown.released_by == caller
+                && current_ledger < cooldown.released_at.saturating_add(RENEWAL_LOCK_COOLDOWN)
+            {
+                RenewalLockRejected { sub_id, caller }.publish(&env);
+                return Err(ContractError::RenewalLockCooldown);
+            }
+        }
 
         if let Some(existing) = env
             .storage()
@@ -412,7 +515,8 @@ impl SubscriptionRenewalContract {
         {
             // Check if existing lock has expired
             if current_ledger < existing.locked_at + existing.lock_timeout {
-                panic!("Renewal lock active");
+                RenewalLockRejected { sub_id, caller }.publish(&env);
+                return Err(ContractError::RenewalLockActive);
             }
             // Lock expired — emit expiry event and allow re-acquisition
             RenewalLockExpired {
@@ -426,6 +530,7 @@ impl SubscriptionRenewalContract {
         let lock_data = RenewalLockData {
             locked_at: current_ledger,
             lock_timeout,
+            acquired_by: caller,
         };
         env.storage().persistent().set(&lock_key, &lock_data);
 
@@ -435,27 +540,38 @@ impl SubscriptionRenewalContract {
             lock_timeout,
         }
         .publish(&env);
+        Ok(())
     }
 
     /// Release a processing lock for a subscription renewal.
-    pub fn release_renewal_lock(env: Env, sub_id: u64) {
+    pub fn release_renewal_lock(env: Env, sub_id: u64) -> Result<(), ContractError> {
         if Self::is_paused(env.clone()) {
-            panic!("Protocol is paused");
+            return Err(ContractError::ProtocolPaused);
         }
 
         let lock_key = PersistentKey::RenewalLock(sub_id);
-        if !env.storage().persistent().has(&lock_key) {
-            panic!("No renewal lock to release");
-        }
+        let lock: RenewalLockData = match env.storage().persistent().get(&lock_key) {
+            Some(lock) => lock,
+            None => {
+                return Err(ContractError::NoRenewalLock);
+            }
+        };
 
         let current_ledger = env.ledger().sequence();
         env.storage().persistent().remove(&lock_key);
-
+        env.storage().persistent().set(
+            &PersistentKey::RenewalLockCooldown(sub_id),
+            &RenewalLockCooldownData {
+                released_at: current_ledger,
+                released_by: lock.acquired_by,
+            },
+        );
         RenewalLockReleased {
             sub_id,
             released_at: current_ledger,
         }
         .publish(&env);
+        Ok(())
     }
 
     /// Query the current renewal lock for a subscription.
@@ -536,14 +652,14 @@ impl SubscriptionRenewalContract {
             soroban_sdk::String::from_str(&env, "Subscription initialized"),
         );
         // Emit indexer-facing lifecycle event
-       SubscriptionCreated {
-           sub_id,
-           owner: data.owner.clone(),
-           merchant: data.merchant.clone(),
-           amount: data.amount,
-           frequency: data.frequency,
-       }
-       .publish(&env);
+        SubscriptionCreated {
+            sub_id,
+            owner: data.owner.clone(),
+            merchant: data.merchant.clone(),
+            amount: data.amount,
+            frequency: data.frequency,
+        }
+        .publish(&env);
     }
 
     fn record_log(env: &Env, sub_id: u64, event_type: u32, data_str: soroban_sdk::String) {
@@ -554,10 +670,8 @@ impl SubscriptionRenewalContract {
         {
             let logging_client = SubscriptionLoggingContractClient::new(env, &log_addr);
             let payload: Bytes = (sub_id, event_type, data_str).to_xdr(env);
-            let commitment_hash = soroban_sdk::BytesN::from_array(
-                env,
-                &env.crypto().sha256(&payload).to_array(),
-            );
+            let commitment_hash =
+                soroban_sdk::BytesN::from_array(env, &env.crypto().sha256(&payload).to_array());
             logging_client.record_commitment(&commitment_hash);
         }
     }
@@ -611,11 +725,11 @@ impl SubscriptionRenewalContract {
         );
 
         // Emit indexer-facing lifecycle event
-       SubscriptionCanceled {
-           sub_id,
-           owner: data.owner.clone(),
-       }
-       .publish(&env);
+        SubscriptionCanceled {
+            sub_id,
+            owner: data.owner.clone(),
+        }
+        .publish(&env);
 
         // Emit state transition event
         StateTransition {
@@ -760,15 +874,19 @@ impl SubscriptionRenewalContract {
 
         // 4. Verify renewal lock exists and is not expired
         let lock_key = PersistentKey::RenewalLock(sub_id);
-        let lock_data: Option<RenewalLockData> = env.storage().persistent().get(&lock_key);
-        match lock_data {
+        let lock_data: RenewalLockData = match env
+            .storage()
+            .persistent()
+            .get::<PersistentKey, RenewalLockData>(&lock_key)
+        {
             None => panic!("Renewal lock required"),
-            Some(ref ld) => {
-                if current_ledger >= ld.locked_at + ld.lock_timeout {
+            Some(lock_data) => {
+                if current_ledger >= lock_data.locked_at + lock_data.lock_timeout {
                     panic!("Renewal lock expired");
                 }
+                lock_data
             }
-        }
+        };
 
         // 5. Cycle guard: reject duplicate renewal for the same billing cycle
         let cycle_key = PersistentKey::Cycle(sub_id);
@@ -868,9 +986,10 @@ impl SubscriptionRenewalContract {
                 .persistent()
                 .get(&PersistentKey::UserSpent(data.owner.clone()))
                 .unwrap_or(0);
-            env.storage()
-                .persistent()
-                .set(&PersistentKey::UserSpent(data.owner.clone()), &(current_spent + amount));
+            env.storage().persistent().set(
+                &PersistentKey::UserSpent(data.owner.clone()),
+                &(current_spent + amount),
+            );
 
             // Store cycle_id on success only
             env.storage().persistent().set(&cycle_key, &cycle_id);
@@ -880,32 +999,27 @@ impl SubscriptionRenewalContract {
                 sub_id,
                 owner: data.owner.clone(),
             }
-
             .publish(&env);
 
             // Lock the renewal payment in escrow (this contract's own address)
-       // until the merchant claims it via `claim_escrow`.
-       if let Some(token_addr) = Self::get_token_contract(env.clone()) {
-           let token_client = token::Client::new(&env, &token_addr);
-           token_client.transfer(&data.owner, &env.current_contract_address(), &amount);
+            // until the merchant claims it via `claim_escrow`.
+            if let Some(token_addr) = Self::get_token_contract(env.clone()) {
+                let token_client = token::Client::new(&env, &token_addr);
+                token_client.transfer(&data.owner, &env.current_contract_address(), &amount);
 
-           let escrow_key = PersistentKey::EscrowBalance(sub_id);
-           let existing: i128 = env
-               .storage()
-               .persistent()
-               .get(&escrow_key)
-               .unwrap_or(0);
-           let total_escrowed = existing + amount;
-           env.storage().persistent().set(&escrow_key, &total_escrowed);
+                let escrow_key = PersistentKey::EscrowBalance(sub_id);
+                let existing: i128 = env.storage().persistent().get(&escrow_key).unwrap_or(0);
+                let total_escrowed = existing + amount;
+                env.storage().persistent().set(&escrow_key, &total_escrowed);
 
-           EscrowLocked {
-               sub_id,
-               merchant: data.merchant.clone(),
-               amount,
-               total_escrowed,
-           }
-           .publish(&env);
-       }
+                EscrowLocked {
+                    sub_id,
+                    merchant: data.merchant.clone(),
+                    amount,
+                    total_escrowed,
+                }
+                .publish(&env);
+            }
             // Update lifecycle timestamps
             let lc_key = PersistentKey::Lifecycle(sub_id);
             let mut lifecycle: LifecycleTimestamps = env
@@ -937,20 +1051,27 @@ impl SubscriptionRenewalContract {
 
             // Auto-release lock
             env.storage().persistent().remove(&lock_key);
+            env.storage().persistent().set(
+                &PersistentKey::RenewalLockCooldown(sub_id),
+                &RenewalLockCooldownData {
+                    released_at: current_ledger,
+                    released_by: lock_data.acquired_by.clone(),
+                },
+            );
             RenewalLockReleased {
                 sub_id,
                 released_at: current_ledger,
             }
             .publish(&env);
 
-        // Emit indexer-facing lifecycle event
-       SubscriptionRenewed {
-           sub_id,
-           owner: data.owner.clone(),
-           merchant: data.merchant.clone(),
-           amount,
-       }
-       .publish(&env);
+            // Emit indexer-facing lifecycle event
+            SubscriptionRenewed {
+                sub_id,
+                owner: data.owner.clone(),
+                merchant: data.merchant.clone(),
+                amount,
+            }
+            .publish(&env);
 
             // Record renewal success log
             Self::record_log(
@@ -961,8 +1082,6 @@ impl SubscriptionRenewalContract {
             );
 
             true
-
-            
         } else {
             // Simulated failure - renewal failed, apply retry logic
             // Do NOT store cycle_id on failure — retries with same cycle_id remain allowed
@@ -1014,6 +1133,13 @@ impl SubscriptionRenewalContract {
 
             // Auto-release lock
             env.storage().persistent().remove(&lock_key);
+            env.storage().persistent().set(
+                &PersistentKey::RenewalLockCooldown(sub_id),
+                &RenewalLockCooldownData {
+                    released_at: current_ledger,
+                    released_by: lock_data.acquired_by.clone(),
+                },
+            );
             RenewalLockReleased {
                 sub_id,
                 released_at: current_ledger,
@@ -1025,49 +1151,49 @@ impl SubscriptionRenewalContract {
     }
 
     /// Query the amount currently escrowed for a subscription, awaiting merchant claim.
-       pub fn get_escrow_balance(env: Env, sub_id: u64) -> i128 {
-           env.storage()
-               .persistent()
-               .get(&PersistentKey::EscrowBalance(sub_id))
-               .unwrap_or(0)
-       }
+    pub fn get_escrow_balance(env: Env, sub_id: u64) -> i128 {
+        env.storage()
+            .persistent()
+            .get(&PersistentKey::EscrowBalance(sub_id))
+            .unwrap_or(0)
+    }
 
-       /// Claim the escrowed balance for a subscription. Only the merchant on record
-       /// for that subscription may call this. Transfers the full escrowed amount
-       /// from the contract's custody to the merchant and zeroes the balance.
-       pub fn claim_escrow(env: Env, sub_id: u64) -> i128 {
-           let key = PersistentKey::Subscription(sub_id);
-           let data: SubscriptionData = env
-               .storage()
-               .persistent()
-               .get(&key)
-               .expect("Subscription not found");
+    /// Claim the escrowed balance for a subscription. Only the merchant on record
+    /// for that subscription may call this. Transfers the full escrowed amount
+    /// from the contract's custody to the merchant and zeroes the balance.
+    pub fn claim_escrow(env: Env, sub_id: u64) -> i128 {
+        let key = PersistentKey::Subscription(sub_id);
+        let data: SubscriptionData = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .expect("Subscription not found");
 
-           // Only the merchant registered on this subscription can claim its escrow.
-           data.merchant.require_auth();
+        // Only the merchant registered on this subscription can claim its escrow.
+        data.merchant.require_auth();
 
-           let escrow_key = PersistentKey::EscrowBalance(sub_id);
-           let balance: i128 = env.storage().persistent().get(&escrow_key).unwrap_or(0);
-           if balance <= 0 {
-               panic!("No escrowed balance to claim");
-           }
+        let escrow_key = PersistentKey::EscrowBalance(sub_id);
+        let balance: i128 = env.storage().persistent().get(&escrow_key).unwrap_or(0);
+        if balance <= 0 {
+            panic!("No escrowed balance to claim");
+        }
 
-           let token_addr: Address = Self::get_token_contract(env.clone())
-               .expect("Token contract not configured");
-           let token_client = token::Client::new(&env, &token_addr);
-           token_client.transfer(&env.current_contract_address(), &data.merchant, &balance);
+        let token_addr: Address =
+            Self::get_token_contract(env.clone()).expect("Token contract not configured");
+        let token_client = token::Client::new(&env, &token_addr);
+        token_client.transfer(&env.current_contract_address(), &data.merchant, &balance);
 
-           env.storage().persistent().set(&escrow_key, &0i128);
+        env.storage().persistent().set(&escrow_key, &0i128);
 
-           EscrowClaimed {
-               sub_id,
-               merchant: data.merchant.clone(),
-               amount: balance,
-           }
-           .publish(&env);
+        EscrowClaimed {
+            sub_id,
+            merchant: data.merchant.clone(),
+            amount: balance,
+        }
+        .publish(&env);
 
-           balance
-       }
+        balance
+    }
 
     pub fn get_sub(env: Env, sub_id: u64) -> SubscriptionData {
         env.storage()
@@ -1148,11 +1274,7 @@ impl SubscriptionRenewalContract {
         let key = PersistentKey::TeamThreshold(team_id);
         env.storage().persistent().set(&key, &threshold);
 
-        TeamThresholdUpdated {
-            team_id,
-            threshold,
-        }
-        .publish(&env);
+        TeamThresholdUpdated { team_id, threshold }.publish(&env);
     }
 
     /// Get the multi-sig threshold for a team.
@@ -1263,12 +1385,7 @@ impl SubscriptionRenewalContract {
     /// Sign (co-approve) a pending multi-sig renewal request.
     /// The signer must be one of the `required_signers` and must authenticate.
     /// When all required signatures are collected, the status transitions to Approved.
-    pub fn sign_multisig_renewal(
-        env: Env,
-        sub_id: u64,
-        request_id: u64,
-        signer: Address,
-    ) {
+    pub fn sign_multisig_renewal(env: Env, sub_id: u64, request_id: u64, signer: Address) {
         signer.require_auth();
 
         let ms_key = PersistentKey::MultiSig(sub_id, request_id);
@@ -1462,11 +1579,7 @@ impl SubscriptionRenewalContract {
     }
 
     /// Query a multi-sig request.
-    pub fn get_multisig_request(
-        env: Env,
-        sub_id: u64,
-        request_id: u64,
-    ) -> MultiSigRequest {
+    pub fn get_multisig_request(env: Env, sub_id: u64, request_id: u64) -> MultiSigRequest {
         let ms_key = PersistentKey::MultiSig(sub_id, request_id);
         env.storage()
             .persistent()

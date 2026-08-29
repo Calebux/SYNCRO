@@ -98,7 +98,9 @@ fn cap_exceeded_and_revocation_are_enforced() {
 #[test]
 fn non_allowlisted_token_is_rejected() {
     let ctx = setup();
-    let other_sac = ctx.env.register_stellar_asset_contract_v2(ctx.admin.clone());
+    let other_sac = ctx
+        .env
+        .register_stellar_asset_contract_v2(ctx.admin.clone());
     let other_token = other_sac.address();
 
     assert!(ctx

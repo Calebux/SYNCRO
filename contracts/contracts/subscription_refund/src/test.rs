@@ -57,14 +57,7 @@ fn test_init_and_record_charge() {
     let sub_id = 50;
     let amount = 500i128;
 
-    client.record_charge(
-        &payment_ref,
-        &sub_id,
-        &payer,
-        &merchant,
-        &token_id,
-        &amount,
-    );
+    client.record_charge(&payment_ref, &sub_id, &payer, &merchant, &token_id, &amount);
 
     let charge: ChargeRecord = client.get_charge(&payment_ref);
     assert_eq!(charge.payment_ref, payment_ref);
@@ -92,14 +85,7 @@ fn test_direct_merchant_refund() {
     let sub_id = 51;
     let amount = 300i128;
 
-    client.record_charge(
-        &payment_ref,
-        &sub_id,
-        &payer,
-        &merchant,
-        &token_id,
-        &amount,
-    );
+    client.record_charge(&payment_ref, &sub_id, &payer, &merchant, &token_id, &amount);
 
     client.process_refund(&payment_ref);
 
@@ -121,14 +107,7 @@ fn test_dispute_authorization_and_refund_flow() {
     let sub_id = 52;
     let amount = 1000i128;
 
-    client.record_charge(
-        &payment_ref,
-        &sub_id,
-        &payer,
-        &merchant,
-        &token_id,
-        &amount,
-    );
+    client.record_charge(&payment_ref, &sub_id, &payer, &merchant, &token_id, &amount);
 
     let reason = String::from_str(&env, "Service not delivered");
     client.open_dispute(&payment_ref, &reason);
@@ -164,14 +143,7 @@ fn test_double_refund_prevention() {
     let sub_id = 53;
     let amount = 500i128;
 
-    client.record_charge(
-        &payment_ref,
-        &sub_id,
-        &payer,
-        &merchant,
-        &token_id,
-        &amount,
-    );
+    client.record_charge(&payment_ref, &sub_id, &payer, &merchant, &token_id, &amount);
 
     // First refund succeeds
     client.process_refund(&payment_ref);
@@ -193,14 +165,7 @@ fn test_dispute_cannot_be_opened_on_refunded_charge() {
     let sub_id = 54;
     let amount = 200i128;
 
-    client.record_charge(
-        &payment_ref,
-        &sub_id,
-        &payer,
-        &merchant,
-        &token_id,
-        &amount,
-    );
+    client.record_charge(&payment_ref, &sub_id, &payer, &merchant, &token_id, &amount);
 
     client.process_refund(&payment_ref);
 

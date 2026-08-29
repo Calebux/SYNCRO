@@ -26,13 +26,7 @@ pub struct SubscriptionMetadata {
 
 #[contractclient(name = "VirtualCardClient")]
 pub trait VirtualCardInterface {
-    fn issue_card(
-        env: Env,
-        user: Address,
-        amount: i128,
-        card_type: u32,
-        expires_at: u64,
-    ) -> u32;
+    fn issue_card(env: Env, user: Address, amount: i128, card_type: u32, expires_at: u64) -> u32;
 }
 
 /// Lifecycle status for a registered subscription.
@@ -189,7 +183,9 @@ impl SubscriptionRegistry {
         admin.require_auth();
         assert!(fee_bps <= 10_000, "fee_bps must be <= 10000");
         env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::PlatformFeeBps, &fee_bps);
+        env.storage()
+            .instance()
+            .set(&DataKey::PlatformFeeBps, &fee_bps);
         env.storage().instance().set(&DataKey::Paused, &false);
     }
 
@@ -208,7 +204,11 @@ impl SubscriptionRegistry {
     }
 
     fn require_not_paused(env: &Env) {
-        let paused: bool = env.storage().instance().get(&DataKey::Paused).unwrap_or(false);
+        let paused: bool = env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false);
         if paused {
             panic!("contract is paused");
         }
@@ -219,9 +219,19 @@ impl SubscriptionRegistry {
         caller.require_auth();
         Self::require_admin(&env, &caller);
         assert!(new_fee_bps <= 10_000, "fee_bps must be <= 10000");
-        let old_fee: u32 = env.storage().instance().get(&DataKey::PlatformFeeBps).unwrap_or(0);
-        env.storage().instance().set(&DataKey::PlatformFeeBps, &new_fee_bps);
-        FeeUpdatedEvent { old_fee_bps: old_fee, new_fee_bps }.publish(&env);
+        let old_fee: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::PlatformFeeBps)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::PlatformFeeBps, &new_fee_bps);
+        FeeUpdatedEvent {
+            old_fee_bps: old_fee,
+            new_fee_bps,
+        }
+        .publish(&env);
     }
 
     /// Pause or unpause the contract (admin only).
@@ -234,12 +244,18 @@ impl SubscriptionRegistry {
 
     /// Check if contract is paused.
     pub fn is_paused(env: Env) -> bool {
-        env.storage().instance().get(&DataKey::Paused).unwrap_or(false)
+        env.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
     }
 
     /// Get current platform fee in basis points.
     pub fn get_platform_fee(env: Env) -> u32 {
-        env.storage().instance().get(&DataKey::PlatformFeeBps).unwrap_or(0)
+        env.storage()
+            .instance()
+            .get(&DataKey::PlatformFeeBps)
+            .unwrap_or(0)
     }
 
     /// Refund escrowed funds if the merchant did not claim before expiry.
@@ -264,7 +280,9 @@ impl SubscriptionRegistry {
             panic!("escrow has not expired");
         }
 
-        let escrow_id = subscription.escrow_id.unwrap_or_else(|| panic!("no escrow linked"));
+        let escrow_id = subscription
+            .escrow_id
+            .unwrap_or_else(|| panic!("no escrow linked"));
         let _ = escrow_id; // escrow_id tracked for cross-contract integration
 
         // Transfer funds back to user.
@@ -332,22 +350,12 @@ impl SubscriptionRegistry {
         amount: i128,
     ) -> bool {
         let token_client = token::Client::new(env, token);
-        token_client.transfer_from(
-            &env.current_contract_address(),
-            from,
-            to,
-            &amount,
-        );
+        token_client.transfer_from(&env.current_contract_address(), from, to, &amount);
         true
     }
 
     /// Safe direct transfer (from contract to recipient). Returns true on success.
-    fn safe_transfer(
-        env: &Env,
-        token: &Address,
-        to: &Address,
-        amount: i128,
-    ) -> bool {
+    fn safe_transfer(env: &Env, token: &Address, to: &Address, amount: i128) -> bool {
         let token_client = token::Client::new(env, token);
         token_client.transfer(&env.current_contract_address(), to, &amount);
         true
@@ -388,7 +396,9 @@ impl SubscriptionRegistry {
         }
 
         let now = env.ledger().timestamp();
-        let next_renewal_date = now.checked_add(interval).expect("next_renewal_date overflow");
+        let next_renewal_date = now
+            .checked_add(interval)
+            .expect("next_renewal_date overflow");
 
         let counter: u64 = env
             .storage()
@@ -424,9 +434,10 @@ impl SubscriptionRegistry {
             escrow_expires_at: None,
         };
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::CoreSubscription(subscription_id.clone()), &subscription);
+        env.storage().persistent().set(
+            &DataKey::CoreSubscription(subscription_id.clone()),
+            &subscription,
+        );
 
         let mut user_subs: Vec<BytesN<32>> = env
             .storage()
@@ -444,12 +455,10 @@ impl SubscriptionRegistry {
             .get(&DataKey::MerchantSubscriptions(merchant.clone()))
             .unwrap_or_else(|| vec![&env]);
         merchant_subs.push_back(subscription_id.clone());
-        env.storage()
-            .persistent()
-            .set(
-                &DataKey::MerchantSubscriptions(merchant.clone()),
-                &merchant_subs,
-            );
+        env.storage().persistent().set(
+            &DataKey::MerchantSubscriptions(merchant.clone()),
+            &merchant_subs,
+        );
 
         // Authorize the contract to pull the first renewal payment via SAC allowance.
         let expiration_ledger = env.ledger().sequence().saturating_add(interval as u32);
@@ -566,35 +575,36 @@ impl SubscriptionRegistry {
             .persistent()
             .get(&DataKey::CoreSubscription(subscription_id.clone()))
             .unwrap_or_else(|| panic!("subscription not found"));
-            
+
         // Load and increment nonce
         let current_nonce: u64 = env
             .storage()
             .instance()
             .get(&DataKey::Nonce(subscription.user.clone()))
             .unwrap_or(0);
-            
+
         if nonce != current_nonce {
             panic!("invalid nonce");
         }
-        
-        env.storage()
-            .instance()
-            .set(&DataKey::Nonce(subscription.user.clone()), &(current_nonce + 1));
-            
+
+        env.storage().instance().set(
+            &DataKey::Nonce(subscription.user.clone()),
+            &(current_nonce + 1),
+        );
+
         // Construct the authorization payload: (subscription_id, nonce)
         let mut payload_bytes = [0u8; 40];
         payload_bytes[0..32].copy_from_slice(&subscription_id.to_array());
         payload_bytes[32..40].copy_from_slice(&nonce.to_be_bytes());
         let payload = Bytes::from_slice(&env, &payload_bytes);
-        
+
         // Verify Ed25519 signature
         env.crypto().ed25519_verify(&pub_key, &payload, &signature);
-        
+
         // Note: In a production environment, we would strictly map pub_key to the user Address.
         // For this implementation, verifying the signature over the specific subscription_id and nonce
         // using the provided public key is sufficient to demonstrate delegated execution logic.
-        
+
         Self::execute_renewal(&env, &subscription_id);
     }
 
@@ -650,7 +660,11 @@ impl SubscriptionRegistry {
             .unwrap_or_else(|| vec![&env]);
 
         for sub_id in user_subs.iter() {
-            if let Some(meta) = env.storage().instance().get::<_, SubscriptionMetadata>(&DataKey::Subscription(sub_id)) {
+            if let Some(meta) = env
+                .storage()
+                .instance()
+                .get::<_, SubscriptionMetadata>(&DataKey::Subscription(sub_id))
+            {
                 if meta.service_id == service_id && meta.is_active {
                     panic!("duplicate subscription for service");
                 }
@@ -785,8 +799,7 @@ impl SubscriptionRegistry {
             .persistent()
             .get::<_, Subscription>(&DataKey::CoreSubscription(subscription_id.clone()))
         {
-            let authorized =
-                caller == subscription.user || Self::is_admin(&env, &caller);
+            let authorized = caller == subscription.user || Self::is_admin(&env, &caller);
             if !authorized {
                 panic!("unauthorized cancellation");
             }
@@ -870,7 +883,7 @@ impl SubscriptionRegistry {
             .instance()
             .get(&DataKey::Subscription(subscription_id.clone()))
             .unwrap_or_else(|| panic!("subscription not found"));
-        
+
         metadata.encrypted_data = Some(encrypted_data);
         env.storage()
             .instance()
@@ -970,10 +983,7 @@ mod test {
         let after = client.get_core_subscription(&id).unwrap();
 
         assert_eq!(token_client.balance(&merchant), merchant_before + amount);
-        assert_eq!(
-            after.next_renewal_date,
-            before.next_renewal_date + interval
-        );
+        assert_eq!(after.next_renewal_date, before.next_renewal_date + interval);
         assert_eq!(after.status, SubscriptionStatus::Active);
     }
 
@@ -985,8 +995,7 @@ mod test {
         let contract_id = env.register(SubscriptionRegistry, ());
         let client = SubscriptionRegistryClient::new(&env, &contract_id);
         let (user, merchant, token, _) = setup_token(&env);
-        let id =
-            client.register_subscription(&user, &merchant, &token, &1_000i128, &MIN_INTERVAL);
+        let id = client.register_subscription(&user, &merchant, &token, &1_000i128, &MIN_INTERVAL);
         client.renew_subscription(&id);
     }
 
@@ -997,8 +1006,7 @@ mod test {
         let contract_id = env.register(SubscriptionRegistry, ());
         let client = SubscriptionRegistryClient::new(&env, &contract_id);
         let (user, merchant, token, _) = setup_token(&env);
-        let id =
-            client.register_subscription(&user, &merchant, &token, &1_000i128, &MIN_INTERVAL);
+        let id = client.register_subscription(&user, &merchant, &token, &1_000i128, &MIN_INTERVAL);
 
         client.cancel_subscription(&id, &user);
         let sub = client.get_core_subscription(&id).unwrap();
@@ -1016,8 +1024,7 @@ mod test {
         client.init_admin(&admin);
 
         let (user, merchant, token, _) = setup_token(&env);
-        let id =
-            client.register_subscription(&user, &merchant, &token, &1_000i128, &MIN_INTERVAL);
+        let id = client.register_subscription(&user, &merchant, &token, &1_000i128, &MIN_INTERVAL);
 
         client.cancel_subscription(&id, &admin);
         let sub = client.get_core_subscription(&id).unwrap();
@@ -1032,8 +1039,7 @@ mod test {
         let contract_id = env.register(SubscriptionRegistry, ());
         let client = SubscriptionRegistryClient::new(&env, &contract_id);
         let (user, merchant, token, _) = setup_token(&env);
-        let id =
-            client.register_subscription(&user, &merchant, &token, &1_000i128, &MIN_INTERVAL);
+        let id = client.register_subscription(&user, &merchant, &token, &1_000i128, &MIN_INTERVAL);
         let stranger = Address::generate(&env);
         client.cancel_subscription(&id, &stranger);
     }

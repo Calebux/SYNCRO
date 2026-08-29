@@ -143,23 +143,15 @@ impl LoyaltyRewardsContract {
     /// Initialise the contract, recording the admin and the address of the
     /// renewal contract that is authorised to call `accrue` / `miss`.
     pub fn init(env: Env, admin: Address, renewal_caller: Address) {
-        if env
-            .storage()
-            .persistent()
-            .has(&ConfigKey::Admin)
-        {
+        if env.storage().persistent().has(&ConfigKey::Admin) {
             panic_with_error!(&env, RewardsError::AlreadyInitialized);
         }
         admin.require_auth();
-        env.storage()
-            .persistent()
-            .set(&ConfigKey::Admin, &admin);
+        env.storage().persistent().set(&ConfigKey::Admin, &admin);
         env.storage()
             .persistent()
             .set(&ConfigKey::RenewalCaller, &renewal_caller);
-        env.storage()
-            .persistent()
-            .set(&ConfigKey::Paused, &false);
+        env.storage().persistent().set(&ConfigKey::Paused, &false);
     }
 
     // ── Admin helpers ────────────────────────────────────────────────────────
@@ -168,9 +160,7 @@ impl LoyaltyRewardsContract {
     pub fn set_paused(env: Env, paused: bool) {
         let admin: Address = Self::require_admin(&env);
         admin.require_auth();
-        env.storage()
-            .persistent()
-            .set(&ConfigKey::Paused, &paused);
+        env.storage().persistent().set(&ConfigKey::Paused, &paused);
         env.events()
             .publish(("loyalty_rewards", "pause"), PauseToggled { paused });
     }

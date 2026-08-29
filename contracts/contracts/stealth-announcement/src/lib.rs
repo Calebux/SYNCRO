@@ -36,12 +36,12 @@ use soroban_sdk::{
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum AnnouncementError {
-    AlreadyInit       = 1,  // contract already initialised
-    EmptyPubkey       = 2,  // ephemeral_pubkey has zero length
-    PubkeyTooLong     = 3,  // ephemeral_pubkey exceeds 128 bytes
-    RangeTooLarge     = 4,  // pagination range exceeds MAX_PAGE_SIZE
-    InvalidRange      = 5,  // start > end
-    NotAdmin          = 6,  // caller is not the admin
+    AlreadyInit = 1,   // contract already initialised
+    EmptyPubkey = 2,   // ephemeral_pubkey has zero length
+    PubkeyTooLong = 3, // ephemeral_pubkey exceeds 128 bytes
+    RangeTooLarge = 4, // pagination range exceeds MAX_PAGE_SIZE
+    InvalidRange = 5,  // start > end
+    NotAdmin = 6,      // caller is not the admin
 }
 
 /// Maximum number of announcements returned in a single paginated query.
@@ -181,9 +181,7 @@ impl StealthAnnouncementContract {
             .get(&DataKey::AnnouncementCount)
             .unwrap_or(0);
 
-        let index = count
-            .checked_add(1)
-            .expect("announcement index overflow");
+        let index = count.checked_add(1).expect("announcement index overflow");
 
         env.storage()
             .instance()
