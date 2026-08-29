@@ -681,7 +681,18 @@ impl SubscriptionRenewalContract {
     }
 
     /// Validate and consume an approval
-    fn consume_approval(env: &Env, sub_id: u64, approval_id: u64, amount: i128) -> bool {
+    #[allow(dead_code)]
+    /// Result of an approval consumption attempt.
+    #[derive(Clone, Debug, PartialEq)]
+    enum ApprovalConsumeResult {
+        Ok,
+        NotFound,
+        AlreadyUsed,
+        Expired,
+        AmountExceeded,
+    }
+
+    fn consume_approval(env: &Env, sub_id: u64, approval_id: u64, amount: i128) -> ApprovalConsumeResult {
         let key = PersistentKey::Approval(sub_id, approval_id);
 
         let approval_opt: Option<RenewalApproval> = env.storage().persistent().get(&key);
@@ -693,7 +704,7 @@ impl SubscriptionRenewalContract {
                 reason: 4,
             }
             .publish(env);
-            return false;
+            return ApprovalConsumeResult::NotFound;
         }
 
         let mut approval = approval_opt.unwrap();
@@ -705,7 +716,7 @@ impl SubscriptionRenewalContract {
                 reason: 2,
             }
             .publish(env);
-            return false;
+            return ApprovalConsumeResult::AlreadyUsed;
         }
 
         let current_ledger = env.ledger().sequence();
@@ -716,7 +727,7 @@ impl SubscriptionRenewalContract {
                 reason: 1,
             }
             .publish(env);
-            return false;
+            return ApprovalConsumeResult::Expired;
         }
 
         if amount > approval.max_spend {
@@ -726,12 +737,14 @@ impl SubscriptionRenewalContract {
                 reason: 3,
             }
             .publish(env);
-            return false;
+            return ApprovalConsumeResult::AmountExceeded;
         }
 
+        // Mark as used for now (single-use semantics). In later refactors this
+        // should be performed only after transfer success, or be reversible.
         approval.used = true;
         env.storage().persistent().set(&key, &approval);
-        true
+        ApprovalConsumeResult::Ok
     }
 
     // ── Renewal logic ─────────────────────────────────────────────
@@ -799,8 +812,9 @@ impl SubscriptionRenewalContract {
         }
 
         // 7. Validate and consume approval (also checks renewal window if set)
-        if !Self::consume_approval(&env, sub_id, approval_id, amount) {
-            panic!("Invalid or expired approval");
+        match Self::consume_approval(&env, sub_id, approval_id, amount) {
+            ApprovalConsumeResult::Ok => {}
+            _ => panic!("Invalid or expired approval"),
         }
 
         // 7b. Enforce renewal window if configured
