@@ -1,5 +1,6 @@
 import logger from '../config/logger';
 import { supabase } from '../config/database';
+import { env } from '../config/env';
 import { reorgHandler } from './reorg-handler';
 import { generateCycleId } from '../utils/cycle-id';
 import { renewalCooldownService } from './renewal-cooldown-service';
@@ -47,7 +48,7 @@ export class EventListener {
 
   // Configurable via env var — defaults to 5 seconds
   private readonly pollInterval: number = parseInt(
-    process.env.EVENT_LISTENER_INTERVAL_MS ?? '5000',
+    env.EVENT_LISTENER_INTERVAL_MS,
     10
   );
 
@@ -62,13 +63,13 @@ export class EventListener {
   private rpcClient: RpcClient;
 
   constructor() {
-    this.contractId = process.env.SOROBAN_CONTRACT_ADDRESS || '';
+    this.contractId = env.SOROBAN_CONTRACT_ADDRESS || '';
 
     const flags = getBlockchainFlags();
     const network = resolveStellarNetwork();
 
     // Resolve RPC URL — never silently fall back to testnet in production.
-    const configuredUrl = process.env.STELLAR_NETWORK_URL;
+    const configuredUrl = env.STELLAR_NETWORK_URL;
     if (!configuredUrl && flags.isProduction) {
       this._status = 'disabled';
       this._disabledReason =

@@ -4,6 +4,7 @@ import { authenticate, AuthenticatedRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { referralService } from '../services/referral-service';
 import logger from '../config/logger';
+import { env } from '../config/env';
 
 const router = Router();
 
@@ -14,7 +15,7 @@ const router = Router();
 router.get('/code', authenticate, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const code = await referralService.getOrCreateCode(req.user!.id);
-    const link = `${process.env.FRONTEND_URL || 'https://syncro.app'}/ref/${code}`;
+    const link = `${env.FRONTEND_URL}/ref/${code}`;
     res.json({ referralCode: code, referralLink: link });
   } catch (error) {
     logger.error('Failed to get referral code', { error });

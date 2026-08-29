@@ -1,5 +1,6 @@
 import logger from '../config/logger';
 import { supabase } from '../config/database';
+import { env } from '../config/env';
 import { blockchainService } from './blockchain-service';
 import { webhookService } from './webhook-service';
 import { channelStateService } from './channel-state';
@@ -43,7 +44,7 @@ export class RenewalExecutor {
       // Step 3: Stealth address — derive ephemeral payment address when enabled
       let stealthAddress: string | undefined;
       let ephemeralPubkey: string | undefined;
-      const stealthEnabled = process.env.STEALTH_PAYMENTS_ENABLED === 'true';
+      const stealthEnabled = env.STEALTH_PAYMENTS_ENABLED === 'true';
       if (stealthEnabled) {
         const meta = await this.resolveStealthMetaAddress(userId);
         if (meta) {
@@ -212,8 +213,8 @@ export class RenewalExecutor {
   private async resolveStealthMetaAddress(
     userId: string,
   ): Promise<{ viewPublicKey: string; spendPublicKey: string } | null> {
-    const envView = process.env.STEALTH_VIEW_PUBKEY;
-    const envSpend = process.env.STEALTH_SPEND_PUBKEY;
+    const envView = env.STEALTH_VIEW_PUBKEY;
+    const envSpend = env.STEALTH_SPEND_PUBKEY;
     if (envView && envSpend) {
       return { viewPublicKey: envView, spendPublicKey: envSpend };
     }
@@ -237,7 +238,7 @@ export class RenewalExecutor {
     subscriptionId: string,
     amount: number,
   ): Promise<{ used: boolean }> {
-    if (process.env.PAYMENT_CHANNELS_ENABLED !== 'true') {
+    if (env.PAYMENT_CHANNELS_ENABLED !== 'true') {
       return { used: false };
     }
 
