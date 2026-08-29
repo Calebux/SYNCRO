@@ -331,6 +331,12 @@ const DEFAULT_MULTISIG_THRESHOLD: i128 = 10_000_000;
 /// Default signing window: 24 hours in seconds
 const DEFAULT_SIGNING_WINDOW_SECS: u64 = 86_400;
 
+/// Renewal lock timeout bounds (in ledger-sequence units)
+/// Minimum: 1 ledger (must be positive)
+const RENEWAL_LOCK_TIMEOUT_MIN: u32 = 1;
+/// Maximum: conservative upper bound to avoid indefinite leases (e.g. 1 week in ledgers).
+const RENEWAL_LOCK_TIMEOUT_MAX: u32 = 604_800; // ~1 week in seconds/ledgers depending on ledger cadence
+
 #[contract]
 pub struct SubscriptionRenewalContract;
 
@@ -402,19 +408,24 @@ impl SubscriptionRenewalContract {
             panic!("Protocol is paused");
         }
 
+        // Validate caller-supplied timeout is within allowed bounds.
+        if lock_timeout < RENEWAL_LOCK_TIMEOUT_MIN || lock_timeout > RENEWAL_LOCK_TIMEOUT_MAX {
+            panic!("lock_timeout out of allowed range");
+        }
+
         let lock_key = PersistentKey::RenewalLock(sub_id);
         let current_ledger = env.ledger().sequence();
 
-        if let Some(existing) = env
-            .storage()
-            .persistent()
-            .get::<PersistentKey, RenewalLockData>(&lock_key)
-        {
-            // Check if existing lock has expired
+        // Use temporary storage with automatic expiry semantics instead of
+        // persistent storage so a crashed holder does not block the subscription
+        // indefinitely. Treat absence as unlocked.
+        if let Some(existing) = env.storage().temporary().get::<PersistentKey, RenewalLockData>(&lock_key) {
+            // Check if existing lock has expired — note that temporary storage
+            // may expire entries automatically; still guard against active locks.
             if current_ledger < existing.locked_at + existing.lock_timeout {
                 panic!("Renewal lock active");
             }
-            // Lock expired — emit expiry event and allow re-acquisition
+            // Lock expired — emit expiry event and continue to re-acquire.
             RenewalLockExpired {
                 sub_id,
                 original_locked_at: existing.locked_at,
@@ -427,7 +438,9 @@ impl SubscriptionRenewalContract {
             locked_at: current_ledger,
             lock_timeout,
         };
-        env.storage().persistent().set(&lock_key, &lock_data);
+
+        // Write into temporary storage so it disappears automatically after TTL.
+        env.storage().temporary().set(&lock_key, &lock_data);
 
         RenewalLockAcquired {
             sub_id,
@@ -444,12 +457,12 @@ impl SubscriptionRenewalContract {
         }
 
         let lock_key = PersistentKey::RenewalLock(sub_id);
-        if !env.storage().persistent().has(&lock_key) {
+        if !env.storage().temporary().has(&lock_key) {
             panic!("No renewal lock to release");
         }
 
         let current_ledger = env.ledger().sequence();
-        env.storage().persistent().remove(&lock_key);
+        env.storage().temporary().remove(&lock_key);
 
         RenewalLockReleased {
             sub_id,
@@ -461,7 +474,7 @@ impl SubscriptionRenewalContract {
     /// Query the current renewal lock for a subscription.
     pub fn get_renewal_lock(env: Env, sub_id: u64) -> Option<RenewalLockData> {
         let lock_key = PersistentKey::RenewalLock(sub_id);
-        env.storage().persistent().get(&lock_key)
+        env.storage().temporary().get(&lock_key)
     }
 
     // ── Subscription logic ────────────────────────────────────────
