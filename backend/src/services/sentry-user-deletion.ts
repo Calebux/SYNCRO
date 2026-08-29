@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/node';
 import logger from '../config/logger';
+import { env } from '../config/env';
 
 /**
  * Request removal of a user's data from Sentry error tracking.
@@ -7,9 +8,9 @@ import logger from '../config/logger';
  * otherwise records a breadcrumb for operator follow-up.
  */
 export async function removeUserFromSentry(userId: string): Promise<{ removed: boolean; method: string }> {
-  const org = process.env.SENTRY_ORG;
-  const project = process.env.SENTRY_PROJECT;
-  const authToken = process.env.SENTRY_AUTH_TOKEN;
+  const org = env.SENTRY_ORG;
+  const project = env.SENTRY_PROJECT;
+  const authToken = env.SENTRY_AUTH_TOKEN;
 
   if (org && project && authToken) {
     try {

@@ -13,6 +13,7 @@
 
 import { encrypt, decrypt } from '../utils/encryption';
 import { supabase } from '../config/database';
+import { env } from '../config/env';
 import { ExternalServiceClient } from '../utils/external-service-client';
 import { SingleFlight } from '../utils/single-flight';
 
@@ -65,8 +66,8 @@ export class GmailTokenService {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
-          client_id: process.env.GOOGLE_CLIENT_ID || '',
-          client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
+          client_id: env.GOOGLE_CLIENT_ID || '',
+          client_secret: env.GOOGLE_CLIENT_SECRET || '',
           refresh_token: decryptedRefreshToken,
           grant_type: 'refresh_token',
         }).toString(),

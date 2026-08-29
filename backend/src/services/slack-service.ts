@@ -1,4 +1,5 @@
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { NotificationPayload, DeliveryResult } from '../types/reminder';
 import { sanitizeUrl } from '../utils/sanitize-url';
 import { ExternalServiceClient } from '../utils/external-service-client';
@@ -14,7 +15,7 @@ export class SlackService {
   private readonly client = new ExternalServiceClient('slack');
 
   constructor(webhookUrl?: string) {
-    this.webhookUrl = webhookUrl || process.env.SLACK_WEBHOOK_URL || '';
+    this.webhookUrl = webhookUrl || env.SLACK_WEBHOOK_URL || '';
   }
 
   isConfigured(): boolean {
