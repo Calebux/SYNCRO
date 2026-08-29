@@ -2,10 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react"
 import { auditLogger, type AuditLogEntry } from "@/lib/audit-log"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { VirtualizedList } from "@/components/ui/virtualized-list"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Label, VirtualizedList } from "@syncro/ui"
 
 interface AuditLogViewerProps {
   userId: string

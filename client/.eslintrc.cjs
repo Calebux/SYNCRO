@@ -30,6 +30,14 @@ module.exports = {
             group: ["../shared/src/**", "../../shared/src/**"],
             message: "Import from @syncro/shared, not its source path.",
           },
+          {
+            group: ["@/components/ui/**", "../components/ui/**", "../src/components/**", "@/src/components/**"],
+            message: "UI primitives live in the @syncro/ui design-system package. Import from \"@syncro/ui\" (e.g. the root path only).",
+          },
+          {
+            group: ["@syncro/ui/*", "@syncro/ui/**", "packages/ui/**", "../../packages/ui/**"],
+            message: "Do not deep-import into the design-system package. Import from \"@syncro/ui\" (the entry point) only.",
+          },
         ],
       },
     ],

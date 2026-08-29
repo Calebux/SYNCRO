@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react"
 import { Shield } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { Button } from "@syncro/ui"
+import { Input } from "@syncro/ui"
 import { listFactors } from "@/lib/api/mfa"
 import { getErrorMessage } from "@/lib/network-utils"
 

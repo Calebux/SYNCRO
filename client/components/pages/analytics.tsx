@@ -15,7 +15,7 @@ import {
 } from "recharts"
 import { AnalyticsSummary } from "@/lib/api/analytics"
 import { Download, Calendar, BarChart3, ChevronLeft, ChevronRight, TrendingUp, TrendingDown } from "lucide-react"
-import { Progress } from "@/components/ui/progress"
+import { Progress } from "@syncro/ui"
 import { type Currency, formatCurrency, CURRENCY_SYMBOLS } from "@/lib/currency-utils"
 import { useUserSettings } from "@/components/providers/user-settings-provider"
 import { DISPLAY_CURRENCIES } from "@/lib/exchange-rates"

@@ -2,8 +2,8 @@
 
 import { useState } from "react"
 import { Users, Plus, Search, Trash2, TrendingUp, Activity, Mail, Briefcase, User, DollarSign, Slack } from "lucide-react"
-import { showToast } from "@/components/ui/toast"
-import { StatusBadge, normalizeStatus } from "@/components/ui/status-badge"
+import { showToast } from "@syncro/ui"
+import { StatusBadge, normalizeStatus } from "@syncro/ui"
 import { TeamMember, Workspace, TeamSubscription, EmailAccount } from "@/lib/types"
 import { canChangeRole, canRemoveMember } from "@/lib/team-utils"
 

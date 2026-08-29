@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { apiPost } from "../../lib/api";
 import { X, Mail, Building2, Server, Forward } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@syncro/ui";
 
 interface AddEmailAccountModalProps {
   onClose: () => void;

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { PWAInstallBanner } from '../components/ui/pwa-install-banner';
+import { PWAInstallBanner } from "@/components/widgets/pwa-install-banner";
 
 export function PWAProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {

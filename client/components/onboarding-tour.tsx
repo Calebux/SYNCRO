@@ -1,8 +1,8 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@syncro/ui"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@syncro/ui"
 import { X } from "lucide-react"
 
 interface TourStep {

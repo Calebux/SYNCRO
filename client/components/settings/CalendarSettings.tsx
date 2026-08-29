@@ -1,12 +1,12 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Switch } from "@/components/ui/switch"
-import { Label } from "@/components/ui/label"
-import { Input } from "@/components/ui/input"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Button } from "@syncro/ui"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@syncro/ui"
+import { Switch } from "@syncro/ui"
+import { Label } from "@syncro/ui"
+import { Input } from "@syncro/ui"
+import { Alert, AlertDescription } from "@syncro/ui"
 import { Calendar, Copy, Check, Download, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import {

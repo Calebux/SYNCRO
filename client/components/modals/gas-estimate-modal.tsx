@@ -25,7 +25,7 @@ import {
   GasEstimate,
   InlineGasBadge,
   GasEstimateSkeleton,
-} from "@/components/ui/gas-estimate";
+} from "@/components/widgets/gas-estimate";
 import type { SorobanResourceEstimate } from "@/lib/gas-predictor";
 
 interface GasEstimateModalProps {

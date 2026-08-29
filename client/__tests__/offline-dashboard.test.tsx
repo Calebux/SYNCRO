@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { OfflineIndicator } from '@/components/ui/offline-indicator';
+import { OfflineIndicator } from "@/components/widgets/offline-indicator";
 
 // ─── OfflineIndicator component tests ─────────────────────────────────────────
 

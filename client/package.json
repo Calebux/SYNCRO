@@ -65,6 +65,7 @@
     "@react-pdf/renderer": "^4.3.2",
     "@rolldown/binding-linux-x64-gnu": "^1.2.0",
     "@syncro/shared": "file:../shared",
+    "@syncro/ui": "file:../packages/ui",
     "@tremor/react": "^3.17.4",
     "@types/uuid": "^11.0.0",
     "autoprefixer": "^10.5.4",

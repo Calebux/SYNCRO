@@ -16,7 +16,7 @@ import {
 } from "lucide-react"
 import React, { useState, useEffect } from "react"
 import { apiGet, apiPatch } from "@/lib/api"
-import { PushNotificationToggle } from "@/components/ui/PushNotificationToggle"
+import { PushNotificationToggle } from "@/components/widgets/PushNotificationToggle"
 import { type Currency, CURRENCY_NAMES, CURRENCY_SYMBOLS, formatCurrency } from "@/lib/currency-utils"
 import { formatDate, formatDateTime } from "@/lib/timezone-utils"
 

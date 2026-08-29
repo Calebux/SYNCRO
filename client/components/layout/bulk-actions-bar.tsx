@@ -1,7 +1,7 @@
 "use client";
 
 import { Download } from "lucide-react";
-import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { LoadingSpinner } from "@syncro/ui";
 
 interface BulkActionsBarProps {
     selectedCount: number;
