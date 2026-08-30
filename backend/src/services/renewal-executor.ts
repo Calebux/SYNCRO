@@ -25,6 +25,35 @@ interface RenewalResult {
 }
 
 export class RenewalExecutor {
+  private readonly supabase: typeof supabase;
+  private readonly logger: typeof logger;
+  private readonly blockchainService: typeof blockchainService;
+  private readonly webhookService: typeof webhookService;
+  private readonly channelStateService: typeof channelStateService;
+  private readonly settlementBatcher: typeof settlementBatcher;
+  private readonly stealthScanner: any;
+  private readonly clock: import('./clock').Clock;
+
+  constructor(options: Partial<{
+    supabase: typeof supabase;
+    logger: typeof logger;
+    blockchainService: typeof blockchainService;
+    webhookService: typeof webhookService;
+    channelStateService: typeof channelStateService;
+    settlementBatcher: typeof settlementBatcher;
+    stealthScanner: any;
+    clock: import('./clock').Clock;
+  }> = {}) {
+    this.supabase = options.supabase ?? supabase;
+    this.logger = options.logger ?? logger;
+    this.blockchainService = options.blockchainService ?? blockchainService;
+    this.webhookService = options.webhookService ?? webhookService;
+    this.channelStateService = options.channelStateService ?? channelStateService;
+    this.settlementBatcher = options.settlementBatcher ?? settlementBatcher;
+    this.stealthScanner = options.stealthScanner ?? require('./stealth-scanner').stealthScanner;
+    this.clock = options.clock ?? new (require('./clock').SystemClock)();
+  }
+
   async executeRenewal(request: RenewalRequest): Promise<RenewalResult> {
     const { subscriptionId, userId, approvalId, amount } = request;
 
@@ -52,13 +81,13 @@ export class RenewalExecutor {
             const derived = deriveEphemeralStealthAddress(meta, `${subscriptionId}:${approvalId}`);
             stealthAddress = derived.stealthAddress;
             ephemeralPubkey = derived.ephemeralPubkey;
-            logger.info('Stealth renewal payment address derived', {
+            this.logger.info('Stealth renewal payment address derived', {
               subscriptionId,
               ephemeralPubkey,
               stealthAddress,
             });
           } catch (stealthErr) {
-            logger.warn('Stealth derivation failed, falling back to standard renewal', {
+            this.logger.warn('Stealth derivation failed, falling back to standard renewal', {
               subscriptionId,
               error: stealthErr instanceof Error ? stealthErr.message : String(stealthErr),
             });
@@ -78,7 +107,7 @@ export class RenewalExecutor {
       }
 
       // Step 5: Queue settlement for batched on-chain submission
-      const settlementId = await settlementBatcher.enqueue({
+      const settlementId = await this.settlementBatcher.enqueue({
         userId,
         subscriptionId,
         amount,
@@ -117,7 +146,7 @@ export class RenewalExecutor {
         ephemeralPubkey,
       );
 
-      logger.debug('Settlement queued for batch', { settlementId, subscriptionId });
+      this.logger.debug('Settlement queued for batch', { settlementId, subscriptionId });
 
       return {
         success: true,
@@ -126,7 +155,7 @@ export class RenewalExecutor {
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      logger.error('Renewal execution failed:', { subscriptionId, error: errorMsg });
+      this.logger.error('Renewal execution failed:', { subscriptionId, error: errorMsg });
       return await this.logFailure(subscriptionId, userId, 'execution_error', errorMsg);
     }
   }
@@ -135,7 +164,7 @@ export class RenewalExecutor {
     let lastResult: RenewalResult | null = null;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      logger.info(`Renewal attempt ${attempt}/${maxRetries}`, { subscriptionId: request.subscriptionId });
+      this.logger.info(`Renewal attempt ${attempt}/${maxRetries}`, { subscriptionId: request.subscriptionId });
 
       lastResult = await this.executeRenewal(request);
 
@@ -159,7 +188,7 @@ export class RenewalExecutor {
     approvalId: string,
     amount: number
   ): Promise<{ valid: boolean; reason?: string }> {
-    const { data: approval, error } = await supabase
+    const { data: approval, error } = await this.supabase
       .from('renewal_approvals')
       .select('*')
       .eq('subscription_id', subscriptionId)
@@ -171,7 +200,7 @@ export class RenewalExecutor {
       return { valid: false, reason: 'Approval not found' };
     }
 
-    if (approval.expires_at && new Date(approval.expires_at) < new Date()) {
+    if (approval.expires_at && new Date(approval.expires_at) < this.clock.now()) {
       return { valid: false, reason: 'Approval expired' };
     }
 
@@ -185,7 +214,7 @@ export class RenewalExecutor {
   private async validateBillingWindow(
     subscriptionId: string
   ): Promise<{ valid: boolean; reason?: string; billingCycle?: 'monthly' | 'quarterly' | 'yearly' }> {
-    const { data: subscription, error } = await supabase
+    const { data: subscription, error } = await this.supabase
       .from('subscriptions')
       .select('next_billing_date, status, billing_cycle')
       .eq('id', subscriptionId)
@@ -200,7 +229,7 @@ export class RenewalExecutor {
     }
 
     const nextBilling = new Date(subscription.next_billing_date);
-    const now = new Date();
+    const now = this.clock.now();
     const daysUntilBilling = Math.ceil((nextBilling.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
     if (daysUntilBilling > 7) {
@@ -243,22 +272,22 @@ export class RenewalExecutor {
     }
 
     try {
-      const channel = await channelStateService.findPayableChannel(userId, amount);
+      const channel = await this.channelStateService.findPayableChannel(userId, amount);
       if (!channel) return { used: false };
 
-      await channelStateService.applyRenewalPayment(
+      await this.channelStateService.applyRenewalPayment(
         channel.id,
         userId,
         subscriptionId,
         amount,
       );
-      logger.info('Off-chain channel renewal applied', {
+      this.logger.info('Off-chain channel renewal applied', {
         channelId: channel.id,
         subscriptionId,
       });
       return { used: true };
     } catch (err) {
-      logger.warn('Channel renewal failed, falling back to on-chain', {
+      this.logger.warn('Channel renewal failed, falling back to on-chain', {
         subscriptionId,
         error: err instanceof Error ? err.message : String(err),
       });
@@ -273,7 +302,7 @@ export class RenewalExecutor {
     stealthAddress?: string,
   ): Promise<{ success: boolean; transactionHash?: string; error?: string }> {
     try {
-      const result = await blockchainService.syncSubscription(
+      const result = await this.blockchainService.syncSubscription(
         subscriptionId,
         subscriptionId,
         'update',
@@ -302,7 +331,7 @@ export class RenewalExecutor {
     billingCycle: 'monthly' | 'quarterly' | 'yearly',
     transactionHash?: string
   ): Promise<void> {
-    const now = new Date();
+    const now = this.clock.now();
     let nextBilling: Date;
 
     switch (billingCycle) {
@@ -319,7 +348,7 @@ export class RenewalExecutor {
         nextBilling = addMonths(now, 1);
     }
 
-    await supabase
+    await this.supabase
       .from('subscriptions')
       .update({
         status: 'active',
@@ -340,7 +369,7 @@ export class RenewalExecutor {
   ): Promise<void> {
     const correlationId = getRequestId();
     
-    await supabase.from('renewal_logs').insert({
+    await this.supabase.from('renewal_logs').insert({
       subscription_id: subscriptionId,
       user_id: userId,
       status: 'success',
@@ -348,10 +377,10 @@ export class RenewalExecutor {
       stealth_address: stealthAddress ?? null,
       ephemeral_pubkey: ephemeralPubkey ?? null,
       correlation_id: correlationId,
-      created_at: new Date().toISOString(),
+      created_at: this.clock.now().toISOString(),
     });
 
-    logger.info('Renewal executed successfully', { 
+    this.logger.info('Renewal executed successfully', { 
       subscriptionId, 
       transactionHash,
       correlationId 
@@ -360,7 +389,7 @@ export class RenewalExecutor {
     // Telegram payment confirmation (non-blocking)
     try {
       const { telegramNotificationService } = await import('./telegram-notification-service');
-      const { data: sub } = await supabase
+      const { data: sub } = await this.supabase
         .from('subscriptions')
         .select('name, price, currency, billing_cycle')
         .eq('id', subscriptionId)
@@ -375,7 +404,7 @@ export class RenewalExecutor {
             billingCycle: sub.billing_cycle,
             transactionHash,
           })
-          .catch((err) => logger.warn('Telegram payment confirmation failed', { err }));
+          .catch((err) => this.logger.warn('Telegram payment confirmation failed', { err }));
       }
     } catch {
       // non-blocking
@@ -383,12 +412,12 @@ export class RenewalExecutor {
 
     // Dispatch webhook event
     try {
-      webhookService.dispatchEvent(userId, 'subscription.renewed', {
+      this.webhookService.dispatchEvent(userId, 'subscription.renewed', {
         subscription_id: subscriptionId,
         transaction_hash: transactionHash
       });
     } catch (err) {
-      logger.error('Failed to dispatch subscription.renewed webhook:', err);
+      this.logger.error('Failed to dispatch subscription.renewed webhook:', err);
     }
   }
 
@@ -400,17 +429,17 @@ export class RenewalExecutor {
   ): Promise<RenewalResult> {
     const correlationId = getRequestId();
     
-    await supabase.from('renewal_logs').insert({
+    await this.supabase.from('renewal_logs').insert({
       subscription_id: subscriptionId,
       user_id: userId,
       status: 'failed',
       failure_reason: failureReason,
       error_message: errorMessage,
       correlation_id: correlationId,
-      created_at: new Date().toISOString(),
+      created_at: this.clock.now().toISOString(),
     });
 
-    logger.error('Renewal failed', { 
+    this.logger.error('Renewal failed', { 
       subscriptionId, 
       failureReason, 
       errorMessage,
@@ -419,13 +448,13 @@ export class RenewalExecutor {
 
     // Dispatch webhook event
     try {
-      webhookService.dispatchEvent(userId, 'subscription.renewal_failed', {
+      this.webhookService.dispatchEvent(userId, 'subscription.renewal_failed', {
         subscription_id: subscriptionId,
         failure_reason: failureReason,
         error_message: errorMessage
       });
     } catch (err) {
-      logger.error('Failed to dispatch subscription.renewal_failed webhook:', err);
+      this.logger.error('Failed to dispatch subscription.renewal_failed webhook:', err);
     }
 
     return {

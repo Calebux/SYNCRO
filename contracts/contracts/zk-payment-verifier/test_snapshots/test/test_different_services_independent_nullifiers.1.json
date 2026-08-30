@@ -10,7 +10,7 @@
     []
   ],
   "ledger": {
-    "protocol_version": 26,
+    "protocol_version": 27,
     "sequence_number": 0,
     "timestamp": 0,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -38,7 +38,7 @@
                 "map": [
                   {
                     "key": {
-                      "bytes": "544ad75808272f6ed4b09d8c023bc5f065a06c5ddfdccaaed4ac51a8cf6b7a63"
+                      "bytes": "46a099082ec8b6c70b5722aa6cb7bfc356897b4c33432afefd72787f01b02d87"
                     },
                     "val": {
                       "bool": true
@@ -46,7 +46,7 @@
                   },
                   {
                     "key": {
-                      "bytes": "f1e16e4389534816d3c6c24385eed4323fe6535da7961a7910b4352710f6c2c7"
+                      "bytes": "f24f0421ae5c5146eaf2eecff82191854d0866f34e237c55e474236dbc8aa903"
                     },
                     "val": {
                       "bool": true

@@ -331,6 +331,12 @@ const DEFAULT_MULTISIG_THRESHOLD: i128 = 10_000_000;
 /// Default signing window: 24 hours in seconds
 const DEFAULT_SIGNING_WINDOW_SECS: u64 = 86_400;
 
+/// Renewal lock timeout bounds (in ledger-sequence units)
+/// Minimum: 1 ledger (must be positive)
+const RENEWAL_LOCK_TIMEOUT_MIN: u32 = 1;
+/// Maximum: conservative upper bound to avoid indefinite leases (e.g. 1 week in ledgers).
+const RENEWAL_LOCK_TIMEOUT_MAX: u32 = 604_800; // ~1 week in seconds/ledgers depending on ledger cadence
+
 #[contract]
 pub struct SubscriptionRenewalContract;
 
@@ -374,6 +380,9 @@ impl SubscriptionRenewalContract {
 
     /// Set the logging contract address. Admin only.
     pub fn set_logging_contract(env: Env, address: Address) {
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
         Self::require_admin(&env);
         env.storage()
             .instance()
@@ -382,6 +391,9 @@ impl SubscriptionRenewalContract {
 
     /// Set the token (asset) contract used to move funds into/out of escrow. Admin only.
        pub fn set_token_contract(env: Env, address: Address) {
+           if Self::is_paused(env.clone()) {
+               panic!("Protocol is paused");
+           }
            Self::require_admin(&env);
            env.storage()
                .instance()
@@ -402,19 +414,24 @@ impl SubscriptionRenewalContract {
             panic!("Protocol is paused");
         }
 
+        // Validate caller-supplied timeout is within allowed bounds.
+        if lock_timeout < RENEWAL_LOCK_TIMEOUT_MIN || lock_timeout > RENEWAL_LOCK_TIMEOUT_MAX {
+            panic!("lock_timeout out of allowed range");
+        }
+
         let lock_key = PersistentKey::RenewalLock(sub_id);
         let current_ledger = env.ledger().sequence();
 
-        if let Some(existing) = env
-            .storage()
-            .persistent()
-            .get::<PersistentKey, RenewalLockData>(&lock_key)
-        {
-            // Check if existing lock has expired
+        // Use temporary storage with automatic expiry semantics instead of
+        // persistent storage so a crashed holder does not block the subscription
+        // indefinitely. Treat absence as unlocked.
+        if let Some(existing) = env.storage().temporary().get::<PersistentKey, RenewalLockData>(&lock_key) {
+            // Check if existing lock has expired — note that temporary storage
+            // may expire entries automatically; still guard against active locks.
             if current_ledger < existing.locked_at + existing.lock_timeout {
                 panic!("Renewal lock active");
             }
-            // Lock expired — emit expiry event and allow re-acquisition
+            // Lock expired — emit expiry event and continue to re-acquire.
             RenewalLockExpired {
                 sub_id,
                 original_locked_at: existing.locked_at,
@@ -427,7 +444,9 @@ impl SubscriptionRenewalContract {
             locked_at: current_ledger,
             lock_timeout,
         };
-        env.storage().persistent().set(&lock_key, &lock_data);
+
+        // Write into temporary storage so it disappears automatically after TTL.
+        env.storage().temporary().set(&lock_key, &lock_data);
 
         RenewalLockAcquired {
             sub_id,
@@ -444,12 +463,12 @@ impl SubscriptionRenewalContract {
         }
 
         let lock_key = PersistentKey::RenewalLock(sub_id);
-        if !env.storage().persistent().has(&lock_key) {
+        if !env.storage().temporary().has(&lock_key) {
             panic!("No renewal lock to release");
         }
 
         let current_ledger = env.ledger().sequence();
-        env.storage().persistent().remove(&lock_key);
+        env.storage().temporary().remove(&lock_key);
 
         RenewalLockReleased {
             sub_id,
@@ -461,7 +480,7 @@ impl SubscriptionRenewalContract {
     /// Query the current renewal lock for a subscription.
     pub fn get_renewal_lock(env: Env, sub_id: u64) -> Option<RenewalLockData> {
         let lock_key = PersistentKey::RenewalLock(sub_id);
-        env.storage().persistent().get(&lock_key)
+        env.storage().temporary().get(&lock_key)
     }
 
     // ── Subscription logic ────────────────────────────────────────
@@ -668,7 +687,18 @@ impl SubscriptionRenewalContract {
     }
 
     /// Validate and consume an approval
-    fn consume_approval(env: &Env, sub_id: u64, approval_id: u64, amount: i128) -> bool {
+    #[allow(dead_code)]
+    /// Result of an approval consumption attempt.
+    #[derive(Clone, Debug, PartialEq)]
+    enum ApprovalConsumeResult {
+        Ok,
+        NotFound,
+        AlreadyUsed,
+        Expired,
+        AmountExceeded,
+    }
+
+    fn consume_approval(env: &Env, sub_id: u64, approval_id: u64, amount: i128) -> ApprovalConsumeResult {
         let key = PersistentKey::Approval(sub_id, approval_id);
 
         let approval_opt: Option<RenewalApproval> = env.storage().persistent().get(&key);
@@ -680,7 +710,7 @@ impl SubscriptionRenewalContract {
                 reason: 4,
             }
             .publish(env);
-            return false;
+            return ApprovalConsumeResult::NotFound;
         }
 
         let mut approval = approval_opt.unwrap();
@@ -692,7 +722,7 @@ impl SubscriptionRenewalContract {
                 reason: 2,
             }
             .publish(env);
-            return false;
+            return ApprovalConsumeResult::AlreadyUsed;
         }
 
         let current_ledger = env.ledger().sequence();
@@ -703,7 +733,7 @@ impl SubscriptionRenewalContract {
                 reason: 1,
             }
             .publish(env);
-            return false;
+            return ApprovalConsumeResult::Expired;
         }
 
         if amount > approval.max_spend {
@@ -713,12 +743,14 @@ impl SubscriptionRenewalContract {
                 reason: 3,
             }
             .publish(env);
-            return false;
+            return ApprovalConsumeResult::AmountExceeded;
         }
 
+        // Mark as used for now (single-use semantics). In later refactors this
+        // should be performed only after transfer success, or be reversible.
         approval.used = true;
         env.storage().persistent().set(&key, &approval);
-        true
+        ApprovalConsumeResult::Ok
     }
 
     // ── Renewal logic ─────────────────────────────────────────────
@@ -786,8 +818,9 @@ impl SubscriptionRenewalContract {
         }
 
         // 7. Validate and consume approval (also checks renewal window if set)
-        if !Self::consume_approval(&env, sub_id, approval_id, amount) {
-            panic!("Invalid or expired approval");
+        match Self::consume_approval(&env, sub_id, approval_id, amount) {
+            ApprovalConsumeResult::Ok => {}
+            _ => panic!("Invalid or expired approval"),
         }
 
         // 7b. Enforce renewal window if configured
@@ -1036,6 +1069,9 @@ impl SubscriptionRenewalContract {
        /// for that subscription may call this. Transfers the full escrowed amount
        /// from the contract's custody to the merchant and zeroes the balance.
        pub fn claim_escrow(env: Env, sub_id: u64) -> i128 {
+           if Self::is_paused(env.clone()) {
+               panic!("Protocol is paused");
+           }
            let key = PersistentKey::Subscription(sub_id);
            let data: SubscriptionData = env
                .storage()
@@ -1086,6 +1122,9 @@ impl SubscriptionRenewalContract {
 
     /// Set a billing window for a subscription. Admin only.
     pub fn set_window(env: Env, sub_id: u64, billing_start: u64, billing_end: u64) {
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
         Self::require_admin(&env);
         if billing_start >= billing_end {
             panic!("Invalid window: start must be before end");
@@ -1112,6 +1151,9 @@ impl SubscriptionRenewalContract {
 
     /// Set global spending cap for a user. Admin only.
     pub fn set_user_cap(env: Env, user: Address, cap: i128) {
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
         Self::require_admin(&env);
         env.storage()
             .persistent()
@@ -1141,6 +1183,9 @@ impl SubscriptionRenewalContract {
     /// `threshold` is denominated in stroops (1 XLM = 10_000_000 stroops).
     /// Renewals exceeding this amount require multi-sig approval.
     pub fn set_team_threshold(env: Env, team_id: u64, threshold: i128) {
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
         Self::require_admin(&env);
         if threshold < 0 {
             panic!("Threshold must be non-negative");
@@ -1168,6 +1213,9 @@ impl SubscriptionRenewalContract {
     /// Set the signing window duration for a team. Admin only.
     /// `window_secs` is the number of seconds signers have to co-sign.
     pub fn set_signing_window(env: Env, team_id: u64, window_secs: u64) {
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
         Self::require_admin(&env);
         if window_secs == 0 {
             panic!("Signing window must be positive");
@@ -1269,6 +1317,9 @@ impl SubscriptionRenewalContract {
         request_id: u64,
         signer: Address,
     ) {
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
         signer.require_auth();
 
         let ms_key = PersistentKey::MultiSig(sub_id, request_id);
@@ -1378,6 +1429,9 @@ impl SubscriptionRenewalContract {
 
     /// Cancel a pending multi-sig renewal request. Admin only.
     pub fn cancel_multisig_renewal(env: Env, sub_id: u64, request_id: u64) {
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
         Self::require_admin(&env);
 
         let ms_key = PersistentKey::MultiSig(sub_id, request_id);
@@ -1423,6 +1477,9 @@ impl SubscriptionRenewalContract {
     /// Expire a multi-sig request if its signing window has elapsed.
     /// Can be called by anyone (e.g., a cron job) to garbage-collect stale requests.
     pub fn expire_multisig_renewal(env: Env, sub_id: u64, request_id: u64) {
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
         let ms_key = PersistentKey::MultiSig(sub_id, request_id);
 
         let mut request: MultiSigRequest = env
