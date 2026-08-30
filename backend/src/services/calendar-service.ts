@@ -2,10 +2,9 @@ import crypto from 'crypto';
 import ical, { ICalCalendar } from 'ical-generator';
 import { supabase } from '../config/database';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { userPreferenceService } from './user-preference-service';
 import type { Subscription } from '../types/reminder';
-
-const CALENDAR_SECRET = process.env.CALENDAR_SECRET;
 
 export interface CalendarPreferences {
   calendar_sync_enabled: boolean;
@@ -34,13 +33,14 @@ interface ReminderScheduleRow {
 }
 
 function getCalendarSecret(): string {
-  if (!CALENDAR_SECRET) {
-    if (process.env.NODE_ENV === 'production') {
+  const secret = env.CALENDAR_SECRET;
+  if (!secret) {
+    if (env.NODE_ENV === 'production') {
       throw new Error('CALENDAR_SECRET environment variable is required in production');
     }
     return 'syncro-calendar-secret-dev-only';
   }
-  return CALENDAR_SECRET;
+  return secret;
 }
 
 export function generateCalendarToken(userId: string): string {

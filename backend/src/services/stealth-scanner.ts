@@ -1,5 +1,6 @@
 import logger from '../config/logger';
 import { supabase } from '../config/database';
+import { env } from '../config/env';
 import { detectStealthDestination, deriveEphemeralStealthAddress } from '@syncro/shared/crypto';
 import {
   decodeStealthMemo,
@@ -67,8 +68,8 @@ export interface RecoveredPayment {
 export class StealthScanner {
   private horizonUrl(): string {
     return (
-      process.env.HORIZON_URL ??
-      process.env.STELLAR_HORIZON_URL ??
+      env.HORIZON_URL ??
+      env.STELLAR_HORIZON_URL ??
       'https://horizon-testnet.stellar.org'
     );
   }
@@ -413,7 +414,7 @@ export class StealthScanner {
     userId: string,
   ): Promise<{ viewPrivateKey: string; spendPublicKey: string } | null> {
     const envView = await secretProvider.getSecret('STEALTH_VIEW_PRIVKEY');
-    const envSpend = process.env.STEALTH_SPEND_PUBKEY;
+    const envSpend = env.STEALTH_SPEND_PUBKEY;
     if (envView && envSpend) {
       return { viewPrivateKey: envView, spendPublicKey: envSpend };
     }
@@ -440,7 +441,7 @@ export class StealthScanner {
   }
 
   private async fetchTransactions(cursor?: string): Promise<HorizonTransaction[]> {
-    const limit = Number(process.env.STEALTH_SCAN_BATCH_SIZE ?? 50);
+    const limit = Number(env.STEALTH_SCAN_BATCH_SIZE);
     const url = new URL(`${this.horizonUrl()}/transactions`);
     url.searchParams.set('order', 'asc');
     url.searchParams.set('limit', String(limit));

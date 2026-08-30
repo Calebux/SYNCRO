@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { google } from 'googleapis';
 import { supabase } from '../config/database';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { idempotencyService } from './idempotency';
 import { auditService } from './audit-service';
 import { parseSubscriptionEmailWithFallback } from './email-parser';
@@ -100,14 +101,14 @@ export class EmailRescanService {
   }
 
   private createGmailClient() {
-    if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
       throw new Error('Missing Google OAuth environment variables');
     }
 
     return new google.auth.OAuth2(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET,
-      process.env.GOOGLE_REDIRECT_URI,
+      env.GOOGLE_CLIENT_ID,
+      env.GOOGLE_CLIENT_SECRET,
+      env.GOOGLE_REDIRECT_URI,
     );
   }
 

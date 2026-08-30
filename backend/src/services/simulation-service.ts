@@ -7,33 +7,22 @@ import type {
   SimulationSummary,
   RiskAssessment,
 } from '../types/simulation';
-import { addMonths, addQuarters, addWeeks, addYears } from 'date-fns';
+import { advanceBillingCycle } from '../utils/billing-cycle';
 
 /**
  * Simulation service for projecting subscription renewals
  */
 export class SimulationService {
   /**
-   * Calculate the next renewal date based on billing cycle
-   * Uses calendar-aware math from date-fns
+   * Calculate the next renewal date based on billing cycle.
+   * Delegates to advanceBillingCycle which anchors the original day-of-month
+   * to prevent drift on month-end dates (e.g. Jan 31 → Feb 28 → Mar 28).
    */
   calculateNextRenewal(
     currentDate: Date,
     billingCycle: 'monthly' | 'quarterly' | 'yearly' | 'weekly' | 'annual'
   ): Date {
-    switch (billingCycle) {
-      case 'weekly':
-        return addWeeks(currentDate, 1);
-      case 'monthly':
-        return addMonths(currentDate, 1);
-      case 'quarterly':
-        return addQuarters(currentDate, 1);
-      case 'yearly':
-      case 'annual':
-        return addYears(currentDate, 1);
-      default:
-        return currentDate;
-    }
+    return advanceBillingCycle(currentDate, billingCycle);
   }
 
   /**
