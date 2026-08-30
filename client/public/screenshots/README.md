@@ -10,7 +10,7 @@ This directory contains screenshots for the SYNCRO PWA manifest.
 
 The placeholder screenshot is generated using:
 ```bash
-pnpm run generate-pwa-screenshot
+npm run generate-pwa-screenshot
 ```
 
 This creates an SVG-based placeholder with SYNCRO branding.

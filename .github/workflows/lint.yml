@@ -5,34 +5,119 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      force_full_run:
+        description: 'Force a full lint run'
+        type: boolean
+        default: false
 
 jobs:
-  lint-backend:
+  changes:
     runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      client: ${{ steps.filter.outputs.client }}
+      force_full_run: ${{ github.event.inputs.force_full_run || 'false' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'shared/**'
+            client:
+              - 'client/**'
+              - 'shared/**'
+
+  lint-root:
+    name: Lint Root Directory
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify no implementation artifacts in root
+        run: |
+          ALLOWED="README.md CONTRIBUTING.md AGENTS.md CLAUDE.md requirements.txt"
+          for file in *.md *.txt; do
+            if [ -f "$file" ]; then
+              if ! echo "$ALLOWED" | grep -w -q "$file"; then
+                echo "❌ Error: $file found in root. Move long-form implementation artifacts to docs/archive/."
+                exit 1
+              fi
+            fi
+          done
+          echo "✅ Root directory is clean"
+
+  lint-backend:
+    name: Lint Backend
+    runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ needs.changes.outputs.force_full_run == 'true' || needs.changes.outputs.backend == 'true' }}
     defaults:
       run:
         working-directory: backend
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
-          cache: npm
+          node-version: "20"
+          cache: "npm"
           cache-dependency-path: backend/package-lock.json
-      - run: npm ci
-      - run: npx eslint src --ext .ts --max-warnings 0
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run ESLint
+        run: npx eslint src --ext .ts --max-warnings 0
 
   lint-client:
+    name: Lint Client
     runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ needs.changes.outputs.force_full_run == 'true' || needs.changes.outputs.client == 'true' }}
     defaults:
       run:
         working-directory: client
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
-          cache: npm
+          node-version: "20"
+          cache: "npm"
           cache-dependency-path: client/package-lock.json
-      - run: npm ci
-      - run: npx next lint
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Next.js linter (includes package boundary rules)
+        run: npx next lint
+
+  lint-sdk:
+    name: Lint SDK
+    runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ needs.changes.outputs.force_full_run == 'true' }}
+    defaults:
+      run:
+        working-directory: sdk
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: sdk/package-lock.json
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run ESLint (boundary check included)
+        run: npx eslint "src/**/*.ts" --max-warnings 0

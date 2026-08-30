@@ -1,3 +1,4 @@
+import { addDays } from 'date-fns';
 import type { Subscription } from "@/lib/supabase/subscriptions";
 
 export function detectDuplicates(subscriptions: Subscription[]) {
@@ -31,25 +32,25 @@ export function detectDuplicates(subscriptions: Subscription[]) {
 
 export function detectUnusedSubscriptions(subscriptions: Subscription[]) {
     const now = new Date();
+    const threeMonthsAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+
     return subscriptions
         .filter((sub) => {
-            // Only check AI tools that have API keys connected
-            if (sub.category !== "AI Tools" || !sub.has_api_key) return false;
-            if (!sub.last_used_at) return false;
-            const daysSinceLastUse = Math.floor(
-                (now.getTime() - new Date(sub.last_used_at).getTime()) /
-                    (1000 * 60 * 60 * 24)
-            );
-            return daysSinceLastUse >= 30;
+            if (sub.status !== "active") return false;
+            // Flag if last_interaction_at is null or older than 3 months
+            const lastInteraction = (sub as any).last_interaction_at;
+            if (!lastInteraction) return true;
+            return new Date(lastInteraction) < threeMonthsAgo;
         })
         .map((sub) => {
-            const daysSinceLastUse = Math.floor(
-                (now.getTime() - new Date(sub.last_used_at!).getTime()) /
-                    (1000 * 60 * 60 * 24)
-            );
+            const lastInteraction = (sub as any).last_interaction_at;
+            const daysSinceInteraction = lastInteraction
+                ? Math.floor((now.getTime() - new Date(lastInteraction).getTime()) / (1000 * 60 * 60 * 24))
+                : null;
             return {
                 ...sub,
-                daysSinceLastUse,
+                potentiallyWasted: true,
+                daysSinceInteraction,
             };
         });
 }
@@ -103,8 +104,6 @@ export function checkRenewalReminders(subscriptions: Subscription[]) {
             name: sub.name,
             price: sub.price,
             renewsIn: sub.renews_in || 0,
-            renewalDate: new Date(
-                Date.now() + (sub.renews_in || 0) * 24 * 60 * 60 * 1000
-            ),
+            renewalDate: addDays(new Date(), sub.renews_in || 0),
         }));
 }

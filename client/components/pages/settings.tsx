@@ -14,10 +14,11 @@ import {
   Building2,
   Send,
 } from "lucide-react"
-import { useEffect, useState } from "react"
 import React, { useState, useEffect } from "react"
 import { apiGet, apiPatch } from "@/lib/api"
-import { type Currency, CURRENCY_NAMES, CURRENCY_SYMBOLS } from "@/lib/currency-utils"
+import { PushNotificationToggle } from "@/components/ui/PushNotificationToggle"
+import { type Currency, CURRENCY_NAMES, CURRENCY_SYMBOLS, formatCurrency } from "@/lib/currency-utils"
+import { formatDate, formatDateTime } from "@/lib/timezone-utils"
 
 interface SettingsPageProps {
   currentPlan: string
@@ -27,10 +28,13 @@ interface SettingsPageProps {
   darkMode?: boolean
   currency: Currency
   onCurrencyChange: (currency: Currency) => void
+  timezone?: string
+  onTimezoneChange?: (timezone: string) => void
   accountType?: string
   onUpgradeToTeam?: (workspaceData: any) => void
   payments?: any[]
   onRefund?: (transactionId: string) => void
+  onRestartTour?: () => void
 }
 
 export default function SettingsPage({
@@ -41,10 +45,13 @@ export default function SettingsPage({
   darkMode,
   currency,
   onCurrencyChange,
+  timezone = "UTC",
+  onTimezoneChange,
   accountType = "individual",
   onUpgradeToTeam,
   payments = [],
   onRefund,
+  onRestartTour,
 }: SettingsPageProps) {
   const [alertThreshold, setAlertThreshold] = useState(80)
   const [emailAlerts, setEmailAlerts] = useState(true)
@@ -145,7 +152,7 @@ export default function SettingsPage({
     }
   }
 
-  const toggleKeyVisibility = (id: number) => {
+  const toggleKeyVisibility = (id: string) => {
     setApiKeys(apiKeys.map((k) => (k.id === id ? { ...k, visible: !k.visible } : k)))
   }
 
@@ -361,6 +368,34 @@ export default function SettingsPage({
               All prices will be displayed in your selected currency
             </p>
           </div>
+
+          <div>
+            <label className={`block text-sm font-medium mb-2 ${darkMode ? "text-gray-300" : "text-gray-700"}`}>
+              Timezone
+            </label>
+            <select
+              value={timezone}
+              onChange={(e) => onTimezoneChange?.(e.target.value)}
+              className={`w-full px-4 py-2 border rounded-lg ${
+                darkMode ? "bg-gray-800 border-gray-700 text-white" : "bg-white border-gray-300 text-gray-900"
+              }`}
+            >
+              <option value="UTC">UTC (Coordinated Universal Time)</option>
+              <option value="America/New_York">Eastern Time (US & Canada)</option>
+              <option value="America/Chicago">Central Time (US & Canada)</option>
+              <option value="America/Denver">Mountain Time (US & Canada)</option>
+              <option value="America/Los_Angeles">Pacific Time (US & Canada)</option>
+              <option value="Europe/London">London (GMT/BST)</option>
+              <option value="Europe/Paris">Paris (CET/CEST)</option>
+              <option value="Asia/Tokyo">Tokyo (JST)</option>
+              <option value="Asia/Shanghai">Shanghai (CST)</option>
+              <option value="Asia/Kolkata">India (IST)</option>
+              <option value="Australia/Sydney">Sydney (AEST/AEDT)</option>
+            </select>
+            <p className={`text-xs mt-1 ${darkMode ? "text-gray-400" : "text-gray-500"}`}>
+              Used for renewal reminders and activity logs
+            </p>
+          </div>
         </div>
       </div>
 
@@ -451,7 +486,7 @@ export default function SettingsPage({
                       {account.subscriptionCount} subscription{account.subscriptionCount !== 1 ? "s" : ""} found
                     </p>
                     <p>Last scanned: {account.lastScanned}</p>
-                    <p>Connected: {new Date(account.connectedAt).toLocaleDateString()}</p>
+                    <p>Connected: {formatDate(account.connectedAt)}</p>
                     {account.isWorkEmail && (
                       <p className="flex items-center gap-1">
                         <Building2 className="w-3 h-3" />
@@ -589,6 +624,40 @@ export default function SettingsPage({
         </div>
       </div>
 
+      {/* Onboarding & Help */}
+      <div className={`border rounded-xl p-6 ${darkMode ? "bg-gray-900 border-gray-800" : "bg-white border-gray-200"}`}>
+        <h3 className={`text-lg font-semibold mb-4 ${darkMode ? "text-white" : "text-gray-900"}`}>Onboarding & Help</h3>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className={`font-medium ${darkMode ? "text-white" : "text-gray-900"}`}>Restart Onboarding Tour</p>
+              <p className={`text-sm ${darkMode ? "text-gray-400" : "text-gray-600"}`}>
+                Take the guided 3-step, 2-minute tour to learn about key features: Add Subscriptions, Connect Email, and Set Wallet
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                if (onRestartTour) {
+                  onRestartTour();
+                } else {
+                  localStorage.removeItem("onboarding-tour-completed");
+                  localStorage.removeItem("onboarding-tour-skipped");
+                  localStorage.removeItem("onboarding-tour-step-index");
+                  window.location.reload();
+                }
+              }}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                darkMode
+                  ? "bg-[#FFD166] text-[#1E2A35] hover:bg-[#FFD166]/90"
+                  : "bg-[#1E2A35] text-white hover:bg-[#2D3748]"
+              }`}
+            >
+              Restart Tour
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Payment History */}
       <div className={`border rounded-xl p-6 ${darkMode ? "bg-gray-900 border-gray-800" : "bg-white border-gray-200"}`}>
         <h3 className={`text-lg font-semibold mb-4 flex items-center gap-2 ${darkMode ? "text-white" : "text-gray-900"}`}>
@@ -616,11 +685,11 @@ export default function SettingsPage({
                 {payments.map((payment) => (
                   <tr key={payment.id} className={darkMode ? "text-gray-300" : "text-gray-700"}>
                     <td className="py-3">
-                      {new Date(payment.created_at).toLocaleDateString()}
+                      {formatDate(payment.created_at)}
                     </td>
                     <td className="py-3 capitalize">{payment.plan_name}</td>
                     <td className="py-3 uppercase">
-                      {payment.amount} {payment.currency}
+                      {formatCurrency(payment.amount, payment.currency)}
                     </td>
                     <td className="py-3">
                       <span className={`px-2 py-0.5 rounded text-xs font-medium ${
@@ -660,6 +729,9 @@ export default function SettingsPage({
           Notification Preferences
         </h3>
         <div className="space-y-4">
+          <div className="mb-6">
+            <PushNotificationToggle darkMode={darkMode} />
+          </div>
           <label className="flex items-center gap-3 cursor-pointer">
             <input
               type="checkbox"
@@ -796,7 +868,7 @@ export default function SettingsPage({
                   {apiKey.visible ? 'API key shown in creation only' : "••••••••••••••••"}
                 </p>
                 <p className={`text-xs ${darkMode ? "text-gray-500" : "text-gray-500"}`}>
-                  Last used: {apiKey.last_used_at ? new Date(apiKey.last_used_at).toLocaleString() : 'Never'}
+                  Last used: {apiKey.last_used_at ? formatDateTime(apiKey.last_used_at) : 'Never'}
                 </p>
               </div>
               <div className="flex items-center gap-2">

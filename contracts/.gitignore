@@ -4,3 +4,6 @@ target
 # Local settings
 .soroban
 .stellar
+
+# Fuzz tests do not commit Soroban snapshot JSON
+contracts/*/test_snapshots/fuzz/

@@ -6,6 +6,7 @@ export class UserPreferenceService {
     private readonly defaultPreferences: Omit<UserPreferences, 'user_id' | 'updated_at'> = {
         notification_channels: ['email'],
         reminder_timing: [7, 3, 1],
+        reminder_jitter_level: 'off', // default to no jitter
         email_opt_ins: {
             marketing: false,
             reminders: true,
@@ -16,6 +17,19 @@ export class UserPreferenceService {
             auto_retry: true,
         },
         risk_notification_threshold: 'HIGH',
+        quiet_hours_enabled: false,
+        quiet_hours_start: '22:00',
+        quiet_hours_end: '08:00',
+        quiet_hours_timezone: 'UTC',
+        critical_alerts_only: true,
+        currency: 'USD',
+        timezone: 'UTC',
+        locale: 'en-US',
+        calendar_sync_enabled: false,
+        calendar_export_reminders: true,
+        preferred_gift_card_provider: 'atomic_wallet',
+        privacy_mode_enabled: false,
+        subscription_priority_order: [],
     };
 
     /**

@@ -1,6 +1,8 @@
 # Dependencies
 ./node_modules
 node_modules/
+# package-lock.json files are ignored globally; each workspace that uses npm
+# must be explicitly un-ignored below so the runner receives the lock file.
 package-lock.json
 npm-debug.log*
 yarn-debug.log*
@@ -8,6 +10,8 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 .pnpm-debug.log*
+pnpm-lock.yaml
+yarn.lock
 
 # Environment variables
 .env
@@ -101,3 +105,9 @@ coverage/
 CLAUDE.md
 
 !backend/package-lock.json
+
+# Transpiled test artifacts — ts-jest compiles TypeScript at runtime; never commit JS output from backend/tests
+backend/tests/**/*.js
+backend/tests/**/*.js.map
+backend/tests/**/*.d.ts
+backend/tests/**/*.d.ts.map

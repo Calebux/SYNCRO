@@ -2,14 +2,20 @@
 
 import { useCallback } from "react";
 import type { Subscription } from "@/lib/supabase/subscriptions";
+import type {
+  NotificationActionHandler,
+  NotificationDuplicateInfo,
+} from "@/lib/notification-types";
+import type { ConfirmationDialog } from "./use-confirmation-dialog";
+import type { Toast } from "./use-toast";
 
 interface UseNotificationActionsProps {
   subscriptions: Subscription[];
   updateSubscriptions: (subs: Subscription[]) => void;
   addToHistory: (subs: Subscription[]) => void;
   onCancelSubscription: (id: number) => void;
-  onShowDialog: (dialog: any) => void;
-  onToast: (toast: any) => void;
+  onShowDialog: (dialog: ConfirmationDialog | null) => void;
+  onToast: (toast: Omit<Toast, "id">) => void;
   onShowInsightsPage: () => void;
 }
 
@@ -22,13 +28,13 @@ export function useNotificationActions({
   onToast,
   onShowInsightsPage,
 }: UseNotificationActionsProps) {
-  const handleResolveNotificationAction = useCallback(
-    (action: string, data: any) => {
+  const handleResolveNotificationAction = useCallback<NotificationActionHandler>(
+    (action, data) => {
       console.log("[v0] Resolving notification action:", action, data);
 
       switch (action) {
-        case "resolve_duplicate":
-          const duplicateInfo = data;
+        case "resolve_duplicate": {
+          const duplicateInfo = data as NotificationDuplicateInfo;
           const subsToKeep = duplicateInfo.subscriptions[0];
           const subsToRemove = duplicateInfo.subscriptions.slice(1);
 
@@ -55,9 +61,11 @@ export function useNotificationActions({
             onCancel: () => onShowDialog(null),
           });
           break;
+        }
 
-        case "cancel_unused":
-          const unusedSub = subscriptions.find((s) => s.id === data);
+        case "cancel_unused": {
+          const subscriptionId = data as number;
+          const unusedSub = subscriptions.find((s) => s.id === subscriptionId);
           if (unusedSub) {
             onShowDialog({
               title: "Cancel unused subscription?",
@@ -65,7 +73,7 @@ export function useNotificationActions({
               variant: "warning",
               confirmLabel: "Cancel Subscription",
               onConfirm: () => {
-                onCancelSubscription(data);
+                onCancelSubscription(subscriptionId);
                 onShowDialog(null);
                 onToast({
                   title: "Subscription cancelled",
@@ -77,21 +85,23 @@ export function useNotificationActions({
             });
           }
           break;
+        }
 
-        case "cancel_trial":
-          const trialSub = subscriptions.find((s) => s.id === data);
+        case "cancel_trial": {
+          const subscriptionId = data as number;
+          const trialSub = subscriptions.find((s) => s.id === subscriptionId);
           if (trialSub) {
             onShowDialog({
               title: "Cancel trial subscription?",
               description: `Cancel ${trialSub.name} before you're charged $${
-                (trialSub as any).priceAfterTrial ||
                 trialSub.price_after_trial ||
+                trialSub.trial_converts_to_price ||
                 0
               }?`,
               variant: "warning",
               confirmLabel: "Cancel Trial",
               onConfirm: () => {
-                onCancelSubscription(data);
+                onCancelSubscription(subscriptionId);
                 onShowDialog(null);
                 onToast({
                   title: "Trial cancelled",
@@ -104,9 +114,14 @@ export function useNotificationActions({
             });
           }
           break;
+        }
 
         case "view_consolidation":
           onShowInsightsPage();
+          break;
+
+        default:
+          console.warn(`[v0] Unknown notification action: ${action}`);
           break;
       }
     },

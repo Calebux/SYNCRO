@@ -2,31 +2,50 @@ import { supabase } from '../config/database';
 import logger from '../config/logger';
 import crypto from 'crypto';
 
-export interface IdempotencyRecord {
+export interface IdempotencyRecord<TResponse = unknown> {
   id: string;
   key: string;
   user_id: string;
   request_hash: string;
   response_status: number;
-  response_body: any;
+  response_body: TResponse;
   created_at: string;
   expires_at: string;
 }
+
+export interface TypedIdempotentResponse<TResponse = unknown> {
+  status: number;
+  body: TResponse;
+  idempotencyKey: string;
+}
+
+export interface SerializablePayload {
+  toJSON(): string;
+}
+
+export type SerializableInput = string | number | boolean | null | undefined | 
+  SerializableObject | SerializableArray;
+
+interface SerializableObject {
+  [key: string]: SerializableInput;
+}
+
+interface SerializableArray extends Array<SerializableInput> {}
 
 /**
  * Idempotency service to prevent duplicate operations
  * Uses request hashing and key-based deduplication
  */
-export class IdempotencyService {
+export class IdempotencyService<TPayload extends SerializableInput = SerializableInput, TResponse = unknown> {
   private readonly ttlHours = 24; 
 
   /**
    * Generate idempotency key from request
    */
-  generateKey(userId: string, operation: string, payload: any): string {
+  generateKey(userId: string, operation: string, payload: TPayload): string {
     const payloadHash = crypto
       .createHash('sha256')
-      .update(JSON.stringify(payload))
+      .update(this.serializePayload(payload))
       .digest('hex')
       .substring(0, 16);
 
@@ -40,7 +59,7 @@ export class IdempotencyService {
     key: string,
     userId: string,
     requestHash: string
-  ): Promise<{ isDuplicate: boolean; cachedResponse?: any }> {
+  ): Promise<{ isDuplicate: boolean; cachedResponse?: TypedIdempotentResponse<TResponse> }> {
     try {
       // Check for existing idempotency record
       const { data: existing, error } = await supabase
@@ -86,7 +105,7 @@ export class IdempotencyService {
     userId: string,
     requestHash: string,
     responseStatus: number,
-    responseBody: any
+    responseBody: TResponse
   ): Promise<void> {
     try {
       const expiresAt = new Date();
@@ -112,19 +131,87 @@ export class IdempotencyService {
   }
 
   /**
+   * Type-safe serialization for hash input
+   */
+  private serializePayload(payload: TPayload): string {
+    return JSON.stringify(payload);
+  }
+
+  /**
    * Hash request payload for idempotency checking
    */
-  hashRequest(payload: any): string {
+  hashRequest(payload: TPayload): string {
     return crypto
       .createHash('sha256')
-      .update(JSON.stringify(payload))
+      .update(this.serializePayload(payload))
       .digest('hex');
   }
 
   /**
-   * Clean up expired idempotency keys (should be run periodically)
+   * Find potential duplicate subscriptions for a user across all email accounts.
+   * Uses fuzzy name matching + exact price/cycle matching.
+   * Returns subscriptions that are likely duplicates of the candidate.
    */
-  async cleanupExpired(): Promise<number> {
+  async findPotentialDuplicates(
+    userId: string,
+    candidate: { name: string; price: number; billing_cycle: string }
+  ): Promise<{ duplicates: any[]; message: string | null }> {
+    try {
+      const { data: existing, error } = await supabase
+        .from('subscriptions')
+        .select('id, name, price, billing_cycle, email_account_id, status')
+        .eq('user_id', userId)
+        .neq('status', 'deleted');
+
+      if (error) {
+        logger.error('findPotentialDuplicates query error:', error);
+        return { duplicates: [], message: null };
+      }
+
+      const normalize = (s: string) =>
+        s.toLowerCase()
+          .replace(/\s+(plus|pro|premium|basic|standard|enterprise|team|business)$/i, '')
+          .replace(/[^a-z0-9]/g, '');
+
+      const levenshtein = (a: string, b: string): number => {
+        const m: number[][] = Array.from({ length: b.length + 1 }, (_, i) => [i]);
+        for (let j = 0; j <= a.length; j++) m[0][j] = j;
+        for (let i = 1; i <= b.length; i++)
+          for (let j = 1; j <= a.length; j++)
+            m[i][j] = b[i - 1] === a[j - 1]
+              ? m[i - 1][j - 1]
+              : Math.min(m[i - 1][j - 1], m[i][j - 1], m[i - 1][j]) + 1;
+        return m[b.length][a.length];
+      };
+
+      const fuzzyMatch = (s1: string, s2: string): boolean => {
+        const n1 = normalize(s1);
+        const n2 = normalize(s2);
+        if (n1 === n2) return true;
+        const dist = levenshtein(n1, n2);
+        return dist / Math.max(n1.length, n2.length) < 0.2;
+      };
+
+      const duplicates = (existing || []).filter((sub) => {
+        const nameMatch = fuzzyMatch(candidate.name, sub.name);
+        const priceMatch = Math.abs(sub.price - candidate.price) < 0.01;
+        const cycleMatch = sub.billing_cycle === candidate.billing_cycle;
+        return nameMatch && priceMatch && cycleMatch;
+      });
+
+      const message =
+        duplicates.length > 0
+          ? 'We found a similar subscription already registered.'
+          : null;
+
+      return { duplicates, message };
+    } catch (err) {
+      logger.error('findPotentialDuplicates failed:', err);
+      return { duplicates: [], message: null };
+    }
+  }
+
+  async cleanupExpiredKeys(): Promise<number> {
     try {
       const { data, error } = await supabase
         .from('idempotency_keys')
@@ -147,4 +234,10 @@ export class IdempotencyService {
   }
 }
 
+// Type-safe factory function for creating typed idempotency services
+export function createIdempotencyService<TPayload extends SerializableInput = SerializableInput, TResponse = unknown>(): IdempotencyService<TPayload, TResponse> {
+  return new IdempotencyService<TPayload, TResponse>();
+}
+
+// Default untyped instance for backward compatibility
 export const idempotencyService = new IdempotencyService();

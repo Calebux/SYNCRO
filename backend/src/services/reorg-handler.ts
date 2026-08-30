@@ -1,6 +1,7 @@
 import logger from '../config/logger';
 import { supabase } from '../config/database';
 import { LIFECYCLE_COLUMN_MAP } from './event-listener';
+import { DBContractEvent, EventType } from '../types/contract-events';
 
 export class ReorgHandler {
   private reorgDepth: number = 10; // Safety margin for reorgs
@@ -19,7 +20,7 @@ export class ReorgHandler {
     const { data: events } = await supabase
       .from('contract_events')
       .select('*')
-      .gte('ledger', safePoint);
+      .gte('ledger', safePoint) as { data: DBContractEvent[] | null };
 
     if (!events || events.length === 0) return;
 
@@ -45,22 +46,22 @@ export class ReorgHandler {
     logger.info('Reorg handled', { rolledBackTo: safePoint });
   }
 
-  private async revertEvent(event: any) {
+  private async revertEvent(event: DBContractEvent) {
     const { sub_id, event_type } = event;
 
     switch (event_type) {
-      case 'renewal_success':
+      case EventType.RENEWAL_SUCCESS:
         await supabase
           .from('subscriptions')
           .update({ status: 'pending', last_renewal_cycle_id: null })
           .eq('blockchain_sub_id', sub_id);
         break;
 
-      case 'duplicate_renewal_rejected':
+      case EventType.DUPLICATE_RENEWAL_REJECTED:
         // No-op: rejection didn't change state, rollback is a no-op
         break;
 
-      case 'state_transition':
+      case EventType.STATE_TRANSITION:
         // Fetch previous state from earlier events
         const { data: prevEvent } = await supabase
           .from('contract_events')
@@ -79,7 +80,7 @@ export class ReorgHandler {
         }
         break;
 
-      case 'approval_created':
+      case EventType.APPROVAL_CREATED:
         await supabase
           .from('renewal_approvals')
           .delete()
@@ -87,8 +88,8 @@ export class ReorgHandler {
           .eq('approval_id', event.event_data.approval_id);
         break;
 
-      case 'lifecycle_timestamp_updated':
-        const col = LIFECYCLE_COLUMN_MAP[event.event_data?.event_kind];
+      case EventType.LIFECYCLE_TIMESTAMP_UPDATED:
+        const col = LIFECYCLE_COLUMN_MAP[event.event_data?.event_kind as number];
         if (col) {
           await supabase
             .from('subscriptions')

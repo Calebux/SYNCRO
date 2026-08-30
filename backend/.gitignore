@@ -3,7 +3,14 @@ dist/
 .env
 .env.local
 *.log
+logs/
 .DS_Store
 coverage/
 .nyc_output/
+
+# Transpiled test artifacts — source is TypeScript, compiled by ts-jest at runtime
+tests/**/*.js
+tests/**/*.js.map
+tests/**/*.d.ts
+tests/**/*.d.ts.map
 

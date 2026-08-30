@@ -1,24 +1,15 @@
-
-
 export type BillingCycle = "monthly" | "yearly" | "quarterly";
+
+import { type CancellationGuide } from "@/lib/supabase/cancellation-guides";
 
 export type Difficulty = "easy" | "medium" | "hard";
 
-export interface CancellationGuide {
-  id: string;
-  serviceName: string;
-  difficulty: Difficulty;
-  directUrl: string;
-  steps: string[];
-  estimatedTime: string;
-  warningNote?: string;
-  chatSupportLink?: string;
-  phoneNumber?: string;
-}
+export type SubscriptionStatus = 'active' | 'cancelled' | 'paused' | 'trial' | 'expired';
 
 export interface Subscription {
   id: string;
   name: string;
+  provider?: string;
   price: number;
   billingCycle: BillingCycle;
   renewalUrl?: string;
@@ -26,11 +17,28 @@ export interface Subscription {
   renewalDate?: string;
   category?: string;
   visibility?: 'private' | 'team';
+  status?: SubscriptionStatus;
+  paused_at?: string | null;
+  resume_at?: string | null;
+  pause_reason?: string | null;
   /** History of payments/changes kept for merge operations */
   history?: SubscriptionHistoryEntry[];
   createdAt: string;
   updatedAt: string;
-  cancellationGuide?: CancellationGuide; // NEW
+  cancellationGuide?: CancellationGuide;
+  /** UI specific / Computed fields */
+  icon?: string;
+  renewsIn?: number;
+  email?: string;
+  isTrial?: boolean;
+  trialEndsAt?: string;
+  priceAfterTrial?: number;
+  latest_price_change?: {
+    old_price: number;
+    new_price: number;
+    changed_at: string;
+  };
+  toggleVisibility?: boolean;
 }
 
 export interface SubscriptionHistoryEntry {
@@ -118,4 +126,96 @@ export interface MergeSubscriptionsRequest {
 /** POST /api/subscriptions/merge  — response */
 export interface MergeSubscriptionsResponse {
   merged: Subscription;
+}
+
+export interface ConsolidationSuggestion {
+  id: string;
+  category: string;
+  services: string[];
+  suggestedBundle: string;
+  savings: string;
+}
+
+// MFA / Two Factor Authentication Types
+export interface MFAFactor {
+  id: string;
+  type: 'totp' | 'webauthn';
+  friendlyName?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MFAEnrollResponse {
+  id: string;
+  type: 'totp';
+  secret: string;
+  qrCode: string;
+  uri: string;
+}
+
+export interface MFAChallengeResponse {
+  challengeId: string;
+  expiresAt: string;
+}
+
+export interface MFAVerifyResponse {
+  success: boolean;
+  message?: string;
+}
+
+export interface MFARecoveryCode {
+  code: string;
+  used: boolean;
+  usedAt?: string;
+}
+
+export interface MFAStatus {
+  enabled: boolean;
+  factors: MFAFactor[];
+  currentLevel: 'aal1' | 'aal2';
+  nextLevel: 'aal1' | 'aal2';
+  recoveryCodesRemaining: number;
+}
+
+// Teams Page Models
+export interface EmailAccount {
+  email: string;
+  isWorkEmail: boolean;
+}
+
+export interface TeamSubscription {
+  name: string;
+  usage: number;
+  lastUsed: string;
+  email: string;
+}
+
+export type TeamRole = "Admin" | "Billing Manager" | "Member" | "Viewer" | string;
+export type TeamMemberStatus = "active" | "pending" | "inactive" | string;
+
+export interface TeamMember {
+  id: number;
+  name: string;
+  email: string;
+  role: TeamRole;
+  department: string;
+  permissions: string[];
+  status: TeamMemberStatus;
+  toolsUsed: number;
+  monthlySpend: number;
+  emailAccounts: EmailAccount[];
+  subscriptions: TeamSubscription[];
+  leftAt?: Date;
+}
+
+export interface Workspace {
+  id?: string;
+  name?: string;
+  domain?: string;
+  plan?: string;
+}
+
+export interface TeamSettings {
+  spendingLimit: number;
+  departmentBudgets: Record<string, number>;
 }

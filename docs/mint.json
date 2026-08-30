@@ -1,0 +1,62 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "SYNCRO",
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#6366F1",
+    "light": "#818CF8",
+    "dark": "#4F46E5",
+    "anchors": {
+      "from": "#6366F1",
+      "to": "#4F46E5"
+    }
+  },
+  "topbarLinks": [
+    {
+      "name": "GitHub",
+      "url": "https://github.com/Calebux/SYNCRO"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "Get API Key",
+    "url": "https://app.syncro.app"
+  },
+  "tabs": [
+    {
+      "name": "API Reference",
+      "url": "api-reference"
+    }
+  ],
+  "anchors": [
+    {
+      "name": "GitHub",
+      "icon": "github",
+      "url": "https://github.com/Calebux/SYNCRO"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Get Started",
+      "pages": ["introduction", "quickstart", "authentication"]
+    },
+    {
+      "group": "API Reference",
+      "pages": ["api-reference/subscriptions", "api-reference/webhooks"]
+    },
+    {
+      "group": "SDK & Contracts",
+      "pages": ["sdk-reference", "contracts"]
+    },
+    {
+      "group": "Privacy & Security",
+      "pages": ["TOR_BROWSER_COMPATIBILITY"]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/Calebux/SYNCRO"
+  }
+}

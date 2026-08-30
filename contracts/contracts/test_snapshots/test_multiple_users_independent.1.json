@@ -29,6 +29,9 @@
                 },
                 {
                   "u64": "1735689600"
+                },
+                {
+                  "bytes": "010203"
                 }
               ]
             }
@@ -60,6 +63,9 @@
                 },
                 {
                   "u64": "1735689600"
+                },
+                {
+                  "bytes": "040506"
                 }
               ]
             }
@@ -72,7 +78,7 @@
     []
   ],
   "ledger": {
-    "protocol_version": 23,
+    "protocol_version": 27,
     "sequence_number": 0,
     "timestamp": 0,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -81,288 +87,274 @@
     "min_temp_entry_ttl": 16,
     "max_entry_ttl": 6312000,
     "ledger_entries": [
-      [
-        {
-          "contract_data": {
-            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-            "key": "ledger_key_contract_instance",
-            "durability": "persistent"
-          }
-        },
-        [
-          {
-            "last_modified_ledger_seq": 0,
-            "data": {
-              "contract_data": {
-                "ext": "v0",
-                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-                "key": "ledger_key_contract_instance",
-                "durability": "persistent",
-                "val": {
-                  "contract_instance": {
-                    "executable": {
-                      "wasm": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-                    },
-                    "storage": [
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "Subscription"
-                            },
-                            {
-                              "bytes": "0000000000000000eddee25b9bede2faaf5f05d12f000a0c5107f7ff137a2632"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "map": [
-                            {
-                              "key": {
-                                "symbol": "billing_interval"
-                              },
-                              "val": {
-                                "u64": "2592000"
-                              }
-                            },
-                            {
-                              "key": {
-                                "symbol": "expected_amount"
-                              },
-                              "val": {
-                                "i128": "1599"
-                              }
-                            },
-                            {
-                              "key": {
-                                "symbol": "is_active"
-                              },
-                              "val": {
-                                "bool": true
-                              }
-                            },
-                            {
-                              "key": {
-                                "symbol": "next_renewal"
-                              },
-                              "val": {
-                                "u64": "1735689600"
-                              }
-                            },
-                            {
-                              "key": {
-                                "symbol": "service_id"
-                              },
-                              "val": {
-                                "string": "netflix"
-                              }
-                            }
-                          ]
-                        }
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "key": "ledger_key_contract_instance",
+              "durability": "persistent",
+              "val": {
+                "contract_instance": {
+                  "executable": {
+                    "wasm": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                  },
+                  "storage": [
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "Subscription"
+                          },
+                          {
+                            "bytes": "0000000000000000eddee25b9bede2faaf5f05d12f000a0c5107f7ff137a2632"
+                          }
+                        ]
                       },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "Subscription"
+                      "val": {
+                        "map": [
+                          {
+                            "key": {
+                              "symbol": "billing_interval"
                             },
-                            {
-                              "bytes": "0000000000000001ecb834aa2cf280ff49bec7c0e8c40383912f02678271e5c0"
+                            "val": {
+                              "u64": "2592000"
                             }
-                          ]
-                        },
-                        "val": {
-                          "map": [
-                            {
-                              "key": {
-                                "symbol": "billing_interval"
-                              },
-                              "val": {
-                                "u64": "2592000"
-                              }
+                          },
+                          {
+                            "key": {
+                              "symbol": "encrypted_blob"
                             },
-                            {
-                              "key": {
-                                "symbol": "expected_amount"
-                              },
-                              "val": {
-                                "i128": "999"
-                              }
+                            "val": {
+                              "bytes": "010203"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "encrypted_data"
                             },
-                            {
-                              "key": {
-                                "symbol": "is_active"
-                              },
-                              "val": {
-                                "bool": true
-                              }
+                            "val": "void"
+                          },
+                          {
+                            "key": {
+                              "symbol": "expected_amount"
                             },
-                            {
-                              "key": {
-                                "symbol": "next_renewal"
-                              },
-                              "val": {
-                                "u64": "1735689600"
-                              }
+                            "val": {
+                              "i128": "1599"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "is_active"
                             },
-                            {
-                              "key": {
-                                "symbol": "service_id"
-                              },
-                              "val": {
-                                "string": "spotify"
-                              }
+                            "val": {
+                              "bool": true
                             }
-                          ]
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "SubscriptionCounter"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "u64": "2"
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "UserSubscriptions"
+                          },
+                          {
+                            "key": {
+                              "symbol": "next_renewal"
                             },
-                            {
-                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                            "val": {
+                              "u64": "1735689600"
                             }
-                          ]
-                        },
-                        "val": {
-                          "vec": [
-                            {
-                              "bytes": "0000000000000000eddee25b9bede2faaf5f05d12f000a0c5107f7ff137a2632"
-                            }
-                          ]
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "UserSubscriptions"
+                          },
+                          {
+                            "key": {
+                              "symbol": "service_id"
                             },
-                            {
-                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                            "val": {
+                              "string": "netflix"
                             }
-                          ]
-                        },
-                        "val": {
-                          "vec": [
-                            {
-                              "bytes": "0000000000000001ecb834aa2cf280ff49bec7c0e8c40383912f02678271e5c0"
-                            }
-                          ]
-                        }
+                          }
+                        ]
                       }
-                    ]
-                  }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "Subscription"
+                          },
+                          {
+                            "bytes": "0000000000000001ecb834aa2cf280ff49bec7c0e8c40383912f02678271e5c0"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "map": [
+                          {
+                            "key": {
+                              "symbol": "billing_interval"
+                            },
+                            "val": {
+                              "u64": "2592000"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "encrypted_blob"
+                            },
+                            "val": {
+                              "bytes": "040506"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "encrypted_data"
+                            },
+                            "val": "void"
+                          },
+                          {
+                            "key": {
+                              "symbol": "expected_amount"
+                            },
+                            "val": {
+                              "i128": "999"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "is_active"
+                            },
+                            "val": {
+                              "bool": true
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "next_renewal"
+                            },
+                            "val": {
+                              "u64": "1735689600"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "service_id"
+                            },
+                            "val": {
+                              "string": "spotify"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "SubscriptionCounter"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "2"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "UserSubscriptions"
+                          },
+                          {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "vec": [
+                          {
+                            "bytes": "0000000000000000eddee25b9bede2faaf5f05d12f000a0c5107f7ff137a2632"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "UserSubscriptions"
+                          },
+                          {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "vec": [
+                          {
+                            "bytes": "0000000000000001ecb834aa2cf280ff49bec7c0e8c40383912f02678271e5c0"
+                          }
+                        ]
+                      }
+                    }
+                  ]
                 }
               }
-            },
-            "ext": "v0"
+            }
           },
-          4095
-        ]
-      ],
-      [
-        {
-          "contract_data": {
-            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-            "key": {
-              "ledger_key_nonce": {
-                "nonce": "801925984706572462"
-              }
-            },
-            "durability": "temporary"
-          }
+          "ext": "v0"
         },
-        [
-          {
-            "last_modified_ledger_seq": 0,
-            "data": {
-              "contract_data": {
-                "ext": "v0",
-                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-                "key": {
-                  "ledger_key_nonce": {
-                    "nonce": "801925984706572462"
-                  }
-                },
-                "durability": "temporary",
-                "val": "void"
-              }
-            },
-            "ext": "v0"
+        "live_until": 4095
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "ledger_key_nonce": {
+                  "nonce": "801925984706572462"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
           },
-          6311999
-        ]
-      ],
-      [
-        {
-          "contract_data": {
-            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-            "key": {
-              "ledger_key_nonce": {
-                "nonce": "5541220902715666415"
-              }
-            },
-            "durability": "temporary"
-          }
+          "ext": "v0"
         },
-        [
-          {
-            "last_modified_ledger_seq": 0,
-            "data": {
-              "contract_data": {
-                "ext": "v0",
-                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-                "key": {
-                  "ledger_key_nonce": {
-                    "nonce": "5541220902715666415"
-                  }
-                },
-                "durability": "temporary",
-                "val": "void"
-              }
-            },
-            "ext": "v0"
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+              "key": {
+                "ledger_key_nonce": {
+                  "nonce": "5541220902715666415"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
           },
-          6311999
-        ]
-      ],
-      [
-        {
-          "contract_code": {
-            "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-          }
+          "ext": "v0"
         },
-        [
-          {
-            "last_modified_ledger_seq": 0,
-            "data": {
-              "contract_code": {
-                "ext": "v0",
-                "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-                "code": ""
-              }
-            },
-            "ext": "v0"
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_code": {
+              "ext": "v0",
+              "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "code": ""
+            }
           },
-          4095
-        ]
-      ]
+          "ext": "v0"
+        },
+        "live_until": 4095
+      }
     ]
   },
   "events": []

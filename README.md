@@ -8,14 +8,18 @@
 Synchro is a decentralized, self-custodial subscription management platform that empowers users to take full control of their recurring payments while using crypto. This MVP focuses on gift card–compatible subscriptions and optional email-based subscription detection, pending future automation with non-custodial card issuance on Stellar.
 
 ## Key Goals
+- **Prevent unwanted recurring charges**: Users only pay when they choose.
+- **Non-custodial design**: Synchro does not hold or control funds. Users manage payments directly via gift cards or local accounts.
+- **Subscription awareness**: Synchro sends reminders and provides direct cancel links.
+- **Scalable roadmap**: MVP will later evolve into fully automated payments once non-custodial Stellar card issuance is available.
 
-Prevent unwanted recurring charges: Users only pay when they choose.
+## Current Project Status (April 2026)
+- **Frontend**: Fully functional Next.js application integrated with Supabase and real-time analytics.
+- **Backend**: Robust Express.js server with 20+ routes, advanced risk detection, and automated reminder engine.
+- **Smart Contracts**: Functional Soroban contracts for subscription renewal, escrow, and virtual card interaction on Stellar Testnet.
+- **Overall**: Core MVP functionality is **90% complete** and undergoing final production hardening.
 
-Non-custodial design: Synchro does not hold or control funds. Users manage payments directly via gift cards or local accounts.
-
-Subscription awareness: Synchro sends reminders and provides direct cancel links.
-
-Scalable roadmap: MVP will later evolve into fully automated payments once non-custodial Stellar card issuance is available.
+For detailed status, see [docs/archive/CurrentState.md](./docs/archive/CurrentState.md).
 
 ## Phase 1 (MVP) Workflow
 Supported Payment Method
@@ -128,3 +132,24 @@ Ensuring the subscription is covered
 Maintaining card balance
 
 Synchro only tracks subscriptions, sends reminders, and provides guidance to make subscription management easier and safer.
+
+## Project Structure & Ownership
+
+For detailed information about directory ownership, responsibilities, and triage guidance, see:
+
+- [Directory Ownership Matrix](./docs/archive/DIRECTORY_OWNERSHIP_MATRIX.md) - Complete ownership information
+- [Ownership Quick Reference](./docs/archive/OWNERSHIP_QUICK_REFERENCE.md) - Quick lookup guide
+- [CODEOWNERS](./.github/CODEOWNERS) - GitHub enforcement
+- [Code Review Process](./docs/code-review-process.md) - Review procedures
+
+## Environment Variables
+
+Each package declares its environment variables in a manifest that drives both
+the `.env.example` files and CI validation. See
+[docs/ENVIRONMENT.md](./docs/ENVIRONMENT.md) for the canonical strategy:
+per-package required/optional variables, naming conventions, the CI enforcement
+model, and how to add a new variable.
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution guidelines and development setup instructions.

@@ -21,17 +21,33 @@ export * from './rate-limit'
 // Environment
 export * from './env'
 
+// Idempotency
+export * from './idempotency'
+
+// CSRF
+export * from './csrf'
+
+// Audit logging (server-side, sensitive routes)
+export * from './audit'
+
 /**
  * Helper to create a complete API route handler with all middleware
  */
-import { type NextRequest } from 'next/server'
-import { NextResponse } from 'next/server'
+import { NextResponse, type NextRequest } from 'next/server'
 import { withErrorHandling, createSuccessResponse } from './errors'
-import { requireAuth, createRequestContext } from './auth'
+import {
+  requireAuth,
+  requireRole,
+  createRequestContext,
+  type AuthenticatedUser,
+  type UserRole,
+} from './auth'
 import { type RequestContext, type ApiResponse } from './types'
-import { RateLimiters } from './rate-limit'
 import { isMaintenanceMode } from './env'
 import { ApiErrors } from './errors'
+import { idempotencyService } from './idempotency'
+import { validateCsrfToken } from './csrf'
+import { applyRateLimitHeaders, type RateLimitHeaders } from './rate-limit'
 
 type RouteHandler = (
   request: NextRequest,
@@ -41,50 +57,147 @@ type RouteHandler = (
 
 type RouteOptions = {
   requireAuth?: boolean
-  requireRole?: string[]
-  rateLimit?: (request: NextRequest) => void
+  requireRole?: UserRole[]
+  rateLimit?: (request: NextRequest) => RateLimitHeaders
   skipMaintenanceCheck?: boolean
+  idempotent?: boolean
+  skipCsrf?: boolean
 }
 
-/**
- * Create a fully configured API route handler
- */
+type AuthenticatedRouteHandler = (
+  request: NextRequest,
+  context: RequestContext,
+  user: AuthenticatedUser
+) => Promise<NextResponse<ApiResponse>>
+
+type AuthenticatedRouteOptions = Omit<RouteOptions, 'requireAuth'>
+
+function assertRouteUser(
+  user: Awaited<ReturnType<typeof requireAuth>> | null | undefined
+): asserts user is AuthenticatedUser {
+  if (!user) {
+    throw ApiErrors.unauthorized('Invalid or expired session')
+  }
+}
+
 export function createApiRoute(
   handler: RouteHandler,
   options: RouteOptions = {}
 ) {
   return withErrorHandling(async (request: NextRequest) => {
-    // Check maintenance mode
     if (!options.skipMaintenanceCheck && isMaintenanceMode()) {
       throw ApiErrors.serviceUnavailable('Service is currently under maintenance')
     }
 
-    // Apply rate limiting
-    if (options.rateLimit) {
-      options.rateLimit(request)
+    let rateLimitHeaders: RateLimitHeaders = {}
+
+    // CSRF protection for all mutating requests (POST, PUT, PATCH, DELETE)
+    const isMutating = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)
+    if (isMutating && !options.skipCsrf) {
+      validateCsrfToken(request)
     }
 
-    // Create request context
+    if (options.rateLimit) {
+      rateLimitHeaders = options.rateLimit(request)
+    }
+
     const context = createRequestContext(request)
 
-    // Handle authentication
     let user: Awaited<ReturnType<typeof requireAuth>> | undefined
     if (options.requireAuth) {
       user = await requireAuth(request)
+      assertRouteUser(user)
       context.userId = user.id
       context.userEmail = user.email
 
-      // Check role if required
       if (options.requireRole) {
-        const userRole = user.user_metadata?.role || 'user'
-        if (!options.requireRole.includes(userRole)) {
-          throw ApiErrors.forbidden(`Requires one of: ${options.requireRole.join(', ')}`)
-        }
+        await requireRole(request, options.requireRole)
       }
     }
 
-    // Execute handler
-    return handler(request, context, user)
+    // Check for idempotency if enabled
+    let idempotencyKey: string | null = null
+    let requestHash = ''
+    if (options.idempotent) {
+      if (!user) {
+        throw ApiErrors.unauthorized('Authentication required for idempotent requests')
+      }
+
+      let body: any = null
+      if (request.method === 'POST' || request.method === 'PUT' || request.method === 'PATCH') {
+        try {
+          body = await request.clone().json()
+        } catch {
+          // No JSON body
+        }
+      }
+
+      requestHash = idempotencyService.hashRequest(body)
+      const clientKey = request.headers.get('idempotency-key')
+      idempotencyKey = clientKey || `server:${user.id}:${request.nextUrl.pathname}:${requestHash}`
+
+      const { isDuplicate, cachedResponse } = await idempotencyService.checkIdempotency(
+        idempotencyKey,
+        user.id,
+        requestHash
+      )
+
+      if (isDuplicate && cachedResponse) {
+        const response = NextResponse.json(cachedResponse.body, {
+          status: cachedResponse.status,
+        })
+        response.headers.set('X-Idempotency-Hit', 'true')
+        response.headers.set('X-Idempotency-Key', idempotencyKey)
+        return response as unknown as NextResponse<ApiResponse>
+      }
+    }
+
+    const response = await handler(request, context, user) as unknown as NextResponse<ApiResponse>
+
+    // Store response for idempotency if successful (2xx status codes)
+    if (options.idempotent && user && idempotencyKey && response.status >= 200 && response.status < 300) {
+      let responseBody: any = null
+      try {
+        responseBody = await response.clone().json()
+      } catch {
+        // Not a JSON response or body read error
+      }
+
+      if (responseBody) {
+        await idempotencyService.storeResponse(
+          idempotencyKey,
+          user.id,
+          requestHash,
+          response.status,
+          responseBody
+        )
+      }
+    }
+
+    if (idempotencyKey) {
+      response.headers.set('X-Idempotency-Key', idempotencyKey)
+    }
+
+    if (Object.keys(rateLimitHeaders).length > 0) {
+      return applyRateLimitHeaders(response, rateLimitHeaders) as NextResponse<ApiResponse>
+    }
+
+    return response
   }, crypto.randomUUID())
 }
 
+export function createAuthenticatedApiRoute(
+  handler: AuthenticatedRouteHandler,
+  options: AuthenticatedRouteOptions = {}
+) {
+  return createApiRoute(
+    async (request, context, user) => {
+      assertRouteUser(user)
+      return handler(request, context, user)
+    },
+    {
+      ...options,
+      requireAuth: true,
+    }
+  )
+}

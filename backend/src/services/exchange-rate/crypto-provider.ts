@@ -1,6 +1,7 @@
 import { SUPPORTED_CRYPTO } from '../../constants/currencies';
 import logger from '../../config/logger';
 import type { ExchangeRateProvider } from './types';
+import { ExternalServiceClient } from '../../utils/external-service-client';
 
 const COINGECKO_IDS: Record<string, string> = {
   XLM: 'stellar',
@@ -14,6 +15,7 @@ const COINGECKO_VS_MAP: Record<string, string> = {
 
 export class CryptoRateProvider implements ExchangeRateProvider {
   private readonly baseUrl = 'https://api.coingecko.com/api/v3/simple/price';
+  private readonly client = new ExternalServiceClient('exchange_rates');
 
   getName(): string {
     return 'CoinGecko';
@@ -33,12 +35,7 @@ export class CryptoRateProvider implements ExchangeRateProvider {
     const url = `${this.baseUrl}?ids=${ids}&vs_currencies=${vsKey}`;
     logger.debug(`Fetching crypto rates from ${url}`);
 
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Crypto rate API returned status ${response.status}`);
-    }
-
-    const data = (await response.json()) as Record<string, Record<string, number>>;
+    const data = await this.client.request<Record<string, Record<string, number>>>(url);
     const rates: Record<string, number> = {};
 
     // Convert "price of 1 XLM in USD" to "how many XLM per 1 USD"

@@ -1,0 +1,8 @@
+{
+  "network": "testnet",
+  "sorobanContractAddress": "TEST_CONTRACT_ADDRESS_PLACEHOLDER",
+  "sorobanRpcUrl": "https://soroban-testnet.stellar.org",
+  "stellarNetworkUrl": "https://soroban-testnet.stellar.org",
+  "deployedAt": "2026-05-31T00:00:00Z",
+  "commitSha": null
+}

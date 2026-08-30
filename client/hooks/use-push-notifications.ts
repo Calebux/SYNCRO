@@ -74,15 +74,28 @@ export function usePushNotifications(): UsePushNotificationsResult {
       return false;
     }
 
-    if (!VAPID_PUBLIC_KEY) {
-      setError('Push notification configuration is missing (VAPID key).');
-      return false;
-    }
-
     setIsLoading(true);
     setError(null);
 
     try {
+      let vapidKey = VAPID_PUBLIC_KEY;
+      if (!vapidKey) {
+        try {
+          const keyData = await apiGet('/api/notifications/push/vapid-public-key');
+          if (keyData?.data?.publicKey) {
+            vapidKey = keyData.data.publicKey;
+          }
+        } catch (e) {
+          console.error("Failed to fetch VAPID key from backend:", e);
+        }
+      }
+
+      if (!vapidKey) {
+        setError('Push notification configuration is missing (VAPID key).');
+        setIsLoading(false);
+        return false;
+      }
+
       // 1. Request notification permission
       const permissionResult = await Notification.requestPermission();
       setPermission(permissionResult as PushPermissionState);
@@ -98,7 +111,7 @@ export function usePushNotifications(): UsePushNotificationsResult {
       // 3. Subscribe with the VAPID public key
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) as BufferSource,
+        applicationServerKey: urlBase64ToUint8Array(vapidKey) as BufferSource,
       });
 
       const json = subscription.toJSON();

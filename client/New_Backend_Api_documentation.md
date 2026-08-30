@@ -783,7 +783,7 @@ const result = await response.json();
 
 ---
 
-#### GET `/api/payments/verify/paystack/:reference` 🔒
+#### GET `/api/payments/paystack/verify/:reference` 🔒
 
 Verify a Paystack payment by reference.
 
@@ -809,7 +809,7 @@ const urlParams = new URLSearchParams(window.location.search);
 const reference = urlParams.get("reference");
 
 const response = await fetch(
-  `https://backend-ai-sub.onrender.com/api/payments/verify/paystack/${reference}`,
+  `https://backend-ai-sub.onrender.com/api/payments/paystack/verify/${reference}`,
   {
     credentials: "include",
   }
@@ -1114,7 +1114,7 @@ async function verifyPayment(reference, sessionId) {
   const isStripe = sessionId !== undefined;
   const endpoint = isStripe
     ? `/api/payments/verify/stripe/${sessionId}`
-    : `/api/payments/verify/paystack/${reference}`;
+    : `/api/payments/paystack/verify/${reference}`;
 
   const response = await fetch(
     `https://backend-ai-sub.onrender.com${endpoint}`,

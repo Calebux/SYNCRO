@@ -1,0 +1,27 @@
+[package]
+name = "subscription-integration-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[test]]
+name = "renewal_logging_integration"
+path = "tests/renewal_logging_integration.rs"
+
+[[test]]
+name = "subscription_e2e_integration"
+path = "tests/subscription_e2e_integration.rs"
+
+[dependencies]
+soroban-sdk = { workspace = true }
+subscription_renewal = { path = "../contracts/subscription_renewal" }
+subscription_logging = { path = "../contracts/subscription_logging" }
+subscription-registry = { path = "../contracts" }
+virtual-card = { path = "../contracts/virtual-card" }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+subscription_renewal = { path = "../contracts/subscription_renewal" }
+subscription_logging = { path = "../contracts/subscription_logging" }
+subscription-registry = { path = "../contracts" }
+virtual-card = { path = "../contracts/virtual-card" }

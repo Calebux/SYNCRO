@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Moon, Sun, Plus } from "lucide-react";
+import { Bell, Moon, Sun, Plus, Trash2 } from "lucide-react";
 
 interface HeaderProps {
     activeView: string;
@@ -8,6 +8,8 @@ interface HeaderProps {
     onDarkModeToggle: () => void;
     unreadNotifications: number;
     onNotificationsToggle: () => void;
+    deletedCount?: number;
+    onDeletedToggle?: () => void;
     onAddSubscription?: () => void;
 }
 
@@ -44,6 +46,8 @@ export function Header({
     onDarkModeToggle,
     unreadNotifications,
     onNotificationsToggle,
+    deletedCount = 0,
+    onDeletedToggle,
     onAddSubscription,
 }: HeaderProps) {
     const viewInfo = viewTitles[activeView] || { title: "", description: "" };
@@ -58,13 +62,24 @@ export function Header({
                 >
                     {viewInfo.title}
                 </h2>
-                <p
-                    className={`text-sm ${
-                        darkMode ? "text-gray-400" : "text-gray-500"
-                    } mt-1`}
-                >
-                    {viewInfo.description}
-                </p>
+                <div className="flex items-center gap-2 mt-1">
+                    <p
+                        className={`text-sm ${
+                            darkMode ? "text-gray-400" : "text-gray-500"
+                        }`}
+                    >
+                        {viewInfo.description}
+                    </p>
+                    <span
+                        className={`text-xs px-2 py-1 rounded-md border ${
+                            darkMode
+                                ? "bg-[#2D3748] border-[#4A5568] text-gray-300"
+                                : "bg-gray-100 border-gray-300 text-gray-600"
+                        } opacity-70 hover:opacity-100 transition-opacity`}
+                    >
+                        Press <kbd className={`px-1 py-0.5 rounded text-xs font-mono border ${darkMode ? "bg-[#1E2A35] border-[#4A5568]" : "bg-white border-gray-400"}`}>Ctrl+K</kbd> to open command palette
+                    </span>
+                </div>
             </div>
             <div className="flex items-center gap-3">
                 <button
@@ -98,9 +113,26 @@ export function Header({
                         </span>
                     )}
                 </button>
-                {activeView === "subscriptions" && onAddSubscription && (
+                {onDeletedToggle && (
+                    <button
+                        onClick={onDeletedToggle}
+                        className={`p-2 ${
+                            darkMode ? "hover:bg-[#2D3748]" : "hover:bg-gray-100"
+                        } rounded-lg relative transition-colors`}
+                        aria-label={`Recently deleted (${deletedCount})`}
+                    >
+                        <Trash2 className="w-5 h-5" />
+                        {deletedCount > 0 && (
+                            <span className="absolute top-1 right-1 bg-[#E86A33] text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                                {deletedCount}
+                            </span>
+                        )}
+                    </button>
+                )}
+                {onAddSubscription && (
                     <button
                         onClick={onAddSubscription}
+                        data-tour="add-subscription"
                         className={`flex items-center gap-2 ${
                             darkMode
                                 ? "bg-[#FFD166] text-[#1E2A35] hover:bg-[#FFD166]/90"

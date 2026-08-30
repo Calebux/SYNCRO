@@ -1,9 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Edit2, Trash2, Mail, Clock, Copy, ShieldAlert, CheckCircle, Lock, Users, Calendar, Check } from "lucide-react"
 import { useState, useEffect, useRef } from "react"
-import { Edit2, Trash2, Mail, Clock, Copy, Lock, Users, Calendar, Check, Download, FileText, Upload } from "lucide-react"
+import { Edit2, Trash2, Mail, Clock, Copy, Lock, LockOpen, Users, Calendar, Check, Download, FileText, Upload, PauseCircle, PlayCircle, ShieldAlert, AlertCircle } from "lucide-react"
 import { exportAllCSV, exportActiveCSV, exportDateRangeCSV } from "@/lib/csv-export"
 import { downloadSubscriptionPDF } from "@/lib/pdf-report"
 import CSVImportModal from "@/components/modals/csv-import-modal"
@@ -14,21 +12,45 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { ErrorBoundary } from "@/components/ui/error-boundary"
 import CancellationGuideModal from "@/components/modals/cancellation-guide-modal"
 import { fetchAllCancellationGuides, type CancellationGuide } from "@/lib/supabase/cancellation-guides"
+import { StatusBadge, normalizeStatus } from "@/components/ui/status-badge"
+import { AdvancedFilterBar, type FilterState, EMPTY_FILTERS, hasActiveFilters } from "@/components/ui/advanced-filter-bar"
+import { KeyboardHelpModal } from "@/components/modals/keyboard-help-modal"
+import { useUserSettings } from "@/components/providers/user-settings-provider"
+import { formatCurrency } from "@/lib/currency-utils"
+import { formatDate, getDaysDifference } from "@/lib/timezone-utils"
+import { fetchCalendarToken as getCalendarToken, downloadCalendarExport, getCalendarFeedUrl, updateCalendarPreferences } from "@/lib/api/calendar"
+import { SortableSubscriptionList } from "@/components/subscriptions/sortable-subscription-list"
+import {
+  PriorityBadge,
+  SortableDragHandle,
+  SortableItemShell,
+} from "@/components/subscriptions/subscription-priority-ui"
+import { useSubscriptionPriorityOrder } from "@/hooks/use-subscription-priority-order"
+import {
+  getGlobalPriorityRank,
+  sortByPriorityOrder,
+  type PriorityRank,
+} from "@/lib/subscription-priority-order"
+import type { CSSProperties, ReactNode } from "react"
 
 interface SubscriptionsPageProps {
   subscriptions?: any[]
-  onDelete: (id: number) => void
+  onDelete: (id: string) => void
   maxSubscriptions: number
   currentPlan: string
   darkMode?: boolean
   onManage: (subscription: any) => void
   onRenew: (subscription: any) => void
-  selectedSubscriptions: Set<number>
-  onToggleSelect: (id: number) => void
+  selectedSubscriptions: Set<string>
+  onToggleSelect: (id: string) => void
   emailAccounts?: any[]
   duplicates?: any[]
   unusedSubscriptions?: any[]
   onImportComplete?: () => void
+  onPause?: (subscription: any) => void
+  onResume?: (subscription: any) => void
+  onCancelTrial?: (id: string) => void
+  onConvertTrial?: (id: string) => void
 }
 
 export default function SubscriptionsPage({
@@ -45,14 +67,20 @@ export default function SubscriptionsPage({
   duplicates = [],
   unusedSubscriptions = [],
   onImportComplete,
+  onPause,
+  onResume,
+  onCancelTrial,
+  onConvertTrial,
 }: SubscriptionsPageProps) {
+  const { settings } = useUserSettings()
+  const currency = settings.currency
   const [searchTerm, setSearchTerm] = useState("")
   const debouncedSearchTerm = useDebounce(searchTerm, 300)
   const [isSearching, setIsSearching] = useState(false)
-  const [filterCategory, setFilterCategory] = useState("all")
-  const [filterStatus, setFilterStatus] = useState("all")
+  const [advancedFilters, setAdvancedFilters] = useState<FilterState>(EMPTY_FILTERS)
   const [filterEmail, setFilterEmail] = useState("all")
-  const [sortBy, setSortBy] = useState("name")
+  const [sortBy, setSortBy] = useState("priority")
+  const [showKeyboardHelp, setShowKeyboardHelp] = useState(false)
   const [showDuplicatesOnly, setShowDuplicatesOnly] = useState(false)
   const [showUnusedOnly, setShowUnusedOnly] = useState(false)
   const [showExportMenu, setShowExportMenu] = useState(false)
@@ -70,11 +98,25 @@ export default function SubscriptionsPage({
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [])
 
+  // '?' opens keyboard help modal (only when not typing in an input)
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement).tagName
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return
+      if (e.key === "?") {
+        e.preventDefault()
+        setShowKeyboardHelp((v) => !v)
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [])
+
   const handleExportPDF = async () => {
     setShowExportMenu(false)
     setExportingPDF(true)
     try {
-      await downloadSubscriptionPDF(filtered)
+      await downloadSubscriptionPDF(displayed)
     } finally {
       setExportingPDF(false)
     }
@@ -96,13 +138,14 @@ export default function SubscriptionsPage({
   }, [])
 
   const [calendarToken, setCalendarToken] = useState<string | null>(null)
-  const [calendarUserId, setCalendarUserId] = useState<string | null>(null)
+  const [calendarFeedUrl, setCalendarFeedUrl] = useState<string | null>(null)
   const [showCalendarModal, setShowCalendarModal] = useState(false)
+  const [exportingCalendar, setExportingCalendar] = useState(false)
   const [copied, setCopied] = useState(false)
 
   const emailAccountsList = ["all", ...new Set((subscriptions || []).map((s: any) => s.email).filter(Boolean))]
   const categories = ["all", ...new Set((subscriptions || []).map((s: any) => s.category))]
-  const statuses = ["all", "active", "trial", "expiring", "expired"]
+  const statuses = ["all", "active", "paused", "trial", "expiring", "expired"]
 
   useEffect(() => {
     if (searchTerm !== debouncedSearchTerm) {
@@ -114,15 +157,26 @@ export default function SubscriptionsPage({
 
   const fetchCalendarToken = async () => {
     try {
-      const response = await fetch("/api/calendar/token")
-      const data = await response.json()
-      if (data.success) {
-        setCalendarToken(data.token)
-        setCalendarUserId(data.userId)
-        setShowCalendarModal(true)
-      }
+      await updateCalendarPreferences({ calendar_sync_enabled: true })
+      const data = await getCalendarToken()
+      setCalendarToken(data.token)
+      setCalendarFeedUrl(data.feedUrl || getCalendarFeedUrl(data.userId, data.token))
+      setShowCalendarModal(true)
     } catch (error) {
       console.error("Failed to fetch calendar token", error)
+    }
+  }
+
+  const handleExportCalendar = async () => {
+    setExportingCalendar(true)
+    try {
+      await updateCalendarPreferences({ calendar_sync_enabled: true })
+      await downloadCalendarExport()
+      setShowExportMenu(false)
+    } catch (error) {
+      console.error("Failed to export calendar reminders", error)
+    } finally {
+      setExportingCalendar(false)
     }
   }
 
@@ -132,39 +186,60 @@ export default function SubscriptionsPage({
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const subscriptionIds = (subscriptions || []).map((sub: any) => sub.id)
+  const {
+    priorityOrder,
+    isLoading: priorityOrderLoading,
+    isSaving: priorityOrderSaving,
+    reorder: reorderPriority,
+  } = useSubscriptionPriorityOrder({ subscriptionIds })
+
   const filtered = (subscriptions || []).filter((sub: any) => {
     const matchesSearch = sub.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
-    const matchesCategory = filterCategory === "all" || sub.category === filterCategory
-    const matchesStatus = filterStatus === "all" || sub.status === filterStatus
+    const matchesCategory =
+      advancedFilters.categories.length === 0 || advancedFilters.categories.includes(sub.category)
+    const matchesStatus =
+      advancedFilters.statuses.length === 0 || advancedFilters.statuses.includes(sub.status)
     const matchesEmail = filterEmail === "all" || sub.email === filterEmail
+    const matchesPrice =
+      advancedFilters.priceRange === null ||
+      (sub.price >= advancedFilters.priceRange[0] && sub.price < advancedFilters.priceRange[1])
 
     if (showDuplicatesOnly) {
       const isDuplicate = (duplicates || []).some((dup: any) => dup.subscriptions.some((s: any) => s.id === sub.id))
-      return matchesSearch && matchesCategory && matchesStatus && matchesEmail && isDuplicate
+      return matchesSearch && matchesCategory && matchesStatus && matchesEmail && matchesPrice && isDuplicate
     }
 
     if (showUnusedOnly) {
       const isUnused = (unusedSubscriptions || []).some((unused: any) => unused.id === sub.id)
-      return matchesSearch && matchesCategory && matchesStatus && matchesEmail && isUnused
+      return matchesSearch && matchesCategory && matchesStatus && matchesEmail && matchesPrice && isUnused
     }
 
-    return matchesSearch && matchesCategory && matchesStatus && matchesEmail
+    return matchesSearch && matchesCategory && matchesStatus && matchesEmail && matchesPrice
   })
 
-  if (sortBy === "price-high") {
-    filtered.sort((a, b) => b.price - a.price)
+  let displayed = filtered
+  if (sortBy === "priority") {
+    displayed = sortByPriorityOrder(filtered, priorityOrder)
+  } else if (sortBy === "price-high") {
+    displayed = [...filtered].sort((a, b) => b.price - a.price)
   } else if (sortBy === "price-low") {
-    filtered.sort((a, b) => a.price - b.price)
+    displayed = [...filtered].sort((a, b) => a.price - b.price)
   } else if (sortBy === "renewal") {
-    filtered.sort((a, b) => a.renewsIn - b.renewsIn)
+    displayed = [...filtered].sort((a, b) => a.renewsIn - b.renewsIn)
   } else {
-    filtered.sort((a, b) => a.name.localeCompare(b.name))
+    displayed = [...filtered].sort((a, b) => a.name.localeCompare(b.name))
   }
 
-  const totalCost = filtered.reduce((sum: number, sub: any) => sum + sub.price, 0)
+  const totalCost = displayed.reduce((sum: number, sub: any) => sum + sub.price, 0)
 
   const hasNoSubscriptions = !subscriptions || subscriptions.length === 0
-  const hasNoResults = filtered.length === 0 && subscriptions && subscriptions.length > 0
+  const hasNoResults = displayed.length === 0 && subscriptions && subscriptions.length > 0
+
+  // Active trials sorted by urgency (soonest expiry first)
+  const activeTrials = (subscriptions || [])
+    .filter((s: any) => s.isTrial && s.trialEndsAt)
+    .sort((a: any, b: any) => new Date(a.trialEndsAt).getTime() - new Date(b.trialEndsAt).getTime())
 
   if (hasNoSubscriptions) {
     return (
@@ -181,7 +256,40 @@ export default function SubscriptionsPage({
     )
   }
 
-  const shouldVirtualize = filtered.length > 100
+  const shouldVirtualize = displayed.length > 100 && sortBy !== "priority"
+  const isPrioritySort = sortBy === "priority"
+  const filteredIds = displayed.map((sub: any) => sub.id)
+
+  const renderSubscriptionCard = (sub: any, options?: { priorityRank?: PriorityRank; dragHandle?: ReactNode; shellStyle?: CSSProperties; shellRef?: (node: HTMLElement | null) => void; isDragging?: boolean }) => (
+    <ErrorBoundary
+      fallback={<BrokenCardPlaceholder name={sub?.name} darkMode={darkMode} />}
+    >
+      <div
+        ref={options?.shellRef}
+        style={options?.shellStyle}
+        className={`transition-shadow duration-200 ${options?.isDragging ? "shadow-xl ring-2 ring-[#FFD166]/40 rounded-xl" : ""}`}
+      >
+        <SubscriptionCard
+          subscription={sub}
+          onDelete={onDelete}
+          onManage={onManage}
+          selectedSubscriptions={selectedSubscriptions}
+          onToggleSelect={onToggleSelect}
+          darkMode={darkMode}
+          isDuplicate={duplicates.some((dup: any) => dup.subscriptions.some((s: any) => s.id === sub.id))}
+          unusedInfo={unusedSubscriptions.find((unused: any) => unused.id === sub.id)}
+          onCancel={(s) => setSelectedSubForCancel(s)}
+          guide={guides.find((g) => g.service_name.toLowerCase() === sub.name.toLowerCase())}
+          onPause={onPause}
+          onResume={onResume}
+          onCancelTrial={onCancelTrial}
+          onConvertTrial={onConvertTrial}
+          priorityRank={options?.priorityRank}
+          dragHandle={options?.dragHandle}
+        />
+      </div>
+    </ErrorBoundary>
+  )
 
   return (
     <div>
@@ -257,7 +365,7 @@ export default function SubscriptionsPage({
             }`}
           >
             <Clock className="w-4 h-4" />
-            Unused ({unusedSubscriptions.length})
+            Potentially Wasted ({unusedSubscriptions.length})
           </button>
         )}
         <button
@@ -293,7 +401,7 @@ export default function SubscriptionsPage({
                 CSV
               </p>
               <button
-                onClick={() => { exportAllCSV(filtered); setShowExportMenu(false) }}
+                onClick={() => { exportAllCSV(displayed); setShowExportMenu(false) }}
                 className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors ${
                   darkMode ? "text-gray-300 hover:bg-[#374151]" : "text-gray-700 hover:bg-gray-50"
                 }`}
@@ -328,6 +436,22 @@ export default function SubscriptionsPage({
               <hr className={`my-1 ${darkMode ? "border-[#374151]" : "border-gray-100"}`} />
 
               <p className={`px-3 pt-1 pb-1 text-xs font-semibold uppercase tracking-wide ${darkMode ? "text-gray-500" : "text-gray-400"}`}>
+                Calendar
+              </p>
+              <button
+                onClick={handleExportCalendar}
+                disabled={exportingCalendar}
+                className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors ${
+                  darkMode ? "text-gray-300 hover:bg-[#374151]" : "text-gray-700 hover:bg-gray-50"
+                }`}
+              >
+                <Calendar className="w-3.5 h-3.5" />
+                {exportingCalendar ? "Exporting…" : "Export reminders (.ics)"}
+              </button>
+
+              <hr className={`my-1 ${darkMode ? "border-[#374151]" : "border-gray-100"}`} />
+
+              <p className={`px-3 pt-1 pb-1 text-xs font-semibold uppercase tracking-wide ${darkMode ? "text-gray-500" : "text-gray-400"}`}>
                 PDF
               </p>
               <button
@@ -356,7 +480,7 @@ export default function SubscriptionsPage({
       </div>
 
       {/* Search and Filters */}
-      <div className="mb-6 flex gap-4">
+      <div className="mb-4 flex gap-4">
         <div className="relative flex-1">
           <label htmlFor="subscriptions-search" className="sr-only">Search subscriptions</label>
           <input
@@ -395,40 +519,6 @@ export default function SubscriptionsPage({
             </option>
           ))}
         </select>
-        <label htmlFor="filter-category" className="sr-only">Filter by category</label>
-        <select
-          id="filter-category"
-          value={filterCategory}
-          onChange={(e) => setFilterCategory(e.target.value)}
-          className={`px-4 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 ${
-            darkMode
-              ? "bg-[#2D3748] border-[#374151] text-white focus:ring-[#FFD166]"
-              : "bg-white border-gray-300 text-gray-900 focus:ring-black"
-          }`}
-        >
-          {categories.map((cat) => (
-            <option key={cat} value={cat}>
-              {cat === "all" ? "All Categories" : cat}
-            </option>
-          ))}
-        </select>
-        <label htmlFor="filter-status" className="sr-only">Filter by status</label>
-        <select
-          id="filter-status"
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
-          className={`px-4 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 ${
-            darkMode
-              ? "bg-[#2D3748] border-[#374151] text-white focus:ring-[#FFD166]"
-              : "bg-white border-gray-300 text-gray-900 focus:ring-black"
-          }`}
-        >
-          {statuses.map((status) => (
-            <option key={status} value={status}>
-              {status === "all" ? "All Status" : status.charAt(0).toUpperCase() + status.slice(1)}
-            </option>
-          ))}
-        </select>
         <label htmlFor="sort-by" className="sr-only">Sort subscriptions</label>
         <select
           id="sort-by"
@@ -440,6 +530,7 @@ export default function SubscriptionsPage({
               : "bg-white border-gray-300 text-gray-900 focus:ring-black"
           }`}
         >
+          <option value="priority">Personal Priority</option>
           <option value="name">Sort by Name</option>
           <option value="price-high">Price: High to Low</option>
           <option value="price-low">Price: Low to High</option>
@@ -447,69 +538,126 @@ export default function SubscriptionsPage({
         </select>
       </div>
 
+      {/* Advanced filter bar */}
+      <div className="mb-6">
+        <AdvancedFilterBar
+          filters={advancedFilters}
+          onChange={setAdvancedFilters}
+          availableCategories={categories}
+          darkMode={darkMode}
+        />
+      </div>
+
+      {isPrioritySort && !hasNoResults && (
+        <p className={`mb-3 text-sm ${darkMode ? "text-gray-400" : "text-gray-600"}`}>
+          Drag cards to set your personal priority. Top 3 subscriptions are highlighted.
+          {priorityOrderSaving ? " Saving order…" : null}
+        </p>
+      )}
+
       {/* Live region for search result count */}
       <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
         {!isSearching && debouncedSearchTerm
-          ? `Showing ${filtered.length} of ${subscriptions.length} subscriptions`
-          : ""}
+          ? `Showing ${displayed.length} of ${subscriptions.length} subscriptions`
+          : isPrioritySort && priorityOrderSaving
+            ? "Saving subscription priority order"
+            : ""}
       </div>
+
+      {/* Active Trials Section */}
+      {activeTrials.length > 0 && (
+        <div className="mb-8">
+          <h3 className={`text-lg font-bold mb-3 flex items-center gap-2 ${darkMode ? "text-white" : "text-gray-900"}`}>
+            <AlertTriangle aria-hidden="true" className="w-5 h-5 text-orange-500" />
+            Active Trials
+            <span className="text-sm font-normal text-orange-500">({activeTrials.length})</span>
+          </h3>
+          <div className="space-y-3">
+            {activeTrials.map((sub: any) => {
+              const daysLeft = getDaysDifference(sub.trialEndsAt)
+              const urgencyColor = daysLeft <= 1 ? "text-red-600" : daysLeft <= 3 ? "text-orange-500" : "text-yellow-600"
+              const urgencyBg = daysLeft <= 1 ? (darkMode ? "bg-red-900/20 border-red-700" : "bg-red-50 border-red-200") : daysLeft <= 3 ? (darkMode ? "bg-orange-900/20 border-orange-700" : "bg-orange-50 border-orange-200") : (darkMode ? "bg-yellow-900/20 border-yellow-700" : "bg-yellow-50 border-yellow-200")
+              return (
+                <div
+                  key={sub.id}
+                  className={`${urgencyBg} border rounded-xl p-5 flex items-center justify-between`}
+                  aria-label={`${sub.name} trial, expires in ${daysLeft} days`}
+                >
+                  <div className="flex items-center gap-4">
+                    <div aria-hidden="true" className={`w-12 h-12 ${darkMode ? "bg-[#1E2A35]" : "bg-black"} rounded-lg flex items-center justify-center text-2xl`}>
+                      {sub.icon}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className={`font-semibold ${darkMode ? "text-white" : "text-gray-900"}`}>{sub.name}</h4>
+                        <span className="bg-[#007A5C] text-white text-xs px-2 py-0.5 rounded-full font-semibold">Trial</span>
+                      </div>
+                      <p className={`text-sm font-bold ${urgencyColor} mt-0.5`}>
+                        {daysLeft === 0 ? "Expires TODAY at midnight" : `Expires in ${daysLeft} day${daysLeft > 1 ? "s" : ""}`}
+                      </p>
+                      {sub.priceAfterTrial && (
+                        <p className={`text-xs ${darkMode ? "text-gray-400" : "text-gray-500"}`}>
+                          Auto-charges ${sub.priceAfterTrial}/{sub.billingCycle || "month"} after trial
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className={`text-right mr-4`}>
+                      <p className={`text-2xl font-bold tabular-nums ${urgencyColor}`}>
+                        {daysLeft === 0 ? "Today" : `${daysLeft}d`}
+                      </p>
+                      <p className={`text-xs ${darkMode ? "text-gray-400" : "text-gray-500"}`}>remaining</p>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Subscriptions List */}
       {!hasNoResults && (
         <>
           {shouldVirtualize ? (
             <VirtualizedList
-              items={filtered}
+              items={displayed}
               itemHeight={80}
               containerHeight={600}
-              renderItem={(sub: any, index: number) => (
-                <ErrorBoundary 
-                  fallback={<BrokenCardPlaceholder name={sub?.name} darkMode={darkMode} />}
-                >
-                  <SubscriptionCard
-                    key={sub.id}
-                    subscription={sub}
-                    onDelete={onDelete}
-                    onManage={onManage}
-                    selectedSubscriptions={selectedSubscriptions}
-                    onToggleSelect={onToggleSelect}
-                    darkMode={darkMode}
-                    isDuplicate={duplicates.some((dup: any) => dup.subscriptions.some((s: any) => s.id === sub.id))}
-                    unusedInfo={unusedSubscriptions.find((unused: any) => unused.id === sub.id)}
-                  />
-                </ErrorBoundary>
+              renderItem={(sub: any) => renderSubscriptionCard(sub)}
+            />
+          ) : isPrioritySort && !priorityOrderLoading ? (
+            <SortableSubscriptionList
+              items={displayed}
+              darkMode={darkMode}
+              onReorder={(fromIndex, toIndex) =>
+                reorderPriority(fromIndex, toIndex, filteredIds)
+              }
+              renderItem={(sub: any) => (
+                <SortableItemShell id={sub.id}>
+                  {({ setNodeRef, style, isDragging, attributes, listeners }) =>
+                    renderSubscriptionCard(sub, {
+                      priorityRank: getGlobalPriorityRank(sub.id, priorityOrder),
+                      dragHandle: (
+                        <SortableDragHandle
+                          attributes={attributes}
+                          listeners={listeners}
+                          darkMode={darkMode}
+                          label={`Drag to reorder ${sub.name}`}
+                        />
+                      ),
+                      shellRef: setNodeRef,
+                      shellStyle: style,
+                      isDragging,
+                    })
+                  }
+                </SortableItemShell>
               )}
             />
           ) : (
             <div className="space-y-3">
-              {filtered.map((sub: any) => (
-                <ErrorBoundary 
-                  key={sub.id}
-                  fallback={<BrokenCardPlaceholder name={sub?.name} darkMode={darkMode} />}
-                >
-                  <SubscriptionCard
-                    subscription={sub}
-                    onDelete={onDelete}
-                    onManage={onManage}
-                    selectedSubscriptions={selectedSubscriptions}
-                    onToggleSelect={onToggleSelect}
-                    darkMode={darkMode}
-                    isDuplicate={duplicates.some((dup: any) => dup.subscriptions.some((s: any) => s.id === sub.id))}
-                    unusedInfo={unusedSubscriptions.find((unused: any) => unused.id === sub.id)}
-                  />
-                </ErrorBoundary>
-                  subscription={sub}
-                  onDelete={onDelete}
-                  onManage={onManage}
-                  selectedSubscriptions={selectedSubscriptions}
-                  onToggleSelect={onToggleSelect}
-                  darkMode={darkMode}
-                  isDuplicate={duplicates.some((dup: any) => dup.subscriptions.some((s: any) => s.id === sub.id))}
-                  unusedInfo={unusedSubscriptions.find((unused: any) => unused.id === sub.id)}
-                  onCancel={(s) => setSelectedSubForCancel(s)}
-                  guide={guides.find((g) => g.service_name.toLowerCase() === sub.name.toLowerCase())}
-                />
-              ))}
+              {displayed.map((sub: any) => renderSubscriptionCard(sub))}
             </div>
           )}
         </>
@@ -532,14 +680,39 @@ export default function SubscriptionsPage({
           darkMode={darkMode}
           onClose={() => setSelectedSubForCancel(null)}
           onCancelled={() => {
-            // In a real app, you would refresh the subscription list here
-            // For now, we'll just show a success toast or manually update the local state if possible
-            // But since subscriptions props are passed down, the parent should handle it.
-            // For the sake of this demo, we'll just close it.
             setSelectedSubForCancel(null)
           }}
         />
       )}
+
+      {showKeyboardHelp && (
+        <KeyboardHelpModal
+          darkMode={darkMode}
+          onClose={() => setShowKeyboardHelp(false)}
+        />
+      )}
+
+      {/* Keyboard shortcut hint footer */}
+      <div className={`mt-8 flex items-center justify-center gap-1.5 text-xs ${darkMode ? "text-gray-600" : "text-gray-400"}`}>
+        <span>Press</span>
+        <kbd
+          className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded border font-mono text-[11px] ${
+            darkMode ? "bg-[#2D3748] border-[#374151] text-gray-400" : "bg-gray-100 border-gray-300 text-gray-500"
+          }`}
+        >
+          ?
+        </kbd>
+        <span>for keyboard shortcuts</span>
+        <span aria-hidden="true" className="mx-1">·</span>
+        <kbd
+          className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded border font-mono text-[11px] ${
+            darkMode ? "bg-[#2D3748] border-[#374151] text-gray-400" : "bg-gray-100 border-gray-300 text-gray-500"
+          }`}
+        >
+          ⌘K
+        </kbd>
+        <span>for command palette</span>
+      </div>
 
       {hasNoResults && (
         <EmptyState
@@ -551,8 +724,7 @@ export default function SubscriptionsPage({
             onClick: () => {
               setSearchTerm("")
               setFilterEmail("all")
-              setFilterCategory("all")
-              setFilterStatus("all")
+              setAdvancedFilters(EMPTY_FILTERS)
               setShowDuplicatesOnly(false)
               setShowUnusedOnly(false)
             },
@@ -560,7 +732,7 @@ export default function SubscriptionsPage({
           darkMode={darkMode}
         />
       )}
-      {showCalendarModal && calendarToken && (
+      {showCalendarModal && calendarToken && calendarFeedUrl && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div
             className={`${darkMode ? "bg-[#1E2A35] text-white" : "bg-white text-gray-900"} rounded-2xl p-8 max-w-md w-full shadow-2xl animate-in fade-in zoom-in duration-200`}
@@ -578,17 +750,13 @@ export default function SubscriptionsPage({
             <div className="relative mb-8">
               <input
                 readOnly
-                value={`${window.location.protocol}//${window.location.host}/api/calendar/feed/${calendarUserId}/${calendarToken}.ics`}
+                value={calendarFeedUrl}
                 className={`w-full pr-12 pl-4 py-3 rounded-xl border text-sm ${
                   darkMode ? "bg-[#2D3748] border-[#374151] text-gray-300" : "bg-gray-50 border-gray-200 text-gray-600"
                 }`}
               />
               <button
-                onClick={() =>
-                  copyToClipboard(
-                    `${window.location.protocol}//${window.location.host}/api/calendar/feed/${calendarUserId}/${calendarToken}.ics`,
-                  )
-                }
+                onClick={() => copyToClipboard(calendarFeedUrl)}
                 className="absolute right-2 top-1/2 -translate-y-1/2 p-2 hover:bg-black/5 rounded-lg transition-colors"
               >
                 {copied ? <Check className="w-5 h-5 text-green-500" /> : <Copy className="w-5 h-5 text-gray-400" />}
@@ -609,15 +777,21 @@ export default function SubscriptionsPage({
 
 interface SubscriptionCardProps {
   subscription: any
-  onDelete: (id: number) => void
+  onDelete: (id: string) => void
   onManage?: (subscription: any) => void
-  selectedSubscriptions: Set<number>
-  onToggleSelect: (id: number) => void
+  selectedSubscriptions: Set<string>
+  onToggleSelect: (id: string) => void
   darkMode?: boolean
   isDuplicate?: boolean
   unusedInfo?: any
   onCancel?: (subscription: any) => void
   guide?: CancellationGuide
+  onPause?: (subscription: any) => void
+  onResume?: (subscription: any) => void
+  onCancelTrial?: (id: string) => void
+  onConvertTrial?: (id: string) => void
+  priorityRank?: PriorityRank
+  dragHandle?: ReactNode
 }
 
 export function SubscriptionCard({
@@ -631,28 +805,48 @@ export function SubscriptionCard({
   unusedInfo,
   onCancel,
   guide,
+  onPause,
+  onResume,
+  onCancelTrial,
+  onConvertTrial,
+  priorityRank,
+  dragHandle,
 }: SubscriptionCardProps) {
-  const statusLabel =
-    sub.status === "expiring"
-      ? `expiring in ${sub.renewsIn} days`
-      : sub.status === "trial"
-        ? "trial"
-        : sub.status === "cancelled"
-          ? "cancelled"
-          : "active"
+  const { settings } = useUserSettings()
+  const currency = settings.currency
+  const isPaused = sub.status === "paused"
 
-  const difficultyColors = {
-    easy: "text-green-500 bg-green-500/10",
-    medium: "text-yellow-500 bg-yellow-500/10",
-    hard: "text-red-500 bg-red-500/10",
+  const statusLabel =
+    isPaused
+      ? "paused"
+      : sub.status === "expiring"
+        ? `expiring in ${sub.renewsIn} days`
+        : sub.status === "trial"
+          ? "trial"
+          : sub.status === "cancelled"
+            ? "cancelled"
+            : "active"
+
+  // WCAG-AA compliant difficulty badge tokens (≥ 4.5:1 contrast)
+  const difficultyColors: Record<string, string> = {
+    easy: darkMode
+      ? "text-[#bbf7d0] bg-[#14532d]"
+      : "text-[#166534] bg-[#dcfce7]",
+    medium: darkMode
+      ? "text-[#fde68a] bg-[#3b1c08]"
+      : "text-[#92400e] bg-[#fef3c7]",
+    hard: darkMode
+      ? "text-[#fca5a5] bg-[#7f1d1d]"
+      : "text-[#991b1b] bg-[#fee2e2]",
   }
 
   return (
     <div
-      className={`${darkMode ? "bg-[#2D3748] border-[#374151]" : "bg-white border-gray-200"} border rounded-xl p-5 flex items-center justify-between`}
+      className={`${darkMode ? "bg-[#2D3748] border-[#374151]" : "bg-white border-gray-200"} border rounded-xl p-5 flex items-center justify-between${isPaused ? " opacity-50" : ""}`}
       aria-label={`${sub.name}, ${sub.category}, $${sub.price}/month, ${statusLabel}${isDuplicate ? ", duplicate" : ""}${unusedInfo ? ", unused" : ""}`}
     >
       <div className="flex items-center gap-4 flex-1">
+        {dragHandle}
         {selectedSubscriptions && onToggleSelect && (
           <input
             type="checkbox"
@@ -672,10 +866,28 @@ export function SubscriptionCard({
         <div className="flex-1">
           <div className="flex items-center gap-2">
             <h4 className={`font-semibold ${darkMode ? "text-white" : "text-gray-900"}`}>{sub.name}</h4>
-            {sub.isTrial && (
-              <span className="bg-[#007A5C] text-white text-xs px-2 py-0.5 rounded-full font-semibold">
-                Trial
+            {priorityRank && <PriorityBadge rank={priorityRank} darkMode={darkMode} />}
+            <div
+              className="flex items-center gap-1 text-xs text-gray-500"
+              title={
+                sub.is_encrypted
+                  ? "This subscription's on-chain data is encrypted"
+                  : "This subscription is stored in plaintext on-chain"
+              }
+            >
+              {sub.is_encrypted ? (
+                <Lock className="w-3 h-3 text-green-500" aria-hidden="true" />
+              ) : (
+                <LockOpen className="w-3 h-3 text-yellow-500" aria-hidden="true" />
+              )}
+              <span className="sr-only">
+                {sub.is_encrypted
+                  ? "This subscription's on-chain data is encrypted"
+                  : "This subscription is stored in plaintext on-chain"}
               </span>
+            </div>
+            {sub.isTrial && (
+              <StatusBadge status="trial" darkMode={darkMode} />
             )}
             {isDuplicate && (
               <span className="bg-[#FFD166] text-[#1E2A35] text-xs px-2 py-0.5 rounded-full font-semibold flex items-center gap-1">
@@ -683,18 +895,24 @@ export function SubscriptionCard({
                 Duplicate
               </span>
             )}
-            {unusedInfo && sub.category === "AI Tools" && sub.hasApiKey && (
+            {unusedInfo && (
               <span className="bg-[#E86A33] text-white text-xs px-2 py-0.5 rounded-full font-semibold flex items-center gap-1">
                 <Clock aria-hidden="true" className="w-3 h-3" />
-                Unused {unusedInfo.daysSinceLastUse}d
+                Potentially Wasted
               </span>
             )}
             {sub.latest_price_change && (
-              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold flex items-center gap-1 ${
-                sub.latest_price_change.new_price > sub.latest_price_change.old_price 
-                  ? "bg-red-100 text-red-700" 
-                  : "bg-green-100 text-green-700"
-              }`}>
+              <span
+                className={`text-xs px-2 py-0.5 rounded-full font-semibold flex items-center gap-1 ${
+                  sub.latest_price_change.new_price > sub.latest_price_change.old_price
+                    ? darkMode
+                      ? "bg-[#7f1d1d] text-[#fca5a5]"
+                      : "bg-[#fee2e2] text-[#991b1b]"
+                    : darkMode
+                      ? "bg-[#14532d] text-[#bbf7d0]"
+                      : "bg-[#dcfce7] text-[#166534]"
+                }`}
+              >
                 {sub.latest_price_change.new_price > sub.latest_price_change.old_price ? "↑" : "↓"} Price Changed
               </span>
             )}
@@ -717,17 +935,22 @@ export function SubscriptionCard({
                 {guide.difficulty} to cancel
               </span>
             )}
-             {sub.status === "cancelled" && (
-              <span className="bg-gray-100 dark:bg-[#1E2A35] text-gray-500 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full flex items-center gap-1">
-                <CheckCircle className="w-2.5 h-2.5" />
-                Cancelled
+            {sub.status === "cancelled" && (
+              <StatusBadge status="cancelled" darkMode={darkMode} className="text-[10px] uppercase tracking-wider" />
+            )}
+            {sub.status === "paused" && (
+              <StatusBadge status="paused" darkMode={darkMode} className="text-[10px] uppercase tracking-wider" />
+            )}
+            {isPaused && (
+              <span className="bg-gray-200 dark:bg-[#374151] text-gray-500 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full flex items-center gap-1">
+                <PauseCircle aria-hidden="true" className="w-2.5 h-2.5" />
+                Paused
               </span>
             )}
           </div>
           {sub.isTrial && sub.trialEndsAt && (
             <p className={`text-xs ${darkMode ? "text-[#007A5C]" : "text-green-600"} mt-1`}>
-              Trial ends in {Math.ceil((new Date(sub.trialEndsAt).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))} days - $
-              {sub.priceAfterTrial}/month after
+              Trial ends in {getDaysDifference(sub.trialEndsAt)} days - {formatCurrency(sub.priceAfterTrial || 0, currency)}/month after
             </p>
           )}
         </div>
@@ -754,9 +977,11 @@ export function SubscriptionCard({
             <p className={`text-sm ${darkMode ? "text-gray-400" : "text-gray-600"}`}>
               {sub.status === "expiring" ? `Expires in ${sub.renewsIn} days` : `Renewal in ${sub.renewsIn} days`}
             </p>
-            <span className={`text-xs font-semibold ${sub.status === "expiring" ? "text-[#E86A33]" : "text-[#007A5C]"}`}>
-              {sub.status === "expiring" ? "Expiring" : "Active"}
-            </span>
+            <StatusBadge
+              status={normalizeStatus(sub.status)}
+              darkMode={darkMode}
+              className="mt-1"
+            />
           </div>
         </div>
 
@@ -782,6 +1007,26 @@ export function SubscriptionCard({
             >
               <ShieldAlert aria-hidden="true" className="w-4 h-4" />
               <span className="text-xs font-semibold hidden group-hover:inline">Cancel</span>
+            </button>
+          )}
+          {!isPaused && sub.status !== "cancelled" && (
+            <button
+              onClick={() => onPause && onPause(sub)}
+              aria-label={`Pause ${sub.name}`}
+              className={`p-2 rounded-lg ${darkMode ? "hover:bg-yellow-500/20 text-yellow-400" : "hover:bg-yellow-50 text-yellow-600"} flex items-center gap-1 group`}
+            >
+              <PauseCircle aria-hidden="true" className="w-4 h-4" />
+              <span className="text-xs font-semibold hidden group-hover:inline">Pause</span>
+            </button>
+          )}
+          {isPaused && (
+            <button
+              onClick={() => onResume && onResume(sub)}
+              aria-label={`Resume ${sub.name}`}
+              className={`p-2 rounded-lg ${darkMode ? "hover:bg-green-500/20 text-green-400" : "hover:bg-green-50 text-green-600"} flex items-center gap-1 group`}
+            >
+              <PlayCircle aria-hidden="true" className="w-4 h-4" />
+              <span className="text-xs font-semibold hidden group-hover:inline">Resume</span>
             </button>
           )}
           <button

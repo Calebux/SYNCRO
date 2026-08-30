@@ -1,0 +1,109 @@
+---
+title: Subscriptions
+description: "Create, read, update, and delete subscriptions"
+---
+
+> Note: The canonical API surface is generated from source. See the OpenAPI spec at
+> [/api-reference/openapi.json](./openapi.json). This page contains human-friendly examples and is marked as secondary.
+
+## Create a Subscription
+
+<ParamField body="name" type="string" required>
+  Name of the subscription service (e.g. "Netflix")
+</ParamField>
+<ParamField body="price" type="number" required>
+  Amount per billing cycle
+</ParamField>
+<ParamField body="currency" type="string" required>
+  ISO 4217 currency code (e.g. "USD")
+</ParamField>
+<ParamField body="billingCycle" type="string" required>
+  One of: `monthly`, `yearly`, `weekly`
+</ParamField>
+<ParamField body="nextRenewalDate" type="string" required>
+  ISO 8601 date string (e.g. "2025-05-01")
+</ParamField>
+
+```bash
+POST /subscriptions
+Authorization: Bearer YOUR_API_KEY
+Content-Type: application/json
+
+{
+  "name": "Netflix",
+  "price": 17.99,
+  "currency": "USD",
+  "billingCycle": "monthly",
+  "nextRenewalDate": "2025-05-01"
+}
+```
+
+**Response `201 Created`:**
+
+```json
+{
+  "id": "sub_abc123",
+  "name": "Netflix",
+  "price": 17.99,
+  "currency": "USD",
+  "billingCycle": "monthly",
+  "nextRenewalDate": "2025-05-01",
+  "status": "active",
+  "createdAt": "2025-04-27T10:00:00Z"
+}
+```
+
+---
+
+## List Subscriptions
+
+```bash
+GET /subscriptions?status=active&page=1&limit=20
+Authorization: Bearer YOUR_API_KEY
+```
+
+**Response `200 OK`:**
+
+```json
+{
+  "data": [...],
+  "total": 5,
+  "page": 1,
+  "limit": 20
+}
+```
+
+---
+
+## Get a Subscription
+
+```bash
+GET /subscriptions/:id
+Authorization: Bearer YOUR_API_KEY
+```
+
+---
+
+## Update a Subscription
+
+```bash
+PATCH /subscriptions/:id
+Authorization: Bearer YOUR_API_KEY
+Content-Type: application/json
+
+{
+  "price": 19.99,
+  "nextRenewalDate": "2025-06-01"
+}
+```
+
+---
+
+## Delete a Subscription
+
+```bash
+DELETE /subscriptions/:id
+Authorization: Bearer YOUR_API_KEY
+```
+
+**Response `204 No Content`**

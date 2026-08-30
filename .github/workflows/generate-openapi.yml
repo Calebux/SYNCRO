@@ -1,0 +1,43 @@
+name: Generate OpenAPI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "src/**"
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    name: Build and export OpenAPI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Generate OpenAPI JSON
+        working-directory: backend
+        run: npm run swagger:export
+
+      - name: Upload OpenAPI artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: openapi-spec
+          path: docs/api-reference/openapi.json
+
+      - name: Print summary
+        run: |
+          echo "OpenAPI spec generated at docs/api-reference/openapi.json"
+          ls -l docs/api-reference || true

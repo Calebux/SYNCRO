@@ -1,0 +1,28 @@
+###############
+# Tor Hidden Service config for SYNCRO
+# Generates an .onion address and forwards it to the dashboard container.
+#
+# Where the onion key persists:
+#   tor_data volume -> /var/lib/tor
+#
+###############
+
+Log notice stdout
+DataDirectory /var/lib/tor
+
+# Hidden service: map port 80 of the onion to the dashboard
+# IMPORTANT:
+# We use the internal Docker network so Tor can reach the dashboard by service name.
+
+HiddenServiceDir /var/lib/tor/hidden_service/
+
+# Tor directory/port definitions
+HiddenServicePort 80 dashboard:3000
+
+# Optional: make Tor more stable in containers
+ClientUseIPv4
+ClientUseIPv6
+
+# If you need more logs, uncomment:
+# Log debug stdout
+

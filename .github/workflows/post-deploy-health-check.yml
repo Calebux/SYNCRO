@@ -2,42 +2,120 @@ name: Post-Deploy Health Check
 
 on:
   deployment_status:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to test'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      target_url:
+        description: 'Target URL to test'
+        required: true
+        type: string
 
 jobs:
   smoke-test:
     name: Smoke Test
-    if: github.event.deployment_status.state == 'success'
+    if: github.event.deployment_status.state == 'success' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
       - name: Wait for deployment to stabilize
         run: sleep 10
 
-      - name: Check main page returns 200
+      - name: Set environment variables
         run: |
-          URL="${{ github.event.deployment_status.target_url }}"
-          echo "Checking: $URL"
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$URL")
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "TARGET_URL=${{ github.event.inputs.target_url }}" >> $GITHUB_ENV
+            echo "ENVIRONMENT=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+          else
+            echo "TARGET_URL=${{ github.event.deployment_status.target_url }}" >> $GITHUB_ENV
+            echo "ENVIRONMENT=${{ github.event.deployment_status.environment }}" >> $GITHUB_ENV
+          fi
+
+      - name: Basic health checks
+        run: |
+          echo "Checking: $TARGET_URL"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$TARGET_URL")
           if [ "$STATUS" != "200" ]; then
             echo "ERROR: Main page returned HTTP $STATUS"
             exit 1
           fi
-          echo "Main page OK (HTTP $STATUS)"
+          echo "✅ Main page OK (HTTP $STATUS)"
 
-      - name: Check /api/health returns 200
+      - name: Check frontend health endpoint
         run: |
-          URL="${{ github.event.deployment_status.target_url }}"
-          echo "Checking: $URL/api/health"
-          API_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$URL/api/health")
+          echo "Checking: $TARGET_URL/api/health"
+          API_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$TARGET_URL/api/health")
           if [ "$API_STATUS" != "200" ]; then
             echo "ERROR: /api/health returned HTTP $API_STATUS"
             exit 1
           fi
-          echo "API health check OK (HTTP $API_STATUS)"
+          echo "✅ Frontend health check OK (HTTP $API_STATUS)"
+
+      - name: Check backend health endpoint
+        run: |
+          BACKEND_URL="${{ secrets.BACKEND_URL }}"
+          if [ -z "$BACKEND_URL" ]; then
+            echo "⚠️  BACKEND_URL not set, skipping backend health check"
+            exit 0
+          fi
+          echo "Checking: $BACKEND_URL/health"
+          BACKEND_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$BACKEND_URL/health")
+          if [ "$BACKEND_STATUS" != "200" ]; then
+            echo "ERROR: Backend health returned HTTP $BACKEND_STATUS"
+            exit 1
+          fi
+          echo "✅ Backend health check OK (HTTP $BACKEND_STATUS)"
+
+      - name: Run comprehensive smoke tests
+        working-directory: backend
+        env:
+          SMOKE_TEST_BASE_URL: ${{ secrets.BACKEND_URL }}
+          SMOKE_TEST_FRONTEND_URL: ${{ env.TARGET_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SMOKE_TEST_USER_EMAIL: ${{ secrets.SMOKE_TEST_USER_EMAIL }}
+          SMOKE_TEST_USER_PASSWORD: ${{ secrets.SMOKE_TEST_USER_PASSWORD }}
+          SMOKE_TEST_API_KEY: ${{ secrets.SMOKE_TEST_API_KEY }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          STELLAR_NETWORK_URL: ${{ secrets.STELLAR_NETWORK_URL }}
+          SOROBAN_CONTRACT_ADDRESS: ${{ secrets.SOROBAN_CONTRACT_ADDRESS }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+        run: npm test -- -c tests/smoke/jest.smoke.config.js --verbose
+
+      - name: Upload smoke test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-test-results-${{ env.ENVIRONMENT }}
+          path: |
+            backend/coverage/smoke/
+          retention-days: 7
 
       - name: Comment on PR if health check fails
         if: failure() && github.event.deployment_status.environment == 'Preview'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const { data: prs } = await github.rest.pulls.list({
@@ -51,19 +129,19 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: prs[0].number,
-                body: `⚠️ Post-deployment health check failed for preview: ${{ github.event.deployment_status.target_url }}\n\nThe app may not be working correctly. Please check the [workflow run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for details.`,
+                body: `⚠️ Post-deployment smoke tests failed for preview: ${{ github.event.deployment_status.target_url }}\n\n**Failed checks:**\n- Authentication flow\n- Dashboard access\n- API operations\n- Payment health\n\nPlease check the [workflow run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for details.`,
               });
             }
 
       - name: Notify on production failure
         if: failure() && github.event.deployment_status.environment == 'Production'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: '🚨 Production health check failed',
-              body: `Post-deployment health check failed for production deployment.\n\n**URL:** ${{ github.event.deployment_status.target_url }}\n**Workflow run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\nPlease investigate immediately.`,
-              labels: ['bug', 'production'],
+              title: '🚨 Production smoke tests failed',
+              body: `Post-deployment smoke tests failed for production deployment.\n\n**URL:** ${{ github.event.deployment_status.target_url }}\n**Workflow run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\n**Critical paths affected:**\n- Authentication\n- Dashboard\n- API operations\n- Payment/billing\n\n**Action required:** Investigate immediately and consider rollback if issues persist.`,
+              labels: ['bug', 'production', 'critical'],
             });

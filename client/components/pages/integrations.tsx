@@ -2,16 +2,18 @@
 
 import { useState } from "react"
 import ManageIntegrationModal from "@/components/modals/manage-integration-modal"
+import type { Integration } from "@/lib/integration-types"
+import { IntegrationStatus } from "@/lib/integration-types"
 
 interface IntegrationsPageProps {
-  integrations: any[]
+  integrations: Integration[]
   onToggle: (id: number) => void
   darkMode?: boolean
 }
 
 export default function IntegrationsPage({ integrations, onToggle, darkMode }: IntegrationsPageProps) {
-  const [sortBy, setSortBy] = useState("name")
-  const [selectedIntegration, setSelectedIntegration] = useState<any>(null)
+  const [sortBy, setSortBy] = useState<"name" | "recent">("name")
+  const [selectedIntegration, setSelectedIntegration] = useState<Integration | null>(null)
   const [showManageModal, setShowManageModal] = useState(false)
 
   const supportedTools = [
@@ -38,7 +40,7 @@ export default function IntegrationsPage({ integrations, onToggle, darkMode }: I
     return 0
   })
 
-  const handleManageIntegration = (integration: any) => {
+  const handleManageIntegration = (integration: Integration) => {
     setSelectedIntegration(integration)
     setShowManageModal(true)
   }
@@ -64,7 +66,7 @@ export default function IntegrationsPage({ integrations, onToggle, darkMode }: I
                 <button
                   onClick={() => onToggle(integration.id)}
                   className={`px-3 py-1 rounded-full text-xs font-medium ${
-                    integration.status === "connected"
+                    integration.status === IntegrationStatus.Connected
                       ? darkMode
                         ? "bg-[#007A5C]/20 text-[#007A5C]"
                         : "bg-green-100 text-green-700"
@@ -73,7 +75,7 @@ export default function IntegrationsPage({ integrations, onToggle, darkMode }: I
                         : "bg-gray-100 text-gray-700"
                   }`}
                 >
-                  {integration.status === "connected" ? "Connected" : "Disconnected"}
+                  {integration.status === IntegrationStatus.Connected ? "Connected" : "Disconnected"}
                 </button>
               </div>
 
@@ -88,7 +90,7 @@ export default function IntegrationsPage({ integrations, onToggle, darkMode }: I
                   darkMode ? "text-[#FFD166] hover:bg-[#374151]" : "text-blue-600 hover:bg-blue-50"
                 }`}
               >
-                {integration.status === "connected" ? "Manage" : "Configure"}
+                {integration.status === IntegrationStatus.Connected ? "Manage" : "Configure"}
               </button>
             </div>
           ))}

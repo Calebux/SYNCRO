@@ -5,10 +5,13 @@ edition = "2021"
 publish = false
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 soroban-sdk = { workspace = true }
+subscription_logging = { path = "../subscription_logging" }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+proptest = { workspace = true }
+subscription_logging = { path = "../subscription_logging" }

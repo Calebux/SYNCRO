@@ -8,11 +8,57 @@ import {
 import { generateSafeCSV, downloadCSV } from "@/lib/csv-utils";
 import type { Subscription } from "@/lib/supabase/subscriptions";
 
+interface ClientSubscription {
+  id: number;
+  name: string;
+  category: string;
+  price: number;
+  icon: string;
+  renewsIn: number;
+  status: string;
+  color: string;
+  renewalUrl: string | null;
+  tags: string[];
+  dateAdded: string;
+  emailAccountId: number | null;
+  lastUsedAt?: string;
+  hasApiKey?: boolean;
+  isTrial: boolean;
+  trialEndsAt?: string;
+  priceAfterTrial?: number;
+  trialConvertsToPrice?: number;
+  creditCardRequired?: boolean;
+  source: string;
+  manuallyEdited: boolean;
+  editedFields: string[];
+  pricingType: string;
+  billingCycle: string;
+  cancelledAt?: string;
+  activeUntil?: string;
+  pausedAt?: string;
+  resumesAt?: string;
+  priceRange?: { min: number; max: number };
+  priceHistory?: Array<{ date: string; amount: number }>;
+  expiredAt?: string;
+  notes?: string;
+  customTagIds?: string[];
+}
+
+interface ExportRow {
+  name: string;
+  category: string;
+  price: number;
+  billingCycle: string;
+  status: string;
+  renewalDate: string;
+  email: string;
+}
+
 interface UseBulkActionsProps {
-  subscriptions: Subscription[];
+  subscriptions: ClientSubscription[];
   selectedSubscriptions: Set<number>;
-  updateSubscriptions: (subs: Subscription[]) => void;
-  addToHistory: (subs: Subscription[]) => void;
+  updateSubscriptions: (subs: ClientSubscription[]) => void;
+  addToHistory: (subs: ClientSubscription[]) => void;
   setSelectedSubscriptions: (set: Set<number>) => void;
   setBulkActionLoading: (loading: boolean) => void;
   onToast: (toast: any) => void;
@@ -102,6 +148,16 @@ export function useBulkActions({
       selectedSubscriptions.has(sub.id)
     );
 
+    const exportRows: ExportRow[] = selectedSubs.map((sub) => ({
+      name: sub.name,
+      category: sub.category,
+      price: sub.price,
+      billingCycle: sub.billingCycle || "monthly",
+      status: sub.status,
+      renewalDate: sub.renewsIn ? `${sub.renewsIn} days` : "N/A",
+      email: "N/A",
+    }));
+
     const headers = [
       "Name",
       "Category",
@@ -111,14 +167,14 @@ export function useBulkActions({
       "Renewal Date",
       "Email",
     ];
-    const rows = selectedSubs.map((sub: any) => [
-      sub.name,
-      sub.category,
-      sub.price,
-      sub.billingCycle || sub.billing_cycle || "monthly",
-      sub.status,
-      (sub as any).renewsIn ? `${(sub as any).renewsIn} days` : "N/A",
-      "N/A",
+    const rows = exportRows.map((row) => [
+      row.name,
+      row.category,
+      row.price.toString(),
+      row.billingCycle,
+      row.status,
+      row.renewalDate,
+      row.email,
     ]);
 
     const csvContent = generateSafeCSV(headers, rows);
@@ -149,8 +205,7 @@ export function useBulkActions({
           for (const id of selectedIds) {
             const sub = subscriptions.find((s) => s.id === id);
             if (sub) {
-              const daysUntilRenewal =
-                (sub as any).renewsIn || (sub as any).renews_in || 0;
+              const daysUntilRenewal = sub.renewsIn ?? 0;
               const activeUntil = new Date(
                 Date.now() + daysUntilRenewal * 24 * 60 * 60 * 1000
               );
@@ -165,8 +220,7 @@ export function useBulkActions({
 
           const updatedSubs = subscriptions.map((sub) => {
             if (selectedSubscriptions.has(sub.id)) {
-              const daysUntilRenewal =
-                (sub as any).renewsIn || (sub as any).renews_in || 0;
+              const daysUntilRenewal = sub.renewsIn ?? 0;
               const activeUntil = new Date(
                 Date.now() + daysUntilRenewal * 24 * 60 * 60 * 1000
               );

@@ -1,16 +1,16 @@
 import { type NextRequest } from "next/server"
-import { createApiRoute, createSuccessResponse, validateRequestBody, RateLimiters, ApiErrors } from "@/lib/api/index"
 import { HttpStatus } from "@/lib/api/types"
 import { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
 import { checkOwnership } from "@/lib/api/auth"
+import { ApiErrors, createAuthenticatedApiRoute, createSuccessResponse, RateLimiters, validateRequestBody, emitAuditEvent } from "@/lib/api/index"
 
 // Validation schemas
 const updateSubscriptionSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   category: z.string().min(1).optional(),
   price: z.number().positive().optional(),
-  status: z.enum(["active", "cancelled", "expired"]).optional(),
+  status: z.enum(["active", "cancelled", "expired", "paused"]).optional(),
   renewsIn: z.number().int().min(0).optional(),
   email: z.string().email().optional(),
 })
@@ -25,12 +25,8 @@ export async function DELETE(
 ) {
   const { id } = await params
   
-  return createApiRoute(
+  return createAuthenticatedApiRoute(
     async (req: NextRequest, context, user) => {
-      if (!user) {
-        throw new Error("User not authenticated")
-      }
-
       if (!id) {
         throw ApiErrors.notFound("Subscription")
       }
@@ -58,8 +54,10 @@ export async function DELETE(
         .eq("user_id", user.id)
 
       if (error) {
-        throw new Error(`Failed to delete subscription: ${error.message}`)
+        throw ApiErrors.internalError(`Failed to delete subscription: ${error.message}`)
       }
+
+      emitAuditEvent({ userId: user.id, action: "subscription.delete", resourceType: "subscription", resourceId: id })
 
       return createSuccessResponse(
         { message: "Subscription deleted successfully" },
@@ -68,7 +66,6 @@ export async function DELETE(
       )
     },
     {
-      requireAuth: true,
       rateLimit: RateLimiters.standard,
     }
   )(request)
@@ -80,12 +77,8 @@ export async function PATCH(
 ) {
   const { id } = await params
   
-  return createApiRoute(
+  return createAuthenticatedApiRoute(
     async (req: NextRequest, context, user) => {
-      if (!user) {
-        throw new Error("User not authenticated")
-      }
-
       if (!id) {
         throw ApiErrors.notFound("Subscription")
       }
@@ -127,7 +120,7 @@ export async function PATCH(
         .single()
 
       if (error) {
-        throw new Error(`Failed to update subscription: ${error.message}`)
+        throw ApiErrors.internalError(`Failed to update subscription: ${error.message}`)
       }
 
       return createSuccessResponse(
@@ -137,7 +130,6 @@ export async function PATCH(
       )
     },
     {
-      requireAuth: true,
       rateLimit: RateLimiters.standard,
     }
   )(request)

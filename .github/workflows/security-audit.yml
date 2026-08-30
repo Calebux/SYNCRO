@@ -1,0 +1,55 @@
+name: Security Audit
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'backend/package.json'
+      - 'client/package.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/security-audit.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'backend/package.json'
+      - 'client/package.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/security-audit.yml'
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      force_full_run:
+        description: 'Force a full security audit'
+        type: boolean
+        default: false
+
+jobs:
+  audit:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+
+      - name: Audit backend dependencies
+        working-directory: backend
+        run: |
+          npm install --package-lock-only
+          npm audit --audit-level=high
+        continue-on-error: false
+
+      - name: Audit client dependencies
+        working-directory: client
+        run: |
+          npm install --package-lock-only
+          npm audit --audit-level=high
+        continue-on-error: false

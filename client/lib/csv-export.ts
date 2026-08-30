@@ -7,6 +7,7 @@
  */
 
 import { generateSafeCSV, downloadCSV } from "./csv-utils"
+import { formatDate, addDays } from "./timezone-utils"
 
 const HEADERS = [
   "Name",
@@ -22,8 +23,7 @@ const HEADERS = [
 
 function nextRenewalDate(sub: any): string {
   if (sub.renewsIn == null) return ""
-  const d = new Date(Date.now() + sub.renewsIn * 24 * 60 * 60 * 1000)
-  return d.toLocaleDateString()
+  return formatDate(addDays(new Date(), sub.renewsIn))
 }
 
 function toRow(sub: any): any[] {
@@ -35,8 +35,8 @@ function toRow(sub: any): any[] {
     sub.billing_cycle ?? sub.billingCycle ?? "",
     sub.status ?? "",
     nextRenewalDate(sub),
-    sub.date_added ? new Date(sub.date_added).toLocaleDateString() : "",
-    sub.last_renewed ? new Date(sub.last_renewed).toLocaleDateString() : "",
+    sub.date_added ? formatDate(sub.date_added) : "",
+    sub.last_renewed ? formatDate(sub.last_renewed) : "",
   ]
 }
 
@@ -46,35 +46,20 @@ export function exportAllCSV(subscriptions: any[]): void {
   downloadCSV(csv, "syncro-subscriptions")
 }
 
-/** Export only subscriptions whose status is "active". */
+/** Export only active subscriptions. */
 export function exportActiveCSV(subscriptions: any[]): void {
   const active = subscriptions.filter((s) => s.status === "active")
   const csv = generateSafeCSV(HEADERS, active.map(toRow))
   downloadCSV(csv, "syncro-active-subscriptions")
 }
 
-/**
- * Export subscriptions whose next renewal falls within [from, to].
- * `from` and `to` are plain Date objects (time component ignored).
- */
-export function exportDateRangeCSV(
-  subscriptions: any[],
-  from: Date,
-  to: Date,
-): void {
-  const fromMs = from.setHours(0, 0, 0, 0)
-  const toMs = to.setHours(23, 59, 59, 999)
-
-  const inRange = subscriptions.filter((s) => {
-    if (s.renewsIn == null) return false
-    const renewal = Date.now() + s.renewsIn * 24 * 60 * 60 * 1000
-    return renewal >= fromMs && renewal <= toMs
+/** Export subscriptions added within a specific date range. */
+export function exportDateRangeCSV(subscriptions: any[], start: Date, end: Date): void {
+  const filtered = subscriptions.filter((s) => {
+    if (!s.date_added) return false
+    const d = new Date(s.date_added)
+    return d >= start && d <= end
   })
-
-  const label =
-    `syncro-renewals-${from.toISOString().split("T")[0]}` +
-    `-to-${to.toISOString().split("T")[0]}`
-
-  const csv = generateSafeCSV(HEADERS, inRange.map(toRow))
-  downloadCSV(csv, label)
+  const csv = generateSafeCSV(HEADERS, filtered.map(toRow))
+  downloadCSV(csv, `syncro-subscriptions-${start.toISOString().split("T")[0]}`)
 }

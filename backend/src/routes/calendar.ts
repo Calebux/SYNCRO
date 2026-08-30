@@ -1,67 +1,52 @@
 import { Router, Response, Request } from 'express';
-import ical from 'ical-generator';
-import { supabase } from '../config/database';
-import crypto from 'crypto';
+import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { validateRequest } from '../utils/validation';
+import { calendarService, verifyCalendarToken } from '../services/calendar-service';
 import logger from '../config/logger';
+import { env } from '../config/env';
+import { z } from 'zod';
 
-const router = Router();
-const CALENDAR_SECRET = process.env.CALENDAR_SECRET || 'syncro-calendar-secret-key-123';
+const router: Router = Router();
 
-/**
- * Generate a secure token for a user
- */
-export function generateCalendarToken(userId: string): string {
-  return crypto
-    .createHmac('sha256', CALENDAR_SECRET)
-    .update(userId)
-    .digest('hex')
-    .substring(0, 16);
+const calendarPreferencesSchema = z.object({
+  calendar_sync_enabled: z.boolean().optional(),
+  calendar_export_reminders: z.boolean().optional(),
+});
+
+function getFeedBaseUrl(req: Request): string {
+  const configured = env.CALENDAR_FEED_BASE_URL || env.FRONTEND_URL;
+  if (configured) {
+    return configured.replace(/\/$/, '');
+  }
+  const host = req.get('host');
+  const protocol = req.protocol;
+  return `${protocol}://${host}`;
 }
 
 /**
  * GET /api/calendar/feed/:userId/:token.ics
  * Public endpoint for iCal feed (authenticated via token)
  */
+// VALIDATION_BYPASS: Token manually verified
 router.get('/feed/:userId/:token.ics', async (req: Request, res: Response) => {
   try {
     const userId = Array.isArray(req.params.userId) ? req.params.userId[0] : req.params.userId;
     const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
 
-    // Verify token
-    const expectedToken = generateCalendarToken(userId);
-    if (token !== expectedToken) {
+    if (!verifyCalendarToken(userId, token)) {
       return res.status(403).send('Invalid calendar token');
     }
 
-    // Fetch subscriptions for the user
-    const { data: subscriptions, error } = await supabase
-      .from('subscriptions')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('status', 'active');
-
-    if (error) {
-      throw error;
-    }
-
-    const calendar = ical({ name: 'SYNCRO Subscriptions' });
-
-    (subscriptions || []).forEach(sub => {
-      if (sub.next_billing_date) {
-        calendar.createEvent({
-          start: new Date(sub.next_billing_date),
-          allDay: true,
-          summary: `Subscription Renewal: ${sub.name}`,
-          description: `Renewal for ${sub.name} - $${sub.price}/${sub.billing_cycle}`,
-          url: sub.renewal_url || undefined,
-        });
-      }
-    });
+    const feed = await calendarService.generateFeed(userId);
 
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="subscriptions.ics"');
-    res.send(calendar.toString());
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.send(feed);
   } catch (error) {
+    if (error instanceof Error && error.message === 'Calendar sync is disabled for this user') {
+      return res.status(403).send('Calendar sync is disabled');
+    }
     logger.error('Calendar feed error:', error);
     res.status(500).send('Internal server error');
   }
@@ -71,14 +56,66 @@ router.get('/feed/:userId/:token.ics', async (req: Request, res: Response) => {
  * GET /api/calendar/token
  * Get current user's calendar token (requires standard auth)
  */
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
-router.get('/token', authenticate, (req: AuthenticatedRequest, res: Response) => {
-  const token = generateCalendarToken(req.user!.id);
-  res.json({
-    success: true,
-    token,
-    userId: req.user!.id,
-  });
+router.get('/token', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const tokenResponse = await calendarService.getToken(req.user!.id, getFeedBaseUrl(req));
+    res.json({
+      success: true,
+      token: tokenResponse.token,
+      userId: tokenResponse.userId,
+      feedUrl: tokenResponse.feedUrl,
+    });
+  } catch (error) {
+    logger.error('Calendar token error:', error);
+    res.status(500).json({ success: false, error: 'Failed to generate calendar token' });
+  }
 });
+
+/**
+ * GET /api/calendar/preferences
+ * Get calendar sync preferences for the authenticated user
+ */
+router.get('/preferences', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const preferences = await calendarService.getPreferences(req.user!.id);
+    const tokenResponse = await calendarService.getToken(req.user!.id, getFeedBaseUrl(req));
+    res.json({
+      success: true,
+      data: {
+        ...preferences,
+        feedUrl: tokenResponse.feedUrl,
+      },
+    });
+  } catch (error) {
+    logger.error('Calendar preferences fetch error:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch calendar preferences' });
+  }
+});
+
+/**
+ * PATCH /api/calendar/preferences
+ * Update calendar sync preferences for the authenticated user
+ */
+router.patch('/preferences', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const validated = validateRequest(calendarPreferencesSchema, req.body);
+    const preferences = await calendarService.updatePreferences(req.user!.id, validated);
+    const tokenResponse = await calendarService.getToken(req.user!.id, getFeedBaseUrl(req));
+
+    res.json({
+      success: true,
+      data: {
+        ...preferences,
+        feedUrl: tokenResponse.feedUrl,
+      },
+      message: 'Calendar preferences updated successfully',
+    });
+  } catch (error) {
+    logger.error('Calendar preferences update error:', error);
+    res.status(500).json({ success: false, error: 'Failed to update calendar preferences' });
+  }
+});
+
+export { generateCalendarToken } from '../services/calendar-service';
 
 export default router;

@@ -1,0 +1,78 @@
+---
+title: SDK Reference
+description: "Use the @syncro/sdk TypeScript package"
+---
+
+## Installation
+
+```bash
+npm install @syncro/sdk
+# or
+pnpm add @syncro/sdk
+```
+
+## Initialisation
+
+```typescript
+import { SyncroSDK } from '@syncro/sdk';
+
+const syncro = new SyncroSDK({
+  apiKey: process.env.SYNCRO_API_KEY!,
+  baseUrl: 'https://api.syncro.app', // optional
+});
+```
+
+## Subscriptions
+
+```typescript
+// Create
+const sub = await syncro.createSubscription({
+  name: 'Spotify',
+  price: 9.99,
+  currency: 'USD',
+  billingCycle: 'monthly',
+  nextRenewalDate: '2025-05-01',
+});
+
+// List
+const { data, total } = await syncro.listSubscriptions({ status: 'active' });
+
+// Get
+const sub = await syncro.getSubscription('sub_abc123');
+
+// Update
+await syncro.updateSubscription('sub_abc123', { price: 11.99 });
+
+// Delete
+await syncro.deleteSubscription('sub_abc123');
+```
+
+## Webhooks
+
+```typescript
+// Register
+await syncro.createWebhook({
+  url: 'https://yourapp.com/hooks',
+  events: ['subscription.renewed'],
+});
+
+// List
+const hooks = await syncro.listWebhooks();
+
+// Delete
+await syncro.deleteWebhook('hook_id');
+```
+
+## Error Handling
+
+```typescript
+import { SyncroError } from '@syncro/sdk';
+
+try {
+  await syncro.createSubscription({ ... });
+} catch (err) {
+  if (err instanceof SyncroError) {
+    console.error(err.statusCode, err.message);
+  }
+}
+```

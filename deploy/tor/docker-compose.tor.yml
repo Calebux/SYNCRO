@@ -1,0 +1,28 @@
+services:
+  tor:
+    image: dperson/torproxy:latest
+    container_name: syncro_tor
+    restart: unless-stopped
+    volumes:
+      - tor_data:/var/lib/tor
+      - ./torrc:/etc/tor/torrc:ro
+    ports:
+      - "127.0.0.1:9050:9050" # Tor SOCKS (optional)
+      - "127.0.0.1:8080:8080" # Tor HTTP proxy for debugging (optional)
+
+  dashboard:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.syncro-dashboard
+    container_name: syncro_dashboard
+    restart: unless-stopped
+    environment:
+      - PORT=3000
+    expose:
+      - "3000"
+    depends_on:
+      - tor
+
+volumes:
+  tor_data:
+

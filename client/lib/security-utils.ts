@@ -1,5 +1,13 @@
 "use client"
 
+export { secureStorage } from "./security"
+import {
+  isSafeHttpUrl,
+  maskApiKey,
+  maskEmail as maskSharedEmail,
+  validateEmail as validateSharedEmail,
+} from "@syncro/shared/security"
+
 // Security utilities for input sanitization and validation
 
 export function sanitizeInput(input: string): string {
@@ -17,17 +25,11 @@ export function sanitizeHTML(html: string): string {
 }
 
 export function validateEmail(email: string): boolean {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-  return emailRegex.test(email)
+  return validateSharedEmail(email)
 }
 
 export function validateURL(url: string): boolean {
-  try {
-    const parsed = new URL(url)
-    return parsed.protocol === "http:" || parsed.protocol === "https:"
-  } catch {
-    return false
-  }
+  return isSafeHttpUrl(url)
 }
 
 export function validateAPIKey(key: string): boolean {
@@ -37,14 +39,11 @@ export function validateAPIKey(key: string): boolean {
 
 // Mask sensitive data for display
 export function maskAPIKey(key: string): string {
-  if (key.length <= 8) return "***"
-  return `${key.slice(0, 4)}...${key.slice(-4)}`
+  return maskApiKey(key, { visiblePrefix: 4, visibleSuffix: 4, shortMask: "***" })
 }
 
 export function maskEmail(email: string): string {
-  const [local, domain] = email.split("@")
-  if (!local || !domain) return email
-  return `${local.slice(0, 2)}***@${domain}`
+  return maskSharedEmail(email)
 }
 
 // Rate limiting
@@ -165,39 +164,4 @@ export class SessionManager {
     const elapsed = Date.now() - this.lastActivity
     return Math.max(0, this.timeout - elapsed)
   }
-}
-
-// Secure storage wrapper
-export const secureStorage = {
-  set(key: string, value: any): void {
-    if (typeof window === "undefined") return
-    try {
-      const encrypted = btoa(JSON.stringify(value))
-      localStorage.setItem(key, encrypted)
-    } catch (error) {
-      console.error("Failed to store data:", error)
-    }
-  },
-
-  get<T>(key: string): T | null {
-    if (typeof window === "undefined") return null
-    try {
-      const encrypted = localStorage.getItem(key)
-      if (!encrypted) return null
-      return JSON.parse(atob(encrypted)) as T
-    } catch (error) {
-      console.error("Failed to retrieve data:", error)
-      return null
-    }
-  },
-
-  remove(key: string): void {
-    if (typeof window === "undefined") return
-    localStorage.removeItem(key)
-  },
-
-  clear(): void {
-    if (typeof window === "undefined") return
-    localStorage.clear()
-  },
 }
