@@ -130,10 +130,10 @@ describe('GET /health/ready', () => {
     (dependencyHealthService.getReadiness as jest.Mock).mockResolvedValue({
       status: 'ready',
       timestamp: '2026-06-27T00:00:00.000Z',
-      message: 'Some dependencies degraded: redis, scheduler',
+      message: 'Some dependencies degraded: queue, providers, scheduler',
       dependencies: [
         { name: 'database', status: 'healthy', latency_ms: 5 },
-        { name: 'redis', status: 'degraded', latency_ms: 0, error: 'Redis not configured' },
+        { name: 'redis', status: 'healthy', latency_ms: 2 },
         { name: 'queue', status: 'degraded', latency_ms: 0, error: 'Redis not configured; queue unavailable' },
         { name: 'providers', status: 'degraded', latency_ms: 0, error: 'Missing: stripe, gmail' },
         { name: 'scheduler', status: 'degraded', error: 'Scheduler not started' },
@@ -145,6 +145,24 @@ describe('GET /health/ready', () => {
     expect(response.status).toBe(200);
     expect(response.body.status).toBe('ready');
     expect(response.body.message).toContain('degraded');
+  });
+
+  it('returns 503 when a critical dependency is degraded', async () => {
+    (dependencyHealthService.getReadiness as jest.Mock).mockResolvedValue({
+      status: 'not_ready',
+      timestamp: '2026-06-27T00:00:00.000Z',
+      message: 'Critical dependencies unavailable: redis (degraded)',
+      dependencies: [
+        { name: 'database', status: 'healthy', latency_ms: 5 },
+        { name: 'redis', status: 'degraded', latency_ms: 0, error: 'Redis not configured' },
+      ],
+    });
+
+    const response = await request(app).get('/health/ready');
+
+    expect(response.status).toBe(503);
+    expect(response.body.status).toBe('not_ready');
+    expect(response.body.message).toContain('redis');
   });
 
   it('returns 503 when getReadiness throws', async () => {
