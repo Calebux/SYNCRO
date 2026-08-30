@@ -17,36 +17,7 @@
               "function_name": "record_log",
               "args": [
                 {
-                  "u64": "999"
-                },
-                {
-                  "vec": [
-                    {
-                      "symbol": "Approval"
-                    }
-                  ]
-                },
-                {
-                  "string": "Approved"
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "record_log",
-              "args": [
-                {
-                  "u64": "999"
+                  "u64": "88"
                 },
                 {
                   "vec": [
@@ -56,7 +27,7 @@
                   ]
                 },
                 {
-                  "string": "Renewed"
+                  "string": "renewed"
                 }
               ]
             }
@@ -75,17 +46,17 @@
               "function_name": "record_log",
               "args": [
                 {
-                  "u64": "999"
+                  "u64": "88"
                 },
                 {
                   "vec": [
                     {
-                      "symbol": "Cancellation"
+                      "symbol": "Reminder"
                     }
                   ]
                 },
                 {
-                  "string": "Cancelled"
+                  "string": "reminder"
                 }
               ]
             }
@@ -94,6 +65,58 @@
         }
       ]
     ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "function_name": "anchor_log_merkle_root",
+              "args": [
+                {
+                  "u64": "88"
+                },
+                {
+                  "bytes": "75dd2489677bd726c746a05929f3da15c9a8a19339fa53d6d99331d412bf920f"
+                },
+                {
+                  "u64": "0"
+                },
+                {
+                  "u64": "1"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "function_name": "prune_logs",
+              "args": [
+                {
+                  "u64": "88"
+                },
+                {
+                  "u64": "0"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [],
+    [],
     []
   ],
   "ledger": {
@@ -116,10 +139,73 @@
               "key": {
                 "vec": [
                   {
+                    "symbol": "LogMerkleRoot"
+                  },
+                  {
+                    "u64": "88"
+                  },
+                  {
+                    "u64": "0"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "map": [
+                  {
+                    "key": {
+                      "symbol": "end_index"
+                    },
+                    "val": {
+                      "u64": "1"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "root_hash"
+                    },
+                    "val": {
+                      "bytes": "75dd2489677bd726c746a05929f3da15c9a8a19339fa53d6d99331d412bf920f"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "start_index"
+                    },
+                    "val": {
+                      "u64": "0"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "timestamp"
+                    },
+                    "val": {
+                      "u64": "0"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 4095
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "key": {
+                "vec": [
+                  {
                     "symbol": "LogWindowMeta"
                   },
                   {
-                    "u64": "999"
+                    "u64": "88"
                   }
                 ]
               },
@@ -131,7 +217,7 @@
                       "symbol": "base_index"
                     },
                     "val": {
-                      "u64": "0"
+                      "u64": "1"
                     }
                   },
                   {
@@ -139,7 +225,7 @@
                       "symbol": "total_logged"
                     },
                     "val": {
-                      "u64": "3"
+                      "u64": "2"
                     }
                   }
                 ]
@@ -163,7 +249,7 @@
                     "symbol": "Logs"
                   },
                   {
-                    "u64": "999"
+                    "u64": "88"
                   }
                 ]
               },
@@ -177,7 +263,7 @@
                           "symbol": "data"
                         },
                         "val": {
-                          "string": "Approved"
+                          "string": "reminder"
                         }
                       },
                       {
@@ -187,7 +273,7 @@
                         "val": {
                           "vec": [
                             {
-                              "symbol": "Approval"
+                              "symbol": "Reminder"
                             }
                           ]
                         }
@@ -197,87 +283,7 @@
                           "symbol": "sub_id"
                         },
                         "val": {
-                          "u64": "999"
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "timestamp"
-                        },
-                        "val": {
-                          "u64": "0"
-                        }
-                      }
-                    ]
-                  },
-                  {
-                    "map": [
-                      {
-                        "key": {
-                          "symbol": "data"
-                        },
-                        "val": {
-                          "string": "Renewed"
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "event"
-                        },
-                        "val": {
-                          "vec": [
-                            {
-                              "symbol": "Renewal"
-                            }
-                          ]
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "sub_id"
-                        },
-                        "val": {
-                          "u64": "999"
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "timestamp"
-                        },
-                        "val": {
-                          "u64": "0"
-                        }
-                      }
-                    ]
-                  },
-                  {
-                    "map": [
-                      {
-                        "key": {
-                          "symbol": "data"
-                        },
-                        "val": {
-                          "string": "Cancelled"
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "event"
-                        },
-                        "val": {
-                          "vec": [
-                            {
-                              "symbol": "Cancellation"
-                            }
-                          ]
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "sub_id"
-                        },
-                        "val": {
-                          "u64": "999"
+                          "u64": "88"
                         }
                       },
                       {
@@ -341,6 +347,21 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "LogMerkleRootCount"
+                          },
+                          {
+                            "u64": "88"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "1"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "MerkleRootCount"
                           }
                         ]
@@ -388,6 +409,26 @@
               "key": {
                 "ledger_key_nonce": {
                   "nonce": "1033654523790656264"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "ledger_key_nonce": {
+                  "nonce": "4837995959683129791"
                 }
               },
               "durability": "temporary",

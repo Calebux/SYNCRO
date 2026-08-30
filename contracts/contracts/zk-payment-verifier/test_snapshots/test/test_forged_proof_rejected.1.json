@@ -6,7 +6,6 @@
   },
   "auth": [
     [],
-    [],
     []
   ],
   "ledger": {
@@ -19,47 +18,6 @@
     "min_temp_entry_ttl": 16,
     "max_entry_ttl": 6312000,
     "ledger_entries": [
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "Nullifiers"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "map": [
-                  {
-                    "key": {
-                      "bytes": "46a099082ec8b6c70b5722aa6cb7bfc356897b4c33432afefd72787f01b02d87"
-                    },
-                    "val": {
-                      "bool": true
-                    }
-                  },
-                  {
-                    "key": {
-                      "bytes": "f24f0421ae5c5146eaf2eecff82191854d0866f34e237c55e474236dbc8aa903"
-                    },
-                    "val": {
-                      "bool": true
-                    }
-                  }
-                ]
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 4095
-      },
       {
         "entry": {
           "last_modified_ledger_seq": 0,
