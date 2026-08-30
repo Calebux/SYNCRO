@@ -53,5 +53,5 @@ export * from './types/stealth';
 // Stealth payment audit types
 export * from './types/stealth-payment';
 
-// Stealth payment audit types
-export * from './types/stealth-payment';
+// Domain events
+export * from './domain-events';

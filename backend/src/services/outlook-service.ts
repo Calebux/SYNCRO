@@ -3,6 +3,7 @@ import { generateProofHash, hashContent } from "../../utils/proof-hashing";
 import { metadataExtractionOnly } from "./email-scanner";
 import type { RawScanResult } from "./email-scanner";
 import { ExternalServiceClient } from "../utils/external-service-client";
+import { env } from "../config/env";
 
 const outlookClient = new ExternalServiceClient('outlook');
 const OUTLOOK_SCOPES = ["offline_access", "User.Read", "Mail.Read"];
@@ -53,9 +54,9 @@ interface TokenRequestParams {
 
 export function getOutlookAuthUrl(state?: string): string {
   const params = new URLSearchParams({
-    client_id: process.env.MICROSOFT_CLIENT_ID ?? "",
+    client_id: env.MICROSOFT_CLIENT_ID ?? "",
     response_type: "code",
-    redirect_uri: process.env.MICROSOFT_REDIRECT_URI ?? "",
+    redirect_uri: env.MICROSOFT_REDIRECT_URI ?? "",
     response_mode: "query",
     scope: OUTLOOK_SCOPES.join(" "),
     prompt: "consent",
@@ -63,7 +64,7 @@ export function getOutlookAuthUrl(state?: string): string {
 
   if (state) params.set("state", state);
 
-  const tenant = process.env.MICROSOFT_TENANT_ID ?? "common";
+  const tenant = env.MICROSOFT_TENANT_ID ?? "common";
   return `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/authorize?${params.toString()}`;
 }
 
@@ -73,7 +74,7 @@ export async function exchangeOutlookCodeForTokens(
   return requestOutlookToken({
     code,
     grant_type: "authorization_code",
-    redirect_uri: process.env.MICROSOFT_REDIRECT_URI ?? "",
+    redirect_uri: env.MICROSOFT_REDIRECT_URI ?? "",
   });
 }
 
@@ -195,12 +196,12 @@ async function requestOutlookToken(
   params: TokenRequestParams,
 ): Promise<OutlookTokenResponse> {
   const body = new URLSearchParams({
-    client_id: process.env.MICROSOFT_CLIENT_ID ?? "",
-    client_secret: process.env.MICROSOFT_CLIENT_SECRET ?? "",
+    client_id: env.MICROSOFT_CLIENT_ID ?? "",
+    client_secret: env.MICROSOFT_CLIENT_SECRET ?? "",
     ...params,
   });
 
-  const tenant = process.env.MICROSOFT_TENANT_ID ?? "common";
+  const tenant = env.MICROSOFT_TENANT_ID ?? "common";
   return outlookClient.request<OutlookTokenResponse>(
     `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
     {

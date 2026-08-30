@@ -227,6 +227,7 @@ impl SubscriptionNftContract {
 
     /// Rotate the mint authority address.
     pub fn set_mint_authority(env: Env, new_authority: Address) {
+        Self::require_not_paused(&env);
         let admin = Self::load_admin(&env);
         admin.require_auth();
         env.storage()

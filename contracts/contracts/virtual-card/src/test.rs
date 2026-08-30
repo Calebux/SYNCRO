@@ -45,9 +45,13 @@ mod tests {
             VirtualCardError::NotSupported,
             VirtualCardError::InternalError,
             VirtualCardError::CounterOverflow,
+            VirtualCardError::DailyLimitExceeded,
+            VirtualCardError::MonthlyLimitExceeded,
+            VirtualCardError::MerchantNotAllowed,
+            VirtualCardError::MerchantBlocked,
         ];
 
-        assert_eq!(errors.len(), 11, "All error types must be unique");
+        assert_eq!(errors.len(), 15, "All error types must be unique");
     }
 
     #[test]
@@ -70,9 +74,9 @@ mod tests {
         let user = Address::generate(&env);
         let expires = env.ledger().timestamp() + 1000;
 
-        let id1 = client.issue_card(&user, &100, &CardType::Standard, &expires);
-        let id2 = client.issue_card(&user, &200, &CardType::Premium, &expires);
-        let id3 = client.issue_card(&user, &300, &CardType::Corporate, &expires);
+        let id1 = client.issue_card(&user, &100, &CardType::Standard, &expires, &0, &0);
+        let id2 = client.issue_card(&user, &200, &CardType::Premium, &expires, &0, &0);
+        let id3 = client.issue_card(&user, &300, &CardType::Corporate, &expires, &0, &0);
 
         assert_eq!(id1, 1);
         assert_eq!(id2, 2);
@@ -99,7 +103,7 @@ mod tests {
             env.storage().instance().set(&DataKey::CardCounter, &u32::MAX);
         });
 
-        let res = client.try_issue_card(&user, &100, &CardType::Standard, &expires);
+        let res = client.try_issue_card(&user, &100, &CardType::Standard, &expires, &0, &0);
         assert_eq!(res, Err(Ok(VirtualCardError::CounterOverflow)));
     }
 
@@ -116,7 +120,7 @@ mod tests {
         let user = Address::generate(&env);
         let expires = env.ledger().timestamp() + 1000;
 
-        let card_id = client.issue_card(&user, &1000, &CardType::Standard, &expires);
+        let card_id = client.issue_card(&user, &1000, &CardType::Standard, &expires, &0, &0);
 
         // Set TxCounter to u32::MAX
         env.as_contract(&contract_id, || {
@@ -140,7 +144,7 @@ mod tests {
 
         let user = Address::generate(&env);
         let expires = env.ledger().timestamp() + 1000;
-        let card_id = client.issue_card(&user, &1000, &CardType::Standard, &expires);
+        let card_id = client.issue_card(&user, &1000, &CardType::Standard, &expires, &0, &0);
 
         // Clear mock auths to verify requirement of user auth
         let env = Env::default();

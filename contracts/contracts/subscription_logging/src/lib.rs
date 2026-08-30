@@ -1,11 +1,18 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractevent, contractimpl, contracttype, vec, Address, Bytes, BytesN, Env, String,
-    Vec,
+    contract, contracterror, contractevent, contractimpl, contracttype, vec, Address, Bytes,
+    BytesN, Env, String, Vec,
 };
 
 mod commitment;
+
+/// Maximum plaintext log entries retained on-chain per subscription.
+/// Older entries must be anchored and pruned to off-chain archival storage.
+pub const MAX_LOGS_IN_STORAGE: u32 = 100;
+
+/// Maximum entries returned by a single paginated `get_logs` query.
+pub const MAX_LOGS_PAGE_SIZE: u32 = 50;
 
 // ============================================================================
 // LEGACY TYPES (Preserved for backward compatibility)
@@ -62,12 +69,45 @@ pub struct MerkleRoot {
     pub timestamp: u64,
 }
 
+/// Merkle root anchoring a batch of plaintext log entries for a subscription.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LogMerkleRoot {
+    pub root_hash: BytesN<32>,
+    pub start_index: u64,
+    pub end_index: u64,
+    pub timestamp: u64,
+}
+
+/// Tracks absolute log indices for a subscription's stored window.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LogWindowMeta {
+    /// Absolute index of the first entry currently in storage.
+    pub base_index: u64,
+    /// Total number of logs ever recorded for this subscription.
+    pub total_logged: u64,
+}
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum SubscriptionLoggingError {
+    LogStorageFull = 1,
+    RangeNotAnchored = 2,
+    InvalidPruneRange = 3,
+    InvalidPagination = 4,
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
     // Legacy keys
     Admin,
     Logs(u64),
+    LogWindowMeta(u64),
+    LogMerkleRoot(u64, u64),
+    LogMerkleRootCount(u64),
 
     // New commitment keys (no sub_id to prevent linkage)
     CommitmentCount,        // Global counter: u64
@@ -130,6 +170,71 @@ impl SubscriptionLoggingContract {
         admin.require_auth();
     }
 
+    fn load_log_window(env: &Env, sub_id: u64) -> LogWindowMeta {
+        env.storage()
+            .persistent()
+            .get(&DataKey::LogWindowMeta(sub_id))
+            .unwrap_or(LogWindowMeta {
+                base_index: 0,
+                total_logged: 0,
+            })
+    }
+
+    fn save_log_window(env: &Env, sub_id: u64, meta: &LogWindowMeta) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::LogWindowMeta(sub_id), meta);
+    }
+
+    fn log_is_anchored(env: &Env, sub_id: u64, up_to_index: u64) -> bool {
+        let root_count: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::LogMerkleRootCount(sub_id))
+            .unwrap_or(0);
+
+        for root_idx in 0..root_count {
+            if let Some(root) = env
+                .storage()
+                .persistent()
+                .get::<_, LogMerkleRoot>(&DataKey::LogMerkleRoot(sub_id, root_idx))
+            {
+                if root.start_index <= up_to_index && root.end_index >= up_to_index {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn compute_merkle_root_from_proof(
+        env: &Env,
+        leaf_hash: BytesN<32>,
+        proof_path: Vec<BytesN<32>>,
+        proof_directions: Vec<bool>,
+    ) -> BytesN<32> {
+        let mut current_hash = leaf_hash;
+        for i in 0..proof_path.len() {
+            let sibling = proof_path.get_unchecked(i);
+            let is_right = proof_directions.get_unchecked(i);
+
+            let combined = if is_right {
+                let mut bytes = Bytes::new(env);
+                bytes.extend_from_slice(&current_hash.to_array());
+                bytes.extend_from_slice(&sibling.to_array());
+                bytes
+            } else {
+                let mut bytes = Bytes::new(env);
+                bytes.extend_from_slice(&sibling.to_array());
+                bytes.extend_from_slice(&current_hash.to_array());
+                bytes
+            };
+
+            current_hash = env.crypto().sha256(&combined).into();
+        }
+        current_hash
+    }
+
     // ========================================================================
     // LEGACY PLAINTEXT LOGGING (Deprecated, kept for backward compatibility)
     // ========================================================================
@@ -138,9 +243,13 @@ impl SubscriptionLoggingContract {
         Self::require_admin(&env);
 
         let key = DataKey::Logs(sub_id);
-
         let mut logs: Vec<LogEntry> = env.storage().persistent().get(&key).unwrap_or(vec![&env]);
 
+        if logs.len() >= MAX_LOGS_IN_STORAGE as u32 {
+            panic!("Log storage full: anchor and prune before recording more entries");
+        }
+
+        let mut meta = Self::load_log_window(&env, sub_id);
         let entry = LogEntry {
             sub_id,
             event: event.clone(),
@@ -149,16 +258,159 @@ impl SubscriptionLoggingContract {
         };
 
         logs.push_back(entry);
+        meta.total_logged = meta
+            .total_logged
+            .checked_add(1)
+            .expect("log index overflow");
 
         env.storage().persistent().set(&key, &logs);
+        Self::save_log_window(&env, sub_id, &meta);
 
-        LogAppended { sub_id, event }.publish(&env);
+        LogAppended {
+            sub_id,
+            event,
+        }
+        .publish(&env);
     }
 
-    pub fn get_logs(env: Env, sub_id: u64) -> Vec<LogEntry> {
-        let key = DataKey::Logs(sub_id);
+    /// Return a paginated slice of stored logs for a subscription.
+    ///
+    /// `offset` is relative to the current in-storage window (0 = oldest stored entry).
+    /// At most [`MAX_LOGS_PAGE_SIZE`] entries are returned per call.
+    pub fn get_logs(env: Env, sub_id: u64, offset: u32, limit: u32) -> Vec<LogEntry> {
+        if limit == 0 || limit > MAX_LOGS_PAGE_SIZE {
+            panic!("Invalid pagination limit");
+        }
 
-        env.storage().persistent().get(&key).unwrap_or(vec![&env])
+        let key = DataKey::Logs(sub_id);
+        let logs: Vec<LogEntry> = env.storage().persistent().get(&key).unwrap_or(vec![&env]);
+
+        if offset as u64 >= logs.len() as u64 {
+            return vec![&env];
+        }
+
+        let mut results = vec![&env];
+        let end = core::cmp::min(logs.len(), offset + limit);
+        for i in offset..end {
+            results.push_back(logs.get(i).unwrap());
+        }
+        results
+    }
+
+    /// Total number of log entries ever recorded for a subscription.
+    pub fn get_log_count(env: Env, sub_id: u64) -> u64 {
+        Self::load_log_window(&env, sub_id).total_logged
+    }
+
+    /// Anchor a Merkle root over a range of log indices for a subscription.
+    pub fn anchor_log_merkle_root(
+        env: Env,
+        sub_id: u64,
+        root_hash: BytesN<32>,
+        start_index: u64,
+        end_index: u64,
+    ) {
+        Self::require_admin(&env);
+
+        if end_index < start_index {
+            panic!("Invalid range: end_index must be >= start_index");
+        }
+
+        let meta = Self::load_log_window(&env, sub_id);
+        if end_index >= meta.total_logged {
+            panic!("end_index exceeds log count");
+        }
+
+        let root_count: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::LogMerkleRootCount(sub_id))
+            .unwrap_or(0);
+
+        let merkle_root = LogMerkleRoot {
+            root_hash: root_hash.clone(),
+            start_index,
+            end_index,
+            timestamp: env.ledger().timestamp(),
+        };
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::LogMerkleRoot(sub_id, root_count), &merkle_root);
+        env.storage()
+            .instance()
+            .set(&DataKey::LogMerkleRootCount(sub_id), &(root_count + 1));
+    }
+
+    /// Remove stored logs with absolute indices `base_index..=up_to_index`.
+    /// Requires the range to be covered by an anchored log Merkle root.
+    pub fn prune_logs(env: Env, sub_id: u64, up_to_index: u64) {
+        Self::require_admin(&env);
+
+        let mut meta = Self::load_log_window(&env, sub_id);
+        if up_to_index < meta.base_index {
+            panic!("Invalid prune range");
+        }
+
+        if !Self::log_is_anchored(&env, sub_id, up_to_index) {
+            panic!("Range not covered by anchored Merkle root");
+        }
+
+        let key = DataKey::Logs(sub_id);
+        let logs: Vec<LogEntry> = env.storage().persistent().get(&key).unwrap_or(vec![&env]);
+
+        let prune_count = up_to_index
+            .saturating_sub(meta.base_index)
+            .saturating_add(1) as u32;
+        if prune_count as u64 > logs.len() as u64 {
+            panic!("Invalid prune range");
+        }
+
+        let mut remaining = vec![&env];
+        for i in prune_count..logs.len() {
+            remaining.push_back(logs.get(i).unwrap());
+        }
+
+        meta.base_index = up_to_index.saturating_add(1);
+        env.storage().persistent().set(&key, &remaining);
+        Self::save_log_window(&env, sub_id, &meta);
+    }
+
+    /// Verify a (possibly pruned) log entry against an anchored log Merkle root
+    /// using the leaf hash supplied from off-chain archival storage.
+    pub fn verify_log_merkle_membership(
+        env: Env,
+        sub_id: u64,
+        leaf_hash: BytesN<32>,
+        log_index: u64,
+        root_index: u64,
+        proof_path: Vec<BytesN<32>>,
+        proof_directions: Vec<bool>,
+    ) -> bool {
+        if proof_path.len() != proof_directions.len() {
+            return false;
+        }
+
+        let merkle_root: LogMerkleRoot = match env
+            .storage()
+            .persistent()
+            .get(&DataKey::LogMerkleRoot(sub_id, root_index))
+        {
+            Some(r) => r,
+            None => return false,
+        };
+
+        if log_index < merkle_root.start_index || log_index > merkle_root.end_index {
+            return false;
+        }
+
+        let computed = Self::compute_merkle_root_from_proof(
+            &env,
+            leaf_hash,
+            proof_path,
+            proof_directions,
+        );
+        computed == merkle_root.root_hash
     }
 
     // ========================================================================
@@ -385,33 +637,14 @@ impl SubscriptionLoggingContract {
         }
 
         // Compute root from proof
-        let mut current_hash = commitment.commitment_hash;
+        let computed = Self::compute_merkle_root_from_proof(
+            &env,
+            commitment.commitment_hash,
+            proof_path,
+            proof_directions,
+        );
 
-        for i in 0..proof_path.len() {
-            let sibling = proof_path.get_unchecked(i);
-            let is_right = proof_directions.get_unchecked(i);
-
-            // Concatenate hashes based on direction
-            let combined = if is_right {
-                // Current is left, sibling is right
-                let mut bytes = Bytes::new(&env);
-                bytes.extend_from_slice(&current_hash.to_array());
-                bytes.extend_from_slice(&sibling.to_array());
-                bytes
-            } else {
-                // Sibling is left, current is right
-                let mut bytes = Bytes::new(&env);
-                bytes.extend_from_slice(&sibling.to_array());
-                bytes.extend_from_slice(&current_hash.to_array());
-                bytes
-            };
-
-            // Hash combined value and convert to BytesN<32>
-            current_hash = env.crypto().sha256(&combined).into();
-        }
-
-        // Compare computed root with stored root
-        current_hash == merkle_root.root_hash
+        computed == merkle_root.root_hash
     }
 }
 

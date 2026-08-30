@@ -11,6 +11,7 @@ export interface GracefulShutdownDeps {
   stopBackgroundJobs: () => void;
   stopEventListener: () => void;
   stopTelegram: () => void;
+  stopOutboxPublisher: () => void;
   clearHealthSnapshotInterval: () => void;
 }
 
@@ -58,6 +59,7 @@ export function registerGracefulShutdown(
       deps.stopBackgroundJobs();
       deps.stopEventListener();
       deps.stopTelegram();
+      deps.stopOutboxPublisher();
       deps.clearHealthSnapshotInterval();
 
       recordPhase('bullmq_shutdown_start');

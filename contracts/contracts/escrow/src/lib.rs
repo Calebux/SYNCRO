@@ -50,11 +50,25 @@ pub enum DisputeResolution {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ArbiterSet {
+    pub arbiters: Vec<Address>,
+    pub threshold: u32,
+}
+
+impl ArbiterSet {
+    pub fn contains(&self, addr: &Address) -> bool {
+        self.arbiters.iter().any(|arbiter| arbiter == addr)
+    }
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EscrowAgreement {
     pub id: u64,
     pub payer: Address,
     pub payee: Address,
     pub arbiter: Address,
+    pub arbiter_set: ArbiterSet,
     pub token: Address,
     pub amount: i128,
     pub deposited: i128,
@@ -63,6 +77,7 @@ pub struct EscrowAgreement {
     pub expires_at: u64,
     pub description: String,
     pub arbiter_approved: bool,
+    pub arbiter_approvals: Vec<Address>,
     pub payer_confirmed: bool,
     pub payee_confirmed: bool,
 }
@@ -177,6 +192,30 @@ impl EscrowContract {
 
     // ── Escrow lifecycle ──────────────────────────────────────────
 
+    fn validate_arbiter_set(env: &Env, arbiter_set: &ArbiterSet, payer: &Address, payee: &Address) {
+        if arbiter_set.arbiters.is_empty() {
+            panic_with_error!(env, EscrowError::NotInitialized);
+        }
+        if arbiter_set.threshold == 0 || arbiter_set.threshold as usize > arbiter_set.arbiters.len() {
+            panic_with_error!(env, EscrowError::InvalidAmount);
+        }
+
+        let mut seen = Vec::new();
+        for arbiter in arbiter_set.arbiters.iter() {
+            if arbiter == payer || arbiter == payee {
+                panic_with_error!(env, EscrowError::SameArbiterAsParty);
+            }
+            if seen.iter().any(|existing| existing == arbiter) {
+                panic_with_error!(env, EscrowError::AlreadyApproved);
+            }
+            seen.push_back(arbiter.clone());
+        }
+    }
+
+    fn quorum_reached(escrow: &EscrowAgreement) -> bool {
+        escrow.arbiter_approvals.len() as u32 >= escrow.arbiter_set.threshold
+    }
+
     /// Create a new escrow agreement.
     ///
     /// # Arguments
@@ -201,6 +240,31 @@ impl EscrowContract {
         expires_at: u64,
         description: String,
     ) -> u64 {
+        Self::create_escrow_with_arbiter_set(
+            env,
+            payer,
+            payee,
+            ArbiterSet {
+                arbiters: vec![arbiter],
+                threshold: 1,
+            },
+            token,
+            amount,
+            expires_at,
+            description,
+        )
+    }
+
+    pub fn create_escrow_with_arbiter_set(
+        env: Env,
+        payer: Address,
+        payee: Address,
+        arbiter_set: ArbiterSet,
+        token: Address,
+        amount: i128,
+        expires_at: u64,
+        description: String,
+    ) -> u64 {
         payer.require_auth();
 
         if amount <= 0 {
@@ -209,9 +273,7 @@ impl EscrowContract {
         if payer == payee {
             panic_with_error!(&env, EscrowError::SelfAsCounterparty);
         }
-        if arbiter == payer || arbiter == payee {
-            panic_with_error!(&env, EscrowError::SameArbiterAsParty);
-        }
+        Self::validate_arbiter_set(&env, &arbiter_set, &payer, &payee);
 
         let count: u64 = env
             .storage()
@@ -227,11 +289,13 @@ impl EscrowContract {
             panic_with_error!(&env, EscrowError::Expired);
         }
 
+        let primary_arbiter = arbiter_set.arbiters.first().unwrap_or(&payer).clone();
         let escrow = EscrowAgreement {
             id: escrow_id,
             payer: payer.clone(),
             payee: payee.clone(),
-            arbiter: arbiter.clone(),
+            arbiter: primary_arbiter.clone(),
+            arbiter_set: arbiter_set.clone(),
             token: token.clone(),
             amount,
             deposited: 0,
@@ -240,6 +304,7 @@ impl EscrowContract {
             expires_at,
             description,
             arbiter_approved: false,
+            arbiter_approvals: Vec::new(),
             payer_confirmed: false,
             payee_confirmed: false,
         };
@@ -255,7 +320,7 @@ impl EscrowContract {
             escrow_id,
             payer,
             payee,
-            arbiter,
+            arbiter: primary_arbiter,
             amount,
         }
         .publish(&env);
@@ -303,7 +368,7 @@ impl EscrowContract {
     /// Approve release of escrowed funds.
     ///
     /// This is the **second signature** required before funds can be withdrawn.
-    /// Only the designated `arbiter` may call this.
+    /// Only an arbiter in the escrow's current set may call this.
     ///
     /// # Security
     /// * Escrow must be in `Funded` state
@@ -315,27 +380,53 @@ impl EscrowContract {
             .get(&DataKey::Escrow(escrow_id))
             .expect("escrow not found");
 
+        let arbiter = escrow.arbiter.clone();
+        Self::approve_release_by_arbiter(env.clone(), escrow_id, arbiter);
+        escrow = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Escrow(escrow_id))
+            .expect("escrow not found");
+        if escrow.state == EscrowState::Approved {
+            EscrowApproved {
+                escrow_id,
+                arbiter: escrow.arbiter,
+            }
+            .publish(&env);
+        }
+    }
+
+    pub fn approve_release_by_arbiter(env: Env, escrow_id: u64, arbiter: Address) {
+        let mut escrow: EscrowAgreement = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Escrow(escrow_id))
+            .expect("escrow not found");
+
         if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Disputed {
             panic_with_error!(&env, EscrowError::NotFunded);
         }
-        if escrow.arbiter_approved {
+        if !escrow.arbiter_set.arbiters.iter().any(|a| a == &arbiter) {
+            panic_with_error!(&env, EscrowError::Unauthorized);
+        }
+
+        arbiter.require_auth();
+
+        if escrow.arbiter_approvals.iter().any(|approved| approved == &arbiter) {
             panic_with_error!(&env, EscrowError::AlreadyApproved);
         }
 
-        escrow.arbiter.require_auth();
+        escrow.arbiter_approvals.push_back(arbiter.clone());
 
-        escrow.arbiter_approved = true;
-        escrow.state = EscrowState::Approved;
+        if escrow.arbiter_approvals.len() as u32 >= escrow.arbiter_set.threshold {
+            escrow.arbiter_approved = true;
+            escrow.state = EscrowState::Approved;
+            escrow.arbiter = arbiter;
+        }
 
         env.storage()
             .persistent()
             .set(&DataKey::Escrow(escrow_id), &escrow);
-
-        EscrowApproved {
-            escrow_id,
-            arbiter: escrow.arbiter,
-        }
-        .publish(&env);
     }
 
     /// Release escrowed funds to the payee.
@@ -460,6 +551,8 @@ impl EscrowContract {
         caller.require_auth();
 
         escrow.state = EscrowState::Disputed;
+        escrow.arbiter_approved = false;
+        escrow.arbiter_approvals = Vec::new();
 
         env.storage()
             .persistent()
@@ -472,6 +565,31 @@ impl EscrowContract {
         .publish(&env);
     }
 
+    pub fn rotate_arbiter_set(env: Env, escrow_id: u64, new_set: ArbiterSet) {
+        let mut escrow: EscrowAgreement = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Escrow(escrow_id))
+            .expect("escrow not found");
+
+        if escrow.state == EscrowState::Disputed {
+            panic_with_error!(&env, EscrowError::InDispute);
+        }
+
+        escrow.payer.require_auth();
+        escrow.payee.require_auth();
+        Self::validate_arbiter_set(&env, &new_set, &escrow.payer, &escrow.payee);
+
+        escrow.arbiter_set = new_set.clone();
+        escrow.arbiter_approvals = Vec::new();
+        escrow.arbiter_approved = false;
+        escrow.arbiter = new_set.arbiters.first().cloned().unwrap_or(escrow.arbiter.clone());
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Escrow(escrow_id), &escrow);
+    }
+
     /// Resolve a disputed escrow.
     ///
     /// # Arguments
@@ -480,7 +598,7 @@ impl EscrowContract {
     ///   - `RefundToPayer`: Full amount to payer
     ///   - `PartialSplit(payee_basis_points)`: Split based on basis points (0-10000)
     ///
-    /// Only the designated arbiter may resolve disputes.
+    /// Only an arbiter in the active set may resolve disputes.
     ///
     /// # Security
     /// * Uses checked arithmetic to prevent overflow
@@ -496,8 +614,15 @@ impl EscrowContract {
         if escrow.state != EscrowState::Disputed {
             panic_with_error!(&env, EscrowError::NotInDispute);
         }
+        if escrow.arbiter_approvals.len() as u32 < escrow.arbiter_set.threshold {
+            panic_with_error!(&env, EscrowError::Unauthorized);
+        }
 
-        escrow.arbiter.require_auth();
+        let arbiter = escrow.arbiter.clone();
+        arbiter.require_auth();
+        if !Self::quorum_reached(&escrow) {
+            panic_with_error!(&env, EscrowError::Unauthorized);
+        }
 
         let token_client = token::Client::new(&env, &escrow.token);
         let total_amount = escrow.deposited;
@@ -1186,6 +1311,86 @@ mod test {
 
         // Critical: verify no funds are lost or created
         assert_eq!(payee_received + payer_received, amount);
+    }
+
+    #[test]
+    fn test_multi_arbiter_quorum_must_be_met_before_release() {
+        let (env, payer, payee, _arbiter, token, _token_client) = setup();
+        let escrow = register_escrow(&env);
+        let admin = Address::generate(&env);
+        escrow.init(&admin);
+
+        let arbiter_a = Address::generate(&env);
+        let arbiter_b = Address::generate(&env);
+        let arbiter_c = Address::generate(&env);
+        let set = ArbiterSet {
+            arbiters: vec![arbiter_a.clone(), arbiter_b.clone(), arbiter_c.clone()],
+            threshold: 2,
+        };
+
+        let expiry = env.ledger().timestamp() + 86400;
+        let desc = String::from_str(&env, "Multi arbiter escrow");
+        let id = escrow.create_escrow_with_arbiter_set(
+            &payer,
+            &payee,
+            &set,
+            &token,
+            &1_000_000_000i128,
+            &expiry,
+            &desc,
+        );
+
+        escrow.deposit(&id);
+        escrow.approve_release_by_arbiter(&id, &arbiter_a);
+        let pending = escrow.get_escrow(&id);
+        assert_eq!(pending.state, EscrowState::Funded);
+        assert_eq!(pending.arbiter_approvals.len(), 1);
+
+        escrow.approve_release_by_arbiter(&id, &arbiter_b);
+        let approved = escrow.get_escrow(&id);
+        assert_eq!(approved.state, EscrowState::Approved);
+        assert!(approved.arbiter_approved);
+        assert_eq!(approved.arbiter_approvals.len(), 2);
+
+        escrow.release(&id);
+        let released = escrow.get_escrow(&id);
+        assert_eq!(released.state, EscrowState::Released);
+    }
+
+    #[test]
+    fn test_rotate_arbiter_set_requires_joint_party_authorization() {
+        let (env, payer, payee, _arbiter, token, _token_client) = setup();
+        let escrow = register_escrow(&env);
+        let admin = Address::generate(&env);
+        escrow.init(&admin);
+
+        let old_arbiter = Address::generate(&env);
+        let new_arbiter_a = Address::generate(&env);
+        let new_arbiter_b = Address::generate(&env);
+
+        let expiry = env.ledger().timestamp() + 86400;
+        let desc = String::from_str(&env, "Rotate arbiters");
+        let id = escrow.create_escrow(
+            &payer,
+            &payee,
+            &old_arbiter,
+            &token,
+            &250_000_000i128,
+            &expiry,
+            &desc,
+        );
+
+        let new_set = ArbiterSet {
+            arbiters: vec![new_arbiter_a.clone(), new_arbiter_b.clone()],
+            threshold: 2,
+        };
+
+        escrow.rotate_arbiter_set(&id, &new_set);
+        let agreement = escrow.get_escrow(&id);
+        assert_eq!(agreement.arbiter_set.arbiters.len(), 2);
+        assert_eq!(agreement.arbiter_set.threshold, 2);
+        assert!(agreement.arbiter_set.contains(&new_arbiter_a));
+        assert!(agreement.arbiter_set.contains(&new_arbiter_b));
     }
 }
 

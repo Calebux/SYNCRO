@@ -403,6 +403,7 @@ impl SubscriptionRefundContract {
 
     /// Update contract admin
     pub fn set_admin(env: Env, new_admin: Address) {
+        Self::require_not_paused(&env);
         let admin = Self::get_admin(&env);
         admin.require_auth();
         env.storage()
@@ -419,6 +420,7 @@ impl SubscriptionRefundContract {
 
     /// Update dispute admin
     pub fn set_dispute_admin(env: Env, new_dispute_admin: Address) {
+        Self::require_not_paused(&env);
         let admin = Self::get_admin(&env);
         admin.require_auth();
         let old_dispute_admin = Self::get_dispute_admin(&env);

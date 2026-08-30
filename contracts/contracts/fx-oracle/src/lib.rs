@@ -132,6 +132,9 @@ impl FxOracleContract {
 
     /// Add an authorized rate signer (admin only)
     pub fn add_signer(env: Env, signer: Address) {
+        if Self::is_paused(env.clone()) {
+            panic!("Oracle is paused");
+        }
         let admin: Address = Self::get_admin(env.clone());
         admin.require_auth();
 
@@ -158,6 +161,9 @@ impl FxOracleContract {
 
     /// Remove an authorized rate signer (admin only)
     pub fn remove_signer(env: Env, signer: Address) {
+        if Self::is_paused(env.clone()) {
+            panic!("Oracle is paused");
+        }
         let admin: Address = Self::get_admin(env.clone());
         admin.require_auth();
 
@@ -222,6 +228,9 @@ impl FxOracleContract {
 
     /// Set staleness bound in seconds (admin only)
     pub fn set_staleness_bound(env: Env, seconds: u64) {
+        if Self::is_paused(env.clone()) {
+            panic!("Oracle is paused");
+        }
         let admin: Address = Self::get_admin(env.clone());
         admin.require_auth();
 
