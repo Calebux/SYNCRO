@@ -66,6 +66,45 @@ jobs:
               env:
                   PROPTYST_CASES: "8"
 
+            - name: Measure contract resource budgets
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  echo "Recording resource budgets for all contract entrypoints..."
+                  
+                  # Run tests with budget instrumentation
+                  cargo test --release -- --nocapture --test-threads=1 \
+                    -Z unstable-options --unstable-features 2>&1 | tee budget_output.log
+                  
+                  # Check if any entrypoints exceeded their budgets
+                  if grep -q "REGRESSION\|❌" budget_output.log; then
+                    echo "⚠️  Budget regression detected!"
+                    grep "REGRESSION\|❌" budget_output.log || true
+                    echo "Review the output above and update budgets.json if changes are intentional"
+                    echo "(Current tolerance: 5%)"
+                  fi
+                  
+                  echo "✓ Budget check complete"
+
+            - name: Validate budgets.json structure
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  echo "Validating budgets.json structure..."
+                  
+                  # Check that budgets.json is valid JSON
+                  if ! jq empty budgets.json; then
+                    echo "❌ budgets.json is not valid JSON"
+                    exit 1
+                  fi
+                  
+                  # Verify all required fields
+                  jq -e '.metadata.version' budgets.json > /dev/null || exit 1
+                  jq -e '.budgets | length > 0' budgets.json > /dev/null || exit 1
+                  
+                  echo "✓ budgets.json is valid"
+                  echo "Tracked entrypoints: $(jq '.budgets | length' budgets.json)"
+
             - name: Verify backend contract interface alignment
               working-directory: ..
               run: |

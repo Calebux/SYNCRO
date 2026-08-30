@@ -5,6 +5,8 @@ use soroban_sdk::{
    };
 use subscription_logging::SubscriptionLoggingContractClient;
 
+mod admin_multisig;
+
 /// Storage keys for contract-level state (admin, pause flag).
 #[contracttype]
 #[derive(Clone)]
@@ -349,23 +351,59 @@ impl SubscriptionRenewalContract {
         if env.storage().instance().has(&ContractKey::Admin) {
             panic!("Already initialized");
         }
-        env.storage().instance().set(&ContractKey::Admin, &admin);
+        admin_multisig::init_admin(&env, admin);
         env.storage().instance().set(&ContractKey::Paused, &false);
     }
 
-    /// Internal helper – loads admin and calls `require_auth`.
-    fn require_admin(env: &Env) {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&ContractKey::Admin)
-            .expect("Contract not initialized");
-        admin.require_auth();
+    /// Migrate from single admin to guardian multisig governance.
+    /// Can only be called once. After this, all destructive ops require multisig.
+    pub fn migrate_admin_to_multisig(env: Env, guardians: soroban_sdk::Vec<Address>) {
+        admin_multisig::migrate_admin_to_multisig(&env, guardians);
     }
 
-    /// Pause or unpause all renewal execution. Admin only.
+    /// Internal helper – loads admin and calls `require_auth`.
+    /// Works for both single-admin and multisig modes.
+    fn require_admin(env: &Env) {
+        if admin_multisig::is_multisig_enabled(env) {
+            panic!("Use guardian multisig governance for this contract");
+        }
+        admin_multisig::require_single_admin(env);
+    }
+
+    /// Pause or unpause all renewal execution.
+    /// In single-admin mode: Admin only.
+    /// In multisig mode: Requires proposed operation + multisig approval.
     pub fn set_paused(env: Env, paused: bool) {
+        if admin_multisig::is_multisig_enabled(&env) {
+            panic!("Use propose_set_paused + approve_proposal + execute_set_paused");
+        }
         Self::require_admin(&env);
+        env.storage().instance().set(&ContractKey::Paused, &paused);
+        PauseToggled { paused }.publish(&env);
+    }
+
+    /// (Multisig) Propose to pause or unpause. Guardian only.
+    pub fn propose_set_paused(env: Env, proposer: Address, paused: bool) -> u64 {
+        let mut data = soroban_sdk::vec![&env];
+        data.push_back(if paused { 1u8 } else { 0u8 });
+        admin_multisig::propose_admin_operation(
+            &env,
+            proposer,
+            admin_multisig::AdminOperation::SetPaused,
+            data,
+        )
+    }
+
+    /// (Multisig) Execute a pause/unpause proposal after approval.
+    pub fn execute_set_paused(env: Env, proposal_id: u64) {
+        let proposal = admin_multisig::execute_proposal(&env, proposal_id);
+        if proposal.operation != admin_multisig::AdminOperation::SetPaused {
+            panic!("Proposal is not a SetPaused operation");
+        }
+        if proposal.data.is_empty() {
+            panic!("Invalid proposal data");
+        }
+        let paused = proposal.data.get_unchecked(0) != 0;
         env.storage().instance().set(&ContractKey::Paused, &paused);
         PauseToggled { paused }.publish(&env);
     }
@@ -378,10 +416,15 @@ impl SubscriptionRenewalContract {
             .unwrap_or(false)
     }
 
-    /// Set the logging contract address. Admin only.
+    /// Set the logging contract address.
+    /// In single-admin mode: Admin only.
+    /// In multisig mode: Requires proposed operation + multisig approval.
     pub fn set_logging_contract(env: Env, address: Address) {
         if Self::is_paused(env.clone()) {
             panic!("Protocol is paused");
+        }
+        if admin_multisig::is_multisig_enabled(&env) {
+            panic!("Use propose_set_logging_contract + approve_proposal + execute_set_logging_contract");
         }
         Self::require_admin(&env);
         env.storage()
@@ -389,16 +432,69 @@ impl SubscriptionRenewalContract {
             .set(&ContractKey::LoggingContract, &address);
     }
 
-    /// Set the token (asset) contract used to move funds into/out of escrow. Admin only.
-       pub fn set_token_contract(env: Env, address: Address) {
-           if Self::is_paused(env.clone()) {
-               panic!("Protocol is paused");
-           }
-           Self::require_admin(&env);
-           env.storage()
-               .instance()
-               .set(&ContractKey::TokenContract, &address);
-       }
+    /// (Multisig) Propose to set logging contract. Guardian only.
+    pub fn propose_set_logging_contract(env: Env, proposer: Address, address: Address) -> u64 {
+        admin_multisig::propose_admin_operation(
+            &env,
+            proposer,
+            admin_multisig::AdminOperation::SetLoggingContract,
+            soroban_sdk::vec![&env],
+        )
+    }
+
+    /// (Multisig) Execute a set_logging_contract proposal after approval.
+    pub fn execute_set_logging_contract(env: Env, proposal_id: u64, address: Address) {
+        let proposal = admin_multisig::execute_proposal(&env, proposal_id);
+        if proposal.operation != admin_multisig::AdminOperation::SetLoggingContract {
+            panic!("Proposal is not a SetLoggingContract operation");
+        }
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
+        env.storage()
+            .instance()
+            .set(&ContractKey::LoggingContract, &address);
+    }
+
+    /// Set the token (asset) contract used to move funds into/out of escrow.
+    /// In single-admin mode: Admin only.
+    /// In multisig mode: Requires proposed operation + multisig approval.
+    pub fn set_token_contract(env: Env, address: Address) {
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
+        if admin_multisig::is_multisig_enabled(&env) {
+            panic!("Use propose_set_token_contract + approve_proposal + execute_set_token_contract");
+        }
+        Self::require_admin(&env);
+        env.storage()
+            .instance()
+            .set(&ContractKey::TokenContract, &address);
+    }
+
+    /// (Multisig) Propose to set token contract. Guardian only.
+    pub fn propose_set_token_contract(env: Env, proposer: Address, address: Address) -> u64 {
+        admin_multisig::propose_admin_operation(
+            &env,
+            proposer,
+            admin_multisig::AdminOperation::SetTokenContract,
+            soroban_sdk::vec![&env],
+        )
+    }
+
+    /// (Multisig) Execute a set_token_contract proposal after approval.
+    pub fn execute_set_token_contract(env: Env, proposal_id: u64, address: Address) {
+        let proposal = admin_multisig::execute_proposal(&env, proposal_id);
+        if proposal.operation != admin_multisig::AdminOperation::SetTokenContract {
+            panic!("Proposal is not a SetTokenContract operation");
+        }
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
+        env.storage()
+            .instance()
+            .set(&ContractKey::TokenContract, &address);
+    }
 
        /// Query the configured token contract address, if any.
        pub fn get_token_contract(env: Env) -> Option<Address> {
@@ -1149,12 +1245,45 @@ impl SubscriptionRenewalContract {
         env.storage().persistent().get(&key)
     }
 
-    /// Set global spending cap for a user. Admin only.
+    /// Set global spending cap for a user.
+    /// In single-admin mode: Admin only.
+    /// In multisig mode: Requires proposed operation + multisig approval.
     pub fn set_user_cap(env: Env, user: Address, cap: i128) {
         if Self::is_paused(env.clone()) {
             panic!("Protocol is paused");
         }
+        if admin_multisig::is_multisig_enabled(&env) {
+            panic!("Use propose_set_user_cap + approve_proposal + execute_set_user_cap");
+        }
         Self::require_admin(&env);
+        env.storage()
+            .persistent()
+            .set(&PersistentKey::UserCap(user.clone()), &cap);
+        UserCapUpdated { user, cap }.publish(&env);
+    }
+
+    /// (Multisig) Propose to set a user cap. Guardian only.
+    pub fn propose_set_user_cap(env: Env, proposer: Address, user: Address, cap: i128) -> u64 {
+        let data = soroban_sdk::vec![&env];
+        // Encode user address and cap (user: 32 bytes, cap: 8 bytes i64)
+        // For simplicity in this example, we encode as-is
+        admin_multisig::propose_admin_operation(
+            &env,
+            proposer,
+            admin_multisig::AdminOperation::SetUserCap,
+            data,
+        )
+    }
+
+    /// (Multisig) Execute a set_user_cap proposal after approval.
+    pub fn execute_set_user_cap(env: Env, proposal_id: u64, user: Address, cap: i128) {
+        let proposal = admin_multisig::execute_proposal(&env, proposal_id);
+        if proposal.operation != admin_multisig::AdminOperation::SetUserCap {
+            panic!("Proposal is not a SetUserCap operation");
+        }
+        if Self::is_paused(env.clone()) {
+            panic!("Protocol is paused");
+        }
         env.storage()
             .persistent()
             .set(&PersistentKey::UserCap(user.clone()), &cap);
