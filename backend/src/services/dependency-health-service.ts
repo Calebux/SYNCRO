@@ -1,6 +1,7 @@
 import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
 import { redis } from '../config/redis';
+import { env } from '../config/env';
 import { schedulerService } from './scheduler';
 
 export interface DependencyStatus {
@@ -164,11 +165,11 @@ export class DependencyHealthService {
     const start = Date.now();
     try {
       const providers: { [key: string]: string | undefined } = {
-        stripe: process.env.STRIPE_SECRET_KEY,
-        gmail: process.env.GMAIL_CLIENT_ID,
-        outlook: process.env.OUTLOOK_CLIENT_ID,
-        telegram: process.env.TELEGRAM_BOT_TOKEN,
-        stellar: process.env.STELLAR_NETWORK,
+        stripe: env.STRIPE_SECRET_KEY,
+        gmail: env.GOOGLE_CLIENT_ID,
+        outlook: env.MICROSOFT_CLIENT_ID,
+        telegram: env.TELEGRAM_BOT_TOKEN,
+        stellar: env.STELLAR_NETWORK,
       };
 
       const configured = Object.entries(providers)
@@ -214,7 +215,7 @@ export class DependencyHealthService {
   async checkRpcHorizon(): Promise<DependencyStatus> {
     const start = Date.now();
     try {
-      const rpcUrl = process.env.SOROBAN_RPC_URL;
+      const rpcUrl = env.SOROBAN_RPC_URL;
 
       if (!rpcUrl) {
         return {

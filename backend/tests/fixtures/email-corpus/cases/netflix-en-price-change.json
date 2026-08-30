@@ -1,0 +1,18 @@
+{
+  "id": "netflix-en-price-change",
+  "merchant": "Netflix",
+  "locale": "en",
+  "kind": "positive",
+  "notes": "Price-change notice: still a live subscription with a new monthly amount.",
+  "email": {
+    "subject": "An update to your Netflix plan price",
+    "from": "Netflix <info@netflix.com>",
+    "body": "Your subscription price is changing. Starting next billing cycle you will be billed $17.99/month.\nNo action is needed."
+  },
+  "expected": {
+    "name": "Netflix",
+    "amount": 17.99,
+    "currency": "USD",
+    "interval": "monthly"
+  }
+}

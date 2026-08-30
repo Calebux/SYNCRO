@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
+import { env } from '../config/env';
 
 const DOMAIN_SEPARATOR = 'syncro:audit:v1';
 
@@ -22,7 +23,7 @@ const EVENT_TYPE_BYTE: Record<string, number> = {
 
 export class CommitmentStorageService {
   private getEncryptionKey(): Buffer {
-    const keyHex = process.env.COMMITMENT_ENCRYPTION_KEY;
+    const keyHex = env.COMMITMENT_ENCRYPTION_KEY;
     if (!keyHex) {
       throw new Error('COMMITMENT_ENCRYPTION_KEY environment variable is required');
     }

@@ -2,10 +2,11 @@ import { Request, Response, NextFunction } from 'express';
 import { createClient, RedisClientType } from 'redis';
 import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { AuthenticatedRequest } from './auth';
 import { SubscriptionTier, TIER_RATE_LIMIT_CONFIG } from '../config/rate-limit';
 
-const REDIS_URL = process.env.REDIS_URL || process.env.RATE_LIMIT_REDIS_URL;
+const REDIS_URL = env.REDIS_URL || env.RATE_LIMIT_REDIS_URL;
 const TIER_CACHE_TTL_S = 300; // cache tier lookups for 5 minutes
 
 let redisClient: RedisClientType | null = null;

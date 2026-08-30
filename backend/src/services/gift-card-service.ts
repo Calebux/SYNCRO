@@ -1,5 +1,6 @@
 import { supabase, databaseRepository } from '../config/database';
 import { blockchainService } from './blockchain-service';
+import { giftCardLedgerService } from './gift-card-ledger-service';
 import logger from '../config/logger';
 
 /**
@@ -152,6 +153,24 @@ export class GiftCardService {
         error: errorMessage,
       };
     }
+  }
+
+  /**
+   * Redeem a gift card for a subscription payment using double-entry ledger postings.
+   */
+  async redeemGiftCard(
+    userId: string,
+    subscriptionId: string,
+    amount: number,
+    description?: string
+  ) {
+    logger.info('Redeeming gift card for subscription payment', { userId, subscriptionId, amount });
+    return giftCardLedgerService.deduct(
+      userId,
+      subscriptionId,
+      amount,
+      description ?? 'Gift card subscription redemption'
+    );
   }
 }
 

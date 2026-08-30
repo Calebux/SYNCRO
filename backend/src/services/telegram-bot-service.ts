@@ -1,4 +1,5 @@
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { NotificationPayload, DeliveryResult } from '../types/reminder';
 import { ExternalServiceClient } from '../utils/external-service-client';
 import { withRetry, NonRetryableError } from '../utils/retry';
@@ -20,10 +21,10 @@ export class TelegramBotService {
   private client = new ExternalServiceClient('telegram');
 
   constructor(config?: TelegramConfig) {
-    this.botToken = config?.botToken || process.env.TELEGRAM_BOT_TOKEN || null;
+    this.botToken = config?.botToken || env.TELEGRAM_BOT_TOKEN || null;
     this.apiUrl = config?.apiUrl || 'https://api.telegram.org';
 
-    if (!this.botToken && process.env.NODE_ENV !== 'development') {
+    if (!this.botToken && env.NODE_ENV !== 'development') {
       logger.warn('[TelegramBotService] Telegram bot token not configured. Telegram notifications will not be sent.');
     }
   }
@@ -324,7 +325,7 @@ export class TelegramBotService {
     }
 
     // Add view in app button
-    const appUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const appUrl = env.FRONTEND_URL;
     buttons.push([
       {
         text: '📱 View in SYNCRO',
@@ -453,7 +454,7 @@ ${factorsText}
           [
             {
               text: '📱 Review Subscription',
-              url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard`,
+              url: `${env.FRONTEND_URL}/dashboard`,
             },
           ],
         ],

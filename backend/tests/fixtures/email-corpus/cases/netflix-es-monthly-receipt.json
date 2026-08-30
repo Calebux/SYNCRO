@@ -1,0 +1,18 @@
+{
+  "id": "netflix-es-monthly-receipt",
+  "merchant": "Netflix",
+  "locale": "es",
+  "kind": "positive",
+  "notes": "Spanish receipt with comma decimal separator.",
+  "email": {
+    "subject": "Tu recibo de Netflix",
+    "from": "Netflix <facturacion@netflix.com>",
+    "body": "Hola,\n\nTu suscripcion se renueva el 1 de junio. Hemos recibido el pago de EUR 12,99 al mes.\n\nGracias por ser miembro."
+  },
+  "expected": {
+    "name": "Netflix",
+    "amount": 12.99,
+    "currency": "EUR",
+    "interval": "monthly"
+  }
+}

@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import type { CreateShareInviteInput } from '../schemas/subscription-share';
 
 export type SharePermissionLevel = 'view-only' | 'can-renew' | 'full-access';
@@ -88,7 +89,7 @@ export class SubscriptionShareService {
       maxUses: input.maxUses,
     });
 
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const frontendUrl = env.FRONTEND_URL;
     const shareUrl = `${frontendUrl}/share/${token}`;
 
     return { invite: invite as ShareInvite, token, shareUrl };

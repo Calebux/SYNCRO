@@ -1,0 +1,18 @@
+{
+  "id": "netflix-en-monthly-receipt",
+  "merchant": "Netflix",
+  "locale": "en",
+  "kind": "positive",
+  "notes": "Standard monthly receipt, all four fields present.",
+  "email": {
+    "subject": "Your Netflix receipt",
+    "from": "Netflix <billing@netflix.com>",
+    "body": "Hi there,\n\nYour subscription renews on June 1. Payment received for $15.99/month.\nCard ending 4242.\n\nThanks for being a member.\n- Netflix"
+  },
+  "expected": {
+    "name": "Netflix",
+    "amount": 15.99,
+    "currency": "USD",
+    "interval": "monthly"
+  }
+}

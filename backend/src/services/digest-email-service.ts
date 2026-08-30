@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer';
 import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { buildDigestEmailHtml, buildDigestEmailText } from './digest-template';
 import type { MonthlyDigestSummary, DigestAuditRecord } from '../types/digest';
 import { secretProvider } from './secret-provider';
@@ -34,8 +35,8 @@ export class DigestEmailService {
   private dashboardUrl: string;
 
   constructor() {
-    this.fromEmail    = process.env.EMAIL_FROM    ?? 'noreply@synchro.app';
-    this.dashboardUrl = process.env.FRONTEND_URL  ?? 'https://app.syncro.ai';
+    this.fromEmail    = env.EMAIL_FROM    ?? 'noreply@synchro.app';
+    this.dashboardUrl = env.FRONTEND_URL  ?? 'https://app.syncro.ai';
   }
 
   private async getTransporter(): Promise<nodemailer.Transporter> {
@@ -43,18 +44,18 @@ export class DigestEmailService {
       return this.transporter;
     }
 
-    if (process.env.SMTP_HOST) {
+    if (env.SMTP_HOST) {
       const password =
         (await secretProvider.getSecret('SMTP_PASSWORD')) ||
         (await secretProvider.getSecret('SMTP_PASS')) ||
         '';
 
       this.transporter = nodemailer.createTransport({
-        host:   process.env.SMTP_HOST,
-        port:   parseInt(process.env.SMTP_PORT ?? '587'),
-        secure: process.env.SMTP_SECURE === 'true',
+        host:   env.SMTP_HOST,
+        port:   parseInt(env.SMTP_PORT ?? '587'),
+        secure: env.SMTP_SECURE === 'true',
         auth: {
-          user: process.env.SMTP_USER ?? '',
+          user: env.SMTP_USER ?? '',
           pass: password,
         },
       });

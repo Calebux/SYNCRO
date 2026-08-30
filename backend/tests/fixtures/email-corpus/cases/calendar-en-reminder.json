@@ -1,0 +1,13 @@
+{
+  "id": "calendar-en-reminder",
+  "merchant": "Unknown",
+  "locale": "en",
+  "kind": "negative",
+  "notes": "Clear negative: no billing content at all.",
+  "email": {
+    "subject": "Reminder: team sync tomorrow",
+    "from": "Calendar <no-reply@calendar.example>",
+    "body": "Your event starts at 10:00. Two other people have accepted."
+  },
+  "expected": null
+}

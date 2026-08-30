@@ -5,6 +5,7 @@ import { generateProofHash, hashContent } from "../../utils/proof-hashing";
 import { metadataExtractionOnly } from "./email-scanner";
 import type { RawScanResult } from "./email-scanner";
 import { EXTERNAL_SERVICE_POLICIES } from "../config/external-services";
+import { env } from "../config/env";
 
 const policy = EXTERNAL_SERVICE_POLICIES.gmail;
 const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"];
@@ -45,13 +46,13 @@ interface GmailPayload {
 // ── OAuth client factory ──────────────────────────────────────────────────────
 
 function createOAuthClient() {
-  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
     throw new Error("Missing Google OAuth environment variables");
   }
   return new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI,
+    env.GOOGLE_CLIENT_ID,
+    env.GOOGLE_CLIENT_SECRET,
+    env.GOOGLE_REDIRECT_URI,
   );
 }
 

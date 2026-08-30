@@ -1,5 +1,6 @@
 import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { RedisCacheAdapter } from './exchange-rate/redis-cache';
 import type { Merchant, MerchantCreateInput, MerchantUpdateInput } from '../types/merchant';
 
@@ -10,9 +11,9 @@ import type { Merchant, MerchantCreateInput, MerchantUpdateInput } from '../type
 const DEFAULT_MERCHANT_TTL_MS = 1_800_000;
 
 function getMerchantTtlMs(): number {
-  const env = process.env.MERCHANT_CACHE_TTL_MS;
-  if (env) {
-    const parsed = parseInt(env, 10);
+  const envVal = env.MERCHANT_CACHE_TTL_MS;
+  if (envVal) {
+    const parsed = parseInt(envVal, 10);
     if (!isNaN(parsed) && parsed > 0) return parsed;
   }
   return DEFAULT_MERCHANT_TTL_MS;

@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { supabase, databaseRepository, databaseRepository } from '../config/database';
 import logger from '../config/logger';
+import { env } from '../config/env';
 
 export interface ReferralStats {
   referralCode: string;
@@ -10,7 +11,7 @@ export interface ReferralStats {
   rewardsEarned: number; // months of free premium
 }
 
-const BASE_URL = process.env.FRONTEND_URL || 'https://syncro.app';
+const BASE_URL = env.FRONTEND_URL;
 
 function generateCode(): string {
   return crypto.randomBytes(4).toString('hex'); // 8-char hex code

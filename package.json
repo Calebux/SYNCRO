@@ -11,8 +11,8 @@
   ],
   "scripts": {
     "prepare": "node -e \"try{require('fs').accessSync('.git');require('child_process').execSync('chmod +x .husky/pre-commit',{stdio:'ignore'})}catch(e){}\"",
-    "typecheck": "npm run typecheck --workspaces --if-present && npx -p typescript tsc --noEmit",
-    "typecheck:root": "npx -p typescript tsc --noEmit",
+    "typecheck": "npm run typecheck --workspaces --if-present && npx -p typescript@5.9.3 tsc --noEmit",
+    "typecheck:root": "npx -p typescript@5.9.3 tsc --noEmit",
     "typecheck:backend": "npm run typecheck -w backend",
     "typecheck:client": "npm run typecheck -w client",
     "typecheck:sdk": "npm run typecheck -w sdk",

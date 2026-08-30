@@ -15,6 +15,7 @@
 import { encrypt, decrypt } from '../utils/encryption';
 import { supabase, databaseRepository } from '../config/database';
 import logger from '../config/logger';
+import { env } from '../config/env';
 
 export interface TelegramConnectionRow {
   id: string;
@@ -121,7 +122,7 @@ export class TelegramTokenService {
     if (connection.access_token) {
       try {
         const plainToken = decrypt(connection.access_token);
-        const botToken = process.env.TELEGRAM_BOT_TOKEN;
+        const botToken = env.TELEGRAM_BOT_TOKEN;
         if (botToken && plainToken) {
           // Telegram Bot API: logOut revokes the bot session for this user.
           const response = await fetch(
