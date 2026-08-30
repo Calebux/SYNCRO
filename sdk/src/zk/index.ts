@@ -2,6 +2,7 @@ export {
   generatePaymentProof,
   verifyPaymentProof,
   generateAndVerifyProof,
+  buildOnChainProof,
   type ProofBytes,
   type PaymentProofInput,
   type PaymentProofResult,

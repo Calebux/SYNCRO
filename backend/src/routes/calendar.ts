@@ -3,6 +3,7 @@ import { authenticate, AuthenticatedRequest } from '../middleware/auth';
 import { validateRequest } from '../utils/validation';
 import { calendarService, verifyCalendarToken } from '../services/calendar-service';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { z } from 'zod';
 
 const router: Router = Router();
@@ -13,7 +14,7 @@ const calendarPreferencesSchema = z.object({
 });
 
 function getFeedBaseUrl(req: Request): string {
-  const configured = process.env.CALENDAR_FEED_BASE_URL || process.env.FRONTEND_URL;
+  const configured = env.CALENDAR_FEED_BASE_URL || env.FRONTEND_URL;
   if (configured) {
     return configured.replace(/\/$/, '');
   }

@@ -1,5 +1,6 @@
 import { supabase } from '../config/database';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import crypto from 'crypto';
 
 export interface WatchtowerRecord {
@@ -33,7 +34,7 @@ const STORAGE_KEY_PREFIX = 'syncro:channel:';
 
 function signState(state: ChannelState, channelId: string): string {
   const payload = JSON.stringify({ channelId, ...state });
-  return crypto.createHmac('sha256', process.env.CHANNEL_SIGNING_SECRET ?? 'dev-channel-secret')
+  return crypto.createHmac('sha256', env.CHANNEL_SIGNING_SECRET)
     .update(payload)
     .digest('hex');
 }

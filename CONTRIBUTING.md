@@ -269,6 +269,7 @@ Use these for deep dives; the quick start above covers day-to-day local developm
 | Contracts | [contracts/README.md](./contracts/README.md) | Soroban build and deploy |
 | Environment | [docs/ENVIRONMENT.md](./docs/ENVIRONMENT.md) | Env manifests and CI validation |
 | Code review | [docs/code-review-process.md](./docs/code-review-process.md) | Review expectations |
+| Architecture | [docs/adr/README.md](./docs/adr/README.md) | ADR index and decision governance |
 
 ## Pre-commit hooks
 
@@ -311,6 +312,7 @@ test/short-description
 - Keep PRs focused and reasonably small
 - Include a **test plan** (steps reviewers can follow)
 - Ensure CI passes: typecheck, tests, env structural checks
+- **Architecture Decision Records (ADRs):** Required if your PR alters a system boundary, a data model, or a trust assumption. Follow the process in [docs/adr/README.md](./docs/adr/README.md) and copy [docs/adr/template.md](./docs/adr/template.md) to author a new ADR.
 
 ## Code standards
 
@@ -339,6 +341,7 @@ Add or update tests for:
 - [ ] Package tests pass (`npm test -w backend`, `npm test -w client` as applicable)
 - [ ] `node scripts/check-env-docs.js` passes (if env files changed)
 - [ ] Environment variables documented in manifests and `.env.example`
+- [ ] ADR created or updated under `docs/adr/` if altering system boundaries, data models, or trust assumptions
 - [ ] No secrets in committed files
 - [ ] PR description and test plan completed
 

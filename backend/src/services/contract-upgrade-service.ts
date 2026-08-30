@@ -1,5 +1,6 @@
 import logger from '../config/logger';
 import { supabase } from '../config/database';
+import { env } from '../config/env';
 import {
   Contract,
   Keypair,
@@ -53,19 +54,19 @@ export class ContractUpgradeService {
   private networkPassphrase: string;
 
   constructor() {
-    const addr = process.env.SOROBAN_UPGRADE_ADDRESS;
+    const addr = env.SOROBAN_UPGRADE_ADDRESS;
     if (!addr) {
       logger.warn('[contract-upgrade] SOROBAN_UPGRADE_ADDRESS not configured');
     }
     this.contractAddress = addr || '';
     const flags = getBlockchainFlags();
     const network = resolveStellarNetwork();
-    const configuredRpc = process.env.SOROBAN_RPC_URL;
+    const configuredRpc = env.SOROBAN_RPC_URL;
     if (!configuredRpc && flags.isProduction) {
       throw new Error('[contract-upgrade] SOROBAN_RPC_URL must be set in production.');
     }
     this.rpcUrl = configuredRpc || 'https://soroban-testnet.stellar.org';
-    const configuredPassphrase = process.env.STELLAR_NETWORK_PASSPHRASE;
+    const configuredPassphrase = env.STELLAR_NETWORK_PASSPHRASE;
     if (!configuredPassphrase && flags.isProduction) {
       throw new Error('[contract-upgrade] STELLAR_NETWORK_PASSPHRASE must be set in production.');
     }
