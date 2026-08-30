@@ -22,6 +22,19 @@ const eslintConfig = defineConfig([
       ],
     },
   },
+  {
+    files: ["backend/src/**/*.ts"],
+    ignores: ["backend/src/config/**/*.ts", "backend/src/utils/manifest.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "MemberExpression[object.name='process'][property.name='env']",
+          message: "Direct process.env access is banned outside the config module. Import `env` from `src/config/env` instead.",
+        },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;

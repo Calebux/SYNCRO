@@ -5,6 +5,7 @@
 
 import { RiskWeightConfig } from '../types/risk-detection';
 import logger from './logger';
+import { env } from './env';
 
 /**
  * Load risk weight configuration from environment or use defaults
@@ -12,18 +13,18 @@ import logger from './logger';
 export function loadRiskWeightConfig(): RiskWeightConfig {
   const config: RiskWeightConfig = {
     consecutiveFailures: {
-      none: parseInt(process.env.RISK_WEIGHT_CONSECUTIVE_NONE || '0', 10),
-      medium: parseInt(process.env.RISK_WEIGHT_CONSECUTIVE_MEDIUM || '5', 10),
-      high: parseInt(process.env.RISK_WEIGHT_CONSECUTIVE_HIGH || '10', 10),
+      none: parseInt(env.RISK_WEIGHT_CONSECUTIVE_NONE || '0', 10),
+      medium: parseInt(env.RISK_WEIGHT_CONSECUTIVE_MEDIUM || '5', 10),
+      high: parseInt(env.RISK_WEIGHT_CONSECUTIVE_HIGH || '10', 10),
     },
     balanceProjection: {
-      sufficient: parseInt(process.env.RISK_WEIGHT_BALANCE_SUFFICIENT || '0', 10),
-      low: parseInt(process.env.RISK_WEIGHT_BALANCE_LOW || '5', 10),
-      insufficient: parseInt(process.env.RISK_WEIGHT_BALANCE_INSUFFICIENT || '10', 10),
+      sufficient: parseInt(env.RISK_WEIGHT_BALANCE_SUFFICIENT || '0', 10),
+      low: parseInt(env.RISK_WEIGHT_BALANCE_LOW || '5', 10),
+      insufficient: parseInt(env.RISK_WEIGHT_BALANCE_INSUFFICIENT || '10', 10),
     },
     approvalExpiration: {
-      valid: parseInt(process.env.RISK_WEIGHT_APPROVAL_VALID || '0', 10),
-      expired: parseInt(process.env.RISK_WEIGHT_APPROVAL_EXPIRED || '10', 10),
+      valid: parseInt(env.RISK_WEIGHT_APPROVAL_VALID || '0', 10),
+      expired: parseInt(env.RISK_WEIGHT_APPROVAL_EXPIRED || '10', 10),
     },
   };
 

@@ -1,25 +1,56 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { auditLogger, type AuditLogEntry } from "@/lib/audit-log"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { VirtualizedList } from "@/components/ui/virtualized-list"
 
-export function AuditLogViewer({ userId }: { userId: string }) {
-  const [logs, setLogs] = useState<AuditLogEntry[]>([])
+interface AuditLogViewerProps {
+  userId: string
+  maxHeight?: number
+}
+
+const ITEM_HEIGHT = 64 // Approximate height of each audit log item
+
+export function AuditLogViewer({ userId, maxHeight = 400 }: AuditLogViewerProps) {
+  const [allLogs, setAllLogs] = useState<AuditLogEntry[]>([])
   const [filter, setFilter] = useState("")
 
   useEffect(() => {
-    const allLogs = auditLogger.getLogs({ userId })
-    setLogs(allLogs)
+    const logs = auditLogger.getLogs({ userId })
+    setAllLogs(logs)
   }, [userId])
 
-  const filteredLogs = logs.filter(
-    (log) =>
-      log.action.toLowerCase().includes(filter.toLowerCase()) ||
-      log.resource.toLowerCase().includes(filter.toLowerCase()),
-  )
+  const filteredLogs = useMemo(() => {
+    return allLogs.filter(
+      (log) =>
+        log.action.toLowerCase().includes(filter.toLowerCase()) ||
+        log.resource.toLowerCase().includes(filter.toLowerCase()),
+    )
+  }, [allLogs, filter])
+
+  const renderLog = useCallback((log: AuditLogEntry) => (
+    <div className="flex items-start gap-3 p-3 border rounded-lg text-sm border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-900/50 transition-colors">
+      <div className="flex-1">
+        <p className="font-medium text-gray-900 dark:text-white">
+          {log.action.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+        </p>
+        <p className="text-xs text-gray-600 dark:text-gray-400">
+          {log.resource} {log.resourceId && `(${log.resourceId.slice(0, 8)}...)`}
+        </p>
+        {log.details && (
+          <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+            {typeof log.details === "string" ? log.details : JSON.stringify(log.details).slice(0, 50)}
+          </p>
+        )}
+        <p className="text-xs text-gray-500 dark:text-gray-500 mt-2">
+          {new Date(log.timestamp).toLocaleString()}
+        </p>
+      </div>
+    </div>
+  ), [])
 
   return (
     <Card>
@@ -29,36 +60,34 @@ export function AuditLogViewer({ userId }: { userId: string }) {
       </CardHeader>
       <CardContent className="space-y-4">
         <div>
-          <Label htmlFor="filter">Filter</Label>
+          <Label htmlFor="audit-filter">Filter</Label>
           <Input
-            id="filter"
-            placeholder="Search actions..."
+            id="audit-filter"
+            placeholder="Search actions or resources..."
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
+            aria-live="polite"
+            aria-label={`Search audit log. ${filteredLogs.length} results`}
           />
         </div>
-        <div className="space-y-2 max-h-96 overflow-y-auto">
-          {filteredLogs.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">No activity found</p>
-          ) : (
-            filteredLogs.map((log) => (
-              <div key={log.id} className="flex items-start gap-3 p-3 border rounded-lg text-sm">
-                <div className="flex-1">
-                  <p className="font-medium">
-                    {log.action.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
-                  </p>
-                  <p className="text-muted-foreground">
-                    {log.resource} {log.resourceId && `(${log.resourceId.slice(0, 8)}...)`}
-                  </p>
-                  {log.details && <p className="text-xs text-muted-foreground mt-1">{JSON.stringify(log.details)}</p>}
-                </div>
-                <span className="text-xs text-muted-foreground whitespace-nowrap">
-                  {new Date(log.timestamp).toLocaleString()}
-                </span>
-              </div>
-            ))
-          )}
-        </div>
+
+        {filteredLogs.length === 0 ? (
+          <div
+            role="status"
+            className="text-sm text-muted-foreground text-center py-8"
+          >
+            No activity found
+          </div>
+        ) : (
+          <VirtualizedList
+            items={filteredLogs}
+            itemHeight={ITEM_HEIGHT}
+            containerHeight={maxHeight}
+            renderItem={(item) => renderLog(item)}
+            ariaLabel={`Audit log with ${filteredLogs.length} entries`}
+            role="list"
+          />
+        )}
       </CardContent>
     </Card>
   )

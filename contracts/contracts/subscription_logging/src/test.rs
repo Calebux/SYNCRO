@@ -301,7 +301,7 @@ fn test_legacy_record_log() {
 
     client.record_log(&sub_id, &event, &data);
 
-    let logs = client.get_logs(&sub_id);
+    let logs = client.get_logs(&sub_id, &0, &50);
     assert_eq!(logs.len(), 1);
 
     let log_entry = logs.get(0).unwrap();
@@ -332,7 +332,7 @@ fn test_legacy_multiple_logs_same_subscription() {
         &String::from_str(&env, "Cancelled"),
     );
 
-    let logs = client.get_logs(&sub_id);
+    let logs = client.get_logs(&sub_id, &0, &50);
     assert_eq!(logs.len(), 3);
 }
 
@@ -411,4 +411,102 @@ fn test_commitment_storage_size() {
     assert_eq!(commitment.commitment_hash.len(), 32);
     assert_eq!(commitment.timestamp, env.ledger().timestamp());
     assert_eq!(commitment.commitment_index, 0);
+}
+
+// ============================================================================
+// LOG PRUNING TESTS
+// ============================================================================
+
+#[test]
+fn test_get_logs_paginated() {
+    let (env, _admin, client) = create_test_env();
+    let sub_id = 42u64;
+
+    client.record_log(
+        &sub_id,
+        &LogEvent::Reminder,
+        &String::from_str(&env, "entry_0"),
+    );
+    client.record_log(
+        &sub_id,
+        &LogEvent::Reminder,
+        &String::from_str(&env, "entry_1"),
+    );
+    client.record_log(
+        &sub_id,
+        &LogEvent::Reminder,
+        &String::from_str(&env, "entry_2"),
+    );
+    client.record_log(
+        &sub_id,
+        &LogEvent::Reminder,
+        &String::from_str(&env, "entry_3"),
+    );
+    client.record_log(
+        &sub_id,
+        &LogEvent::Reminder,
+        &String::from_str(&env, "entry_4"),
+    );
+
+    let page = client.get_logs(&sub_id, &1, &2);
+    assert_eq!(page.len(), 2);
+    assert_eq!(page.get(0).unwrap().data, String::from_str(&env, "entry_1"));
+}
+
+#[test]
+#[should_panic(expected = "Range not covered")]
+fn test_prune_logs_rejected_without_anchor() {
+    let (env, _admin, client) = create_test_env();
+    let sub_id = 77u64;
+
+    client.record_log(
+        &sub_id,
+        &LogEvent::Approval,
+        &String::from_str(&env, "first"),
+    );
+
+    client.prune_logs(&sub_id, &0);
+}
+
+#[test]
+fn test_prune_logs_after_anchor_and_verify_membership() {
+    let (env, _admin, client) = create_test_env();
+    let sub_id = 88u64;
+
+    client.record_log(
+        &sub_id,
+        &LogEvent::Renewal,
+        &String::from_str(&env, "renewed"),
+    );
+    client.record_log(
+        &sub_id,
+        &LogEvent::Reminder,
+        &String::from_str(&env, "reminder"),
+    );
+
+    let hash0 = BytesN::from_array(&env, &[10u8; 32]);
+    let hash1 = BytesN::from_array(&env, &[20u8; 32]);
+
+    let mut combined = Bytes::new(&env);
+    combined.extend_from_slice(&hash0.to_array());
+    combined.extend_from_slice(&hash1.to_array());
+    let root: BytesN<32> = env.crypto().sha256(&combined).into();
+
+    client.anchor_log_merkle_root(&sub_id, &root, &0, &1);
+    client.prune_logs(&sub_id, &0);
+
+    let stored = client.get_logs(&sub_id, &0, &10);
+    assert_eq!(stored.len(), 1);
+    assert_eq!(client.get_log_count(&sub_id), 2);
+
+    let proof_path = soroban_sdk::vec![&env, hash1];
+    let proof_directions = soroban_sdk::vec![&env, true];
+    assert!(client.verify_log_merkle_membership(
+        &sub_id,
+        &hash0,
+        &0,
+        &0,
+        &proof_path,
+        &proof_directions,
+    ));
 }

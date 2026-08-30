@@ -1,10 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import { renewalHistoryApi, type RenewalEvent, type RenewalHistoryResponse } from '@/lib/api/renewal-history';
 import { getInvoiceSignedUrl } from '@/lib/api/invoices';
 import { BlockchainBadge } from '@/components/ui/blockchain-badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { VirtualizedList } from '@/components/ui/virtualized-list';
 import { formatCurrency } from '@/lib/currency-utils';
 import { useUserSettings } from '@/components/providers/user-settings-provider';
 
@@ -226,30 +227,61 @@ export function PaymentTimeline({ subscriptionId, subscriptionName, darkMode }: 
   const { settings } = useUserSettings();
   const currency = settings.currency ?? 'USD';
 
-  const [data, setData] = useState<RenewalHistoryResponse | null>(null);
+  const [allEvents, setAllEvents] = useState<RenewalEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
+  const [pageInfo, setPageInfo] = useState<{ cursor: string | null; hasMore: boolean }>({
+    cursor: null,
+    hasMore: true,
+  });
+  const [total, setTotal] = useState(0);
+  const loadingRef = useRef(false);
 
-  const load = useCallback(
-    async (p: number) => {
-      setLoading(true);
+  const loadPage = useCallback(
+    async (cursor: string | null) => {
+      if (loadingRef.current || !pageInfo.hasMore) return;
+      
+      loadingRef.current = true;
       setError(null);
       try {
-        const result = await renewalHistoryApi.getHistory(subscriptionId, { page: p, limit: 20 });
-        setData(result);
+        const result = await renewalHistoryApi.getHistory(subscriptionId, {
+          limit: 20,
+          cursor,
+        });
+
+        const newEvents = result.history.filter(
+          (event) => !allEvents.some((existing) => existing.id === event.id)
+        );
+
+        if (newEvents.length > 0) {
+          setAllEvents((prev) => [...prev, ...newEvents]);
+        }
+
+        setPageInfo({
+          cursor: result.nextCursor || null,
+          hasMore: !!result.nextCursor,
+        });
+        setTotal(result.total);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load payment history.');
       } finally {
         setLoading(false);
+        loadingRef.current = false;
       }
     },
-    [subscriptionId],
+    [subscriptionId, allEvents, pageInfo.hasMore]
   );
 
   useEffect(() => {
-    load(page);
-  }, [load, page]);
+    loadPage(null);
+  }, [subscriptionId]);
+
+  const renderTimelineEvent = useCallback(
+    (event: RenewalEvent) => (
+      <TimelineEventRow event={event} currency={currency} darkMode={darkMode} />
+    ),
+    [currency, darkMode]
+  );
 
   const cardClass = `rounded-xl border p-5 ${darkMode ? 'bg-[#2D3748] border-[#374151]' : 'bg-white border-gray-200'}`;
 
@@ -262,20 +294,20 @@ export function PaymentTimeline({ subscriptionId, subscriptionName, darkMode }: 
         >
           {subscriptionName ? `${subscriptionName} — ` : ''}Payment History
         </h2>
-        {data && data.total > 0 && (
+        {total > 0 && (
           <span className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-            {data.total} event{data.total !== 1 ? 's' : ''}
+            {total} event{total !== 1 ? 's' : ''}
           </span>
         )}
       </div>
 
-      {loading && <TimelineSkeleton />}
+      {loading && allEvents.length === 0 && <TimelineSkeleton />}
 
-      {!loading && error && (
+      {error && (
         <div role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
           {error}{' '}
           <button
-            onClick={() => load(page)}
+            onClick={() => loadPage(null)}
             className="underline font-medium hover:no-underline focus:outline-none"
           >
             Retry
@@ -283,46 +315,27 @@ export function PaymentTimeline({ subscriptionId, subscriptionName, darkMode }: 
         </div>
       )}
 
-      {!loading && !error && data && (
-        <>
-          {data.history.length === 0 ? (
-            <TimelineEmpty darkMode={darkMode} />
-          ) : (
-            <ol aria-label="Payment timeline" className="space-y-0">
-              {data.history.map((event) => (
-                <TimelineEventRow
-                  key={event.id}
-                  event={event}
-                  currency={currency}
-                  darkMode={darkMode}
-                />
-              ))}
-            </ol>
-          )}
+      {!error && allEvents.length === 0 && !loading && (
+        <TimelineEmpty darkMode={darkMode} />
+      )}
 
-          {/* Pagination */}
-          {data.totalPages > 1 && (
-            <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page <= 1}
-                className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 disabled:opacity-40 hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                Previous
-              </button>
-              <span className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                Page {page} of {data.totalPages}
-              </span>
-              <button
-                onClick={() => setPage((p) => Math.min(data.totalPages, p + 1))}
-                disabled={page >= data.totalPages}
-                className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 disabled:opacity-40 hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                Next
-              </button>
-            </div>
-          )}
-        </>
+      {allEvents.length > 0 && (
+        <VirtualizedList
+          items={allEvents}
+          itemHeight={140}
+          containerHeight={400}
+          renderItem={renderTimelineEvent}
+          onLoadMore={() => {
+            const lastEvent = allEvents[allEvents.length - 1];
+            if (lastEvent?.id) {
+              loadPage(pageInfo.cursor);
+            }
+          }}
+          hasMore={pageInfo.hasMore}
+          isLoading={loading && allEvents.length > 0}
+          ariaLabel="Payment timeline"
+          role="list"
+        />
       )}
     </section>
   );
