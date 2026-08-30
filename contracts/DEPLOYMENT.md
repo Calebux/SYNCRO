@@ -74,8 +74,10 @@ The upgrade process:
 2. A guardian proposes the upgrade via `propose_upgrade()`
 3. 2-of-3 guardians approve via `approve_upgrade()`
 4. A 48-hour timelock period begins (configurable)
-5. After timelock expires, execute via `execute_upgrade()` then deploy new WASM
-6. Rollback is available via `rollback_upgrade()` if needed
+5. After the timelock expires, deploy the new WASM and execute `execute_upgrade()`
+6. Immediately call `migrate(from_version)` on the upgraded target contract. This is an admin-gated, one-version step; it rejects repeated and out-of-order calls. The upgrade-governance contract accepts either its admin or a guardian as the migration caller.
+7. Verify `get_storage_version()` equals the new version and exercise a read of a pre-upgrade record before resuming normal writes
+8. Rollback is available via `rollback_upgrade()` only for the WASM hash. It does not revert storage migrations or records lazily rewritten to the new schema; do not roll back after migration unless the previous WASM can read the migrated layout.
 
 ---
 

@@ -1,15 +1,23 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env,
+    contract, contracterror, contractevent, contractimpl, contracttype, symbol_short, token,
+    Address, Env,
 };
+
+/// Current on-chain schema version for [`PaymentChannel`] records.
+pub const CHANNEL_SCHEMA_VERSION: u32 = 2;
+/// Latest contract-level storage version (instance [`DataKey::StorageVersion`]).
+pub const STORAGE_VERSION: u32 = 2;
 
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
     Admin,
     Channel(u64),
+    ChannelV2(u64),
     ChannelCount,
+    StorageVersion,
 }
 
 #[contracttype]
@@ -30,10 +38,27 @@ pub enum ChannelState {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PaymentChannel {
+    pub schema_version: u32,
     pub id: u64,
     pub depositor: Address,
     pub counterparty: Address,
     /// Token contract used for on-chain disbursement.
+    pub token: Address,
+    pub balance_a: i128,
+    pub balance_b: i128,
+    pub sequence: u64,
+    pub state: ChannelState,
+    pub dispute_deadline: u64,
+    pub closing_started_at: u64,
+}
+
+/// Legacy layout persisted before `schema_version` was introduced.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PaymentChannelV1 {
+    pub id: u64,
+    pub depositor: Address,
+    pub counterparty: Address,
     pub token: Address,
     pub balance_a: i128,
     pub balance_b: i128,
@@ -58,6 +83,16 @@ pub enum Error {
     DisputeWindowExpired = 9,
     StaleState = 10,
     CounterOverflow = 11,
+    MigrationAlreadyDone = 12,
+    InvalidMigrationVersion = 13,
+    OutOfOrderMigration = 14,
+}
+
+#[contractevent]
+pub struct StorageMigrationExecuted {
+    pub from_version: u32,
+    pub to_version: u32,
+    pub migrated_by: Address,
 }
 
 #[contract]
@@ -70,6 +105,9 @@ impl PaymentChannelContract {
             return Err(Error::AlreadyInitialized);
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage()
+            .instance()
+            .set(&DataKey::StorageVersion, &STORAGE_VERSION);
         Ok(())
     }
 
@@ -81,6 +119,111 @@ impl PaymentChannelContract {
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
         Ok(admin)
+    }
+
+    /// Migrate contract storage to a new schema version.
+    ///
+    /// This function MUST be called after a contract upgrade to handle schema changes.
+    /// It is idempotent and rejects out-of-order migrations.
+    ///
+    /// # Arguments
+    /// * `from_version` — The current storage schema version (must match on-chain state)
+    ///
+    /// # Errors
+    /// * `Unauthorized` if caller is not the admin
+    /// * `MigrationAlreadyDone` if migration for this version was already executed
+    /// * `OutOfOrderMigration` if from_version doesn't match current storage version
+    /// * `InvalidMigrationVersion` if attempting to migrate to an unsupported version
+    pub fn migrate(env: Env, from_version: u32) -> Result<(), Error> {
+        let admin = Self::require_admin(&env)?;
+
+        let current_version: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::StorageVersion)
+            .unwrap_or(1);
+
+        if from_version < current_version {
+            return Err(Error::MigrationAlreadyDone);
+        }
+        if from_version > current_version {
+            return Err(Error::OutOfOrderMigration);
+        }
+
+        let target_version = from_version + 1;
+        if target_version > STORAGE_VERSION {
+            return Err(Error::InvalidMigrationVersion);
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::StorageVersion, &target_version);
+
+        StorageMigrationExecuted {
+            from_version,
+            to_version: target_version,
+            migrated_by: admin,
+        }
+        .publish(&env);
+
+        Ok(())
+    }
+
+    pub fn get_storage_version(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::StorageVersion)
+            .unwrap_or(1)
+    }
+
+    fn from_v1(v1: PaymentChannelV1) -> PaymentChannel {
+        PaymentChannel {
+            schema_version: CHANNEL_SCHEMA_VERSION,
+            id: v1.id,
+            depositor: v1.depositor,
+            counterparty: v1.counterparty,
+            token: v1.token,
+            balance_a: v1.balance_a,
+            balance_b: v1.balance_b,
+            sequence: v1.sequence,
+            state: v1.state,
+            dispute_deadline: v1.dispute_deadline,
+            closing_started_at: v1.closing_started_at,
+        }
+    }
+
+    fn normalize_channel(mut record: PaymentChannel) -> PaymentChannel {
+        if record.schema_version < CHANNEL_SCHEMA_VERSION {
+            record.schema_version = CHANNEL_SCHEMA_VERSION;
+        }
+        record
+    }
+
+    fn load_channel(env: &Env, channel_id: u64) -> Result<PaymentChannel, Error> {
+        let v2_key = DataKey::ChannelV2(channel_id);
+        if let Some(record) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, PaymentChannel>(&v2_key)
+        {
+            return Ok(Self::normalize_channel(record));
+        }
+        let key = DataKey::Channel(channel_id);
+        if let Some(legacy) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, PaymentChannelV1>(&key)
+        {
+            return Ok(Self::from_v1(legacy));
+        }
+        Err(Error::ChannelNotFound)
+    }
+
+    fn store_channel(env: &Env, channel_id: u64, channel: &PaymentChannel) {
+        let record = Self::normalize_channel(channel.clone());
+        env.storage()
+            .persistent()
+            .set(&DataKey::ChannelV2(channel_id), &record);
     }
 
     /// Open a new payment channel.
@@ -116,6 +259,7 @@ impl PaymentChannelContract {
 
         // ── EFFECTS — record the channel state ───────────────────────────────
         let channel = PaymentChannel {
+            schema_version: CHANNEL_SCHEMA_VERSION,
             id,
             depositor: depositor.clone(),
             counterparty: counterparty.clone(),
@@ -128,9 +272,7 @@ impl PaymentChannelContract {
             closing_started_at: 0,
         };
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Channel(id), &channel);
+        Self::store_channel(&env, id, &channel);
         env.storage()
             .instance()
             .set(&DataKey::ChannelCount, &id);
@@ -160,11 +302,7 @@ impl PaymentChannelContract {
         sig_a: Address,
         sig_b: Address,
     ) -> Result<(), Error> {
-        let mut channel: PaymentChannel = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Channel(channel_id))
-            .ok_or(Error::ChannelNotFound)?;
+        let mut channel = Self::load_channel(&env, channel_id)?;
 
         if channel.state != ChannelState::Open && channel.state != ChannelState::Closing {
             return Err(Error::InvalidState);
@@ -186,9 +324,7 @@ impl PaymentChannelContract {
         channel.sequence = sequence_number;
         channel.state = ChannelState::Open;
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Channel(channel_id), &channel);
+        Self::store_channel(&env, channel_id, &channel);
         env.events().publish(
             (symbol_short!("channel"), symbol_short!("submitted")),
             (channel_id, balance_a, balance_b, sequence_number),
@@ -204,11 +340,7 @@ impl PaymentChannelContract {
         seq: u64,
         sig: Address,
     ) -> Result<(), Error> {
-        let mut channel: PaymentChannel = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Channel(channel_id))
-            .ok_or(Error::ChannelNotFound)?;
+        let mut channel = Self::load_channel(&env, channel_id)?;
 
         if channel.state != ChannelState::Open {
             return Err(Error::InvalidState);
@@ -228,9 +360,7 @@ impl PaymentChannelContract {
         channel.state = ChannelState::Closing;
         channel.closing_started_at = env.ledger().timestamp();
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Channel(channel_id), &channel);
+        Self::store_channel(&env, channel_id, &channel);
         env.events().publish(
             (symbol_short!("channel"), symbol_short!("closing")),
             (channel_id, balance_a, balance_b, seq),
@@ -247,11 +377,7 @@ impl PaymentChannelContract {
         sig_a: Address,
         sig_b: Address,
     ) -> Result<(), Error> {
-        let mut channel: PaymentChannel = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Channel(channel_id))
-            .ok_or(Error::ChannelNotFound)?;
+        let mut channel = Self::load_channel(&env, channel_id)?;
 
         if channel.state != ChannelState::Closing {
             return Err(Error::InvalidState);
@@ -276,9 +402,7 @@ impl PaymentChannelContract {
         channel.sequence = higher_seq;
         channel.state = ChannelState::Dispute;
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Channel(channel_id), &channel);
+        Self::store_channel(&env, channel_id, &channel);
         env.events().publish(
             (symbol_short!("channel"), symbol_short!("disputed")),
             (channel_id, balance_a, balance_b, higher_seq),
@@ -287,11 +411,7 @@ impl PaymentChannelContract {
     }
 
     pub fn finalize(env: Env, channel_id: u64, expected_sequence: u64) -> Result<(), Error> {
-        let mut channel: PaymentChannel = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Channel(channel_id))
-            .ok_or(Error::ChannelNotFound)?;
+        let mut channel = Self::load_channel(&env, channel_id)?;
 
         if channel.state != ChannelState::Closing && channel.state != ChannelState::Dispute {
             return Err(Error::InvalidState);
@@ -314,9 +434,7 @@ impl PaymentChannelContract {
         // Mark closed and persist BEFORE any external call.  A re-entrant
         // `finalize` call would now fail the `InvalidState` guard above.
         channel.state = ChannelState::Closed;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Channel(channel_id), &channel);
+        Self::store_channel(&env, channel_id, &channel);
 
         env.events().publish(
             (symbol_short!("channel"), symbol_short!("closed")),
@@ -353,11 +471,7 @@ impl PaymentChannelContract {
         amount: i128,
         depositor: Address,
     ) -> Result<(), Error> {
-        let mut channel: PaymentChannel = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Channel(channel_id))
-            .ok_or(Error::ChannelNotFound)?;
+        let mut channel = Self::load_channel(&env, channel_id)?;
 
         if channel.state != ChannelState::Open {
             return Err(Error::InvalidState);
@@ -375,9 +489,7 @@ impl PaymentChannelContract {
 
         // ── EFFECTS ─────────────────────────────────────────────────────────
         channel.balance_a += amount;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Channel(channel_id), &channel);
+        Self::store_channel(&env, channel_id, &channel);
 
         env.events().publish(
             (symbol_short!("channel"), symbol_short!("toppedup")),
@@ -396,9 +508,7 @@ impl PaymentChannelContract {
     }
 
     pub fn get_channel(env: Env, channel_id: u64) -> Option<PaymentChannel> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Channel(channel_id))
+        Self::load_channel(&env, channel_id).ok()
     }
 }
 

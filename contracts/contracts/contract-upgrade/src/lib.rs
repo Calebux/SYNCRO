@@ -14,6 +14,10 @@ pub const DEFAULT_TIMELOCK_SECONDS: u64 = 172_800;
 
 /// Required approvals threshold (2-of-3).
 pub const REQUIRED_APPROVALS: u32 = 2;
+/// Current on-chain schema version for [`UpgradeProposal`] records.
+pub const UPGRADE_PROPOSAL_SCHEMA_VERSION: u32 = 2;
+/// Latest contract-level storage version.
+pub const STORAGE_VERSION: u32 = 2;
 
 // ============================================================================
 // STORAGE KEYS
@@ -33,6 +37,8 @@ enum DataKey {
     UpgradesPaused,
     TimelockOverride,
     ApprovedBy(u64),
+    StorageVersion,
+    ProposalV2(u64),
 }
 
 // ============================================================================
@@ -53,6 +59,23 @@ pub enum ProposalState {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpgradeProposal {
+    pub schema_version: u32,
+    pub id: u64,
+    pub description: String,
+    pub target_contract: String,
+    pub new_wasm_hash: BytesN<32>,
+    pub proposer: Address,
+    pub state: ProposalState,
+    pub created_at: u64,
+    pub approved_at: u64,
+    pub executable_at: u64,
+    pub previous_wasm_hash: BytesN<32>,
+}
+
+/// Legacy layout persisted before `schema_version` was introduced.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UpgradeProposalV1 {
     pub id: u64,
     pub description: String,
     pub target_contract: String,
@@ -87,6 +110,9 @@ pub enum UpgradeError {
     NoRollbackAvailable = 12,
     RollbackAlreadyConsumed = 13,
     InvalidArgument = 14,
+    MigrationAlreadyDone = 15,
+    InvalidMigrationVersion = 16,
+    OutOfOrderMigration = 17,
 }
 
 // ============================================================================
@@ -143,6 +169,13 @@ pub struct UpgradesPauseToggled {
     pub paused: bool,
 }
 
+#[contractevent]
+pub struct StorageMigrationExecuted {
+    pub from_version: u32,
+    pub to_version: u32,
+    pub migrated_by: Address,
+}
+
 // ============================================================================
 // CONTRACT — Init & Helpers
 // ============================================================================
@@ -173,12 +206,22 @@ impl ContractUpgradeGovernance {
         env.storage().instance().set(&DataKey::UpgradesPaused, &false);
         env.storage().instance().set(&DataKey::ProposalCount, &0u64);
         env.storage().instance().set(&DataKey::RollbackConsumed, &false);
+        env.storage().instance().set(&DataKey::StorageVersion, &STORAGE_VERSION);
     }
 
     fn require_admin(env: &Env) {
         let admin: Address = env.storage().instance()
             .get(&DataKey::Admin).expect("not initialized");
         admin.require_auth();
+    }
+
+    fn require_admin_or_guardian(env: &Env, caller: &Address) {
+        let admin: Address = env.storage().instance()
+            .get(&DataKey::Admin).expect("not initialized");
+        if *caller != admin && !Self::is_guardian(env, caller) {
+            panic_with_error!(env, UpgradeError::Unauthorized);
+        }
+        caller.require_auth();
     }
 
     fn require_initialized(env: &Env) {
@@ -208,6 +251,45 @@ impl ContractUpgradeGovernance {
     fn save_rollback_slot(env: &Env, wasm_hash: BytesN<32>, contract_id: String) {
         env.storage().persistent().set(&DataKey::RollbackWasmHash, &wasm_hash);
         env.storage().persistent().set(&DataKey::RollbackContractId, &contract_id);
+    }
+
+    fn from_v1(v1: UpgradeProposalV1) -> UpgradeProposal {
+        UpgradeProposal {
+            schema_version: UPGRADE_PROPOSAL_SCHEMA_VERSION,
+            id: v1.id,
+            description: v1.description,
+            target_contract: v1.target_contract,
+            new_wasm_hash: v1.new_wasm_hash,
+            proposer: v1.proposer,
+            state: v1.state,
+            created_at: v1.created_at,
+            approved_at: v1.approved_at,
+            executable_at: v1.executable_at,
+            previous_wasm_hash: v1.previous_wasm_hash,
+        }
+    }
+
+    fn normalize_proposal(mut proposal: UpgradeProposal) -> UpgradeProposal {
+        if proposal.schema_version < UPGRADE_PROPOSAL_SCHEMA_VERSION {
+            proposal.schema_version = UPGRADE_PROPOSAL_SCHEMA_VERSION;
+        }
+        proposal
+    }
+
+    fn load_proposal(env: &Env, proposal_id: u64) -> UpgradeProposal {
+        let v2_key = DataKey::ProposalV2(proposal_id);
+        if let Some(proposal) = env.storage().persistent().get::<DataKey, UpgradeProposal>(&v2_key) {
+            return Self::normalize_proposal(proposal);
+        }
+        let key = DataKey::Proposal(proposal_id);
+        let legacy: UpgradeProposalV1 = env.storage().persistent()
+            .get(&key).expect("proposal not found");
+        Self::from_v1(legacy)
+    }
+
+    fn store_proposal(env: &Env, proposal_id: u64, proposal: &UpgradeProposal) {
+        let proposal = Self::normalize_proposal(proposal.clone());
+        env.storage().persistent().set(&DataKey::ProposalV2(proposal_id), &proposal);
     }
 }
 
@@ -265,6 +347,7 @@ impl ContractUpgradeGovernance {
         let now = env.ledger().timestamp();
 
         let proposal = UpgradeProposal {
+            schema_version: UPGRADE_PROPOSAL_SCHEMA_VERSION,
             id: proposal_id,
             description,
             target_contract: target_contract.clone(),
@@ -277,7 +360,7 @@ impl ContractUpgradeGovernance {
             previous_wasm_hash: previous_wasm_hash.clone(),
         };
 
-        env.storage().persistent().set(&DataKey::Proposal(proposal_id), &proposal);
+        Self::store_proposal(&env, proposal_id, &proposal);
         env.storage().instance().set(&DataKey::ProposalCount, &proposal_id);
         let empty: Vec<Address> = vec![&env];
         env.storage().persistent().set(&DataKey::ApprovedBy(proposal_id), &empty);
@@ -307,8 +390,7 @@ impl ContractUpgradeGovernance {
         if !Self::is_guardian(&env, &guardian) { panic_with_error!(&env, UpgradeError::NotGuardian); }
         guardian.require_auth();
 
-        let mut proposal: UpgradeProposal = env.storage().persistent()
-            .get(&DataKey::Proposal(proposal_id)).expect("proposal not found");
+        let mut proposal = Self::load_proposal(&env, proposal_id);
         if proposal.state != ProposalState::Pending {
             panic_with_error!(&env, UpgradeError::InvalidStateTransition);
         }
@@ -330,7 +412,7 @@ impl ContractUpgradeGovernance {
             proposal.state = ProposalState::Approved;
             proposal.approved_at = now;
             proposal.executable_at = executable_at;
-            env.storage().persistent().set(&DataKey::Proposal(proposal_id), &proposal);
+            Self::store_proposal(&env, proposal_id, &proposal);
             UpgradeReady { proposal_id, executable_at }.publish(&env);
         }
 
@@ -349,8 +431,7 @@ impl ContractUpgradeGovernance {
         }
         executor.require_auth();
 
-        let mut proposal: UpgradeProposal = env.storage().persistent()
-            .get(&DataKey::Proposal(proposal_id)).expect("proposal not found");
+        let mut proposal = Self::load_proposal(&env, proposal_id);
         if proposal.state != ProposalState::Approved {
             panic_with_error!(&env, UpgradeError::InvalidStateTransition);
         }
@@ -363,7 +444,7 @@ impl ContractUpgradeGovernance {
         env.storage().persistent().set(&DataKey::RollbackConsumed, &false);
 
         proposal.state = ProposalState::Executed;
-        env.storage().persistent().set(&DataKey::Proposal(proposal_id), &proposal);
+        Self::store_proposal(&env, proposal_id, &proposal);
 
         UpgradeExecuted {
             proposal_id,
@@ -405,15 +486,14 @@ impl ContractUpgradeGovernance {
     /// Cancel a proposal (admin only).
     pub fn cancel_proposal(env: Env, proposal_id: u64) {
         Self::require_admin(&env);
-        let mut proposal: UpgradeProposal = env.storage().persistent()
-            .get(&DataKey::Proposal(proposal_id)).expect("proposal not found");
+        let mut proposal = Self::load_proposal(&env, proposal_id);
         if proposal.state == ProposalState::Executed
             || proposal.state == ProposalState::Cancelled
             || proposal.state == ProposalState::RolledBack {
             panic_with_error!(&env, UpgradeError::InvalidStateTransition);
         }
         proposal.state = ProposalState::Cancelled;
-        env.storage().persistent().set(&DataKey::Proposal(proposal_id), &proposal);
+        Self::store_proposal(&env, proposal_id, &proposal);
         UpgradeCancelled { proposal_id, cancelled_by: env.current_contract_address() }.publish(&env);
     }
 
@@ -448,9 +528,39 @@ impl ContractUpgradeGovernance {
         env.storage().instance().get(&DataKey::UpgradesPaused).unwrap_or(false)
     }
 
+    /// Advance contract storage by one schema version after a WASM upgrade.
+    pub fn migrate(env: Env, from_version: u32, caller: Address) {
+        Self::require_initialized(&env);
+        Self::require_admin_or_guardian(&env, &caller);
+
+        let current_version: u32 = env.storage().instance()
+            .get(&DataKey::StorageVersion).unwrap_or(1);
+        if from_version < current_version {
+            panic_with_error!(&env, UpgradeError::MigrationAlreadyDone);
+        }
+        if from_version > current_version {
+            panic_with_error!(&env, UpgradeError::OutOfOrderMigration);
+        }
+
+        let target_version = from_version + 1;
+        if target_version > STORAGE_VERSION {
+            panic_with_error!(&env, UpgradeError::InvalidMigrationVersion);
+        }
+
+        env.storage().instance().set(&DataKey::StorageVersion, &target_version);
+        StorageMigrationExecuted {
+            from_version,
+            to_version: target_version,
+            migrated_by: caller,
+        }.publish(&env);
+    }
+
+    pub fn get_storage_version(env: Env) -> u32 {
+        env.storage().instance().get(&DataKey::StorageVersion).unwrap_or(1)
+    }
+
     pub fn get_proposal(env: Env, proposal_id: u64) -> UpgradeProposal {
-        env.storage().persistent()
-            .get(&DataKey::Proposal(proposal_id)).expect("proposal not found")
+        Self::load_proposal(&env, proposal_id)
     }
 
     pub fn get_proposal_count(env: Env) -> u64 {

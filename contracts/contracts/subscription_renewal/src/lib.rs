@@ -1,9 +1,14 @@
 #![no_std]
 use soroban_sdk::{
        contract, contractevent, contractimpl, contracttype, token, xdr::ToXdr, Address, Bytes, Env,
-       IntoVal,
+       IntoVal, Symbol,
    };
 use subscription_logging::SubscriptionLoggingContractClient;
+
+/// Current on-chain schema version for [`SubscriptionData`] records.
+pub const SUBSCRIPTION_SCHEMA_VERSION: u32 = 2;
+/// Latest contract-level storage version (instance [`ContractKey::StorageVersion`]).
+pub const STORAGE_VERSION: u32 = 2;
 
 /// Storage keys for contract-level state (admin, pause flag).
 #[contracttype]
@@ -13,6 +18,7 @@ enum ContractKey {
        Paused,
        LoggingContract,
        TokenContract,
+       StorageVersion,
    }
 
 /// Tagged persistent storage keys.
@@ -20,6 +26,7 @@ enum ContractKey {
 #[derive(Clone)]
 enum PersistentKey {
     Subscription(u64),
+    SubscriptionV2(u64),
     Approval(u64, u64),
     Cycle(u64),
     RenewalLock(u64),
@@ -66,6 +73,22 @@ pub enum SubscriptionState {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SubscriptionData {
+    pub schema_version: u32,
+    pub owner: Address,
+    pub merchant: Address,
+    pub amount: i128,
+    pub frequency: u64,
+    pub spending_cap: i128,
+    pub integrity_hash: soroban_sdk::BytesN<32>,
+    pub state: SubscriptionState,
+    pub failure_count: u32,
+    pub last_attempt_ledger: u32,
+}
+
+/// Legacy layout persisted before `schema_version` was introduced.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SubscriptionDataV1 {
     pub owner: Address,
     pub merchant: Address,
     pub amount: i128,
@@ -331,6 +354,13 @@ const DEFAULT_MULTISIG_THRESHOLD: i128 = 10_000_000;
 /// Default signing window: 24 hours in seconds
 const DEFAULT_SIGNING_WINDOW_SECS: u64 = 86_400;
 
+#[contractevent]
+pub struct StorageMigrationExecuted {
+    pub from_version: u32,
+    pub to_version: u32,
+    pub migrated_by: Address,
+}
+
 #[contract]
 pub struct SubscriptionRenewalContract;
 
@@ -345,6 +375,9 @@ impl SubscriptionRenewalContract {
         }
         env.storage().instance().set(&ContractKey::Admin, &admin);
         env.storage().instance().set(&ContractKey::Paused, &false);
+        env.storage()
+            .instance()
+            .set(&ContractKey::StorageVersion, &STORAGE_VERSION);
     }
 
     /// Internal helper – loads admin and calls `require_auth`.
@@ -355,6 +388,106 @@ impl SubscriptionRenewalContract {
             .get(&ContractKey::Admin)
             .expect("Contract not initialized");
         admin.require_auth();
+    }
+
+    /// Migrate contract storage to a new schema version.
+    ///
+    /// This function MUST be called after a contract upgrade to handle schema changes.
+    /// It is idempotent and rejects out-of-order migrations.
+    ///
+    /// # Arguments
+    /// * `from_version` — The current storage schema version (must match on-chain state)
+    pub fn migrate(env: Env, from_version: u32) {
+        Self::require_admin(&env);
+
+        let current_version: u32 = env
+            .storage()
+            .instance()
+            .get(&ContractKey::StorageVersion)
+            .unwrap_or(1);
+
+        if from_version < current_version {
+            panic!("MigrationAlreadyDone");
+        }
+        if from_version > current_version {
+            panic!("OutOfOrderMigration");
+        }
+
+        let target_version = from_version + 1;
+        if target_version > STORAGE_VERSION {
+            panic!("InvalidMigrationVersion");
+        }
+
+        env.storage()
+            .instance()
+            .set(&ContractKey::StorageVersion, &target_version);
+
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&ContractKey::Admin)
+            .expect("Contract not initialized");
+
+        StorageMigrationExecuted {
+            from_version,
+            to_version: target_version,
+            migrated_by: admin,
+        }
+        .publish(&env);
+    }
+
+    pub fn get_storage_version(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&ContractKey::StorageVersion)
+            .unwrap_or(1)
+    }
+
+    fn from_v1(v1: SubscriptionDataV1) -> SubscriptionData {
+        SubscriptionData {
+            schema_version: SUBSCRIPTION_SCHEMA_VERSION,
+            owner: v1.owner,
+            merchant: v1.merchant,
+            amount: v1.amount,
+            frequency: v1.frequency,
+            spending_cap: v1.spending_cap,
+            integrity_hash: v1.integrity_hash,
+            state: v1.state,
+            failure_count: v1.failure_count,
+            last_attempt_ledger: v1.last_attempt_ledger,
+        }
+    }
+
+    fn normalize_subscription(mut record: SubscriptionData) -> SubscriptionData {
+        if record.schema_version < SUBSCRIPTION_SCHEMA_VERSION {
+            record.schema_version = SUBSCRIPTION_SCHEMA_VERSION;
+        }
+        record
+    }
+
+    fn load_subscription(env: &Env, sub_id: u64) -> SubscriptionData {
+        let v2_key = PersistentKey::SubscriptionV2(sub_id);
+        if let Some(record) = env
+            .storage()
+            .persistent()
+            .get::<PersistentKey, SubscriptionData>(&v2_key)
+        {
+            return Self::normalize_subscription(record);
+        }
+        let key = PersistentKey::Subscription(sub_id);
+        let legacy: SubscriptionDataV1 = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .expect("Subscription not found");
+        Self::from_v1(legacy)
+    }
+
+    fn store_subscription(env: &Env, sub_id: u64, data: &SubscriptionData) {
+        let record = Self::normalize_subscription(data.clone());
+        env.storage()
+            .persistent()
+            .set(&PersistentKey::SubscriptionV2(sub_id), &record);
     }
 
     /// Pause or unpause all renewal execution. Admin only.
@@ -490,8 +623,8 @@ impl SubscriptionRenewalContract {
         // Use a simple hash of the vector of values
         let integrity_hash = env.crypto().sha256(&integrity_data.to_xdr(&env));
 
-        let key = PersistentKey::Subscription(sub_id);
         let data = SubscriptionData {
+            schema_version: SUBSCRIPTION_SCHEMA_VERSION,
             owner,
             merchant,
             amount,
@@ -502,7 +635,7 @@ impl SubscriptionRenewalContract {
             failure_count: 0,
             last_attempt_ledger: 0,
         };
-        env.storage().persistent().set(&key, &data);
+        Self::store_subscription(&env, sub_id, &data);
 
         // Initialize lifecycle timestamps
         let now = env.ledger().timestamp();
@@ -568,12 +701,7 @@ impl SubscriptionRenewalContract {
             panic!("Protocol is paused");
         }
 
-        let key = PersistentKey::Subscription(sub_id);
-        let mut data: SubscriptionData = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .expect("Subscription not found");
+        let mut data = Self::load_subscription(&env, sub_id);
 
         data.owner.require_auth();
 
@@ -582,7 +710,7 @@ impl SubscriptionRenewalContract {
         }
 
         data.state = SubscriptionState::Cancelled;
-        env.storage().persistent().set(&key, &data);
+        Self::store_subscription(&env, sub_id, &data);
 
         // Update lifecycle timestamps
         let lc_key = PersistentKey::Lifecycle(sub_id);
@@ -639,12 +767,7 @@ impl SubscriptionRenewalContract {
             panic!("Protocol is paused");
         }
 
-        let sub_key = PersistentKey::Subscription(sub_id);
-        let data: SubscriptionData = env
-            .storage()
-            .persistent()
-            .get(&sub_key)
-            .expect("Subscription not found");
+        let data = Self::load_subscription(&env, sub_id);
 
         data.owner.require_auth();
 
@@ -746,12 +869,7 @@ impl SubscriptionRenewalContract {
         let current_ledger = env.ledger().sequence();
 
         // 2. Load subscription data
-        let key = PersistentKey::Subscription(sub_id);
-        let mut data: SubscriptionData = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .expect("Subscription not found");
+        let mut data = Self::load_subscription(&env, sub_id);
 
         // 3. Check failed state
         if data.state == SubscriptionState::Failed {
@@ -860,7 +978,7 @@ impl SubscriptionRenewalContract {
             data.state = SubscriptionState::Active;
             data.failure_count = 0;
             data.last_attempt_ledger = current_ledger;
-            env.storage().persistent().set(&key, &data);
+            Self::store_subscription(&env, sub_id, &data);
 
             // Update global user spent amount
             let current_spent: i128 = env
@@ -1010,7 +1128,7 @@ impl SubscriptionRenewalContract {
                 );
             }
 
-            env.storage().persistent().set(&key, &data);
+            Self::store_subscription(&env, sub_id, &data);
 
             // Auto-release lock
             env.storage().persistent().remove(&lock_key);
@@ -1036,12 +1154,7 @@ impl SubscriptionRenewalContract {
        /// for that subscription may call this. Transfers the full escrowed amount
        /// from the contract's custody to the merchant and zeroes the balance.
        pub fn claim_escrow(env: Env, sub_id: u64) -> i128 {
-           let key = PersistentKey::Subscription(sub_id);
-           let data: SubscriptionData = env
-               .storage()
-               .persistent()
-               .get(&key)
-               .expect("Subscription not found");
+           let data = Self::load_subscription(&env, sub_id);
 
            // Only the merchant registered on this subscription can claim its escrow.
            data.merchant.require_auth();
@@ -1070,10 +1183,7 @@ impl SubscriptionRenewalContract {
        }
 
     pub fn get_sub(env: Env, sub_id: u64) -> SubscriptionData {
-        env.storage()
-            .persistent()
-            .get(&PersistentKey::Subscription(sub_id))
-            .expect("Subscription not found")
+        Self::load_subscription(&env, sub_id)
     }
 
     pub fn get_lifecycle(env: Env, sub_id: u64) -> LifecycleTimestamps {
@@ -1204,11 +1314,7 @@ impl SubscriptionRenewalContract {
         requester.require_auth();
 
         // Validate subscription exists
-        let _data: SubscriptionData = env
-            .storage()
-            .persistent()
-            .get(&PersistentKey::Subscription(sub_id))
-            .expect("Subscription not found");
+        let _data = Self::load_subscription(&env, sub_id);
 
         if required_signers.is_empty() {
             panic!("At least one signer is required");

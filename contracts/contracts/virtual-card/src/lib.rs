@@ -2,8 +2,14 @@
 #![allow(deprecated)]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, Env, String, Symbol,
+    contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, String,
+    Symbol,
 };
+
+/// Current on-chain schema version for [`Card`] records.
+pub const CARD_SCHEMA_VERSION: u32 = 2;
+/// Latest contract-level storage version (instance [`DataKey::StorageVersion`]).
+pub const STORAGE_VERSION: u32 = 2;
 
 // ============================================================================
 // Error Types
@@ -23,6 +29,9 @@ pub enum VirtualCardError {
     NotSupported = 9,
     InternalError = 10,
     CounterOverflow = 11,
+    MigrationAlreadyDone = 12,
+    InvalidMigrationVersion = 13,
+    OutOfOrderMigration = 14,
 }
 
 // ── Card ID u32 Upgrade Path Consideration ─────────────────────────────────────
@@ -40,8 +49,11 @@ pub enum VirtualCardError {
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
+    Admin,
+    StorageVersion,
     CardCounter,
     CardMeta(u32),
+    CardMetaV2(u32),
     CardBalance(u32),
     CardStatus(u32),
     TxCounter,
@@ -75,6 +87,7 @@ pub enum CardType {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct Card {
+    pub schema_version: u32,
     pub id: u32,
     pub holder: Address,
     pub card_type: CardType,
@@ -82,6 +95,30 @@ pub struct Card {
     pub status: CardStatus,
     pub created_at: u64,
     pub expires_at: u64,
+}
+
+/// Legacy layout persisted before `schema_version` was introduced.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct CardV1 {
+    pub id: u32,
+    pub holder: Address,
+    pub card_type: CardType,
+    pub balance: i128,
+    pub status: CardStatus,
+    pub created_at: u64,
+    pub expires_at: u64,
+}
+
+// ============================================================================
+// Events
+// ============================================================================
+
+#[contractevent]
+pub struct StorageMigrationExecuted {
+    pub from_version: u32,
+    pub to_version: u32,
+    pub migrated_by: Address,
 }
 
 // ============================================================================
@@ -93,6 +130,116 @@ pub struct VirtualCardContract;
 
 #[contractimpl]
 impl VirtualCardContract {
+    /// Initialize the contract admin. Can only be called once.
+    pub fn init(env: Env, admin: Address) -> Result<(), VirtualCardError> {
+        if env.storage().instance().has(&DataKey::Admin) {
+            return Err(VirtualCardError::Unauthorized);
+        }
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage()
+            .instance()
+            .set(&DataKey::StorageVersion, &STORAGE_VERSION);
+        Ok(())
+    }
+
+    fn require_admin(env: &Env) -> Result<Address, VirtualCardError> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(VirtualCardError::Unauthorized)?;
+        admin.require_auth();
+        Ok(admin)
+    }
+
+    /// Migrate contract storage to a new schema version.
+    ///
+    /// This function MUST be called after a contract upgrade to handle schema changes.
+    /// It is idempotent and rejects out-of-order migrations.
+    ///
+    /// # Arguments
+    /// * `from_version` — The current storage schema version (must match on-chain state)
+    pub fn migrate(env: Env, from_version: u32) -> Result<(), VirtualCardError> {
+        let admin = Self::require_admin(&env)?;
+
+        let current_version: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::StorageVersion)
+            .unwrap_or(1);
+
+        if from_version < current_version {
+            return Err(VirtualCardError::MigrationAlreadyDone);
+        }
+        if from_version > current_version {
+            return Err(VirtualCardError::OutOfOrderMigration);
+        }
+
+        let target_version = from_version + 1;
+        if target_version > STORAGE_VERSION {
+            return Err(VirtualCardError::InvalidMigrationVersion);
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::StorageVersion, &target_version);
+
+        StorageMigrationExecuted {
+            from_version,
+            to_version: target_version,
+            migrated_by: admin,
+        }
+        .publish(&env);
+
+        Ok(())
+    }
+
+    pub fn get_storage_version(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::StorageVersion)
+            .unwrap_or(1)
+    }
+
+    fn from_v1(v1: CardV1) -> Card {
+        Card {
+            schema_version: CARD_SCHEMA_VERSION,
+            id: v1.id,
+            holder: v1.holder,
+            card_type: v1.card_type,
+            balance: v1.balance,
+            status: v1.status,
+            created_at: v1.created_at,
+            expires_at: v1.expires_at,
+        }
+    }
+
+    fn normalize_card(mut record: Card) -> Card {
+        if record.schema_version < CARD_SCHEMA_VERSION {
+            record.schema_version = CARD_SCHEMA_VERSION;
+        }
+        record
+    }
+
+    fn load_card(env: &Env, card_id: u32) -> Result<Card, VirtualCardError> {
+        let v2_key = DataKey::CardMetaV2(card_id);
+        if let Some(record) = env.storage().persistent().get::<DataKey, Card>(&v2_key) {
+            return Ok(Self::normalize_card(record));
+        }
+        let key = DataKey::CardMeta(card_id);
+        if let Some(legacy) = env.storage().persistent().get::<DataKey, CardV1>(&key) {
+            return Ok(Self::from_v1(legacy));
+        }
+        Err(VirtualCardError::CardNotFound)
+    }
+
+    fn store_card(env: &Env, card_id: u32, card: Card) {
+        let record = Self::normalize_card(card);
+        env.storage()
+            .persistent()
+            .set(&DataKey::CardMetaV2(card_id), &record);
+    }
+
     /// Issue a new virtual card for a user with an initial balance.
     /// Emits a `card_issued` event.
     pub fn issue_card(
@@ -127,6 +274,7 @@ impl VirtualCardContract {
             .set(&DataKey::CardCounter, &card_id);
 
         let card = Card {
+            schema_version: CARD_SCHEMA_VERSION,
             id: card_id,
             holder: user.clone(),
             card_type,
@@ -136,12 +284,10 @@ impl VirtualCardContract {
             expires_at,
         };
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::CardMeta(card_id), &card);
+        Self::store_card(&env, card_id, card);
 
         env.events().publish(
-            (Symbol::new(&env, "card_issued"), user),
+            (soroban_sdk::Symbol::new(&env, "card_issued"), user),
             (card_id, amount, current_ts),
         );
 
@@ -161,11 +307,7 @@ impl VirtualCardContract {
             return Err(VirtualCardError::InvalidInput);
         }
 
-        let mut card: Card = env
-            .storage()
-            .persistent()
-            .get(&DataKey::CardMeta(card_id))
-            .ok_or(VirtualCardError::CardNotFound)?;
+        let mut card = Self::load_card(&env, card_id)?;
 
         card.holder.require_auth();
 
@@ -176,9 +318,7 @@ impl VirtualCardContract {
         let current_ts = env.ledger().timestamp();
         if card.expires_at > 0 && current_ts > card.expires_at {
             card.status = CardStatus::Closed;
-            env.storage()
-                .persistent()
-                .set(&DataKey::CardMeta(card_id), &card);
+            Self::store_card(&env, card_id, card);
             return Err(VirtualCardError::Expired);
         }
 
@@ -193,9 +333,7 @@ impl VirtualCardContract {
             card.status = CardStatus::Closed;
         }
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::CardMeta(card_id), &card);
+        Self::store_card(&env, card_id, card);
 
         // Increment transaction counter
         let tx_count: u32 = env
@@ -221,16 +359,14 @@ impl VirtualCardContract {
 
     /// Returns the current balance of a card.
     pub fn get_balance(env: Env, card_id: u32) -> i128 {
-        let card: Option<Card> = env.storage().persistent().get(&DataKey::CardMeta(card_id));
-        card.map(|c| c.balance).unwrap_or(0)
+        Self::load_card(&env, card_id)
+            .map(|c| c.balance)
+            .unwrap_or(0)
     }
 
     /// Returns the full card metadata.
     pub fn get_card(env: Env, card_id: u32) -> Result<Card, VirtualCardError> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::CardMeta(card_id))
-            .ok_or(VirtualCardError::CardNotFound)
+        Self::load_card(&env, card_id)
     }
 
     /// Activate a pending card. Caller must be the card holder.
@@ -238,11 +374,7 @@ impl VirtualCardContract {
     pub fn activate_card(env: Env, card_id: u32, caller: Address) -> Result<(), VirtualCardError> {
         caller.require_auth();
 
-        let mut card: Card = env
-            .storage()
-            .persistent()
-            .get(&DataKey::CardMeta(card_id))
-            .ok_or(VirtualCardError::CardNotFound)?;
+        let mut card = Self::load_card(&env, card_id)?;
 
         if card.holder != caller {
             return Err(VirtualCardError::Unauthorized);
@@ -253,9 +385,7 @@ impl VirtualCardContract {
         }
 
         card.status = CardStatus::Active;
-        env.storage()
-            .persistent()
-            .set(&DataKey::CardMeta(card_id), &card);
+        Self::store_card(&env, card_id, card);
 
         env.events().publish(
             (Symbol::new(&env, "card_activated"), caller),
@@ -275,20 +405,14 @@ impl VirtualCardContract {
     ) -> Result<(), VirtualCardError> {
         caller.require_auth();
 
-        let mut card: Card = env
-            .storage()
-            .persistent()
-            .get(&DataKey::CardMeta(card_id))
-            .ok_or(VirtualCardError::CardNotFound)?;
+        let mut card = Self::load_card(&env, card_id)?;
 
         if card.holder != caller {
             return Err(VirtualCardError::Unauthorized);
         }
 
         card.status = CardStatus::Closed;
-        env.storage()
-            .persistent()
-            .set(&DataKey::CardMeta(card_id), &card);
+        Self::store_card(&env, card_id, card);
 
         env.events().publish(
             (
@@ -305,11 +429,7 @@ impl VirtualCardContract {
     pub fn suspend_card(env: Env, card_id: u32, caller: Address) -> Result<(), VirtualCardError> {
         caller.require_auth();
 
-        let mut card: Card = env
-            .storage()
-            .persistent()
-            .get(&DataKey::CardMeta(card_id))
-            .ok_or(VirtualCardError::CardNotFound)?;
+        let mut card = Self::load_card(&env, card_id)?;
 
         if card.holder != caller {
             return Err(VirtualCardError::Unauthorized);
@@ -320,9 +440,7 @@ impl VirtualCardContract {
         }
 
         card.status = CardStatus::Suspended;
-        env.storage()
-            .persistent()
-            .set(&DataKey::CardMeta(card_id), &card);
+        Self::store_card(&env, card_id, card);
 
         env.events().publish(
             (Symbol::new(&env, "card_suspended"), caller),
@@ -334,16 +452,16 @@ impl VirtualCardContract {
 
     /// Verify that `claimant` is the holder of `card_id`.
     pub fn verify_ownership(env: Env, card_id: u32, claimant: Address) -> bool {
-        let card: Option<Card> = env.storage().persistent().get(&DataKey::CardMeta(card_id));
-        card.map(|c| c.holder == claimant).unwrap_or(false)
+        Self::load_card(&env, card_id)
+            .map(|c| c.holder == claimant)
+            .unwrap_or(false)
     }
 
     /// Check whether a card is eligible to process a given `amount`.
     pub fn can_transact(env: Env, card_id: u32, amount: i128) -> bool {
-        let card: Option<Card> = env.storage().persistent().get(&DataKey::CardMeta(card_id));
-        match card {
-            None => false,
-            Some(c) => {
+        match Self::load_card(&env, card_id) {
+            Err(_) => false,
+            Ok(c) => {
                 if c.status != CardStatus::Active {
                     return false;
                 }
@@ -532,5 +650,79 @@ mod tests {
             VirtualCardError::InternalError,
         ];
         assert_eq!(errors.len(), 10);
+    }
+
+    #[test]
+    fn test_v1_card_survives_storage_migration() {
+        let (env, user) = setup();
+        let admin = Address::generate(&env);
+        let contract_id = env.register(VirtualCardContract, ());
+        let client = VirtualCardContractClient::new(&env, &contract_id);
+        client.init(&admin);
+
+        let now = env.ledger().timestamp();
+        let legacy = CardV1 {
+            id: 1,
+            holder: user.clone(),
+            card_type: CardType::Premium,
+            balance: 7500,
+            status: CardStatus::Active,
+            created_at: now,
+            expires_at: now + 86400,
+        };
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .instance()
+                .set(&DataKey::StorageVersion, &1u32);
+            env.storage()
+                .persistent()
+                .set(&DataKey::CardMeta(1u32), &legacy);
+            env.storage()
+                .instance()
+                .set(&DataKey::CardCounter, &1u32);
+        });
+
+        client.migrate(&1u32);
+
+        let card = client.get_card(&1u32);
+        assert_eq!(card.schema_version, CARD_SCHEMA_VERSION);
+        assert_eq!(card.balance, 7500);
+        assert_eq!(card.holder, user);
+        assert_eq!(card.card_type, CardType::Premium);
+        assert_eq!(client.get_storage_version(), STORAGE_VERSION);
+
+        client.process_payment(&1u32, &500_i128, &String::from_str(&env, "merchant"));
+        let upgraded = client.get_card(&1u32);
+        assert_eq!(upgraded.schema_version, CARD_SCHEMA_VERSION);
+        assert_eq!(upgraded.balance, 7000);
+    }
+
+    #[test]
+    fn test_migrate_rejects_out_of_order_and_is_idempotent() {
+        let (env, _user) = setup();
+        let admin = Address::generate(&env);
+        let contract_id = env.register(VirtualCardContract, ());
+        let client = VirtualCardContractClient::new(&env, &contract_id);
+        client.init(&admin);
+
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .instance()
+                .set(&DataKey::StorageVersion, &1u32);
+        });
+
+        client.migrate(&1u32);
+        assert_eq!(client.get_storage_version(), STORAGE_VERSION);
+
+        let repeat = client.try_migrate(&1u32);
+        assert_eq!(repeat, Err(Ok(VirtualCardError::MigrationAlreadyDone)));
+
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .instance()
+                .set(&DataKey::StorageVersion, &1u32);
+        });
+        let skip = client.try_migrate(&2u32);
+        assert_eq!(skip, Err(Ok(VirtualCardError::OutOfOrderMigration)));
     }
 }

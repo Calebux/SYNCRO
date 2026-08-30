@@ -5,14 +5,21 @@ use soroban_sdk::{
     panic_with_error, token, Address, Env, String,
 };
 
+/// Current on-chain schema version for [`EscrowAgreement`] records.
+pub const ESCROW_SCHEMA_VERSION: u32 = 2;
+/// Latest contract-level storage version (instance [`DataKey::StorageVersion`]).
+pub const STORAGE_VERSION: u32 = 2;
+
 // ── Storage keys ──────────────────────────────────────────────────────────────
 
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
     Escrow(u64),
+    EscrowV2(u64),
     EscrowCount,
     Admin,
+    StorageVersion,
 }
 
 // ── Data types ────────────────────────────────────────────────────────────────
@@ -51,6 +58,27 @@ pub enum DisputeResolution {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EscrowAgreement {
+    pub schema_version: u32,
+    pub id: u64,
+    pub payer: Address,
+    pub payee: Address,
+    pub arbiter: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub deposited: i128,
+    pub state: EscrowState,
+    pub created_at: u64,
+    pub expires_at: u64,
+    pub description: String,
+    pub arbiter_approved: bool,
+    pub payer_confirmed: bool,
+    pub payee_confirmed: bool,
+}
+
+/// Legacy layout persisted before `schema_version` was introduced.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EscrowAgreementV1 {
     pub id: u64,
     pub payer: Address,
     pub payee: Address,
@@ -92,6 +120,9 @@ pub enum EscrowError {
     InvalidBasisPoints = 19,
     ArithmeticOverflow = 20,
     CounterOverflow = 21,
+    MigrationAlreadyDone = 22,
+    InvalidMigrationVersion = 23,
+    OutOfOrderMigration = 24,
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
@@ -115,6 +146,13 @@ pub struct EscrowFunded {
 pub struct EscrowApproved {
     pub escrow_id: u64,
     pub arbiter: Address,
+}
+
+#[contractevent]
+pub struct StorageMigrationExecuted {
+    pub from_version: u32,
+    pub to_version: u32,
+    pub migrated_by: Address,
 }
 
 #[contractevent]
@@ -164,6 +202,9 @@ impl EscrowContract {
             panic_with_error!(&env, EscrowError::AlreadyInitialized);
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage()
+            .instance()
+            .set(&DataKey::StorageVersion, &STORAGE_VERSION);
     }
 
     fn require_admin(env: &Env) {
@@ -173,6 +214,119 @@ impl EscrowContract {
             .get(&DataKey::Admin)
             .expect("not initialized");
         admin.require_auth();
+    }
+
+    /// Migrate contract storage to a new schema version.
+    ///
+    /// This function MUST be called after a contract upgrade to handle schema changes.
+    /// It is idempotent and rejects out-of-order migrations.
+    ///
+    /// # Arguments
+    /// * `from_version` — The current storage schema version (must match on-chain state)
+    ///
+    /// # Errors
+    /// * `Unauthorized` if caller is not the admin
+    /// * `MigrationAlreadyDone` if migration for this version was already executed
+    /// * `OutOfOrderMigration` if from_version doesn't match current storage version
+    /// * `InvalidMigrationVersion` if attempting to migrate to an unsupported version
+    pub fn migrate(env: Env, from_version: u32) -> Result<(), EscrowError> {
+        Self::require_admin(&env);
+
+        let current_version: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::StorageVersion)
+            .unwrap_or(1);
+
+        if from_version < current_version {
+            return Err(EscrowError::MigrationAlreadyDone);
+        }
+        if from_version > current_version {
+            return Err(EscrowError::OutOfOrderMigration);
+        }
+
+        let target_version = from_version + 1;
+        if target_version > STORAGE_VERSION {
+            return Err(EscrowError::InvalidMigrationVersion);
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::StorageVersion, &target_version);
+
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("not initialized");
+
+        StorageMigrationExecuted {
+            from_version,
+            to_version: target_version,
+            migrated_by: admin,
+        }
+        .publish(&env);
+
+        Ok(())
+    }
+
+    pub fn get_storage_version(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::StorageVersion)
+            .unwrap_or(1)
+    }
+
+    fn from_v1(v1: EscrowAgreementV1) -> EscrowAgreement {
+        EscrowAgreement {
+            schema_version: ESCROW_SCHEMA_VERSION,
+            id: v1.id,
+            payer: v1.payer,
+            payee: v1.payee,
+            arbiter: v1.arbiter,
+            token: v1.token,
+            amount: v1.amount,
+            deposited: v1.deposited,
+            state: v1.state,
+            created_at: v1.created_at,
+            expires_at: v1.expires_at,
+            description: v1.description,
+            arbiter_approved: v1.arbiter_approved,
+            payer_confirmed: v1.payer_confirmed,
+            payee_confirmed: v1.payee_confirmed,
+        }
+    }
+
+    fn normalize_escrow(mut record: EscrowAgreement) -> EscrowAgreement {
+        if record.schema_version < ESCROW_SCHEMA_VERSION {
+            record.schema_version = ESCROW_SCHEMA_VERSION;
+        }
+        record
+    }
+
+    fn load_escrow(env: &Env, escrow_id: u64) -> EscrowAgreement {
+        let v2_key = DataKey::EscrowV2(escrow_id);
+        if let Some(record) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, EscrowAgreement>(&v2_key)
+        {
+            return Self::normalize_escrow(record);
+        }
+        let key = DataKey::Escrow(escrow_id);
+        let legacy: EscrowAgreementV1 = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .expect("escrow not found");
+        Self::from_v1(legacy)
+    }
+
+    fn store_escrow(env: &Env, escrow_id: u64, escrow: &EscrowAgreement) {
+        let record = Self::normalize_escrow(escrow.clone());
+        env.storage()
+            .persistent()
+            .set(&DataKey::EscrowV2(escrow_id), &record);
     }
 
     // ── Escrow lifecycle ──────────────────────────────────────────
@@ -228,6 +382,7 @@ impl EscrowContract {
         }
 
         let escrow = EscrowAgreement {
+            schema_version: ESCROW_SCHEMA_VERSION,
             id: escrow_id,
             payer: payer.clone(),
             payee: payee.clone(),
@@ -244,9 +399,7 @@ impl EscrowContract {
             payee_confirmed: false,
         };
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Escrow(escrow_id), &escrow);
+        Self::store_escrow(&env, escrow_id, &escrow);
         env.storage()
             .instance()
             .set(&DataKey::EscrowCount, &escrow_id);
@@ -267,11 +420,7 @@ impl EscrowContract {
     /// Only the designated payer may fund the escrow.
     /// The full `amount` must be deposited in a single call.
     pub fn deposit(env: Env, escrow_id: u64) {
-        let mut escrow: EscrowAgreement = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Escrow(escrow_id))
-            .expect("escrow not found");
+        let mut escrow = Self::load_escrow(&env, escrow_id);
 
         if escrow.state != EscrowState::Created {
             panic_with_error!(&env, EscrowError::AlreadyFunded);
@@ -289,9 +438,7 @@ impl EscrowContract {
         escrow.deposited = escrow.amount;
         escrow.state = EscrowState::Funded;
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Escrow(escrow_id), &escrow);
+        Self::store_escrow(&env, escrow_id, &escrow);
 
         EscrowFunded {
             escrow_id,
@@ -309,11 +456,7 @@ impl EscrowContract {
     /// * Escrow must be in `Funded` state
     /// * Arbiter authentication is strictly required
     pub fn approve_release(env: Env, escrow_id: u64) {
-        let mut escrow: EscrowAgreement = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Escrow(escrow_id))
-            .expect("escrow not found");
+        let mut escrow = Self::load_escrow(&env, escrow_id);
 
         if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Disputed {
             panic_with_error!(&env, EscrowError::NotFunded);
@@ -327,9 +470,7 @@ impl EscrowContract {
         escrow.arbiter_approved = true;
         escrow.state = EscrowState::Approved;
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Escrow(escrow_id), &escrow);
+        Self::store_escrow(&env, escrow_id, &escrow);
 
         EscrowApproved {
             escrow_id,
@@ -345,11 +486,7 @@ impl EscrowContract {
     /// * Only the designated payee may receive the funds
     /// * Escrow must be in `Approved` state
     pub fn release(env: Env, escrow_id: u64) {
-        let mut escrow: EscrowAgreement = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Escrow(escrow_id))
-            .expect("escrow not found");
+        let mut escrow = Self::load_escrow(&env, escrow_id);
 
         if escrow.state == EscrowState::Released {
             panic_with_error!(&env, EscrowError::AlreadyReleased);
@@ -370,9 +507,7 @@ impl EscrowContract {
 
         escrow.state = EscrowState::Released;
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Escrow(escrow_id), &escrow);
+        Self::store_escrow(&env, escrow_id, &escrow);
 
         EscrowReleased {
             escrow_id,
@@ -390,11 +525,7 @@ impl EscrowContract {
     ///
     /// This protects the payer from funds being locked indefinitely.
     pub fn refund(env: Env, escrow_id: u64) {
-        let mut escrow: EscrowAgreement = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Escrow(escrow_id))
-            .expect("escrow not found");
+        let mut escrow = Self::load_escrow(&env, escrow_id);
 
         if escrow.state == EscrowState::Refunded {
             panic_with_error!(&env, EscrowError::AlreadyRefunded);
@@ -429,9 +560,7 @@ impl EscrowContract {
 
         escrow.state = EscrowState::Refunded;
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Escrow(escrow_id), &escrow);
+        Self::store_escrow(&env, escrow_id, &escrow);
 
         EscrowRefunded {
             escrow_id,
@@ -444,11 +573,7 @@ impl EscrowContract {
     /// Raise a dispute for an escrow.
     /// Either payer or payee may raise a dispute.
     pub fn raise_dispute(env: Env, escrow_id: u64, caller: Address) {
-        let mut escrow: EscrowAgreement = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Escrow(escrow_id))
-            .expect("escrow not found");
+        let mut escrow = Self::load_escrow(&env, escrow_id);
 
         if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Approved {
             panic_with_error!(&env, EscrowError::NotFunded);
@@ -461,9 +586,7 @@ impl EscrowContract {
 
         escrow.state = EscrowState::Disputed;
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Escrow(escrow_id), &escrow);
+        Self::store_escrow(&env, escrow_id, &escrow);
 
         EscrowDisputed {
             escrow_id,
@@ -487,11 +610,7 @@ impl EscrowContract {
     /// * Validates basis points are within 0-10000 range
     /// * Ensures total distributed equals deposited amount
     pub fn resolve_dispute(env: Env, escrow_id: u64, resolution: DisputeResolution) {
-        let mut escrow: EscrowAgreement = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Escrow(escrow_id))
-            .expect("escrow not found");
+        let mut escrow = Self::load_escrow(&env, escrow_id);
 
         if escrow.state != EscrowState::Disputed {
             panic_with_error!(&env, EscrowError::NotInDispute);
@@ -564,9 +683,7 @@ impl EscrowContract {
             }
         };
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Escrow(escrow_id), &escrow);
+        Self::store_escrow(&env, escrow_id, &escrow);
 
         EscrowResolved {
             escrow_id,
@@ -580,10 +697,7 @@ impl EscrowContract {
     // ── Queries ───────────────────────────────────────────────────
 
     pub fn get_escrow(env: Env, escrow_id: u64) -> EscrowAgreement {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Escrow(escrow_id))
-            .expect("escrow not found")
+        Self::load_escrow(&env, escrow_id)
     }
 
     pub fn get_escrow_count(env: Env) -> u64 {
@@ -595,11 +709,7 @@ impl EscrowContract {
 
     /// Check if an escrow can be refunded (either not approved yet, or expired).
     pub fn is_refundable(env: Env, escrow_id: u64) -> bool {
-        let escrow: EscrowAgreement = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Escrow(escrow_id))
-            .expect("escrow not found");
+        let escrow = Self::load_escrow(&env, escrow_id);
 
         let now = env.ledger().timestamp();
         let expired = now >= escrow.expires_at;
@@ -612,11 +722,7 @@ impl EscrowContract {
 
     /// Check if an escrow can be released (arbiter approved and payee hasn't claimed).
     pub fn is_releasable(env: Env, escrow_id: u64) -> bool {
-        let escrow: EscrowAgreement = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Escrow(escrow_id))
-            .expect("escrow not found");
+        let escrow = Self::load_escrow(&env, escrow_id);
 
         escrow.state == EscrowState::Approved
     }
@@ -1121,6 +1227,96 @@ mod test {
 
         // Critical: verify no funds are lost or created
         assert_eq!(payee_received + payer_received, amount);
+    }
+
+    // ── Schema migration tests ─────────────────────────────────────
+
+    #[test]
+    fn test_v1_escrow_survives_storage_migration() {
+        let (env, payer, payee, arbiter, token, _token_client) = setup();
+        let contract_id = env.register_contract(None, EscrowContract);
+        let client = EscrowContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.init(&admin);
+
+        // Simulate pre-upgrade on-chain state: legacy v1 layout, storage version 1.
+        let expiry = env.ledger().timestamp() + 86400;
+        let desc = String::from_str(&env, "Legacy escrow");
+        let legacy = EscrowAgreementV1 {
+            id: 1,
+            payer: payer.clone(),
+            payee: payee.clone(),
+            arbiter: arbiter.clone(),
+            token: token.clone(),
+            amount: 2_000_000_000i128,
+            deposited: 2_000_000_000i128,
+            state: EscrowState::Funded,
+            created_at: env.ledger().timestamp(),
+            expires_at: expiry,
+            description: desc,
+            arbiter_approved: false,
+            payer_confirmed: false,
+            payee_confirmed: false,
+        };
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .instance()
+                .set(&DataKey::StorageVersion, &1u32);
+            env.storage()
+                .persistent()
+                .set(&DataKey::Escrow(1u64), &legacy);
+            env.storage()
+                .instance()
+                .set(&DataKey::EscrowCount, &1u64);
+        });
+
+        // Admin runs the one-step storage migration after WASM upgrade.
+        client.migrate(&1u32);
+
+        let agreement = client.get_escrow(&1u64);
+        assert_eq!(agreement.schema_version, ESCROW_SCHEMA_VERSION);
+        assert_eq!(agreement.amount, 2_000_000_000i128);
+        assert_eq!(agreement.payer, payer);
+        assert_eq!(agreement.payee, payee);
+        assert_eq!(agreement.state, EscrowState::Funded);
+        assert_eq!(client.get_storage_version(), STORAGE_VERSION);
+
+        // Write path lazily re-persists the upgraded record.
+        client.approve_release(&1u64);
+        let upgraded = client.get_escrow(&1u64);
+        assert_eq!(upgraded.schema_version, ESCROW_SCHEMA_VERSION);
+        assert!(upgraded.arbiter_approved);
+    }
+
+    #[test]
+    fn test_migrate_rejects_out_of_order_and_is_idempotent() {
+        let (env, _payer, _payee, _arbiter, _token, _token_client) = setup();
+        let contract_id = env.register_contract(None, EscrowContract);
+        let client = EscrowContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.init(&admin);
+
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .instance()
+                .set(&DataKey::StorageVersion, &1u32);
+        });
+
+        client.migrate(&1u32);
+        assert_eq!(client.get_storage_version(), STORAGE_VERSION);
+
+        // Already migrated — repeating the same step is rejected.
+        let repeat = client.try_migrate(&1u32);
+        assert_eq!(repeat, Err(Ok(EscrowError::MigrationAlreadyDone)));
+
+        // Skipping ahead is rejected.
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .instance()
+                .set(&DataKey::StorageVersion, &1u32);
+        });
+        let skip = client.try_migrate(&2u32);
+        assert_eq!(skip, Err(Ok(EscrowError::OutOfOrderMigration)));
     }
 }
 

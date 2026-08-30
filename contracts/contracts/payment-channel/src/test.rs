@@ -409,3 +409,82 @@ fn unauthorized_dispute_fails() {
     let result = client.try_dispute(&channel_id, &80, &20, &2, &attacker1, &attacker2);
     assert_eq!(result, Err(Ok(Error::Unauthorized)));
 }
+
+// ── Schema migration tests ────────────────────────────────────────────────────
+
+#[test]
+fn v1_channel_survives_storage_migration() {
+    let (env, admin, depositor, counterparty, token, _token_client) = setup();
+    let contract_id = env.register_contract(None, PaymentChannelContract);
+    let client = PaymentChannelContractClient::new(&env, &contract_id);
+    client.init(&admin);
+
+    let now = env.ledger().timestamp();
+    let legacy = PaymentChannelV1 {
+        id: 1,
+        depositor: depositor.clone(),
+        counterparty: counterparty.clone(),
+        token: token.clone(),
+        balance_a: 500,
+        balance_b: 100,
+        sequence: 3,
+        state: ChannelState::Open,
+        dispute_deadline: now + 3600,
+        closing_started_at: 0,
+    };
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .instance()
+            .set(&DataKey::StorageVersion, &1u32);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Channel(1u64), &legacy);
+        env.storage()
+            .instance()
+            .set(&DataKey::ChannelCount, &1u64);
+    });
+
+    client.migrate(&1u32);
+
+    let channel = client.get_channel(&1u64).unwrap();
+    assert_eq!(channel.schema_version, CHANNEL_SCHEMA_VERSION);
+    assert_eq!(channel.balance_a, 500);
+    assert_eq!(channel.balance_b, 100);
+    assert_eq!(channel.sequence, 3);
+    assert_eq!(channel.depositor, depositor);
+    assert_eq!(client.get_storage_version(), STORAGE_VERSION);
+
+    // Lazy upgrade on write: submit_state re-persists at current schema version.
+    client.submit_state(&1u64, &450, &150, &4, &depositor, &counterparty);
+    let upgraded = client.get_channel(&1u64).unwrap();
+    assert_eq!(upgraded.schema_version, CHANNEL_SCHEMA_VERSION);
+    assert_eq!(upgraded.balance_a, 450);
+}
+
+#[test]
+fn migrate_rejects_out_of_order_and_is_idempotent() {
+    let (env, admin, _depositor, _counterparty, _token, _token_client) = setup();
+    let contract_id = env.register_contract(None, PaymentChannelContract);
+    let client = PaymentChannelContractClient::new(&env, &contract_id);
+    client.init(&admin);
+
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .instance()
+            .set(&DataKey::StorageVersion, &1u32);
+    });
+
+    client.migrate(&1u32);
+    assert_eq!(client.get_storage_version(), STORAGE_VERSION);
+
+    let repeat = client.try_migrate(&1u32);
+    assert_eq!(repeat, Err(Ok(Error::MigrationAlreadyDone)));
+
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .instance()
+            .set(&DataKey::StorageVersion, &1u32);
+    });
+    let skip = client.try_migrate(&2u32);
+    assert_eq!(skip, Err(Ok(Error::OutOfOrderMigration)));
+}
