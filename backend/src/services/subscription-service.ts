@@ -1,7 +1,6 @@
 import { supabase } from "../config/database";
 import { blockchainService } from "./blockchain-service";
 import { renewalCooldownService } from "./renewal-cooldown-service";
-import { analyticsService } from "./analytics-service";
 import { webhookService } from "./webhook-service";
 import { referralService } from "./referral-service";
 import { userPreferenceService } from "./user-preference-service";
@@ -19,6 +18,8 @@ import type {
   ListSubscriptionsResult,
 } from "../types/subscription";
 import { queryCacheService } from "./query-cache-service";
+import { domainEventBus } from "../lib/event-bus";
+import type { SubscriptionCreatedEvent, SubscriptionUpdatedEvent, SubscriptionDeletedEvent, SubscriptionCancelledEvent, SubscriptionRestoredEvent } from "@syncro/shared/domain-events";
 
 export interface BlockchainSyncResult {
   success: boolean;
@@ -30,6 +31,110 @@ export interface SubscriptionSyncResult {
   subscription: Subscription;
   blockchainResult?: BlockchainSyncResult;
   syncStatus: "synced" | "partial" | "failed";
+}
+
+function makeEventId(): string {
+  return `evt_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function buildCreatedEvent(userId: string, subscription: Subscription): SubscriptionCreatedEvent {
+  return {
+    eventName: 'subscription.created',
+    eventId: makeEventId(),
+    occurredAt: new Date().toISOString(),
+    userId,
+    subscriptionId: subscription.id,
+    subscription: {
+      id: subscription.id,
+      name: subscription.name,
+      provider: subscription.provider,
+      price: subscription.price,
+      currency: subscription.currency,
+      billingCycle: subscription.billing_cycle,
+      category: subscription.category,
+      status: subscription.status,
+      nextBillingDate: subscription.next_billing_date,
+      stealthIndex: subscription.stealth_index,
+      stealthAddress: subscription.stealth_address,
+    },
+  };
+}
+
+function buildUpdatedEvent(userId: string, subscription: Subscription, previousStatus: string, updatedFields: string[]): SubscriptionUpdatedEvent {
+  return {
+    eventName: 'subscription.updated',
+    eventId: makeEventId(),
+    occurredAt: new Date().toISOString(),
+    userId,
+    subscriptionId: subscription.id,
+    previousStatus,
+    updatedFields,
+    subscription: {
+      id: subscription.id,
+      name: subscription.name,
+      provider: subscription.provider,
+      price: subscription.price,
+      currency: subscription.currency,
+      billingCycle: subscription.billing_cycle,
+      category: subscription.category,
+      status: subscription.status,
+      nextBillingDate: subscription.next_billing_date,
+    },
+  };
+}
+
+function buildDeletedEvent(userId: string, subscriptionId: string, previousStatus: string): SubscriptionDeletedEvent {
+  return {
+    eventName: 'subscription.deleted',
+    eventId: makeEventId(),
+    occurredAt: new Date().toISOString(),
+    userId,
+    subscriptionId,
+    previousStatus,
+  };
+}
+
+function buildCancelledEvent(userId: string, subscriptionId: string, previousStatus: string): SubscriptionCancelledEvent {
+  return {
+    eventName: 'subscription.cancelled',
+    eventId: makeEventId(),
+    occurredAt: new Date().toISOString(),
+    userId,
+    subscriptionId,
+    previousStatus,
+  };
+}
+
+function buildRestoredEvent(userId: string, subscriptionId: string): SubscriptionRestoredEvent {
+  return {
+    eventName: 'subscription.restored',
+    eventId: makeEventId(),
+    occurredAt: new Date().toISOString(),
+    userId,
+    subscriptionId,
+  };
+}
+
+function buildPausedEvent(userId: string, subscriptionId: string, reason?: string, resumeAt?: string): SubscriptionPausedEvent {
+  return {
+    eventName: 'subscription.paused',
+    eventId: makeEventId(),
+    occurredAt: new Date().toISOString(),
+    userId,
+    subscriptionId,
+    reason,
+    resumeAt,
+  };
+}
+
+function buildResumedEvent(userId: string, subscriptionId: string): SubscriptionResumedEvent {
+  return {
+    eventName: 'subscription.resumed',
+    eventId: makeEventId(),
+    occurredAt: new Date().toISOString(),
+    userId,
+    subscriptionId,
+  };
 }
 
 /**
@@ -138,14 +243,10 @@ export class SubscriptionService {
           };
         }
 
-        // Trigger budget check (don't let it block response)
-        analyticsService.checkBudgetThreshold(userId).catch(e =>
-          logger.error('Background budget check failed:', e)
-        );
-
-        // Trigger referral conversion on first subscription (non-blocking)
-        referralService.markConverted(userId).catch(e =>
-          logger.error('Background referral conversion check failed:', e)
+        // Publish subscription created event for cross-cutting reactions
+        const createdEvent = buildCreatedEvent(userId, subscription);
+        domainEventBus.publish(createdEvent).catch(e =>
+          logger.error('Failed to publish subscription.created event:', e)
         );
 
         return {
@@ -247,10 +348,10 @@ export class SubscriptionService {
           };
         }
 
-        // 5. Log and trigger budget check
-        logger.info("Subscription deleted", { subscriptionId, userId, syncStatus });
-        analyticsService.checkBudgetThreshold(userId).catch(e =>
-          logger.error('Background budget check failed:', e)
+        // 5. Publish subscription deleted event
+        const deletedEvent = buildDeletedEvent(userId, subscriptionId, existing.status);
+        domainEventBus.publish(deletedEvent).catch(e =>
+          logger.error('Failed to publish subscription.deleted event:', e)
         );
 
         return {
@@ -341,6 +442,12 @@ export class SubscriptionService {
           };
         }
 
+        // Publish subscription cancelled event
+        const cancelledEvent = buildCancelledEvent(userId, subscriptionId, subscription.status);
+        domainEventBus.publish(cancelledEvent).catch(e =>
+          logger.error('Failed to publish subscription.cancelled event:', e)
+        );
+
         return {
           subscription: updatedSubscription,
           blockchainResult,
@@ -422,6 +529,12 @@ export class SubscriptionService {
             error: blockchainError instanceof Error ? blockchainError.message : String(blockchainError),
           };
         }
+
+        // Publish subscription restored event
+        const restoredEvent = buildRestoredEvent(userId, subscriptionId);
+        domainEventBus.publish(restoredEvent).catch(e =>
+          logger.error('Failed to publish subscription.restored event:', e)
+        );
 
         logger.info("Subscription restored", { subscriptionId, userId, syncStatus });
         return { subscription, blockchainResult, syncStatus };
@@ -541,6 +654,11 @@ export class SubscriptionService {
         };
       }
 
+      const pausedEvent = buildPausedEvent(userId, subscriptionId, reason, resumeAt);
+      domainEventBus.publish(pausedEvent).catch(e =>
+        logger.error('Failed to publish subscription.paused event:', e)
+      );
+
       return {
         subscription: updatedSubscription,
         blockchainResult,
@@ -611,13 +729,23 @@ export class SubscriptionService {
         }
       } catch (blockchainError) {
         syncStatus = "partial";
-        logger.error("Blockchain sync error (non-fatal):", blockchainError);
+        logger.error("Blockchain sync error during resume (non-fatal):", blockchainError);
         blockchainResult = {
           success: false,
-          error: blockchainError instanceof Error
-            ? blockchainError.message
-            : String(blockchainError),
+          error: blockchainError instanceof Error ? blockchainError.message : String(blockchainError),
         };
+      }
+
+      const resumedEvent = buildResumedEvent(userId, subscriptionId);
+      domainEventBus.publish(resumedEvent).catch(e =>
+        logger.error('Failed to publish subscription.resumed event:', e)
+      );
+
+      return {
+        subscription: updatedSubscription,
+        blockchainResult,
+        syncStatus,
+      };
       }
 
       return {
@@ -705,9 +833,11 @@ export class SubscriptionService {
           };
         }
 
-        // Trigger budget check
-        analyticsService.checkBudgetThreshold(userId).catch(e =>
-          logger.error('Background budget check failed:', e)
+        // Publish subscription updated event for cross-cutting reactions
+        const updatedFields = Object.keys(input).filter(key => key !== 'id');
+        const updatedEvent = buildUpdatedEvent(userId, subscription, existing.status, updatedFields);
+        domainEventBus.publish(updatedEvent).catch(e =>
+          logger.error('Failed to publish subscription.updated event:', e)
         );
 
         return {

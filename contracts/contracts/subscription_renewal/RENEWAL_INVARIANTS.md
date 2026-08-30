@@ -179,6 +179,8 @@ A processing lock prevents concurrent renewal execution.
 - **I-L4** The lock is **always released** at the end of `renew()`, whether the renewal succeeds or fails.
 - **I-L5** An expired lock can be re-acquired; `RenewalLockExpired` is emitted when this happens.
 
+**Implementation note (2026-08-29):** renewal locks are stored in Soroban *temporary* storage with a TTL derived from the caller-supplied `lock_timeout`. This means locks automatically disappear after their TTL and do not require explicit admin cleanup. Callers must supply `lock_timeout` within configured bounds; values outside the allowed range are rejected.
+
 ---
 
 ## 5. Cycle Deduplication Invariants

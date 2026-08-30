@@ -30,7 +30,7 @@ import logger from './config/logger';
 import { requestIdMiddleware } from './middleware/requestContext';
 import { requestLoggerMiddleware } from './middleware/requestLogger';
 import { schedulerService } from './services/scheduler';
-import { reminderEngine } from './services/reminder-engine';
+import { container } from './services/container';
 import { notificationPreferenceService } from './services/notification-preference-service';
 import subscriptionRoutes from './routes/subscriptions';
 import subscriptionShareRoutes from './routes/subscription-shares';
@@ -70,6 +70,14 @@ import { healthService } from './services/health-service';
 import { dependencyHealthService } from './services/dependency-health-service';
 import { eventListener } from './services/event-listener';
 import { expiryService } from './services/expiry-service';
+import { outboxPublisher } from './lib/outbox-publisher';
+import {
+  auditLogSubscriber,
+  riskScoreSubscriber,
+  reminderScheduleSubscriber,
+  analyticsInvalidationSubscriber,
+  digestUpdateSubscriber,
+} from './services/subscribers';
 import { authenticate } from './middleware/auth'
 import { adminAuth } from './middleware/admin';
 import { createAdminLimiter, RateLimiterFactory } from './middleware/rate-limit-factory';
@@ -509,7 +517,7 @@ app.get('/api/admin/health', createAdminLimiter(), adminAuth, async (req, res) =
 // Admin Process Triggers
 app.post('/api/reminders/process', createAdminLimiter(), adminAuth, async (req, res) => {
   try {
-    await reminderEngine.processReminders();
+    await container.reminderEngine.processReminders();
     res.json({ success: true, message: 'Reminders processed' });
   } catch (error) {
     logger.error('Error processing reminders:', error);
@@ -520,7 +528,7 @@ app.post('/api/reminders/process', createAdminLimiter(), adminAuth, async (req, 
 app.post('/api/reminders/schedule', createAdminLimiter(), adminAuth, async (req, res) => {
   try {
     const daysBefore = req.body.daysBefore || [7, 3, 1];
-    await reminderEngine.scheduleReminders(daysBefore);
+    await container.reminderEngine.scheduleReminders(daysBefore);
     res.json({ success: true, message: 'Reminders scheduled' });
   } catch (error) {
     logger.error('Error scheduling reminders:', error);
@@ -530,7 +538,7 @@ app.post('/api/reminders/schedule', createAdminLimiter(), adminAuth, async (req,
 
 app.post('/api/reminders/retry', createAdminLimiter(), adminAuth, async (req, res) => {
   try {
-    await reminderEngine.processRetries();
+    await container.reminderEngine.processRetries();
     res.json({ success: true, message: 'Retries processed' });
   } catch (error) {
     logger.error('Error processing retries:', error);
@@ -624,6 +632,29 @@ const server = app.listen(PORT, async () => {
     logger.warn('Rate limiting initialization failed, using memory store:', error);
   }
 
+  outboxPublisher.register('subscription.created', auditLogSubscriber.handle.bind(auditLogSubscriber));
+  outboxPublisher.register('subscription.updated', auditLogSubscriber.handle.bind(auditLogSubscriber));
+  outboxPublisher.register('subscription.deleted', auditLogSubscriber.handle.bind(auditLogSubscriber));
+  outboxPublisher.register('subscription.cancelled', auditLogSubscriber.handle.bind(auditLogSubscriber));
+  outboxPublisher.register('subscription.created', riskScoreSubscriber.handle.bind(riskScoreSubscriber));
+  outboxPublisher.register('renewal.succeeded', riskScoreSubscriber.handle.bind(riskScoreSubscriber));
+  outboxPublisher.register('renewal.failed', riskScoreSubscriber.handle.bind(riskScoreSubscriber));
+  outboxPublisher.register('payment.failed', riskScoreSubscriber.handle.bind(riskScoreSubscriber));
+  outboxPublisher.register('subscription.created', reminderScheduleSubscriber.handle.bind(reminderScheduleSubscriber));
+  outboxPublisher.register('subscription.restored', reminderScheduleSubscriber.handle.bind(reminderScheduleSubscriber));
+  outboxPublisher.register('subscription.updated', reminderScheduleSubscriber.handle.bind(reminderScheduleSubscriber));
+  outboxPublisher.register('subscription.deleted', reminderScheduleSubscriber.handle.bind(reminderScheduleSubscriber));
+  outboxPublisher.register('subscription.cancelled', reminderScheduleSubscriber.handle.bind(reminderScheduleSubscriber));
+  outboxPublisher.register('subscription.created', analyticsInvalidationSubscriber.handle.bind(analyticsInvalidationSubscriber));
+  outboxPublisher.register('subscription.updated', analyticsInvalidationSubscriber.handle.bind(analyticsInvalidationSubscriber));
+  outboxPublisher.register('subscription.deleted', analyticsInvalidationSubscriber.handle.bind(analyticsInvalidationSubscriber));
+  outboxPublisher.register('subscription.cancelled', analyticsInvalidationSubscriber.handle.bind(analyticsInvalidationSubscriber));
+  outboxPublisher.register('subscription.created', digestUpdateSubscriber.handle.bind(digestUpdateSubscriber));
+  outboxPublisher.register('subscription.updated', digestUpdateSubscriber.handle.bind(digestUpdateSubscriber));
+  outboxPublisher.register('subscription.deleted', digestUpdateSubscriber.handle.bind(digestUpdateSubscriber));
+  outboxPublisher.register('subscription.cancelled', digestUpdateSubscriber.handle.bind(digestUpdateSubscriber));
+  outboxPublisher.start();
+
   startHealthSnapshotInterval();
   await eventListener.start();
   const elHealth = eventListener.getHealth();
@@ -658,5 +689,6 @@ registerGracefulShutdown(server, {
   },
   stopEventListener: () => eventListener.stop(),
   stopTelegram: () => telegramCommandService.stop(),
+  stopOutboxPublisher: () => outboxPublisher.stop(),
   clearHealthSnapshotInterval,
 });

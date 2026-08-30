@@ -11,7 +11,7 @@ import integrationRoutes from '../integrations';
 import telegramRoutes from '../telegram';
 
 import { schedulerService } from '../../services/scheduler';
-import { reminderEngine } from '../../services/reminder-engine';
+import { container } from '../../services/container';
 import { monitoringService } from '../../services/monitoring-service';
 import { healthService } from '../../services/health-service';
 import { expiryService } from '../../services/expiry-service';
@@ -47,7 +47,7 @@ v1Router.get('/reminders/status', (req: express.Request, res: express.Response) 
 // VALIDATION_BYPASS: No request body or params needed
 v1Router.post('/reminders/process', adminAuth, async (req: express.Request, res: express.Response) => {
   try {
-    await reminderEngine.processReminders();
+    await container.reminderEngine.processReminders();
     res.json({ success: true, message: 'Reminders processed' });
   } catch (error) {
     logger.error('Error processing reminders:', error);
@@ -62,7 +62,7 @@ v1Router.post('/reminders/process', adminAuth, async (req: express.Request, res:
 v1Router.post('/reminders/schedule', adminAuth, async (req: express.Request, res: express.Response) => {
   try {
     const daysBefore = req.body.daysBefore || [7, 3, 1];
-    await reminderEngine.scheduleReminders(daysBefore);
+    await container.reminderEngine.scheduleReminders(daysBefore);
     res.json({ success: true, message: 'Reminders scheduled' });
   } catch (error) {
     logger.error('Error scheduling reminders:', error);
@@ -76,7 +76,7 @@ v1Router.post('/reminders/schedule', adminAuth, async (req: express.Request, res
 // VALIDATION_BYPASS: No request body or params needed
 v1Router.post('/reminders/retry', adminAuth, async (req: express.Request, res: express.Response) => {
   try {
-    await reminderEngine.processRetries();
+    await container.reminderEngine.processRetries();
     res.json({ success: true, message: 'Retries processed' });
   } catch (error) {
     logger.error('Error processing retries:', error);

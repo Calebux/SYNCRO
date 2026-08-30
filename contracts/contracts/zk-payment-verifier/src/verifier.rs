@@ -30,12 +30,8 @@
 use soroban_sdk::{Bytes, BytesN, Env};
 
 // 32-byte domain separators (tag || zero-padding)
-// Domain tag convention: "syncro:payment:*" (matches commitment.rs & nullifier.rs)
-const COMMIT_DOMAIN: &[u8; 32] =
-    b"syncro:payment:commit\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
-
-const NULL_DOMAIN: &[u8; 32] =
-    b"syncro:payment:nullifier\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+const COMMIT_DOMAIN: [u8; 32] = *b"syncro:payment:commit\0\0\0\0\0\0\0\0\0\0\0";
+const NULL_DOMAIN: [u8; 32] = *b"syncro:payment:nullifier\0\0\0\0\0\0\0\0";
 
 /// Verify a ZK payment proof.
 ///
@@ -75,13 +71,13 @@ pub fn verify_proof(
     let s: BytesN<32> = BytesN::from_array(env, &s_arr);
 
     // Check 1: SHA256(COMMIT_DOMAIN || r) == commitment
-    let expected_commitment = hash_domain_key(env, COMMIT_DOMAIN, &r);
+    let expected_commitment = hash_domain_key(env, &COMMIT_DOMAIN, &r);
     if expected_commitment != *commitment {
         return false;
     }
 
     // Check 2: SHA256(NULL_DOMAIN || r) == nullifier
-    let expected_nullifier = hash_domain_key(env, NULL_DOMAIN, &r);
+    let expected_nullifier = hash_domain_key(env, &NULL_DOMAIN, &r);
     if expected_nullifier != *nullifier {
         return false;
     }
@@ -100,7 +96,7 @@ pub fn verify_proof(
     ctx_input.append(&nullifier_bytes);
     let params_bytes: Bytes = BytesN::<32>::from_array(env, &params).into();
     ctx_input.append(&params_bytes);
-    let context: BytesN<32> = env.crypto().sha256(&ctx_input);
+    let context: BytesN<32> = env.crypto().sha256(&ctx_input).into();
 
     // Check 3: SHA256(r || context) == s
     let mut s_input = Bytes::new(env);
@@ -108,7 +104,7 @@ pub fn verify_proof(
     s_input.append(&r_bytes);
     let context_bytes: Bytes = context.into();
     s_input.append(&context_bytes);
-    let expected_s: BytesN<32> = env.crypto().sha256(&s_input);
+    let expected_s: BytesN<32> = env.crypto().sha256(&s_input).into();
 
     expected_s == s
 }
@@ -120,5 +116,5 @@ fn hash_domain_key(env: &Env, domain: &[u8; 32], key: &BytesN<32>) -> BytesN<32>
     input.append(&domain_bytes);
     let key_bytes: Bytes = key.clone().into();
     input.append(&key_bytes);
-    env.crypto().sha256(&input)
+    env.crypto().sha256(&input).into()
 }

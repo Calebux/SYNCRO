@@ -44,6 +44,7 @@ This index catalogs all documentation in the SYNCRO repository, organized by cat
 - [syncro_architecture_blueprint.md](syncro_architecture_blueprint.md) - High-level contract & billing architecture blueprint
 - [shared-business-logic.md](shared-business-logic.md) - Shared logic documentation
 - [blockchain-feature-flags.md](blockchain-feature-flags.md) - Feature flag system
+- [v2/BACKEND_REMEDIATION_PLAN.md](v2/BACKEND_REMEDIATION_PLAN.md) - Implementation plan for v2 backend issues #1267, #1268, #1279, #1284
 
 ### Operations & Deployment
 - [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md) - Deployment procedures

@@ -27,6 +27,8 @@ pub struct RenewalApproval {
 - Checks: existence, expiration, usage, amount limit
 - Marks approval as used (non-reusable)
 - Emits `ApprovalRejected` event on failure
+  
+**Note (2026-08-29):** `consume_approval()` now returns a typed result distinguishing failure modes: `NotFound`, `AlreadyUsed`, `Expired`, and `AmountExceeded`. The function still marks approvals as single-use (`used = true`) when consumed; future work may adjust this to mark consumed only after transfer success.
 
 ### 3. Validation Rules
 
