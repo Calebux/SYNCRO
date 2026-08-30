@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import logger from '../config/logger';
-import { reminderEngine } from './reminder-engine';
+import { container } from './container';
 import { riskDetectionService } from './risk-detection/risk-detection-service';
 import { expiryService } from './expiry-service';
 import { renewalLockService } from './renewal-lock-service';
@@ -27,7 +27,7 @@ export class SchedulerService {
         logger.info('Running scheduled reminder processing');
         try {
           await jobAlertService.runMonitoredJob('reminder-processing', () =>
-            reminderEngine.processReminders(),
+            container.reminderEngine.processReminders(),
           );
         } catch (error) {
           logger.error('Error in scheduled reminder processing:', error);
@@ -41,8 +41,8 @@ export class SchedulerService {
         logger.info('Running scheduled reminder scheduling');
         try {
           await jobAlertService.runMonitoredJob('reminder-scheduling', async () => {
-            await reminderEngine.scheduleReminders();
-            await reminderEngine.scheduleTrialReminders();
+            await container.reminderEngine.scheduleReminders();
+            await container.reminderEngine.scheduleTrialReminders();
           });
         } catch (error) {
           logger.error('Error in scheduled reminder scheduling:', error);
@@ -56,7 +56,7 @@ export class SchedulerService {
         logger.info('Running scheduled retry processing');
         try {
           await jobAlertService.runMonitoredJob('reminder-retries', () =>
-            reminderEngine.processRetries(),
+            container.reminderEngine.processRetries(),
           );
         } catch (error) {
           logger.error('Error in scheduled retry processing:', error);
@@ -69,7 +69,7 @@ export class SchedulerService {
       cron.schedule('*/15 * * * *', async () => {
         logger.info('Running delayed notification processing');
         try {
-          await reminderEngine.processDelayedNotifications();
+          await container.reminderEngine.processDelayedNotifications();
         } catch (error) {
           logger.error('Error in delayed notification processing:', error);
         }

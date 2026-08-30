@@ -30,7 +30,7 @@ import logger from './config/logger';
 import { requestIdMiddleware } from './middleware/requestContext';
 import { requestLoggerMiddleware } from './middleware/requestLogger';
 import { schedulerService } from './services/scheduler';
-import { reminderEngine } from './services/reminder-engine';
+import { container } from './services/container';
 import { notificationPreferenceService } from './services/notification-preference-service';
 import subscriptionRoutes from './routes/subscriptions';
 import subscriptionShareRoutes from './routes/subscription-shares';
@@ -509,7 +509,7 @@ app.get('/api/admin/health', createAdminLimiter(), adminAuth, async (req, res) =
 // Admin Process Triggers
 app.post('/api/reminders/process', createAdminLimiter(), adminAuth, async (req, res) => {
   try {
-    await reminderEngine.processReminders();
+    await container.reminderEngine.processReminders();
     res.json({ success: true, message: 'Reminders processed' });
   } catch (error) {
     logger.error('Error processing reminders:', error);
@@ -520,7 +520,7 @@ app.post('/api/reminders/process', createAdminLimiter(), adminAuth, async (req, 
 app.post('/api/reminders/schedule', createAdminLimiter(), adminAuth, async (req, res) => {
   try {
     const daysBefore = req.body.daysBefore || [7, 3, 1];
-    await reminderEngine.scheduleReminders(daysBefore);
+    await container.reminderEngine.scheduleReminders(daysBefore);
     res.json({ success: true, message: 'Reminders scheduled' });
   } catch (error) {
     logger.error('Error scheduling reminders:', error);
@@ -530,7 +530,7 @@ app.post('/api/reminders/schedule', createAdminLimiter(), adminAuth, async (req,
 
 app.post('/api/reminders/retry', createAdminLimiter(), adminAuth, async (req, res) => {
   try {
-    await reminderEngine.processRetries();
+    await container.reminderEngine.processRetries();
     res.json({ success: true, message: 'Retries processed' });
   } catch (error) {
     logger.error('Error processing retries:', error);
