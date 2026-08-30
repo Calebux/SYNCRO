@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { NotificationPayload, DeliveryResult } from '../types/reminder';
 import { withRetry, RetryableError, NonRetryableError } from '../utils/retry';
 import { sanitizeUrl } from '../utils/sanitize-url';
@@ -24,7 +25,7 @@ export class EmailService {
   private policy = EXTERNAL_SERVICE_POLICIES.gmail; // Default to gmail policy for email service
 
   constructor(config?: EmailConfig) {
-    this.fromEmail = config?.from || process.env.EMAIL_FROM || 'noreply@synchro.app';
+    this.fromEmail = config?.from || env.EMAIL_FROM || 'noreply@synchro.app';
 
     // Initialize transporter based on config if provided synchronously
     if (config?.host) {
@@ -42,15 +43,15 @@ export class EmailService {
       return this.transporter;
     }
 
-    if (process.env.SMTP_HOST) {
+    if (env.SMTP_HOST) {
       const password = await secretProvider.getSecret('SMTP_PASSWORD') || await secretProvider.getSecret('SMTP_PASS') || '';
       
       this.transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: parseInt(process.env.SMTP_PORT || '587'),
-        secure: process.env.SMTP_SECURE === 'true',
+        host: env.SMTP_HOST,
+        port: parseInt(env.SMTP_PORT || '587'),
+        secure: env.SMTP_SECURE === 'true',
         auth: {
-          user: process.env.SMTP_USER || '',
+          user: env.SMTP_USER || '',
           pass: password,
         },
         connectionTimeout: this.policy.timeoutMs,
@@ -161,8 +162,8 @@ export class EmailService {
    * Generate unsubscribe footer HTML for emails
    */
   private getUnsubscribeFooter(userId: string, emailType: string): string {
-    const appUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    const apiUrl = process.env.BACKEND_URL || 'http://localhost:3001';
+    const appUrl = env.FRONTEND_URL;
+    const apiUrl = env.BACKEND_URL;
     const token = complianceService.generateUnsubscribeToken(userId, emailType);
     const unsubscribeUrl = `${apiUrl}/api/compliance/unsubscribe?token=${token}`;
     const preferencesUrl = `${appUrl}/email-preferences?token=${token}`;
@@ -183,7 +184,7 @@ export class EmailService {
    * Generate List-Unsubscribe headers for emails
    */
   private getUnsubscribeHeaders(userId: string, emailType: string): Record<string, string> {
-    const apiUrl = process.env.BACKEND_URL || 'http://localhost:3001';
+    const apiUrl = env.BACKEND_URL;
     const token = complianceService.generateUnsubscribeToken(userId, emailType);
     const unsubscribeUrl = `${apiUrl}/api/compliance/unsubscribe?token=${token}`;
 
@@ -500,7 +501,7 @@ This is an automated reminder from Synchro.
     </div>
 
     <div style="text-align: center; margin: 30px 0;">
-      <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard" style="background: #e53e3e; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">
+      <a href="${env.FRONTEND_URL}/dashboard" style="background: #e53e3e; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">
         Review Subscription
       </a>
     </div>

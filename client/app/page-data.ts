@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { buildQueryWarning, type DataLoadWarning } from '@/lib/dashboard-bootstrap'
 import { fetchConsolidationSuggestions, filterDismissedSuggestions } from '@/lib/dashboard-data'
+import { getAnalyticsSummary } from '@/lib/dashboard-analytics'
+import type { AnalyticsSummary } from '@/lib/api/analytics'
 import type { ConsolidationSuggestion } from '@/lib/types'
 
 export type InitialPriceChange = {
@@ -21,6 +23,7 @@ export type InitialDataResult = {
   payments: any[];
   priceChanges: InitialPriceChange[];
   consolidationSuggestions: any[];
+  analyticsSummary: AnalyticsSummary | null;
   warnings: DataLoadWarning[];
   isDemo: boolean;
 }
@@ -148,6 +151,7 @@ export async function getInitialData(): Promise<InitialDataResult> {
       payments: [],
       priceChanges: [],
       consolidationSuggestions: [],
+      analyticsSummary: null,
       warnings: [],
       isDemo: true,
     }
@@ -251,6 +255,7 @@ export async function getInitialData(): Promise<InitialDataResult> {
     payments,
     priceChanges,
     consolidationSuggestions: buildConsolidationSuggestions(subscriptions),
+    analyticsSummary: await getAnalyticsSummary(user.id).catch(() => null),
     warnings,
     isDemo: false,
   }

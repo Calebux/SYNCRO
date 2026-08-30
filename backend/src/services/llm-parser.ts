@@ -1,5 +1,6 @@
 import pLimit from 'p-limit';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { getMerchantCanonicalForm } from '../../utils/merchant-normalizer';
 import { ExternalServiceClient } from '../utils/external-service-client';
 import { ACTIVE_PROMPT_VERSION, getPrompt } from './llm-prompts';
@@ -64,7 +65,7 @@ export class LLMParser {
   private lastSkipReason: LLMSkipReason | null = null;
 
   constructor() {
-    this.apiKey = process.env.GEMINI_API_KEY ?? null;
+    this.apiKey = env.GEMINI_API_KEY ?? null;
     if (!this.apiKey) {
       logger.warn('LLMParser: GEMINI_API_KEY not set — LLM fallback disabled');
     }
@@ -194,7 +195,7 @@ export class LLMParser {
   async parseMany(
     emailTexts: string[],
     context: LLMParseContext = {},
-    concurrency = Number(process.env.LLM_PARSE_CONCURRENCY ?? 4),
+    concurrency = Number(env.LLM_PARSE_CONCURRENCY),
   ): Promise<Array<LLMParsedSubscription | null>> {
     const limit = pLimit(Math.max(1, concurrency));
     const inFlight = new Map<string, Promise<LLMParsedSubscription | null>>();
