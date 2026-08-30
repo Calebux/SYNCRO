@@ -14,6 +14,7 @@
 
 import logger from '../config/logger';
 import { supabase } from '../config/database';
+import { env } from '../config/env';
 import { RpcClient } from '../../../shared/src/rpc-client';
 import {
   getBlockchainFlags,
@@ -27,7 +28,7 @@ const _network = resolveStellarNetwork();
 
 // Resolve RPC URL — never silently fall back to testnet in production.
 function resolveRpcUrl(): string {
-  const configured = process.env.SOROBAN_RPC_URL;
+  const configured = env.SOROBAN_RPC_URL;
   if (!configured && _flags.isProduction) {
     throw new Error(
       '[indexer] SOROBAN_RPC_URL must be explicitly set in production. ' +
@@ -42,12 +43,12 @@ function resolveRpcUrl(): string {
 }
 
 const RPC_URL = resolveRpcUrl();
-const CONTRACT_ID = process.env.SOROBAN_CONTRACT_ADDRESS ?? '';
+const CONTRACT_ID = env.SOROBAN_CONTRACT_ADDRESS ?? '';
 const POLL_INTERVAL_MS = parseInt(
-  process.env.INDEXER_POLL_INTERVAL_MS ?? '6000',
+  env.INDEXER_POLL_INTERVAL_MS,
   10,
 );
-const BATCH_SIZE = parseInt(process.env.INDEXER_BATCH_SIZE ?? '200', 10);
+const BATCH_SIZE = parseInt(env.INDEXER_BATCH_SIZE, 10);
 const MAX_RETRIES = 5;
 const BASE_RETRY_MS = 1000;
 

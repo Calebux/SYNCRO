@@ -1,5 +1,6 @@
 import logger from '../../config/logger';
 import { supabase } from '../../config/database';
+import { env } from '../../config/env';
 import { STATIC_RATES_USD } from './static-rates';
 import { RedisCacheAdapter } from './redis-cache';
 import type { ExchangeRateProvider, CachedRates, ExchangeRateResponse } from './types';
@@ -12,9 +13,9 @@ import type { ExchangeRateProvider, CachedRates, ExchangeRateResponse } from './
 const DEFAULT_TTL_MS = 900_000; // 15 minutes
 
 function getTtl(): number {
-  const env = process.env.EXCHANGE_RATE_TTL_MS;
-  if (env) {
-    const parsed = parseInt(env, 10);
+  const envVal = env.EXCHANGE_RATE_TTL_MS;
+  if (envVal) {
+    const parsed = parseInt(envVal, 10);
     if (!isNaN(parsed) && parsed > 0) return parsed;
   }
   return DEFAULT_TTL_MS;

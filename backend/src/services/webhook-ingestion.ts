@@ -26,6 +26,7 @@
 import type { Request } from 'express';
 import { supabase } from '../config/database';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import {
   verifyPayPalWebhook,
   verifyPaystackWebhook,
@@ -118,7 +119,7 @@ export const stripeAdapter: ProviderAdapter = {
     verifyStripeWebhook(
       rawBodyBuffer(req),
       headerValue(req, 'stripe-signature'),
-      process.env.STRIPE_WEBHOOK_SECRET,
+      env.STRIPE_WEBHOOK_SECRET,
     ),
   extractEventId: (event) => (event as { id?: string } | null)?.id ?? null,
   extractEventType: (event) => (event as { type?: string } | null)?.type ?? 'unknown',
@@ -139,10 +140,10 @@ export const paypalAdapter: ProviderAdapter = {
         transmissionSig: headerValue(req, 'paypal-transmission-sig') as string,
       },
       {
-        webhookId: process.env.PAYPAL_WEBHOOK_ID,
-        clientId: process.env.PAYPAL_CLIENT_ID,
-        clientSecret: process.env.PAYPAL_CLIENT_SECRET,
-        mode: process.env.PAYPAL_MODE,
+        webhookId: env.PAYPAL_WEBHOOK_ID,
+        clientId: env.PAYPAL_CLIENT_ID,
+        clientSecret: env.PAYPAL_CLIENT_SECRET,
+        mode: env.PAYPAL_MODE,
       },
     ),
   extractEventId: (event) => (event as { id?: string } | null)?.id ?? null,
@@ -157,7 +158,7 @@ export const paystackAdapter: ProviderAdapter = {
     verifyPaystackWebhook(
       rawBodyBuffer(req),
       headerValue(req, 'x-paystack-signature'),
-      process.env.PAYSTACK_SECRET_KEY,
+      env.PAYSTACK_SECRET_KEY,
     ),
   // Paystack does not send an event id; the transaction reference is the
   // idempotency key it documents for this purpose.
@@ -175,7 +176,7 @@ export const telegramAdapter: ProviderAdapter = {
   verify: (req) =>
     verifyTelegramWebhook(
       headerValue(req, 'x-telegram-bot-api-secret-token'),
-      process.env.TELEGRAM_WEBHOOK_SECRET,
+      env.TELEGRAM_WEBHOOK_SECRET,
       rawBodyBuffer(req),
     ),
   extractEventId: (event) => {
@@ -373,7 +374,7 @@ function backoffMs(attempts: number): number {
   return Math.min(2 ** attempts * 1000, 15 * 60 * 1000);
 }
 
-const MAX_ATTEMPTS = Number(process.env.WEBHOOK_MAX_ATTEMPTS ?? 5);
+const MAX_ATTEMPTS = Number(env.WEBHOOK_MAX_ATTEMPTS);
 
 export interface ProcessOptions {
   /** Replay: run the handler even if the record is already processed. */
