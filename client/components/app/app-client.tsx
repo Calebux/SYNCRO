@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense, useCallback } from "react";
+import { useState, useEffect, Suspense, useCallback, useRef } from "react";
 import dynamic from "next/dynamic";
 import WelcomePage from "@/components/pages/welcome";
 import EnterpriseSetup from "@/components/pages/enterprise-setup";
@@ -78,6 +78,9 @@ export function AppClient({
     initialPayments = [],
     initialPriceChanges = [],
     initialConsolidationSuggestions = [],
+    initialAnalyticsSummary = null,
+    dataLoadWarnings: _dataLoadWarnings,
+    isDemo: _isDemo,
 }: AppClientProps) {
     return (
         <UserSettingsProvider>
@@ -88,6 +91,7 @@ export function AppClient({
                     initialPayments={initialPayments}
                     initialPriceChanges={initialPriceChanges}
                     initialConsolidationSuggestions={initialConsolidationSuggestions}
+                    initialAnalyticsSummary={initialAnalyticsSummary}
                 />
             </UndoProvider>
         </UserSettingsProvider>
@@ -102,20 +106,23 @@ function AppContent({
     initialPayments = [],
     initialPriceChanges = [],
     initialConsolidationSuggestions = [],
+    initialAnalyticsSummary = null,
 }: {
     initialSubscriptions: DBSubscription[];
     initialEmailAccounts: EmailAccount[];
     initialPayments?: Payment[];
     initialPriceChanges?: PriceChange[];
     initialConsolidationSuggestions?: ConsolidationSuggestion[];
+    initialAnalyticsSummary?: AnalyticsSummary | null;
 }) {
     // User Settings
     const { settings, updateSettings: updateUserSettings } = useUserSettings();
     const currency = settings.currency;
 
-    // Analytics state
-
-    const [analyticsSummary, setAnalyticsSummary] = useState<AnalyticsSummary | undefined>(undefined);
+    // Analytics state — seeded from the server; no post-mount fetch for first paint
+    const [analyticsSummary, setAnalyticsSummary] = useState<AnalyticsSummary | undefined>(
+        initialAnalyticsSummary ?? undefined,
+    );
 
     // App state
     const [payments, setPayments] = useState(initialPayments);
@@ -328,7 +335,17 @@ function AppContent({
         fetchRates();
     }, [currency]);
 
+    // Analytics summary is computed server-side and passed in as
+    // initialAnalyticsSummary, so no client fetch happens on first paint.
+    // The analytics state is refreshed only when subscriptions change after
+    // mount (add/edit/delete), keeping the dashboard in sync without a
+    // post-mount fetch on page load.
+    const isFirstRender = useRef(true);
     useEffect(() => {
+        if (isFirstRender.current) {
+            isFirstRender.current = false;
+            return;
+        }
         async function fetchAnalytics() {
             try {
                 const summary = await analyticsApi.getSummary();

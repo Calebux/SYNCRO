@@ -6,17 +6,19 @@ import { nodeProfilingIntegration } from '@sentry/profiling-node';
 import swaggerUi from 'swagger-ui-express';
 import * as bip39 from 'bip39';
 import { resolveRelease, resolveEnvironment, scrubEvent, SENTRY_TAG_KEYS } from '../../shared/src/sentry';
+import { validateEnv, env } from './config/env';
 
 // Load environment variables before importing other modules
 dotenv.config();
+validateEnv();
 
 // Sentry Initialization
 Sentry.init({
-  dsn: process.env.SENTRY_DSN,
+  dsn: env.SENTRY_DSN,
   release: resolveRelease(),
   environment: resolveEnvironment(),
   integrations: [nodeProfilingIntegration()],
-  tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
+  tracesSampleRate: env.NODE_ENV === 'production' ? 0.1 : 1.0,
   profilesSampleRate: 0.1,
   initialScope: {
     tags: { [SENTRY_TAG_KEYS.service]: 'backend' },
@@ -28,7 +30,7 @@ import logger from './config/logger';
 import { requestIdMiddleware } from './middleware/requestContext';
 import { requestLoggerMiddleware } from './middleware/requestLogger';
 import { schedulerService } from './services/scheduler';
-import { reminderEngine } from './services/reminder-engine';
+import { container } from './services/container';
 import { notificationPreferenceService } from './services/notification-preference-service';
 import subscriptionRoutes from './routes/subscriptions';
 import subscriptionShareRoutes from './routes/subscription-shares';
@@ -106,13 +108,10 @@ import metricsRoutes from './routes/metrics';
 
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = env.PORT;
 
 // Validate Admin API Key
-const ADMIN_API_KEY = process.env.ADMIN_API_KEY;
-if (!ADMIN_API_KEY && process.env.NODE_ENV === 'production') {
-  throw new Error('ADMIN_API_KEY environment variable is required in production.');
-}
+const ADMIN_API_KEY = env.ADMIN_API_KEY;
 
 // Exchange Rate Service Setup
 // Provider fallback order:
@@ -132,7 +131,7 @@ const exchangeRateService = new ExchangeRateService([
 app.use(Sentry.Handlers.requestHandler());
 
 // CORS configuration
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+const FRONTEND_URL = env.FRONTEND_URL;
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', FRONTEND_URL);
   res.header('Access-Control-Allow-Credentials', 'true');
@@ -232,8 +231,8 @@ app.get('/health', async (req, res) => {
       status: overallStatus,
       timestamp: new Date().toISOString(),
       uptime_ms: liveness.uptime_ms,
-      version: process.env.npm_package_version || '1.0.0',
-      environment: process.env.NODE_ENV || 'development',
+      version: '1.0.0',
+      environment: env.NODE_ENV,
       dependencies: readiness.dependencies,
       queues: queueHealth.queues,
       message: readiness.message,
@@ -514,7 +513,7 @@ app.get('/api/admin/health', createAdminLimiter(), adminAuth, async (req, res) =
 // Admin Process Triggers
 app.post('/api/reminders/process', createAdminLimiter(), adminAuth, async (req, res) => {
   try {
-    await reminderEngine.processReminders();
+    await container.reminderEngine.processReminders();
     res.json({ success: true, message: 'Reminders processed' });
   } catch (error) {
     logger.error('Error processing reminders:', error);
@@ -525,7 +524,7 @@ app.post('/api/reminders/process', createAdminLimiter(), adminAuth, async (req, 
 app.post('/api/reminders/schedule', createAdminLimiter(), adminAuth, async (req, res) => {
   try {
     const daysBefore = req.body.daysBefore || [7, 3, 1];
-    await reminderEngine.scheduleReminders(daysBefore);
+    await container.reminderEngine.scheduleReminders(daysBefore);
     res.json({ success: true, message: 'Reminders scheduled' });
   } catch (error) {
     logger.error('Error scheduling reminders:', error);
@@ -535,7 +534,7 @@ app.post('/api/reminders/schedule', createAdminLimiter(), adminAuth, async (req,
 
 app.post('/api/reminders/retry', createAdminLimiter(), adminAuth, async (req, res) => {
   try {
-    await reminderEngine.processRetries();
+    await container.reminderEngine.processRetries();
     res.json({ success: true, message: 'Retries processed' });
   } catch (error) {
     logger.error('Error processing retries:', error);
@@ -611,12 +610,12 @@ function clearHealthSnapshotInterval() {
 // Start Server
 const server = app.listen(PORT, async () => {
   logger.info(`Server running on port ${PORT}`);
-  logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  logger.info(`Environment: ${env.NODE_ENV}`);
 
   // Validation
-  const criticalEnvVars = ['SOROBAN_CONTRACT_ADDRESS', 'STELLAR_NETWORK_URL'];
+  const criticalEnvVars = ['SOROBAN_CONTRACT_ADDRESS', 'STELLAR_NETWORK_URL'] as const;
   for (const envVar of criticalEnvVars) {
-    if (!process.env[envVar]) {
+    if (!env[envVar]) {
       logger.warn(`${envVar} not configured — EventListener will be disabled`);
     }
   }
@@ -647,7 +646,7 @@ const server = app.listen(PORT, async () => {
   startWebhookRetryJob();
 
   telegramCommandService.init();
-  if (process.env.TELEGRAM_BOT_TOKEN && !process.env.TELEGRAM_WEBHOOK_SECRET) {
+  if (env.TELEGRAM_BOT_TOKEN && !env.TELEGRAM_WEBHOOK_SECRET) {
     logger.warn('[Telegram] TELEGRAM_WEBHOOK_SECRET not set — webhook origin is unverified');
   }
 });

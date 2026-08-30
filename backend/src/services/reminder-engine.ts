@@ -31,29 +31,63 @@ export function computeReminderDate(renewalDate: Date, daysBefore: number): Date
 export class ReminderEngine {
   private readonly defaultDaysBefore: number[];
   private readonly maxRetryAttempts: number;
+  private readonly supabase: typeof supabase;
+  private readonly logger: typeof logger;
+  private readonly emailService: typeof emailService;
+  private readonly pushService: typeof pushService;
+  private readonly slackService: typeof slackService;
+  private readonly blockchainService: typeof blockchainService;
+  private readonly userPreferenceService: typeof import('./user-preference-service').userPreferenceService;
+  private readonly notificationPreferenceService: typeof import('./notification-preference-service').notificationPreferenceService;
+  private readonly telegramBotService: typeof import('./telegram-bot-service').telegramBotService;
+  private readonly clock: import('./clock').Clock;
 
-  constructor(options: ReminderEngineOptions = {}) {
+  constructor(
+    options: ReminderEngineOptions & Partial<{
+      supabase: typeof supabase;
+      logger: typeof logger;
+      emailService: typeof emailService;
+      pushService: typeof pushService;
+      slackService: typeof slackService;
+      blockchainService: typeof blockchainService;
+      userPreferenceService: typeof import('./user-preference-service').userPreferenceService;
+      notificationPreferenceService: typeof import('./notification-preference-service').notificationPreferenceService;
+      telegramBotService: typeof import('./telegram-bot-service').telegramBotService;
+      clock: import('./clock').Clock;
+    }>
+  = {}) {
     this.defaultDaysBefore = options.defaultDaysBefore || [7, 3, 1];
     this.maxRetryAttempts = options.maxRetryAttempts || 3;
+
+    this.supabase = options.supabase ?? supabase;
+    this.logger = options.logger ?? logger;
+    this.emailService = options.emailService ?? emailService;
+    this.pushService = options.pushService ?? pushService;
+    this.slackService = options.slackService ?? slackService;
+    this.blockchainService = options.blockchainService ?? blockchainService;
+    this.userPreferenceService = options.userPreferenceService ?? require('./user-preference-service').userPreferenceService;
+    this.notificationPreferenceService = options.notificationPreferenceService ?? require('./notification-preference-service').notificationPreferenceService;
+    this.telegramBotService = options.telegramBotService ?? require('./telegram-bot-service').telegramBotService;
+    this.clock = options.clock ?? new (require('./clock').SystemClock)();
   }
 
   async processReminders(targetDate: Date = new Date()): Promise<void> {
     const dateString = targetDate.toISOString().split('T')[0];
-    logger.info(`Processing reminders for date: ${dateString}`);
+    this.logger.info(`Processing reminders for date: ${dateString}`);
 
-    const { data: reminders, error } = await supabase
+    const { data: reminders, error } = await this.supabase
       .from('reminder_schedules')
       .select('*')
       .eq('reminder_date', dateString)
       .eq('status', 'pending');
 
     if (error) {
-      logger.error('Failed to fetch reminders:', error);
+      this.logger.error('Failed to fetch reminders:', error);
       throw error;
     }
 
     if (!reminders || reminders.length === 0) {
-      logger.info(`No pending reminders found for ${dateString}`);
+      this.logger.info(`No pending reminders found for ${dateString}`);
       return;
     }
 
@@ -61,16 +95,16 @@ export class ReminderEngine {
       try {
         await this.processReminder(reminder as ReminderSchedule);
       } catch (processError) {
-        logger.error(`Failed to process reminder ${reminder.id}:`, processError);
+        this.logger.error(`Failed to process reminder ${reminder.id}:`, processError);
       }
     }
   }
 
   async processRetries(): Promise<void> {
-    const now = new Date().toISOString();
-    logger.info('Processing delivery retries');
+    const now = this.clock.now().toISOString();
+    this.logger.info('Processing delivery retries');
 
-    const { data: deliveries, error } = await supabase
+    const { data: deliveries, error } = await this.supabase
       .from('notification_deliveries')
       .select('*, reminder_schedules!inner(*)')
       .eq('status', 'retrying')
@@ -78,12 +112,12 @@ export class ReminderEngine {
       .lt('attempt_count', this.maxRetryAttempts);
 
     if (error) {
-      logger.error('Failed to fetch retry deliveries:', error);
+      this.logger.error('Failed to fetch retry deliveries:', error);
       throw error;
     }
 
     if (!deliveries || deliveries.length === 0) {
-      logger.info('No deliveries need retry');
+      this.logger.info('No deliveries need retry');
       return;
     }
 
@@ -100,9 +134,9 @@ export class ReminderEngine {
 
   async scheduleReminders(daysBefore: number[] = this.defaultDaysBefore): Promise<void> {
     const start = Date.now();
-    logger.info(`Scheduling reminders, engine defaults: ${daysBefore.join(', ')}`);
+    this.logger.info(`Scheduling reminders, engine defaults: ${daysBefore.join(', ')}`);
 
-    const { data: subscriptions, error } = await supabase
+    const { data: subscriptions, error } = await this.supabase
       .from('subscriptions')
       .select('*')
       .eq('status', 'active')
@@ -110,7 +144,7 @@ export class ReminderEngine {
       .gt('active_until', new Date().toISOString());
 
     if (error) {
-      logger.error('Failed to fetch subscriptions:', error);
+      this.logger.error('Failed to fetch subscriptions:', error);
       throw error;
     }
 
@@ -123,13 +157,13 @@ export class ReminderEngine {
     }
 
     const userIds = Array.from(new Set(activeSubscriptions.map((sub) => sub.user_id)));
-    const { data: preferences, error: preferencesError } = await supabase
+    const { data: preferences, error: preferencesError } = await this.supabase
       .from('user_preferences')
       .select('*')
       .in('user_id', userIds);
 
     if (preferencesError) {
-      logger.error('Failed to fetch user preferences:', preferencesError);
+      this.logger.error('Failed to fetch user preferences:', preferencesError);
       throw preferencesError;
     }
 
@@ -138,7 +172,7 @@ export class ReminderEngine {
       prefsByUser.set(pref.user_id, pref);
     });
 
-    const today = new Date();
+    const today = this.clock.now();
     today.setHours(0, 0, 0, 0);
 
     const jitterLevels: Record<string, number> = {
@@ -182,31 +216,31 @@ export class ReminderEngine {
             days_before: day,
             jitter_offset_hours: maxJitter > 0 ? jitterOffsetHours : null,
             status: 'pending',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
+            created_at: this.clock.now().toISOString(),
+            updated_at: this.clock.now().toISOString(),
           });
         }
       }
     }
 
     if (rows.length > 0) {
-      const { error: upsertError } = await supabase
+      const { error: upsertError } = await this.supabase
         .from('reminder_schedules')
         .upsert(rows, { onConflict: 'subscription_id,reminder_date' });
 
       if (upsertError) {
-        logger.error('Failed to upsert reminder schedules:', upsertError);
+        this.logger.error('Failed to upsert reminder schedules:', upsertError);
         throw upsertError;
       }
     }
 
-    logger.info(`Reminder scheduling completed in ${Date.now() - start}ms`);
+    this.logger.info(`Reminder scheduling completed in ${Date.now() - start}ms`);
   }
 
   async scheduleTrialReminders(): Promise<void> {
-    logger.info('Scheduling trial reminders');
+    this.logger.info('Scheduling trial reminders');
 
-    const { data: trials, error } = await supabase
+    const { data: trials, error } = await this.supabase
       .from('subscriptions')
       .select('*')
       .eq('is_trial', true)
@@ -215,7 +249,7 @@ export class ReminderEngine {
       .gt('trial_ends_at', new Date().toISOString());
 
     if (error) {
-      logger.error('Failed to fetch trial subscriptions:', error);
+      this.logger.error('Failed to fetch trial subscriptions:', error);
       throw error;
     }
 
@@ -225,7 +259,7 @@ export class ReminderEngine {
     }
 
     const trialSubscriptions = trials as Subscription[];
-    const today = new Date();
+    const today = this.clock.now();
     today.setHours(0, 0, 0, 0);
 
     for (const subscription of trialSubscriptions) {
@@ -241,7 +275,7 @@ export class ReminderEngine {
           continue;
         }
 
-        const { data: existing } = await supabase
+        const { data: existing } = await this.supabase
           .from('reminder_schedules')
           .select('id')
           .eq('subscription_id', subscription.id)
@@ -264,37 +298,37 @@ export class ReminderEngine {
         });
 
         if (insertError) {
-          logger.error('Failed to insert trial reminder schedule:', insertError);
+          this.logger.error('Failed to insert trial reminder schedule:', insertError);
           throw insertError;
         }
       }
     }
 
-    logger.info('Trial reminder scheduling completed');
+    this.logger.info('Trial reminder scheduling completed');
   }
 
   async processDelayedNotifications(): Promise<void> {
-    logger.info('ReminderEngine.processDelayedNotifications noop');
+    this.logger.info('ReminderEngine.processDelayedNotifications noop');
   }
 
   private async processReminder(reminder: ReminderSchedule): Promise<void> {
-    logger.info(`Processing reminder ${reminder.id} for subscription ${reminder.subscription_id}`);
+    this.logger.info(`Processing reminder ${reminder.id} for subscription ${reminder.subscription_id}`);
 
     try {
       const subscription = await this.getSubscription(reminder.subscription_id);
       if (!subscription) {
-        logger.warn(`Subscription ${reminder.subscription_id} not found`);
+        this.logger.warn(`Subscription ${reminder.subscription_id} not found`);
         await this.markReminderAsFailed(reminder.id, 'Subscription not found');
         return;
       }
 
       if (subscription.status === 'paused') {
-        logger.info(`Skipping reminder ${reminder.id} because subscription is paused`);
+        this.logger.info(`Skipping reminder ${reminder.id} because subscription is paused`);
         await this.markReminderAsFailed(reminder.id, 'Subscription is paused');
         return;
       }
 
-    const userPreferences = await userPreferenceService.getPreferences(reminder.user_id);
+    const userPreferences = await this.userPreferenceService.getPreferences(reminder.user_id);
     const deliveryChannels = userPreferences.notification_channels ?? ['email'];
     const renewalDate = reminder.reminder_type === 'trial_expiry'
       ? (subscription.trial_ends_at || new Date().toISOString())
@@ -324,7 +358,7 @@ export class ReminderEngine {
           { retryable: false },
         );
       } else {
-        const emailResult = await emailService.sendReminderEmail(userProfile.email, payload, {
+        const emailResult = await this.emailService.sendReminderEmail(userProfile.email, payload, {
           maxAttempts: this.maxRetryAttempts,
         });
         const emailStatus: DeliveryStatus = emailResult.success
@@ -353,7 +387,7 @@ export class ReminderEngine {
           retryable: false,
         });
       } else {
-        const pushResult = await pushService.sendPushNotification(pushSubscription, payload, {
+        const pushResult = await this.pushService.sendPushNotification(pushSubscription, payload, {
           maxAttempts: this.maxRetryAttempts,
         });
         const pushStatus: DeliveryStatus = pushResult.success
@@ -379,7 +413,7 @@ export class ReminderEngine {
       const slackDelivery = await this.createDeliveryRecord(reminder.id, reminder.user_id, 'slack');
       deliveries.push(slackDelivery);
 
-      const slackResult = await slackService.sendReminderNotification(payload, {
+      const slackResult = await this.slackService.sendReminderNotification(payload, {
         maxAttempts: this.maxRetryAttempts,
       });
       const slackStatus: DeliveryStatus = slackResult.success
@@ -402,7 +436,7 @@ export class ReminderEngine {
         const telegramDelivery = await this.createDeliveryRecord(reminder.id, reminder.user_id, 'telegram');
         deliveries.push(telegramDelivery);
 
-        const telegramResult = await telegramBotService.sendRenewalReminder(reminder.user_id, payload, undefined, {
+        const telegramResult = await this.telegramBotService.sendRenewalReminder(reminder.user_id, payload, undefined, {
           maxAttempts: this.maxRetryAttempts,
         });
         const telegramStatus: DeliveryStatus = telegramResult.success
@@ -420,26 +454,26 @@ export class ReminderEngine {
       }
     }
 
-    await blockchainService.logReminderEvent(reminder.user_id, payload, deliveryChannels);
+    await this.blockchainService.logReminderEvent(reminder.user_id, payload, deliveryChannels);
 
     const hasDeliveryProgress = deliveries.some((delivery) =>
       delivery.status === 'sent' || delivery.status === 'retrying',
     );
 
-    const { error: reminderUpdateError } = await supabase
+    const { error: reminderUpdateError } = await this.supabase
       .from('reminder_schedules')
       .update({
         status: hasDeliveryProgress ? 'sent' : 'failed',
-        updated_at: new Date().toISOString(),
+        updated_at: this.clock.now().toISOString(),
       })
       .eq('id', reminder.id);
 
       if (reminderUpdateError) {
-        logger.error(`Failed to update reminder ${reminder.id}:`, reminderUpdateError);
+        this.logger.error(`Failed to update reminder ${reminder.id}:`, reminderUpdateError);
         throw reminderUpdateError;
       }
     } catch (error) {
-      logger.error(`Error processing reminder ${reminder.id}:`, error);
+      this.logger.error(`Error processing reminder ${reminder.id}:`, error);
       await this.markReminderAsFailed(reminder.id, String(error));
       throw error;
     }
@@ -462,7 +496,7 @@ export class ReminderEngine {
       subscription,
       reminderType: reminder.reminder_type,
       daysBefore: reminder.days_before,
-      renewalDate: subscription.active_until || new Date().toISOString(),
+      renewalDate: subscription.active_until || this.clock.now().toISOString(),
     };
 
     let result: { success: boolean; error?: string; metadata?: Record<string, any> } = {
@@ -478,7 +512,7 @@ export class ReminderEngine {
         return;
       }
 
-      result = await emailService.sendReminderEmail(userProfile.email, payload, {
+      result = await this.emailService.sendReminderEmail(userProfile.email, payload, {
         maxAttempts: 1,
       });
     } else if (delivery.channel === 'push') {
@@ -488,7 +522,7 @@ export class ReminderEngine {
         return;
       }
 
-      result = await pushService.sendPushNotification(pushSubscription, payload, {
+      result = await this.pushService.sendPushNotification(pushSubscription, payload, {
         maxAttempts: 1,
       });
 
@@ -496,11 +530,11 @@ export class ReminderEngine {
         await this.removeStalePushSubscription(delivery.user_id);
       }
     } else if (delivery.channel === 'slack') {
-      result = await slackService.sendReminderNotification(payload, {
+      result = await this.slackService.sendReminderNotification(payload, {
         maxAttempts: 1,
       });
     } else if (delivery.channel === 'telegram') {
-      result = await telegramBotService.sendRenewalReminder(delivery.user_id, payload, undefined, {
+      result = await this.telegramBotService.sendRenewalReminder(delivery.user_id, payload, undefined, {
         maxAttempts: 1,
       });
     }
@@ -517,7 +551,7 @@ export class ReminderEngine {
     }
 
     const delay = calculateBackoffDelay(newAttemptCount);
-    const nextRetryAt = new Date(Date.now() + delay);
+    const nextRetryAt = new Date(this.clock.now().getTime() + delay);
 
     await this.updateDeliveryRecord(
       delivery.id,
@@ -531,25 +565,25 @@ export class ReminderEngine {
 
   private async getSubscription(id: string): Promise<Subscription | null> {
     try {
-      const { data, error } = await supabase.from('subscriptions').select('*').eq('id', id).single();
+      const { data, error } = await this.supabase.from('subscriptions').select('*').eq('id', id).single();
       if (error) {
         if (error.code === 'PGRST116') {
           return null;
         }
-        logger.error(`Failed to fetch subscription ${id}:`, error);
+        this.logger.error(`Failed to fetch subscription ${id}:`, error);
         return null;
       }
 
       return (data as Subscription) || null;
     } catch (error) {
-      logger.error(`Unexpected error fetching subscription ${id}:`, error);
+      this.logger.error(`Unexpected error fetching subscription ${id}:`, error);
       return null;
     }
   }
 
   private async getUserProfile(userId: string): Promise<UserProfile | null> {
     try {
-      const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
+      const { data, error } = await this.supabase.from('profiles').select('*').eq('id', userId).single();
       if (!error && data) {
         return {
           id: data.id,
@@ -564,7 +598,7 @@ export class ReminderEngine {
     }
 
     try {
-      const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(userId);
+      const { data: authUser, error: authError } = await this.supabase.auth.admin.getUserById(userId);
       if (!authError && authUser?.user?.email) {
         return {
           id: userId,
@@ -575,11 +609,11 @@ export class ReminderEngine {
         };
       }
     } catch (error) {
-      logger.warn(`Could not fetch auth user email for ${userId}:`, error);
+      this.logger.warn(`Could not fetch auth user email for ${userId}:`, error);
     }
 
     try {
-      const { data: emailAccount } = await supabase
+      const { data: emailAccount } = await this.supabase
         .from('email_accounts')
         .select('email')
         .eq('user_id', userId)
@@ -605,7 +639,7 @@ export class ReminderEngine {
 
   private async getPushSubscription(userId: string): Promise<PushSubscription | null> {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('push_subscriptions')
         .select('endpoint, p256dh, auth')
         .eq('user_id', userId)
@@ -617,7 +651,7 @@ export class ReminderEngine {
         if (error.code === 'PGRST116') {
           return null;
         }
-        logger.error(`Failed to fetch push subscription for ${userId}:`, error);
+        this.logger.error(`Failed to fetch push subscription for ${userId}:`, error);
         return null;
       }
 
@@ -633,15 +667,15 @@ export class ReminderEngine {
         },
       };
     } catch (error) {
-      logger.error(`Unexpected error fetching push subscription for ${userId}:`, error);
+      this.logger.error(`Unexpected error fetching push subscription for ${userId}:`, error);
       return null;
     }
   }
 
   private async removeStalePushSubscription(userId: string): Promise<void> {
-    const { error } = await supabase.from('push_subscriptions').delete().eq('user_id', userId);
+    const { error } = await this.supabase.from('push_subscriptions').delete().eq('user_id', userId);
     if (error) {
-      logger.warn(`Failed to remove stale push subscriptions for ${userId}:`, error);
+      this.logger.warn(`Failed to remove stale push subscriptions for ${userId}:`, error);
     }
   }
 
@@ -650,7 +684,7 @@ export class ReminderEngine {
     userId: string,
     channel: NotificationDelivery['channel'],
   ): Promise<NotificationDelivery> {
-    const { data, error } = await supabase
+    const { data, error } = await this.supabase
       .from('notification_deliveries')
       .insert({
         reminder_schedule_id: reminderScheduleId,
@@ -681,8 +715,8 @@ export class ReminderEngine {
     const updateData: Record<string, unknown> = {
       status,
       attempt_count: attemptCount,
-      last_attempt_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      last_attempt_at: this.clock.now().toISOString(),
+      updated_at: this.clock.now().toISOString(),
     };
 
     if (errorMessage) {
@@ -694,45 +728,45 @@ export class ReminderEngine {
     }
 
     if (status === 'retrying') {
-      updateData.next_retry_at = nextRetryAt || new Date(Date.now() + calculateBackoffDelay(attemptCount)).toISOString();
+      updateData.next_retry_at = nextRetryAt || new Date(this.clock.now().getTime() + calculateBackoffDelay(attemptCount)).toISOString();
     } else {
       updateData.next_retry_at = null;
     }
 
-    const { error } = await supabase.from('notification_deliveries').update(updateData).eq('id', deliveryId);
+    const { error } = await this.supabase.from('notification_deliveries').update(updateData).eq('id', deliveryId);
     if (error) {
       throw error;
     }
   }
 
   private async markReminderAsFailed(reminderId: string, reason: string): Promise<void> {
-    const { error } = await supabase
+    const { error } = await this.supabase
       .from('reminder_schedules')
       .update({
         status: 'failed',
-        updated_at: new Date().toISOString(),
+        updated_at: this.clock.now().toISOString(),
       })
       .eq('id', reminderId);
 
     if (error) {
-      logger.error(`Failed to mark reminder ${reminderId} as failed:`, error);
+      this.logger.error(`Failed to mark reminder ${reminderId} as failed:`, error);
     }
 
-    logger.warn(`Reminder ${reminderId} marked as failed: ${reason}`);
+    this.logger.warn(`Reminder ${reminderId} marked as failed: ${reason}`);
   }
 
   private async markDeliveryAsFailed(deliveryId: string, reason: string): Promise<void> {
-    const { error } = await supabase
+    const { error } = await this.supabase
       .from('notification_deliveries')
       .update({
         status: 'failed',
         error_message: reason,
-        updated_at: new Date().toISOString(),
+        updated_at: this.clock.now().toISOString(),
       })
       .eq('id', deliveryId);
 
     if (error) {
-      logger.error(`Failed to mark delivery ${deliveryId} as failed:`, error);
+      this.logger.error(`Failed to mark delivery ${deliveryId} as failed:`, error);
     }
   }
 
@@ -745,7 +779,7 @@ export class ReminderEngine {
     muted: boolean;
   }> {
     try {
-      const override = await notificationPreferenceService.getPreferences(subscriptionId);
+      const override = await this.notificationPreferenceService.getPreferences(subscriptionId);
       if (override) {
         return {
           reminder_days_before: override.reminder_days_before,
@@ -754,18 +788,18 @@ export class ReminderEngine {
         };
       }
     } catch (error) {
-      logger.warn(`Could not fetch subscription-level prefs for ${subscriptionId}, falling back:`, error);
+      this.logger.warn(`Could not fetch subscription-level prefs for ${subscriptionId}, falling back:`, error);
     }
 
     try {
-      const userPrefs = await userPreferenceService.getPreferences(userId);
+      const userPrefs = await this.userPreferenceService.getPreferences(userId);
       return {
         reminder_days_before: userPrefs.reminder_timing ?? this.defaultDaysBefore,
         channels: userPrefs.notification_channels ?? ['email'],
         muted: false,
       };
     } catch (error) {
-      logger.warn(`Could not fetch user-level prefs for ${userId}, using engine defaults:`, error);
+      this.logger.warn(`Could not fetch user-level prefs for ${userId}, using engine defaults:`, error);
     }
 
     return {

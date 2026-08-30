@@ -73,8 +73,11 @@ export function estimateCostUsd(model: string, usage: TokenUsage): number {
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
+import logger from '../config/logger';
+import { env } from '../config/env';
+
 function numberFromEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
+  const raw = (env as Record<string, unknown>)[name] as string | undefined;
   if (raw === undefined || raw === '') return fallback;
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed < 0) {

@@ -21,7 +21,7 @@ async function handlePaystackChargeSuccess(event: StoredWebhookEvent): Promise<v
     reference: data?.reference ?? event.event_id,
     attempts: event.attempts,
   });
-  // TODO: Add payment processing logic here.
+  // TODO(#1282): Route payment events through the unified payment-provider interface.
   // Whatever lands here must remain idempotent — it can be replayed by an
   // operator and re-run by the retry sweeper.
 }
