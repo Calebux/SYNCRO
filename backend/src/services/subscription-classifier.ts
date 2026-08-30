@@ -9,6 +9,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import SERVICE_CATEGORIES from './service-categories';
+import { env } from '../config/env';
 import logger from '../config/logger';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -155,7 +156,7 @@ async function llmClassify(
   serviceName: string,
   serviceUrl = '',
 ): Promise<ClassificationResult> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     logger.warn('[classifier] ANTHROPIC_API_KEY not set — falling back to "other"');
     return { category: 'other', confidence: 'low', source: 'llm' };
