@@ -14,7 +14,7 @@
 import type { Request, Response } from 'express';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { classifyService, type Confidence, type ClassificationSource } from './subscription-classifier';
-import logger from '../src/config/logger';
+import logger from '../config/logger';
 
 /**
  * Request augmented by the auth middleware, which attaches the per-request

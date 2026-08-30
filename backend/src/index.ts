@@ -6,17 +6,19 @@ import { nodeProfilingIntegration } from '@sentry/profiling-node';
 import swaggerUi from 'swagger-ui-express';
 import * as bip39 from 'bip39';
 import { resolveRelease, resolveEnvironment, scrubEvent, SENTRY_TAG_KEYS } from '../../shared/src/sentry';
+import { validateEnv, env } from './config/env';
 
 // Load environment variables before importing other modules
 dotenv.config();
+validateEnv();
 
 // Sentry Initialization
 Sentry.init({
-  dsn: process.env.SENTRY_DSN,
+  dsn: env.SENTRY_DSN,
   release: resolveRelease(),
   environment: resolveEnvironment(),
   integrations: [nodeProfilingIntegration()],
-  tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
+  tracesSampleRate: env.NODE_ENV === 'production' ? 0.1 : 1.0,
   profilesSampleRate: 0.1,
   initialScope: {
     tags: { [SENTRY_TAG_KEYS.service]: 'backend' },
@@ -77,6 +79,7 @@ import { startStealthScanJob } from './jobs/stealth-scan-job';
 import { startChannelMonitorJob } from './jobs/channel-monitor-job';
 import { startChannelSettlementJob, stopChannelSettlementJob } from './jobs/channel-settlement-job';
 import { startJobAlertMonitor, stopJobAlertMonitor } from './jobs/job-alert-monitor';
+import { startWebhookRetryJob, stopWebhookRetryJob } from './jobs/webhook-retry-job';
 import { isDraining } from './lib/shutdown-state';
 import { registerGracefulShutdown } from './lib/graceful-shutdown';
 import giftCardLedgerRoutes from './routes/gift-card-ledger';
@@ -92,6 +95,8 @@ import paymentsRoutes from './routes/payments';
 import paystackWebhookRoutes from './routes/paystack-webhook';
 import stripeWebhookRoutes from './routes/stripe-webhook';
 import paypalWebhookRoutes from './routes/paypal-webhook';
+import adminWebhookEventsRoutes from './routes/admin/webhook-events';
+import { registerWebhookHandlers } from './services/webhook-handlers';
 import adminDeletionsRoutes from './routes/admin-deletions';
 import adminQueuesRoutes, { getQueueHealthMetrics } from './routes/admin-queues';
 import agentWalletsRoutes from './routes/agent-wallets';
@@ -103,13 +108,10 @@ import metricsRoutes from './routes/metrics';
 
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = env.PORT;
 
 // Validate Admin API Key
-const ADMIN_API_KEY = process.env.ADMIN_API_KEY;
-if (!ADMIN_API_KEY && process.env.NODE_ENV === 'production') {
-  throw new Error('ADMIN_API_KEY environment variable is required in production.');
-}
+const ADMIN_API_KEY = env.ADMIN_API_KEY;
 
 // Exchange Rate Service Setup
 // Provider fallback order:
@@ -129,7 +131,7 @@ const exchangeRateService = new ExchangeRateService([
 app.use(Sentry.Handlers.requestHandler());
 
 // CORS configuration
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+const FRONTEND_URL = env.FRONTEND_URL;
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', FRONTEND_URL);
   res.header('Access-Control-Allow-Credentials', 'true');
@@ -141,6 +143,10 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// Inbound webhook handlers must be registered before any delivery is ingested
+// (issue #1283): an unregistered event type is treated as a successful no-op.
+registerWebhookHandlers();
 
 // Payment webhooks require raw body for cryptographic signature verification
 app.use('/api/webhooks/paystack', express.raw({ type: 'application/json' }), paystackWebhookRoutes);
@@ -225,8 +231,8 @@ app.get('/health', async (req, res) => {
       status: overallStatus,
       timestamp: new Date().toISOString(),
       uptime_ms: liveness.uptime_ms,
-      version: process.env.npm_package_version || '1.0.0',
-      environment: process.env.NODE_ENV || 'development',
+      version: '1.0.0',
+      environment: env.NODE_ENV,
       dependencies: readiness.dependencies,
       queues: queueHealth.queues,
       message: readiness.message,
@@ -295,6 +301,7 @@ app.use('/api/exchange-rates', createExchangeRatesRouter(exchangeRateService));
 app.use('/api/gift-card-ledger', giftCardLedgerRoutes);
 app.use('/api/payments', authenticate, paymentsRoutes);
 app.use('/api/payment-channels', authenticate, paymentChannelsRoutes);
+app.use('/api/admin/webhook-events', adminWebhookEventsRoutes);
 app.use('/api/telegram', telegramWebhookRoutes);
 app.use('/api/calendar', calendarRouter);
 app.use('/api/user-preferences', authenticate, userPreferencesRoutes);
@@ -599,12 +606,12 @@ function clearHealthSnapshotInterval() {
 // Start Server
 const server = app.listen(PORT, async () => {
   logger.info(`Server running on port ${PORT}`);
-  logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  logger.info(`Environment: ${env.NODE_ENV}`);
 
   // Validation
-  const criticalEnvVars = ['SOROBAN_CONTRACT_ADDRESS', 'STELLAR_NETWORK_URL'];
+  const criticalEnvVars = ['SOROBAN_CONTRACT_ADDRESS', 'STELLAR_NETWORK_URL'] as const;
   for (const envVar of criticalEnvVars) {
-    if (!process.env[envVar]) {
+    if (!env[envVar]) {
       logger.warn(`${envVar} not configured — EventListener will be disabled`);
     }
   }
@@ -632,9 +639,10 @@ const server = app.listen(PORT, async () => {
   startChannelMonitorJob();
   startChannelSettlementJob();
   startJobAlertMonitor();
+  startWebhookRetryJob();
 
   telegramCommandService.init();
-  if (process.env.TELEGRAM_BOT_TOKEN && !process.env.TELEGRAM_WEBHOOK_SECRET) {
+  if (env.TELEGRAM_BOT_TOKEN && !env.TELEGRAM_WEBHOOK_SECRET) {
     logger.warn('[Telegram] TELEGRAM_WEBHOOK_SECRET not set — webhook origin is unverified');
   }
 });
@@ -646,6 +654,7 @@ registerGracefulShutdown(server, {
     stopSettlementBatchJob();
     stopChannelSettlementJob();
     stopJobAlertMonitor();
+    stopWebhookRetryJob();
   },
   stopEventListener: () => eventListener.stop(),
   stopTelegram: () => telegramCommandService.stop(),

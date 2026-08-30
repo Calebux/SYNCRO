@@ -253,6 +253,14 @@ Existing users:
 2. **Large Datasets** - 1000+ subscriptions may take significant time (future: background jobs)
 3. **Network Interruption** - Requires manual retry (future: automatic retry)
 
+## 🏛️ Architecture Decision Record (ADR)
+
+Does this PR alter a **system boundary**, a **data model**, or a **trust assumption**?
+- [ ] **No** — This PR does not alter architectural boundaries, database schemas/ledgers, or trust assumptions.
+- [ ] **Yes** — An ADR is required per the [ADR Governance Guide](docs/adr/README.md).
+  - [ ] New or updated ADR included under `docs/adr/` created from [docs/adr/template.md](docs/adr/template.md).
+  - **ADR Reference:** `docs/adr/ADR-XXX-title.md`
+
 ## 📚 Documentation
 
 Complete documentation available:
@@ -266,6 +274,7 @@ Complete documentation available:
 - [x] Self-review completed
 - [x] Comments added for complex logic
 - [x] Documentation updated
+- [ ] ADR created/updated if required (system boundaries, data models, trust assumptions)
 - [x] No console errors or warnings
 - [x] Database migrations tested
 - [x] API endpoints tested

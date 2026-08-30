@@ -15,6 +15,19 @@ jest.mock('@sentry/node', () => ({
   captureMessage: jest.fn(),
 }));
 
+
+// Issue #1283: the route now persists the delivery before acknowledging, so the
+// pipeline needs a database. The in-memory fake enforces the real
+// UNIQUE (provider, event_id) constraint, which is what makes the
+// duplicate-delivery assertions below meaningful.
+import { FakeSupabase } from './helpers/fake-supabase';
+
+const fakeDb = new FakeSupabase();
+
+jest.mock('../src/config/database', () => ({
+  supabase: { from: (table: string) => fakeDb.from(table) },
+}));
+
 import stripeWebhookRoutes from '../src/routes/stripe-webhook';
 
 const STRIPE_WEBHOOK_SECRET = 'whsec_test_secret_for_integration_tests';
@@ -34,6 +47,7 @@ describe('Stripe webhook route integration', () => {
   const originalStripeSecretKey = process.env.STRIPE_SECRET_KEY;
 
   beforeEach(() => {
+    fakeDb.reset();
     process.env.STRIPE_WEBHOOK_SECRET = STRIPE_WEBHOOK_SECRET;
     process.env.STRIPE_SECRET_KEY = STRIPE_SECRET_KEY;
   });
@@ -74,8 +88,9 @@ describe('Stripe webhook route integration', () => {
       .set('content-type', 'application/json')
       .send(validPayload);
 
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({ received: true });
+    // 202: verified and durably stored; the handler runs asynchronously.
+    expect(res.status).toBe(202);
+    expect(res.body).toEqual({ received: true, eventId: 'evt_test_123' });
   });
 
   it('accepts the same webhook twice (idempotent-replay)', async () => {
@@ -93,8 +108,11 @@ describe('Stripe webhook route integration', () => {
       .set('content-type', 'application/json')
       .send(validPayload);
 
-    expect(res1.status).toBe(200);
+    expect(res1.status).toBe(202);
+    // The redelivery is recognised by (provider, event_id) and not re-stored.
     expect(res2.status).toBe(200);
+    expect(res2.body).toEqual({ received: true, duplicate: true, eventId: 'evt_test_123' });
+    expect(fakeDb.rows('webhook_events')).toHaveLength(1);
   });
 
   it('rejects a webhook with forged signature (rejected-forgery)', async () => {
@@ -161,10 +179,13 @@ describe('Stripe webhook route integration', () => {
         .set('content-type', 'application/json')
         .send(emptyBody);
 
-      // Empty body passes signature but may not match expected event shape
-      // The route accepts it since Stripe verifies the signature only
-      expect(res.status).toBe(200);
-      expect(res.body).toEqual({ received: true });
+      // Issue #1283: an event with no id cannot be deduplicated, so the
+      // pipeline rejects it as malformed rather than storing an unkeyed row.
+      // Nothing is persisted beyond the rejection audit record.
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ error: 'Webhook payload is missing an event id' });
+      expect(fakeDb.rows('webhook_events')).toHaveLength(0);
+      expect(fakeDb.rows('webhook_rejections')).toHaveLength(1);
     });
   });
 });

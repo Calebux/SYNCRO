@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { sharedRedisClient } from '../lib/redis-client';
 
 export interface QueryCacheMetrics {
@@ -24,7 +25,7 @@ export class QueryCacheService {
   private inMemoryMetrics: QueryCacheMetrics = { hits: 0, misses: 0, invalidations: 0 };
 
   constructor() {
-    this.enabled = process.env.QUERY_CACHE_ENABLED !== 'false';
+    this.enabled = env.QUERY_CACHE_ENABLED !== 'false';
   }
 
   private cacheKey(userId: string, namespace: string, queryHash: string): string {
@@ -139,11 +140,11 @@ export class QueryCacheService {
   }
 
   getDefaultSubscriptionListTtl(): number {
-    return parseInt(process.env.QUERY_CACHE_SUBSCRIPTION_LIST_TTL_MS ?? '60000', 10) || 60_000;
+    return parseInt(env.QUERY_CACHE_SUBSCRIPTION_LIST_TTL_MS, 10) || 60_000;
   }
 
   getDefaultAnalyticsTtl(): number {
-    return parseInt(process.env.QUERY_CACHE_ANALYTICS_TTL_MS ?? '300000', 10) || 300_000;
+    return parseInt(env.QUERY_CACHE_ANALYTICS_TTL_MS, 10) || 300_000;
   }
 }
 
