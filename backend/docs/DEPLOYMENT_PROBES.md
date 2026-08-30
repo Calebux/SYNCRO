@@ -65,9 +65,9 @@ livenessProbe:
 
 **Behavior**:
 - ✅ Checks critical dependencies (database, Redis, RPC/Horizon, FX provider)
-- ✅ Returns 503 if any critical dep is unhealthy
-- ✅ Allows degraded state for non-critical services
-- ✅ RPC/Horizon and FX provider report `degraded` when not configured (no blocking)
+- ✅ Returns 503 if any critical dep is `unhealthy` or `degraded`
+- ✅ Allows degraded state for non-critical services (queue, providers, scheduler)
+- ✅ Redis and RPC/Horizon report `degraded` when not configured (readiness blocks)
 
 **Response (HTTP 200 if ready, 503 if not)**:
 ```json
@@ -115,7 +115,7 @@ livenessProbe:
 {
   "status": "not_ready",
   "timestamp": "2026-06-25T00:00:00.000Z",
-  "message": "Critical dependencies unhealthy: database",
+  "message": "Critical dependencies unavailable: database (unhealthy)",
   "dependencies": [
     {
       "name": "database",
@@ -138,9 +138,9 @@ livenessProbe:
 
 **Behavior**:
 - ✅ Checks critical dependencies (database, Redis, RPC/Horizon, FX provider)
-- ✅ Returns 503 if any critical dep is unhealthy
-- ✅ Allows degraded state for non-critical services
-- ✅ RPC/Horizon and FX provider report `degraded` when not configured (no blocking)
+- ✅ Returns 503 if any critical dep is `unhealthy` or `degraded`
+- ✅ Allows degraded state for non-critical services (queue, providers, scheduler)
+- ✅ Redis and RPC/Horizon report `degraded` when not configured (readiness blocks)
 
 **Deployment Use Case**:
 ```yaml

@@ -177,6 +177,7 @@ impl LoyaltyRewardsContract {
 
     /// Update the authorized renewal caller.  Only admin may call this.
     pub fn set_renewal_caller(env: Env, renewal_caller: Address) {
+        Self::require_not_paused(&env);
         let admin: Address = Self::require_admin(&env);
         admin.require_auth();
         env.storage()

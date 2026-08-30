@@ -1,5 +1,6 @@
 import logger from '../config/logger';
 import { supabase } from '../config/database';
+import { env } from '../config/env';
 import { blockchainService } from './blockchain-service';
 
 export interface BatchConfig {
@@ -51,11 +52,11 @@ export class SettlementBackpressureError extends Error {
 }
 
 const DEFAULT_CONFIG: BatchConfig = {
-  minBatchSize: Number(process.env.SETTLEMENT_MIN_BATCH ?? 3),
-  maxBatchSize: Number(process.env.SETTLEMENT_MAX_BATCH ?? 20),
-  maxWaitMs: Number(process.env.SETTLEMENT_MAX_WAIT_MS ?? 5 * 60 * 1000),
-  maxQueueDepth: Number(process.env.SETTLEMENT_MAX_QUEUE_DEPTH ?? 500),
-  maxInFlightBatches: Number(process.env.SETTLEMENT_MAX_IN_FLIGHT ?? 2),
+  minBatchSize: Number(env.SETTLEMENT_MIN_BATCH),
+  maxBatchSize: Number(env.SETTLEMENT_MAX_BATCH),
+  maxWaitMs: Number(env.SETTLEMENT_MAX_WAIT_MS),
+  maxQueueDepth: Number(env.SETTLEMENT_MAX_QUEUE_DEPTH),
+  maxInFlightBatches: Number(env.SETTLEMENT_MAX_IN_FLIGHT),
 };
 
 export class SettlementBatcher {
