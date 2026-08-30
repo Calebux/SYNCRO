@@ -4,6 +4,7 @@ use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error,
     vec, Address, BytesN, Env, String, Vec,
 };
+use syncro_common;
 
 // ============================================================================
 // CONSTANTS
@@ -73,20 +74,20 @@ pub struct UpgradeProposal {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum UpgradeError {
-    NotInitialized = 1,
-    AlreadyInitialized = 2,
-    Unauthorized = 3,
-    NotGuardian = 4,
-    ProposalNotFound = 5,
-    InvalidStateTransition = 6,
-    AlreadyApprovedBySigner = 7,
-    DuplicateGuardian = 8,
-    GuardianSetFull = 9,
-    UpgradesPaused = 10,
-    TimelockNotExpired = 11,
-    NoRollbackAvailable = 12,
-    RollbackAlreadyConsumed = 13,
-    InvalidArgument = 14,
+    NotInitialized = 1700,
+    AlreadyInitialized = 1701,
+    Unauthorized = 1702,
+    NotGuardian = 1703,
+    ProposalNotFound = 1704,
+    InvalidStateTransition = 1705,
+    AlreadyApprovedBySigner = 1706,
+    DuplicateGuardian = 1707,
+    GuardianSetFull = 1708,
+    UpgradesPaused = 1709,
+    TimelockNotExpired = 1710,
+    NoRollbackAvailable = 1711,
+    RollbackAlreadyConsumed = 1712,
+    InvalidArgument = 1713,
 }
 
 // ============================================================================
@@ -478,6 +479,19 @@ impl ContractUpgradeGovernance {
         let has_hash: bool = env.storage().persistent()
             .has(&DataKey::RollbackWasmHash);
         !consumed && has_hash
+    }
+
+    /// Returns the contract version.
+    /// Incremented when the implementation changes (used for deployments).
+    pub fn version(_env: Env) -> u32 {
+        syncro_common::version(&_env)
+    }
+
+    /// Returns the contract interface version.
+    /// Incremented when public methods or error handling changes.
+    /// Used to detect API mismatches at runtime.
+    pub fn interface_version(_env: Env) -> u32 {
+        syncro_common::interface_version_call(&_env)
     }
 }
 

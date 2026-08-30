@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 soroban-sdk = { workspace = true }
+syncro-common = { path = "../common" }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }

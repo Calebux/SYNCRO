@@ -2,17 +2,18 @@
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env,
 };
+use syncro_common;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    Unauthorized = 3,
-    InvalidScope = 4,
-    NoPendingAdmin = 5,
-    NotPendingAdmin = 6,
+    AlreadyInitialized = 1400,
+    NotInitialized = 1401,
+    Unauthorized = 1402,
+    InvalidScope = 1403,
+    NoPendingAdmin = 1404,
+    NotPendingAdmin = 1405,
 }
 
 

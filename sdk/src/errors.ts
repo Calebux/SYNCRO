@@ -106,6 +106,123 @@ export class ConflictError extends SyncroError {
 }
 
 /**
+ * Decoded contract error information.
+ * 
+ * Represents a structured error returned from a Soroban contract,
+ * with both global error code and human-readable variant name.
+ */
+export interface DecodedContractError {
+  /** Global error code (1000-3199) */
+  globalCode: number;
+  /** Contract name (e.g., "escrow", "virtual-card") */
+  contract: string;
+  /** Error variant name (e.g., "Unauthorized", "InvalidAmount") */
+  variant: string;
+  /** Local discriminant within the contract (used for debugging) */
+  localCode: number;
+  /** Human-readable description */
+  description: string;
+}
+
+/** Mapping of contract base codes to contract names */
+const CONTRACT_NAMES: Record<number, string> = {
+  1000: "subscription_renewal",
+  1100: "subscription_logging",
+  1200: "virtual-card",
+  1300: "escrow",
+  1400: "agent-registry",
+  1500: "zk-payment-verifier",
+  1600: "payment-channel",
+  1700: "contract-upgrade",
+  1800: "allowance",
+  1900: "payment-adapter",
+  2000: "voucher-ledger",
+  2100: "fee-collector",
+  2200: "resolver-registry",
+  2300: "subscription_refund",
+  2400: "recurring_allowance",
+  2500: "loyalty_rewards",
+  2600: "subscription_nft",
+  2700: "attestation",
+  2800: "guardian",
+  2900: "fx-oracle",
+  3000: "payment-splitter",
+  3100: "stealth-announcement",
+};
+
+/**
+ * Decode a global contract error code.
+ * 
+ * Converts a Soroban contract error code (e.g., 1304 for escrow::InvalidAmount)
+ * back to structured information about which contract and error variant it represents.
+ * 
+ * @param globalCode - The error code from a contract invocation
+ * @param errorRegistry - (Optional) The errors.json registry for rich descriptions
+ * @returns Decoded error information, or null if the code is invalid
+ * 
+ * @example
+ * // Escrow error code 1304 is InvalidAmount (1300 base + 5th variant)
+ * const decoded = decodeContractError(1304);
+ * // Returns: { globalCode: 1304, contract: "escrow", variant: "InvalidAmount", ... }
+ */
+export function decodeContractError(
+  globalCode: number,
+  errorRegistry?: Record<string, any>,
+): DecodedContractError | null {
+  if (!Number.isInteger(globalCode) || globalCode < 1000 || globalCode > 3199) {
+    return null;
+  }
+
+  // Extract contract base code: round down to nearest 100
+  const contractBase = Math.floor(globalCode / 100) * 100;
+  const contractName = CONTRACT_NAMES[contractBase];
+
+  if (!contractName) {
+    return null;
+  }
+
+  // Calculate local discriminant: (error_code % 100) + 1
+  const offset = globalCode % 100;
+  const localCode = offset + 1;
+
+  // Try to look up in registry for variant name
+  let variant = `Error${localCode}`;
+  let description = `Contract error (code: ${globalCode})`;
+
+  if (errorRegistry && errorRegistry[globalCode.toString()]) {
+    const entry = errorRegistry[globalCode.toString()];
+    variant = entry.variant || variant;
+    description = `${contractName}::${variant}`;
+  }
+
+  return {
+    globalCode,
+    contract: contractName,
+    variant,
+    localCode,
+    description,
+  };
+}
+
+/**
+ * Format a decoded contract error for logging.
+ * 
+ * @param decoded - The decoded error information
+ * @returns Human-readable error string
+ * 
+ * @example
+ * const error = decodeContractError(1304);
+ * console.log(formatContractError(error));
+ * // Output: "Contract Error: escrow::InvalidAmount (code: 1304, local: 5)"
+ */
+export function formatContractError(decoded: DecodedContractError): string {
+  return (
+    `Contract Error: ${decoded.contract}::${decoded.variant} ` +
+    `(code: ${decoded.globalCode}, local: ${decoded.localCode})`
+  );
+}
+
+/**
  * Maps HTTP status codes and API error codes to the appropriate SDK error class.
  */
 export function createApiError(

@@ -28,6 +28,7 @@ use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,
     Address, Env, Vec,
 };
+use syncro_common;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -101,32 +102,19 @@ pub struct SplitConfig {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum SplitterError {
-    /// `init` called more than once.
-    AlreadyInitialized = 1,
-    /// Contract has not been initialised yet.
-    NotInitialized = 2,
-    /// Requested split ID does not exist.
-    SplitNotFound = 3,
-    /// Caller is not permitted to perform this operation.
-    Unauthorized = 4,
-    /// `total_amount` must be > 0.
-    InvalidAmount = 5,
-    /// Payer list is empty.
-    NoPayers = 6,
-    /// Payer list exceeds MAX_PAYERS.
-    TooManyPayers = 7,
-    /// A payer's `share_bps` is zero.
-    ZeroShare = 8,
-    /// The same address appears more than once in the payer list.
-    DuplicatePayer = 9,
-    /// Shares do not sum to exactly BASIS_POINTS.
-    SharesMustSum100Pct = 10,
-    /// Split has already been executed.
-    AlreadyExecuted = 11,
-    /// Split has been cancelled and cannot be executed.
-    AlreadyCancelled = 12,
-    /// Merchant must differ from all payers.
-    MerchantIsPayer = 13,
+    AlreadyInitialized = 3000,
+    NotInitialized = 3001,
+    SplitNotFound = 3002,
+    Unauthorized = 3003,
+    InvalidAmount = 3004,
+    NoPayers = 3005,
+    TooManyPayers = 3006,
+    ZeroShare = 3007,
+    DuplicatePayer = 3008,
+    SharesMustSum100Pct = 3009,
+    AlreadyExecuted = 3010,
+    AlreadyCancelled = 3011,
+    MerchantIsPayer = 3012,
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
@@ -477,9 +465,20 @@ impl PaymentSplitterContract {
             .get(&DataKey::Admin)
             .unwrap_or_else(|| panic_with_error!(&env, SplitterError::NotInitialized))
     }
-}
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
+    /// Returns the contract version.
+    /// Incremented when the implementation changes (used for deployments).
+    pub fn version(_env: Env) -> u32 {
+        syncro_common::version(&_env)
+    }
+
+    /// Returns the contract interface version.
+    /// Incremented when public methods or error handling changes.
+    /// Used to detect API mismatches at runtime.
+    pub fn interface_version(_env: Env) -> u32 {
+        syncro_common::interface_version_call(&_env)
+    }
+}
 
 #[cfg(test)]
 mod test;

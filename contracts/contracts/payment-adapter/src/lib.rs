@@ -3,6 +3,7 @@
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, token, Address, Env,
 };
+use syncro_common;
 
 #[contracttype]
 #[derive(Clone)]
@@ -26,15 +27,15 @@ pub struct TokenPolicy {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum PaymentAdapterError {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    Unauthorized = 3,
-    InvalidAmount = 4,
-    InvalidCap = 5,
-    TokenNotAllowlisted = 6,
-    TokenInactive = 7,
-    CapExceeded = 8,
-    UnsupportedDecimals = 9,
+    AlreadyInitialized = 1900,
+    NotInitialized = 1901,
+    Unauthorized = 1902,
+    InvalidAmount = 1903,
+    InvalidCap = 1904,
+    TokenNotAllowlisted = 1905,
+    TokenInactive = 1906,
+    CapExceeded = 1907,
+    UnsupportedDecimals = 1908,
 }
 
 #[contractevent]
@@ -222,6 +223,19 @@ impl PaymentAdapterContract {
 
     pub fn is_allowed(env: Env, token: Address) -> bool {
         matches!(Self::load_policy(&env, &token), Ok(policy) if policy.active)
+    }
+
+    /// Returns the contract version.
+    /// Incremented when the implementation changes (used for deployments).
+    pub fn version(_env: Env) -> u32 {
+        syncro_common::version(&_env)
+    }
+
+    /// Returns the contract interface version.
+    /// Incremented when public methods or error handling changes.
+    /// Used to detect API mismatches at runtime.
+    pub fn interface_version(_env: Env) -> u32 {
+        syncro_common::interface_version_call(&_env)
     }
 }
 

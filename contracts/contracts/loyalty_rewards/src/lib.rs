@@ -26,6 +26,7 @@ use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, Address,
     Env,
 };
+use syncro_common;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -46,20 +47,13 @@ pub const POINTS_PER_CREDIT: i128 = 1;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum RewardsError {
-    /// Contract has not been initialised yet.
-    NotInitialized = 1,
-    /// Contract was already initialised.
-    AlreadyInitialized = 2,
-    /// Caller is not permitted to perform this action.
-    Unauthorized = 3,
-    /// The contract is paused.
-    Paused = 4,
-    /// Redemption amount is below the minimum threshold.
-    RedeemTooSmall = 5,
-    /// Owner does not have enough points.
-    InsufficientPoints = 6,
-    /// A numeric overflow occurred.
-    Overflow = 7,
+    NotInitialized = 2500,
+    AlreadyInitialized = 2501,
+    Unauthorized = 2502,
+    Paused = 2503,
+    RedeemTooSmall = 2504,
+    InsufficientPoints = 2505,
+    Overflow = 2506,
 }
 
 // ─── Storage keys ────────────────────────────────────────────────────────────
@@ -395,6 +389,19 @@ impl LoyaltyRewardsContract {
         env.storage()
             .instance()
             .set(&UserKey::Account(owner.clone()), account);
+    }
+
+    /// Returns the contract version.
+    /// Incremented when the implementation changes (used for deployments).
+    pub fn version(_env: Env) -> u32 {
+        syncro_common::version(&_env)
+    }
+
+    /// Returns the contract interface version.
+    /// Incremented when public methods or error handling changes.
+    /// Used to detect API mismatches at runtime.
+    pub fn interface_version(_env: Env) -> u32 {
+        syncro_common::interface_version_call(&_env)
     }
 }
 

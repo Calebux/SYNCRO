@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
   "contracts",
+  "contracts/common",
   "contracts/subscription_renewal",
   "contracts/subscription_logging",
   "contracts/virtual-card",

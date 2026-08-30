@@ -4,6 +4,7 @@
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, Address, Env, String, Symbol,
 };
+use syncro_common;
 
 // ============================================================================
 // Error Types
@@ -11,18 +12,19 @@ use soroban_sdk::{
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
 pub enum VirtualCardError {
-    CardNotFound = 1,
-    Unauthorized = 2,
-    CardInactive = 3,
-    InvalidCardState = 4,
-    LimitExceeded = 5,
-    InvalidInput = 6,
-    Expired = 7,
-    DuplicateCard = 8,
-    NotSupported = 9,
-    InternalError = 10,
-    CounterOverflow = 11,
+    CardNotFound = 1200,
+    Unauthorized = 1201,
+    CardInactive = 1202,
+    InvalidCardState = 1203,
+    LimitExceeded = 1204,
+    InvalidInput = 1205,
+    Expired = 1206,
+    DuplicateCard = 1207,
+    NotSupported = 1208,
+    InternalError = 1209,
+    CounterOverflow = 1210,
 }
 
 // ── Card ID u32 Upgrade Path Consideration ─────────────────────────────────────
@@ -372,6 +374,7 @@ mod fuzz;
 mod tests {
     use super::*;
     use soroban_sdk::{testutils::Address as _, Env};
+use syncro_common;
 
     fn setup() -> (Env, Address) {
         let env = Env::default();
