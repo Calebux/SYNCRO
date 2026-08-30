@@ -19,8 +19,8 @@ export interface SecretProvider {
  */
 export class LocalSecretProvider implements SecretProvider {
   async getSecret(key: string): Promise<string | undefined> {
-    // We can use the validated env object or process.env directly
-    // Using process.env allows for keys that might not be in the Zod schema yet
+    const val = (env as Record<string, unknown>)[key];
+    if (typeof val === 'string') return val;
     return process.env[key];
   }
 }
@@ -33,7 +33,7 @@ export class SecretProviderFactory {
 
   static getProvider(): SecretProvider {
     if (!this.instance) {
-      const type = process.env.SECRET_PROVIDER_TYPE || 'local';
+      const type = env.SECRET_PROVIDER_TYPE || 'local';
       
       switch (type.toLowerCase()) {
         case 'local':
