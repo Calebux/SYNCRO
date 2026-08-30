@@ -1,5 +1,6 @@
 import cron, { type ScheduledTask } from 'node-cron';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { runWithCorrelationId } from '../middleware/requestContext';
 import { channelStateService } from '../services/channel-state';
 import { paymentChannelService } from '../services/payment-channel-service';
@@ -14,7 +15,7 @@ let channelSettlementTask: ScheduledTask | null = null;
 export function startChannelSettlementJob(): void {
   channelSettlementTask = cron.schedule('0 2 * * *', () =>
     runWithCorrelationId('cron:channel-settlement', async (cid) => {
-      if (process.env.PAYMENT_CHANNELS_ENABLED !== 'true') return;
+      if (env.PAYMENT_CHANNELS_ENABLED !== 'true') return;
 
       try {
         const due = await channelStateService.getChannelsDueForSettlement();

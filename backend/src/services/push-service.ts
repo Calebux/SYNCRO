@@ -1,5 +1,6 @@
 import webpush from 'web-push';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { NotificationPayload, DeliveryResult } from '../types/reminder';
 import { withRetry, RetryableError, NonRetryableError } from '../utils/retry';
 import { sanitizeUrl } from '../utils/sanitize-url';
@@ -19,9 +20,9 @@ export class PushService {
   private vapidSubject: string;
 
   constructor() {
-    this.vapidPublicKey = process.env.VAPID_PUBLIC_KEY || '';
+    this.vapidPublicKey = env.VAPID_PUBLIC_KEY || '';
     this.vapidPrivateKey = ''; // Will be fetched from secretProvider
-    this.vapidSubject = process.env.VAPID_SUBJECT || process.env.FRONTEND_URL || 'mailto:noreply@synchro.app';
+    this.vapidSubject = env.VAPID_SUBJECT || env.FRONTEND_URL || 'mailto:noreply@synchro.app';
 
     if (this.vapidPublicKey) {
       logger.info('Push service initialized with public key');

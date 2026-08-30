@@ -232,7 +232,11 @@ export async function POST(request: NextRequest) {
         await supabase
             .from('webhook_events')
             .update({ processed: true, processed_at: new Date().toISOString() })
-            .eq('id', newRecord.id)
+            // Keep the state transition in the same provider/event namespace as
+            // the idempotency check. This prevents an identical event ID from a
+            // different provider ever being updated by this handler.
+            .eq('provider', 'paypal')
+            .eq('event_id', event.id)
 
         return NextResponse.json({ received: true })
     } catch (error) {

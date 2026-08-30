@@ -2,6 +2,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { createClient, RedisClientType } from 'redis';
 import logger from '../config/logger';
+import { env } from '../config/env';
 
 const WINDOW_MS = 60000; // 1 minute window
 const MAX_ATTEMPTS = 5;
@@ -9,7 +10,7 @@ const REDIS_KEY_PREFIX = 'rate:renewal:';
 
 const counts = new Map<string, { count: number; lastReset: number }>();
 
-const redisUrl = process.env.REDIS_URL || process.env.RATE_LIMIT_REDIS_URL;
+const redisUrl = env.REDIS_URL || env.RATE_LIMIT_REDIS_URL;
 let redisClient: RedisClientType | null = null;
 let redisInitPromise: Promise<RedisClientType | null> | null = null;
 
