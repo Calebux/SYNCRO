@@ -28,7 +28,7 @@ members = [
 ]
 
 [workspace.dependencies]
-soroban-sdk = "27"
+soroban-sdk = "=27.0.2"
 proptest = "1.6"
 
 [profile.release]

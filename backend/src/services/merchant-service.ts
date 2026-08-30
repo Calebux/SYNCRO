@@ -274,3 +274,47 @@ export class MerchantService {
 }
 
 export const merchantService = new MerchantService();
+
+/**
+ * Normalize a merchant identifier for virtual-card allowlist/blocklist matching.
+ * Lowercases and trims whitespace so on-chain String comparisons stay stable.
+ */
+export function normalizeMerchantId(merchantId: string): string {
+  return merchantId.trim().toLowerCase();
+}
+
+/**
+ * Returns true when `merchantId` may charge a card given optional allow/block lists.
+ * Empty allowlist means all merchants are allowed except those on the blocklist.
+ */
+export function isMerchantPermittedForCard(
+  merchantId: string,
+  allowlist: string[] = [],
+  blocklist: string[] = [],
+): boolean {
+  const normalized = normalizeMerchantId(merchantId);
+  const blocked = blocklist.map(normalizeMerchantId);
+  if (blocked.includes(normalized)) {
+    return false;
+  }
+  if (allowlist.length === 0) {
+    return true;
+  }
+  const allowed = allowlist.map(normalizeMerchantId);
+  return allowed.includes(normalized);
+}
+
+/**
+ * Validate merchant metadata exists and is permitted for a virtual card charge.
+ */
+export async function validateMerchantForVirtualCard(
+  merchantId: string,
+  allowlist: string[] = [],
+  blocklist: string[] = [],
+): Promise<Merchant> {
+  const merchant = await merchantService.getMerchant(merchantId);
+  if (!isMerchantPermittedForCard(merchantId, allowlist, blocklist)) {
+    throw new Error(`Merchant "${merchantId}" is not permitted for this virtual card`);
+  }
+  return merchant;
+}

@@ -13,6 +13,8 @@ pub enum Error {
     InvalidScope = 4,
     NoPendingAdmin = 5,
     NotPendingAdmin = 6,
+    NotRegistered = 7,
+    MissingScope = 8,
 }
 
 
@@ -204,11 +206,12 @@ impl AgentRegistry {
         env.storage().persistent().has(&DataKey::Agent(agent))
     }
 
-    /// Panic if an agent is not authorized.
-    pub fn require_authorized(env: Env, agent: Address) {
-        if !Self::is_authorized(env, agent) {
-            panic!("agent not authorized");
+    /// Return Err(Error::NotRegistered) if the agent has no registry entry.
+    pub fn require_authorized(env: Env, agent: Address) -> Result<(), Error> {
+        if !env.storage().persistent().has(&DataKey::Agent(agent)) {
+            return Err(Error::NotRegistered);
         }
+        Ok(())
     }
 
        pub fn has_scope(env: Env, agent: Address, scope: Scope) -> bool {
@@ -222,13 +225,14 @@ impl AgentRegistry {
         }
     }
 
-      /// Enforce agent authorization + scope
-    pub fn require_scope(env: Env, agent: Address, scope: Scope) {
+    /// Return Err(Error::MissingScope) if the agent lacks the requested scope.
+    pub fn require_scope(env: Env, agent: Address, scope: Scope) -> Result<(), Error> {
         agent.require_auth();
 
-        if !Self::has_scope(env, agent, scope) {
-            panic!("agent missing required scope");
+        if !Self::has_scope(env, agent.clone(), scope) {
+            return Err(Error::MissingScope);
         }
+        Ok(())
     }
 
 }
