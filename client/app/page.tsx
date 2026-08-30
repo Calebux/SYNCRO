@@ -26,6 +26,7 @@ export default async function HomePage() {
         initialPayments={initialData.payments}
         initialPriceChanges={initialData.priceChanges}
         initialConsolidationSuggestions={initialData.consolidationSuggestions}
+        initialAnalyticsSummary={initialData.analyticsSummary}
         dataLoadWarnings={initialData.warnings}
         isDemo={initialData.isDemo}
       />

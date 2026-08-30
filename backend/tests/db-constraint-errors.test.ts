@@ -122,8 +122,24 @@ describe('parseDbError', () => {
     expect(result!.message).toMatch(/negative balance/i);
   });
 
-  it('returns 409 for duplicate reference_id', () => {
-    const result = parseDbError(pgErr('23505', 'gift_card_ledger_reference_id_user_idx'));
+  it('returns 422 for postings zero amount', () => {
+    const result = parseDbError(pgErr('23514', 'gift_card_ledger_postings_amount_check'));
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe(422);
+    expect(result!.field).toBe('amount');
+    expect(result!.message).toMatch(/not be zero/i);
+  });
+
+  it('returns 422 for invalid reason code', () => {
+    const result = parseDbError(pgErr('23514', 'gift_card_ledger_transactions_reason_code_check'));
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe(422);
+    expect(result!.field).toBe('reason_code');
+    expect(result!.message).toMatch(/TOP_UP/i);
+  });
+
+  it('returns 409 for duplicate transactions reference_id', () => {
+    const result = parseDbError(pgErr('23505', 'gift_card_ledger_transactions_reference_idx'));
     expect(result).not.toBeNull();
     expect(result!.status).toBe(409);
     expect(result!.field).toBe('reference_id');

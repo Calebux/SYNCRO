@@ -7,6 +7,7 @@ import cron from 'node-cron';
 import { jobAlertService } from '../services/job-alert-service';
 import { eventListener } from '../services/event-listener';
 import logger from '../config/logger';
+import { env } from '../config/env';
 
 export const jobAlertMonitorJob = cron.schedule(
   '*/5 * * * *',
@@ -33,7 +34,7 @@ export const jobAlertMonitorJob = cron.schedule(
 );
 
 export function startJobAlertMonitor(): void {
-  const enabled = process.env.JOB_ALERT_MONITOR_ENABLED !== 'false';
+  const enabled = env.JOB_ALERT_MONITOR_ENABLED !== 'false';
   if (!enabled) {
     logger.info('Job alert monitor is disabled');
     return;
