@@ -10,6 +10,7 @@
   "scripts": {
     "build": "npx -p typescript@5.9.3 tsc",
     "typecheck": "npx -p typescript@5.9.3 tsc --noEmit",
+    "lint": "npx eslint 'src/**/*.ts'",
     "start": "node dist/index.js",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "validate-env": "node scripts/validate-env.js",

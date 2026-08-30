@@ -1,5 +1,6 @@
 import logger from "../config/logger";
 import { supabase } from "../config/database";
+import { env } from "../config/env";
 import { NotificationPayload } from "../types/reminder";
 import { getRequestId } from "../middleware/requestContext";
 import crypto from 'crypto';
@@ -195,13 +196,13 @@ export class BlockchainService {
   private readonly policy = EXTERNAL_SERVICE_POLICIES.stellar_rpc;
 
   constructor() {
-    this.contractAddress = process.env.SOROBAN_CONTRACT_ADDRESS || null;
+    this.contractAddress = env.SOROBAN_CONTRACT_ADDRESS || null;
 
     const flags = getBlockchainFlags();
     const network = resolveStellarNetwork();
 
     // Resolve RPC URL — never silently fall back to testnet in production.
-    const configuredRpc = process.env.SOROBAN_RPC_URL;
+    const configuredRpc = env.SOROBAN_RPC_URL;
     if (!configuredRpc && flags.isProduction) {
       throw new Error(
         "[blockchain] SOROBAN_RPC_URL must be explicitly set in production. " +
@@ -211,7 +212,7 @@ export class BlockchainService {
     this.rpcUrl = configuredRpc || "https://soroban-testnet.stellar.org";
 
     // Resolve network passphrase — never silently use testnet passphrase in production.
-    const configuredPassphrase = process.env.STELLAR_NETWORK_PASSPHRASE;
+    const configuredPassphrase = env.STELLAR_NETWORK_PASSPHRASE;
     if (!configuredPassphrase && flags.isProduction) {
       throw new Error(
         "[blockchain] STELLAR_NETWORK_PASSPHRASE must be explicitly set in production. " +
@@ -240,7 +241,7 @@ export class BlockchainService {
     }
 
     // Initialize optional Redis client for DLQ if REDIS_URL present
-    const redisUrl = process.env.REDIS_URL;
+    const redisUrl = env.REDIS_URL;
     if (redisUrl) {
       try {
         this.redisClient = createClient({ url: redisUrl });
@@ -1035,7 +1036,7 @@ export class BlockchainService {
 
   // Helper to calculate a simulated Pedersen commitment (using SHA256 with blinding)
   private computePedersenCommitment(data: string, userId: string): Buffer {
-    const systemSecret = process.env.ENCRYPTION_KEY || process.env.JWT_SECRET || 'system-secret';
+    const systemSecret = env.ENCRYPTION_KEY || env.JWT_SECRET || 'system-secret';
     const blinding = crypto.createHmac('sha256', systemSecret).update(userId).digest('hex');
     return crypto.createHash('sha256').update(`${data}:${blinding}`).digest();
   }
