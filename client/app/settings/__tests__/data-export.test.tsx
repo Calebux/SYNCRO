@@ -386,7 +386,7 @@ describe('Data Export Tests', () => {
         format: 'CSV', // Machine-readable format
         includesAllPersonalData: true,
         accessibleWithoutSpecialSoftware: true,
-        providedWithoutUndueDel ay: true,
+        providedWithoutUndueDelay: true,
         free: true,
       };
 

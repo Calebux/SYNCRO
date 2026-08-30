@@ -32,6 +32,8 @@ pub trait VirtualCardInterface {
         amount: i128,
         card_type: u32,
         expires_at: u64,
+        daily_limit: i128,
+        monthly_limit: i128,
     ) -> u32;
 }
 
@@ -542,7 +544,14 @@ impl SubscriptionRegistry {
         {
             let vc_client = VirtualCardClient::new(env, &vc_address);
             // 4 represents CardType::Disposable
-            vc_client.issue_card(&subscription.user, &subscription.amount, &4u32, &0u64);
+            vc_client.issue_card(
+                &subscription.user,
+                &subscription.amount,
+                &4u32,
+                &0u64,
+                &0i128,
+                &0i128,
+            );
         }
     }
 

@@ -5,17 +5,19 @@ import * as Sentry from '@sentry/node';
 import { nodeProfilingIntegration } from '@sentry/profiling-node';
 import * as bip39 from 'bip39';
 import { resolveRelease, resolveEnvironment, scrubEvent, SENTRY_TAG_KEYS } from '../../shared/src/sentry';
+import { validateEnv, env } from './config/env';
 
 // Load environment variables before importing other modules
 dotenv.config();
+validateEnv();
 
 // Sentry Initialization
 Sentry.init({
-  dsn: process.env.SENTRY_DSN,
+  dsn: env.SENTRY_DSN,
   release: resolveRelease(),
   environment: resolveEnvironment(),
   integrations: [nodeProfilingIntegration()],
-  tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
+  tracesSampleRate: env.NODE_ENV === 'production' ? 0.1 : 1.0,
   profilesSampleRate: 0.1,
   initialScope: {
     tags: { [SENTRY_TAG_KEYS.service]: 'backend' },
@@ -27,6 +29,43 @@ import logger from './config/logger';
 import { requestIdMiddleware } from './middleware/requestContext';
 import { requestLoggerMiddleware } from './middleware/requestLogger';
 import { schedulerService } from './services/scheduler';
+<<<<<<< HEAD
+=======
+import { container } from './services/container';
+import { notificationPreferenceService } from './services/notification-preference-service';
+import subscriptionRoutes from './routes/subscriptions';
+import subscriptionShareRoutes from './routes/subscription-shares';
+import subscriptionDedupRoutes from './routes/subscription-dedup';
+import riskScoreRoutes from './routes/risk-score';
+import simulationRoutes from './routes/simulation';
+import merchantRoutes from './routes/merchants';
+import teamRoutes from './routes/team';
+import auditRoutes from './routes/audit';
+import webhookRoutes from './routes/webhooks';
+import complianceRoutes from './routes/compliance';
+import tagsRoutes from './routes/tags';
+import userRoutes from './routes/user';
+import sessionRoutes from './routes/sessions';
+import apiKeysRoutes from './routes/api-keys';
+import digestRoutes from './routes/digest';
+import mfaRoutes from './routes/mfa';
+import pushNotificationRoutes from './routes/push-notifications';
+import walletRoutes from './routes/wallet';
+import keyRotationRoutes from './routes/key-rotation';
+import privacyRoutes from './routes/privacy';
+import emailRescanRoutes from './routes/email-rescan';
+import gmailRouter from './routes/integrations/gmail'
+import outlookRouter from './routes/integrations/outlook'
+import yahooRouter from './routes/integrations/yahoo'
+import icloudRouter from './routes/integrations/icloud'
+import slackRouter from './routes/integrations/slack'
+import cspViolationsRoutes from './routes/csp-violations'
+import { createExchangeRatesRouter } from './routes/exchange-rates';
+import { ExchangeRateService } from './services/exchange-rate/exchange-rate-service';
+import { FiatRateProvider } from './services/exchange-rate/fiat-provider';
+import { FrankfurterProvider } from './services/exchange-rate/frankfurter-provider';
+import { CryptoRateProvider } from './services/exchange-rate/crypto-provider';
+>>>>>>> main
 import { monitoringService } from './services/monitoring-service';
 import { dependencyHealthService } from './services/dependency-health-service';
 import { eventListener } from './services/event-listener';
@@ -51,19 +90,16 @@ import { buildRouteRegistry } from './routes/route-registry';
 import { generateOpenApiFromRegistry } from './routes/registry/openapi';
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = env.PORT;
 
 // Validate Admin API Key
-const ADMIN_API_KEY = process.env.ADMIN_API_KEY;
-if (!ADMIN_API_KEY && process.env.NODE_ENV === 'production') {
-  throw new Error('ADMIN_API_KEY environment variable is required in production.');
-}
+const ADMIN_API_KEY = env.ADMIN_API_KEY;
 
 // Sentry Request Handler
 app.use(Sentry.Handlers.requestHandler());
 
 // CORS configuration
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+const FRONTEND_URL = env.FRONTEND_URL;
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', FRONTEND_URL);
   res.header('Access-Control-Allow-Credentials', 'true');
@@ -166,8 +202,8 @@ app.get('/health', async (req, res) => {
       status: overallStatus,
       timestamp: new Date().toISOString(),
       uptime_ms: liveness.uptime_ms,
-      version: process.env.npm_package_version || '1.0.0',
-      environment: process.env.NODE_ENV || 'development',
+      version: '1.0.0',
+      environment: env.NODE_ENV,
       dependencies: readiness.dependencies,
       queues: queueHealth.queues,
       message: readiness.message,
@@ -237,10 +273,248 @@ const webhookDescriptors: RouteDescriptor[] = [
   },
 ];
 
+<<<<<<< HEAD
 const registryOpenApi = generateOpenApiFromRegistry(registry, {}, webhookDescriptors);
 app.get('/api/openapi.json', (_req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.send(registryOpenApi);
+=======
+app.get('/api/admin/metrics/renewals', createAdminLimiter(), adminAuth, async (req, res) => {
+  try {
+    const metrics = await monitoringService.getRenewalMetrics();
+    res.json(metrics);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch renewal metrics' });
+  }
+});
+
+app.get('/api/admin/metrics/activity', createAdminLimiter(), adminAuth, async (req, res) => {
+  try {
+    const metrics = await monitoringService.getAgentActivity();
+    res.json(metrics);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch agent activity' });
+  }
+});
+
+// ── Issue #99: Async ops dashboard metrics ───────────────────────────────────
+
+app.get('/api/admin/metrics/throughput', createAdminLimiter(), adminAuth, async (req, res) => {
+  try {
+    const w = req.query.window as string;
+    const windowHours = w ? parseInt(w, 10) : 24;
+    if (isNaN(windowHours) || windowHours < 1 || windowHours > 720) {
+      return res.status(400).json({ error: 'window must be between 1 and 720 hours' });
+    }
+    const metrics = await monitoringService.getThroughputMetrics(windowHours);
+    res.json(metrics);
+  } catch (error) {
+    logger.error('Error fetching throughput metrics:', error);
+    res.status(500).json({ error: 'Failed to fetch throughput metrics' });
+  }
+});
+
+app.get('/api/admin/metrics/latency', createAdminLimiter(), adminAuth, async (req, res) => {
+  try {
+    const w = req.query.window as string;
+    const windowHours = w ? parseInt(w, 10) : 24;
+    if (isNaN(windowHours) || windowHours < 1 || windowHours > 720) {
+      return res.status(400).json({ error: 'window must be between 1 and 720 hours' });
+    }
+    const metrics = await monitoringService.getLatencyMetrics(windowHours);
+    res.json(metrics);
+  } catch (error) {
+    logger.error('Error fetching latency metrics:', error);
+    res.status(500).json({ error: 'Failed to fetch latency metrics' });
+  }
+});
+
+app.get('/api/admin/metrics/retries', createAdminLimiter(), adminAuth, async (req, res) => {
+  try {
+    const w = req.query.window as string;
+    const windowHours = w ? parseInt(w, 10) : 24;
+    if (isNaN(windowHours) || windowHours < 1 || windowHours > 720) {
+      return res.status(400).json({ error: 'window must be between 1 and 720 hours' });
+    }
+    const metrics = await monitoringService.getRetryMetrics(windowHours);
+    res.json(metrics);
+  } catch (error) {
+    logger.error('Error fetching retry metrics:', error);
+    res.status(500).json({ error: 'Failed to fetch retry metrics' });
+  }
+});
+
+app.get('/api/admin/metrics/failed-items', createAdminLimiter(), adminAuth, async (req, res) => {
+  try {
+    const type = req.query.type as string;
+    if (!type || !['reminder', 'renewal', 'blockchain'].includes(type)) {
+      return res.status(400).json({
+        error: 'type is required and must be one of: reminder, renewal, blockchain',
+      });
+    }
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+    const offset = parseInt(req.query.offset as string) || 0;
+    const result: FailedItemsResult = await monitoringService.getFailedItems(
+      type as 'reminder' | 'renewal' | 'blockchain',
+      limit,
+      offset,
+    );
+    res.json(result);
+  } catch (error) {
+    logger.error('Error fetching failed items:', error);
+    res.status(500).json({ error: 'Failed to fetch failed items' });
+  }
+});
+
+app.get('/api/admin/metrics/query-cache', createAdminLimiter(), adminAuth, async (_req, res) => {
+  try {
+    const metrics = await monitoringService.getQueryCacheMetrics();
+    res.json(metrics);
+  } catch (error) {
+    logger.error('Error fetching query cache metrics:', error);
+    res.status(500).json({ error: 'Failed to fetch query cache metrics' });
+  }
+});
+
+app.get('/api/admin/metrics/renewal-locks', createAdminLimiter(), adminAuth, async (_req, res) => {
+  try {
+    const metrics = await monitoringService.getRenewalLockMetrics();
+    res.json(metrics);
+  } catch (error) {
+    logger.error('Error fetching renewal lock metrics:', error);
+    res.status(500).json({ error: 'Failed to fetch renewal lock metrics' });
+  }
+});
+
+app.get('/api/admin/metrics/api-latency', createAdminLimiter(), adminAuth, async (req, res) => {
+  try {
+    const metrics = await monitoringService.getApiLatencyMetrics();
+    res.json(metrics);
+  } catch (error) {
+    logger.error('Error fetching API latency metrics:', error);
+    res.status(500).json({ error: 'Failed to fetch API latency metrics' });
+  }
+});
+
+app.get('/api/admin/metrics/ops-summary', createAdminLimiter(), adminAuth, async (req, res) => {
+  try {
+    const w = req.query.window as string;
+    const windowHours = w ? parseInt(w, 10) : 24;
+    if (isNaN(windowHours) || windowHours < 1 || windowHours > 720) {
+      return res.status(400).json({ error: 'window must be between 1 and 720 hours' });
+    }
+    const [subscriptions, renewals, activity, trials, throughput, latency, retries, apiLatency] =
+      await Promise.all([
+        monitoringService.getSubscriptionMetrics(),
+        monitoringService.getRenewalMetrics(),
+        monitoringService.getAgentActivity(),
+        monitoringService.getTrialMetrics(),
+        monitoringService.getThroughputMetrics(windowHours),
+        monitoringService.getLatencyMetrics(windowHours),
+        monitoringService.getRetryMetrics(windowHours),
+        monitoringService.getApiLatencyMetrics(),
+      ]);
+    res.json({
+      generated_at: new Date().toISOString(),
+      window_hours: windowHours,
+      subscriptions,
+      renewals,
+      activity,
+      trials,
+      throughput,
+      latency,
+      retries,
+      api_latency: apiLatency,
+      db_pool: monitoringService.getPoolMetrics(),
+    });
+  } catch (error) {
+    logger.error('Error fetching ops summary:', error);
+    res.status(500).json({ error: 'Failed to fetch ops summary' });
+  }
+});
+
+app.get('/api/admin/health', createAdminLimiter(), adminAuth, async (req, res) => {
+  try {
+    if (isDraining()) {
+      return res.status(503).json({
+        status: 'draining',
+        timestamp: new Date().toISOString(),
+        message: 'Server is shutting down',
+      });
+    }
+    const includeHistory = req.query.history !== 'false';
+    const health = await healthService.getAdminHealth(includeHistory, eventListener.getHealth());
+    const queueHealth = await getQueueHealthMetrics();
+    const statusCode = health.status === 'unhealthy' ? 503 : 200;
+    res.status(statusCode).json({
+      ...health,
+      db_pool: monitoringService.getPoolMetrics(),
+      queues: queueHealth,
+    });
+  } catch (error) {
+    logger.error('Error fetching admin health:', error);
+    res.status(500).json({ error: 'Failed to fetch health status' });
+  }
+});
+
+// Admin Process Triggers
+app.post('/api/reminders/process', createAdminLimiter(), adminAuth, async (req, res) => {
+  try {
+    await container.reminderEngine.processReminders();
+    res.json({ success: true, message: 'Reminders processed' });
+  } catch (error) {
+    logger.error('Error processing reminders:', error);
+    res.status(500).json({ success: false, error: 'Failed to process reminders' });
+  }
+});
+
+app.post('/api/reminders/schedule', createAdminLimiter(), adminAuth, async (req, res) => {
+  try {
+    const daysBefore = req.body.daysBefore || [7, 3, 1];
+    await container.reminderEngine.scheduleReminders(daysBefore);
+    res.json({ success: true, message: 'Reminders scheduled' });
+  } catch (error) {
+    logger.error('Error scheduling reminders:', error);
+    res.status(500).json({ success: false, error: 'Failed to schedule reminders' });
+  }
+});
+
+app.post('/api/reminders/retry', createAdminLimiter(), adminAuth, async (req, res) => {
+  try {
+    await container.reminderEngine.processRetries();
+    res.json({ success: true, message: 'Retries processed' });
+  } catch (error) {
+    logger.error('Error processing retries:', error);
+    res.status(500).json({ success: false, error: 'Failed to process retries' });
+  }
+});
+
+app.post('/api/admin/expiry/process', createAdminLimiter(), adminAuth, async (req, res) => {
+  try {
+    const result = await expiryService.processExpiries();
+    res.json({ success: true, data: result });
+  } catch (error) {
+    logger.error('Error processing expiries:', error);
+    res.status(500).json({ success: false, error: 'Failed to process expiries' });
+  }
+});
+
+// ── Blockchain Reconciliation Endpoints ──────────────────────────────────────
+
+app.post('/api/admin/reconciliation/run', createAdminLimiter(), adminAuth, async (req, res) => {
+  try {
+    const windowDays = parseInt(req.query.window_days as string) || 90;
+    const autoRepair = req.query.auto_repair === 'true';
+    const result = await blockchainReconciliationService.runReconciliation(windowDays, autoRepair);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    logger.error('Error running blockchain reconciliation:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Reconciliation failed',
+    });
+  }
+>>>>>>> main
 });
 
 // Error Handlers
@@ -284,12 +558,12 @@ function clearHealthSnapshotInterval() {
 // Start Server
 const server = app.listen(PORT, async () => {
   logger.info(`Server running on port ${PORT}`);
-  logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  logger.info(`Environment: ${env.NODE_ENV}`);
 
   // Validation
-  const criticalEnvVars = ['SOROBAN_CONTRACT_ADDRESS', 'STELLAR_NETWORK_URL'];
+  const criticalEnvVars = ['SOROBAN_CONTRACT_ADDRESS', 'STELLAR_NETWORK_URL'] as const;
   for (const envVar of criticalEnvVars) {
-    if (!process.env[envVar]) {
+    if (!env[envVar]) {
       logger.warn(`${envVar} not configured — EventListener will be disabled`);
     }
   }
@@ -323,7 +597,7 @@ const server = app.listen(PORT, async () => {
   startWebhookRetryJob();
 
   telegramCommandService.init();
-  if (process.env.TELEGRAM_BOT_TOKEN && !process.env.TELEGRAM_WEBHOOK_SECRET) {
+  if (env.TELEGRAM_BOT_TOKEN && !env.TELEGRAM_WEBHOOK_SECRET) {
     logger.warn('[Telegram] TELEGRAM_WEBHOOK_SECRET not set — webhook origin is unverified');
   }
 });

@@ -20,9 +20,10 @@ import {
 import { authenticate } from '../middleware/auth';
 import { requireAdmin } from '../middleware/admin';
 import logger from '../config/logger';
+import { env } from '../config/env';
 
 const router: Router = Router();
-const CSP_INTERNAL_TOKEN = process.env.CSP_INTERNAL_TOKEN;
+const CSP_INTERNAL_TOKEN = env.CSP_INTERNAL_TOKEN;
 
 /**
  * Validation schema for CSP violation report

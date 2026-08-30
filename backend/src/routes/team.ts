@@ -1,6 +1,11 @@
 import { Router, Response } from 'express';
 import { supabase } from '../config/database';
+<<<<<<< HEAD
 import { AuthenticatedRequest } from '../middleware/auth';
+=======
+import { env } from '../config/env';
+import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+>>>>>>> main
 import { requireRole } from '../middleware/rbac';
 import { validate } from '../middleware/validate';
 import { emailService } from '../services/email-service';
@@ -201,7 +206,7 @@ router.post(
         .eq('id', ctx.teamId)
         .single();
 
-      const acceptUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/team/accept/${invitation.token}`;
+      const acceptUrl = `${env.FRONTEND_URL}/team/accept/${invitation.token}`;
 
       emailService
         .sendInvitationEmail(email, {
