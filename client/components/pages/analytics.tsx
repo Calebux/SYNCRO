@@ -45,7 +45,7 @@ export default function AnalyticsPage({ summary, darkMode, savedBySyncroCount = 
         <div className={`p-4 sm:p-6 rounded-xl border ${darkMode ? "bg-[#2D3748] border-[#374151]" : "bg-white border-gray-200"}`}>
           <p className="text-xs sm:text-sm text-gray-400 mb-1">Total Monthly Spend</p>
           <p className={`text-2xl sm:text-3xl font-bold ${darkMode ? "text-white" : "text-gray-900"}`}>
-            {formatCurrency(summary.total_monthly_spend, currency)}
+            {formatCurrency(summary.total_monthly_spend, summary.display_currency ?? currency)}
           </p>
         </div>
         <div className={`p-4 sm:p-6 rounded-xl border ${darkMode ? "bg-[#2D3748] border-[#374151]" : "bg-white border-gray-200"}`}>
@@ -118,7 +118,7 @@ export default function AnalyticsPage({ summary, darkMode, savedBySyncroCount = 
                 <LineChart
                   data={summary.monthly_trend.map((point) => ({
                     ...point,
-                    total_spend: convert(point.total_spend, "USD", chartCurrency),
+                    total_spend: convert(point.total_spend, summary.display_currency ?? "USD", chartCurrency),
                   }))}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#374151" : "#e5e7eb"} />
@@ -143,7 +143,7 @@ export default function AnalyticsPage({ summary, darkMode, savedBySyncroCount = 
               <Pie
                 data={summary.category_breakdown.map((item) => ({
                   ...item,
-                  total_spend: convert(item.total_spend, "USD", chartCurrency),
+                  total_spend: convert(item.total_spend, summary.display_currency ?? "USD", chartCurrency),
                 }))}
                 dataKey="total_spend"
                 nameKey="category"
@@ -164,9 +164,9 @@ export default function AnalyticsPage({ summary, darkMode, savedBySyncroCount = 
             {summary.category_breakdown.map((cat, idx) => (
               <div key={idx} className="flex items-center gap-2 text-xs sm:text-sm">
                 <div className="w-2 h-2 flex-shrink-0 rounded-full" style={{ backgroundColor: COLORS[idx % COLORS.length] }}></div>
-                <span className="text-gray-400 truncate">
-                  {cat.category}: {formatCurrency(convert(cat.total_spend, "USD", chartCurrency), chartCurrency)}
-                </span>
+                  <span className="text-gray-400 truncate">
+                     {cat.category}: {formatCurrency(convert(cat.total_spend, summary.display_currency ?? "USD", chartCurrency), chartCurrency)}
+                  </span>
               </div>
             ))}
           </div>

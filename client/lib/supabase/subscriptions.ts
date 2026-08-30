@@ -37,6 +37,7 @@ export interface Subscription {
   expired_at?: string
   notes?: string
   custom_tag_ids?: string[]
+  currency?: string
 }
 
 export async function fetchSubscriptions(): Promise<Subscription[]> {

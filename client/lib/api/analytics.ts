@@ -29,6 +29,7 @@ export interface AnalyticsSummary {
     current_spend: number;
     percentage: number;
   };
+  display_currency: string;
 }
 
 export const analyticsApi = {
