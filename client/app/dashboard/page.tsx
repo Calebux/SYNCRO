@@ -27,7 +27,7 @@ export default async function DashboardPage() {
   ] = await Promise.all([
     supabase
       .from("subscriptions")
-      .select("id, name, price, status, billing_cycle, next_renewal, category")
+      .select("id, name, price, status, billing_cycle, next_renewal, category, currency")
       .order("created_at", { ascending: false }),
     supabase.from("email_accounts").select("id, email, provider, last_synced"),
     supabase.from("team_members").select("id, user_id, role, invited_at"),

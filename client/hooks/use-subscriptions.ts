@@ -78,6 +78,7 @@ export function useSubscriptions({
           pricingType: dbSub.pricing_type || dbSub.pricingType || "fixed",
           billingCycle: dbSub.billing_cycle || dbSub.billingCycle || "monthly",
           expiredAt: dbSub.expired_at || dbSub.expiredAt,
+          currency: dbSub.currency,
         }));
 
         if (items.length > 0) {
