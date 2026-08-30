@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { sharedRedisClient } from './redis-client';
 
 export interface LockAcquireResult {
@@ -130,5 +131,5 @@ export class RedisDistributedLock {
 }
 
 export const redisDistributedLock = new RedisDistributedLock(
-  parseInt(process.env.RENEWAL_LOCK_TTL_MS ?? '300000', 10) || 5 * 60 * 1000,
+  parseInt(env.RENEWAL_LOCK_TTL_MS, 10) || 5 * 60 * 1000,
 );

@@ -19,6 +19,7 @@
  */
 
 import crypto from 'node:crypto';
+import { env } from '../config/env';
 
 export interface CacheEntry<T> {
   value: T;
@@ -75,8 +76,8 @@ export class TemplateCache<T> {
   private misses = 0;
 
   constructor(
-    private readonly maxEntries = Number(process.env.LLM_TEMPLATE_CACHE_MAX ?? 500),
-    private readonly ttlMs = Number(process.env.LLM_TEMPLATE_CACHE_TTL_MS ?? 24 * 60 * 60 * 1000),
+    private readonly maxEntries = Number(env.LLM_TEMPLATE_CACHE_MAX),
+    private readonly ttlMs = Number(env.LLM_TEMPLATE_CACHE_TTL_MS),
   ) {}
 
   get(fingerprint: string): T | undefined {

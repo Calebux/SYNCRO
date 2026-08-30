@@ -101,6 +101,7 @@ export interface AppClientProps {
     initialPayments: Payment[];
     initialPriceChanges?: PriceChange[];
     initialConsolidationSuggestions?: ConsolidationSuggestion[];
+    initialAnalyticsSummary?: import('@/lib/api/analytics').AnalyticsSummary | null;
     dataLoadWarnings?: DataLoadWarning[];
     isDemo?: boolean;
 }

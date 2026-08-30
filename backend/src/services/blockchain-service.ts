@@ -1,5 +1,6 @@
 import logger from "../config/logger";
 import { supabase } from "../config/database";
+import { env } from "../config/env";
 import { NotificationPayload } from "../types/reminder";
 import { getRequestId } from "../middleware/requestContext";
 import crypto from 'crypto';
@@ -195,13 +196,13 @@ export class BlockchainService {
   private readonly policy = EXTERNAL_SERVICE_POLICIES.stellar_rpc;
 
   constructor() {
-    this.contractAddress = process.env.SOROBAN_CONTRACT_ADDRESS || null;
+    this.contractAddress = env.SOROBAN_CONTRACT_ADDRESS || null;
 
     const flags = getBlockchainFlags();
     const network = resolveStellarNetwork();
 
     // Resolve RPC URL — never silently fall back to testnet in production.
-    const configuredRpc = process.env.SOROBAN_RPC_URL;
+    const configuredRpc = env.SOROBAN_RPC_URL;
     if (!configuredRpc && flags.isProduction) {
       throw new Error(
         "[blockchain] SOROBAN_RPC_URL must be explicitly set in production. " +
@@ -211,7 +212,7 @@ export class BlockchainService {
     this.rpcUrl = configuredRpc || "https://soroban-testnet.stellar.org";
 
     // Resolve network passphrase — never silently use testnet passphrase in production.
-    const configuredPassphrase = process.env.STELLAR_NETWORK_PASSPHRASE;
+    const configuredPassphrase = env.STELLAR_NETWORK_PASSPHRASE;
     if (!configuredPassphrase && flags.isProduction) {
       throw new Error(
         "[blockchain] STELLAR_NETWORK_PASSPHRASE must be explicitly set in production. " +
@@ -240,7 +241,7 @@ export class BlockchainService {
     }
 
     // Initialize optional Redis client for DLQ if REDIS_URL present
-    const redisUrl = process.env.REDIS_URL;
+    const redisUrl = env.REDIS_URL;
     if (redisUrl) {
       try {
         this.redisClient = createClient({ url: redisUrl });
@@ -1035,7 +1036,7 @@ export class BlockchainService {
 
   // Helper to calculate a simulated Pedersen commitment (using SHA256 with blinding)
   private computePedersenCommitment(data: string, userId: string): Buffer {
-    const systemSecret = process.env.ENCRYPTION_KEY || process.env.JWT_SECRET || 'system-secret';
+    const systemSecret = env.ENCRYPTION_KEY || env.JWT_SECRET || 'system-secret';
     const blinding = crypto.createHmac('sha256', systemSecret).update(userId).digest('hex');
     return crypto.createHash('sha256').update(`${data}:${blinding}`).digest();
   }
@@ -1179,6 +1180,191 @@ export class BlockchainService {
       );
     } catch {
       return "[unavailable]";
+    }
+  }
+
+  /**
+   * TTL Management: Extend a contract entry's time-to-live.
+   * Idempotent: calling with the same newTtl multiple times is safe.
+   */
+  async extendTTL(
+    entryKey: string,
+    newTtl: number,
+    workerKeyPath?: string,
+  ): Promise<{ txHash: string; sequence: number }> {
+    const startTime = Date.now();
+    const { TTL_CONTRACT_HELPERS } = require("../blockchain/ttl-contract-helpers");
+
+    logger.info("Extending entry TTL", {
+      entryKey: entryKey.substring(0, 16),
+      newTtl,
+    });
+
+    try {
+      // Validate inputs
+      if (!TTL_CONTRACT_HELPERS.validateEntryKey(entryKey)) {
+        throw new Error(`Invalid entry key: ${entryKey}`);
+      }
+      if (!TTL_CONTRACT_HELPERS.validateTTL(newTtl)) {
+        throw new Error(`Invalid TTL value: ${newTtl}`);
+      }
+
+      const args = TTL_CONTRACT_HELPERS.prepareExtendTTLArgs(entryKey, newTtl);
+      const result = await this.invokeContractWithRetry(
+        TTL_CONTRACT_HELPERS.TTL_CONTRACT_METHODS.extendTTL,
+        args,
+      );
+
+      logger.info("TTL extended successfully", {
+        entryKey: entryKey.substring(0, 16),
+        txHash: result.transactionHash,
+        durationMs: Date.now() - startTime,
+      });
+
+      return {
+        txHash: result.transactionHash,
+        sequence: 0, // Sequence extracted from confirmed transaction if needed
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error("Failed to extend TTL", {
+        entryKey: entryKey.substring(0, 16),
+        error: errorMessage,
+        durationMs: Date.now() - startTime,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * TTL Management: Read the current TTL of a contract entry.
+   * Returns the ledger sequence at which the entry expires.
+   */
+  async getTTL(entryKey: string): Promise<number> {
+    const startTime = Date.now();
+    const { TTL_CONTRACT_HELPERS } = require("../blockchain/ttl-contract-helpers");
+
+    logger.info("Reading entry TTL", {
+      entryKey: entryKey.substring(0, 16),
+    });
+
+    try {
+      // Validate input
+      if (!TTL_CONTRACT_HELPERS.validateEntryKey(entryKey)) {
+        throw new Error(`Invalid entry key: ${entryKey}`);
+      }
+
+      const args = TTL_CONTRACT_HELPERS.prepareGetTTLArgs(entryKey);
+
+      if (!this.contractAddress) {
+        throw new Error("SOROBAN_CONTRACT_ADDRESS not configured");
+      }
+
+      const rpc = new SorobanRpc.Server(this.rpcUrl);
+      const contract = new Contract(this.contractAddress);
+
+      const secret = await secretProvider.getSecret("STELLAR_SECRET_KEY");
+      if (!secret) {
+        throw new Error("STELLAR_SECRET_KEY not configured");
+      }
+
+      const sourceKeypair = Keypair.fromSecret(secret);
+      const account = await rpc.getAccount(sourceKeypair.publicKey());
+
+      const tx = new TransactionBuilder(account, {
+        fee: "100",
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(contract.call(TTL_CONTRACT_HELPERS.TTL_CONTRACT_METHODS.getTTL, ...args))
+        .setTimeout(30)
+        .build();
+
+      const sim = await rpc.simulateTransaction(tx);
+      if (SorobanRpc.Api.isSimulationError(sim)) {
+        throw new Error(`Simulation failed: ${sim.error}`);
+      }
+
+      if (sim.result && sim.result.retval) {
+        const ttlValue = TTL_CONTRACT_HELPERS.extractU64FromScVal(sim.result.retval);
+        logger.info("TTL read successfully", {
+          entryKey: entryKey.substring(0, 16),
+          ttl: ttlValue,
+          durationMs: Date.now() - startTime,
+        });
+        return ttlValue;
+      }
+
+      throw new Error("Failed to extract TTL from contract response");
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error("Failed to read TTL", {
+        entryKey: entryKey.substring(0, 16),
+        error: errorMessage,
+        durationMs: Date.now() - startTime,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * TTL Management: Mark an entry as archived with a snapshot hash proof.
+   * Records immutable proof of archival on-chain.
+   */
+  async markArchived(
+    entryKey: string,
+    snapshotHash: string,
+    operatorId: string,
+  ): Promise<{ txHash: string; sequence: number }> {
+    const startTime = Date.now();
+    const { TTL_CONTRACT_HELPERS } = require("../blockchain/ttl-contract-helpers");
+
+    logger.info("Marking entry as archived", {
+      entryKey: entryKey.substring(0, 16),
+      snapshotHash: snapshotHash.substring(0, 16),
+      operatorId,
+    });
+
+    try {
+      // Validate inputs
+      if (!TTL_CONTRACT_HELPERS.validateEntryKey(entryKey)) {
+        throw new Error(`Invalid entry key: ${entryKey}`);
+      }
+      if (!TTL_CONTRACT_HELPERS.validateSnapshotHash(snapshotHash)) {
+        throw new Error(`Invalid snapshot hash: ${snapshotHash}`);
+      }
+
+      const args = TTL_CONTRACT_HELPERS.prepareMarkArchivedArgs(
+        entryKey,
+        snapshotHash,
+      );
+      const result = await this.invokeContractWithRetry(
+        TTL_CONTRACT_HELPERS.TTL_CONTRACT_METHODS.markArchived,
+        args,
+      );
+
+      logger.info("Entry marked as archived successfully", {
+        entryKey: entryKey.substring(0, 16),
+        txHash: result.transactionHash,
+        operatorId,
+        durationMs: Date.now() - startTime,
+      });
+
+      return {
+        txHash: result.transactionHash,
+        sequence: 0, // Sequence extracted from confirmed transaction if needed
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error("Failed to mark entry as archived", {
+        entryKey: entryKey.substring(0, 16),
+        error: errorMessage,
+        operatorId,
+        durationMs: Date.now() - startTime,
+      });
+      throw error;
     }
   }
 }

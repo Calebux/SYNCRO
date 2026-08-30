@@ -1,5 +1,6 @@
 import { createClient, RedisClientType } from 'redis';
 import logger from '../../config/logger';
+import { env } from '../../config/env';
 
 /**
  * Default jitter factor: up to 10 % added to any TTL so that multiple
@@ -9,9 +10,9 @@ import logger from '../../config/logger';
 const DEFAULT_JITTER_FACTOR = 0.1;
 
 function getJitterFactor(): number {
-  const env = process.env.EXCHANGE_RATE_CACHE_JITTER_FACTOR;
-  if (env !== undefined) {
-    const v = parseFloat(env);
+  const envVal = env.EXCHANGE_RATE_CACHE_JITTER_FACTOR;
+  if (envVal !== undefined) {
+    const v = parseFloat(envVal);
     if (!isNaN(v) && v >= 0 && v <= 1) return v;
   }
   return DEFAULT_JITTER_FACTOR;
@@ -26,9 +27,9 @@ function getJitterFactor(): number {
 const DEFAULT_SWR_FACTOR = 0.5;
 
 function getSwrFactor(): number {
-  const env = process.env.EXCHANGE_RATE_CACHE_SWR_FACTOR;
-  if (env !== undefined) {
-    const v = parseFloat(env);
+  const envVal = env.EXCHANGE_RATE_CACHE_SWR_FACTOR;
+  if (envVal !== undefined) {
+    const v = parseFloat(envVal);
     if (!isNaN(v) && v >= 0) return v;
   }
   return DEFAULT_SWR_FACTOR;
@@ -94,7 +95,7 @@ export class RedisCacheAdapter {
     this.jitterFactor = jitterFactor ?? getJitterFactor();
     this.swrFactor = swrFactor ?? getSwrFactor();
 
-    const url = process.env.REDIS_URL;
+    const url = env.REDIS_URL;
     if (url) {
       this.client = createClient({ url }) as RedisClientType;
       this.client.on('error', (err: Error) =>
