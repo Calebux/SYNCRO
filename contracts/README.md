@@ -199,6 +199,63 @@ See [`docs/contract-event-schema.md`](docs/contract-event-schema.md) for the
 canonical two-topic event convention used by the contracts and backend
 indexer.
 
+## Cross-Contract Trust Matrix
+
+This section defines **which contract may call which entrypoint, and under whose
+authority**. Every cross-contract call either **forwards a user's auth** (the
+caller is acting on behalf of an authenticated end user) or **acts as the
+calling contract's own identity** (the contract self-authenticates).
+
+### Principles
+
+- A callee grants access through the narrowest role possible. Writing to the
+  audit trail is a **writer** role, intentionally separate from **admin**.
+- No contract must be granted another contract's **admin** role to function.
+  Instead, cross-contract writers are registered on explicit allowlists.
+- A contract that acts as its own identity (e.g. submitting audit commitments)
+  self-authenticates via `require_auth` on its own address; the callee verifies
+  that address against its allowlist.
+
+### Consumers of the audit trail (`subscription_logging`)
+
+| Entrypoint | Approved caller | Authority | Auth forwarded? |
+|---|---|---|---|
+| `record_log(sub_id, event, data)` | Any registered **writer** (e.g. `subscription_renewal`) | Writer allowlist (`add_writer`/`remove_writer`, admin-managed) | No — acts as contract identity |
+| `record_commitment(commitment_hash)` | Any registered **writer** (e.g. `subscription_renewal`) | Writer allowlist | No — acts as contract identity |
+| `anchor_merkle_root` / `anchor_log_merkle_root` / `prune_logs` | Logging **admin** only | Admin role | No |
+| `add_writer` / `remove_writer` | Logging **admin** only | Admin role | No |
+| `get_logs` / `get_commitment*` / `get_merkle_root*` / `is_writer` / `get_writers` | Anyone (read-only) | — | — |
+
+### `subscription_renewal` cross-contract calls
+
+| Callee | Entrypoint | Caller identity | Auth forwarded? | Required grant on callee |
+|---|---|---|---|---|
+| `subscription_logging` | `record_commitment(hash)` → from `init_sub`, `cancel_sub`, `renew` (success/failure/retry) | Renewal **contract** | No — renewal acts as its own identity | Register renewal as a **writer** |
+| SAC (token) | `transfer(owner → renewal)` — escrow lock in `renew` | Owner (holder of funds) | Yes — forwards **owner** auth | None (owner auths the transfer) |
+| SAC (token) | `transfer(renewal → merchant)` — escrow claim in `claim_escrow` | Merchant (recipient) | Yes — forwards **merchant** auth | None (merchant auths the claim) |
+| `virtual-card` *(intended)* | `issue_card` / `process_payment` | Card holder | Yes — forwards **holder** auth | None (holder auths) |
+
+### `virtual-card` cross-contract / entrypoint auth
+
+| Entrypoint | Approved caller | Authority |
+|---|---|---|
+| `issue_card(user, …)` | The `user` (or an upstream contract calling on the user's behalf) | Per-user `user.require_auth()` |
+| `process_payment(card_id, …)` | The card **holder** | `card.holder.require_auth()` |
+| `set_merchant_allowlist` / `blocklist`, `activate_card`, `deactivate_card`, `suspend_card` | The card **holder** | `caller == holder` + `caller.require_auth()` |
+| `verify_ownership` / `can_transact` / `get_*` / `remaining_*` | Anyone (read-only) | — |
+
+`subscription_renewal` is **intended** to call `virtual-card` (card funding on
+renewal), matching the auth-forwarding model above: the card holder's auth is
+required, so `virtual-card` never needs `subscription_renewal` to be its admin.
+
+### Audit trail of this model (Issue #1233)
+
+- `record_log` and `record_commitment` are now gated by a **writer allowlist**
+  distinct from admin, so `subscription_renewal` is a *writer*, never an admin.
+- Negative tests (`subscription_logging/src/test.rs`, `integration_tests`)
+  prove that an unregistered contract and a direct end-user call are rejected
+  for every cross-contract write entrypoint.
+
 ## Development Guidelines
 
 ### Code Style

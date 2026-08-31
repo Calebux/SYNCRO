@@ -47,6 +47,18 @@ stellar contract invoke \
   --address "$LOGGING_ID"
 echo "  Logging contract linked."
 
+# Register the renewal contract as a WRITER (not admin) on the logging
+# contract so it can append audit commitments. This keeps the renewal and
+# logging admin trust domains distinct (Issue #1233).
+echo "  Registering renewal contract as logging writer..."
+stellar contract invoke \
+  --id "$LOGGING_ID" \
+  --source "$SECRET_KEY" \
+  --network "$NETWORK" \
+  -- add_writer \
+  --writer "$RENEWAL_ID"
+echo "  Renewal contract registered as writer."
+
 # Initialize ContractUpgradeGovernance (if available)
 if [ -n "$UPGRADE_ID" ]; then
   echo "  Initializing ContractUpgradeGovernance..."

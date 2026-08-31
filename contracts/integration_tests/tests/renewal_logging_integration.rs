@@ -23,9 +23,16 @@ fn test_renewal_with_logging_integration() {
     let renew_id = env.register(SubscriptionRenewalContract, ());
     let renew = SubscriptionRenewalContractClient::new(&env, &renew_id);
     renew.init(&admin);
-    
+
     // KEY: Configure renewal contract to use logging contract for cross-contract calls
     renew.set_logging_contract(&log_id);
+
+    // Trust model: the renewal contract is registered as a WRITER on the logging
+    // contract (not an admin). It is granted only write access so the two trust
+    // domains stay distinct.
+    log.add_writer(&renew_id);
+    assert!(log.is_writer(&renew_id));
+    assert!(!log.is_writer(&admin));
 
     // Verify no commitments yet
     assert_eq!(log.get_commitment_count(), 0);
@@ -69,6 +76,10 @@ fn test_cross_contract_call_on_cancellation() {
     let renew = SubscriptionRenewalContractClient::new(&env, &renew_id);
     renew.init(&admin);
     renew.set_logging_contract(&log_id);
+
+    // Register the renewal contract as a writer (not an admin) on the logging
+    // contract so the cross-contract write is authorized.
+    log.add_writer(&renew_id);
 
     // Create subscription
     let user = Address::generate(&env);
