@@ -1,8 +1,10 @@
 import webpush from 'web-push';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { NotificationPayload, DeliveryResult } from '../types/reminder';
 import { withRetry, RetryableError, NonRetryableError } from '../utils/retry';
 import { sanitizeUrl } from '../utils/sanitize-url';
+import { secretProvider } from './secret-provider';
 
 export interface PushSubscription {
   endpoint: string;
@@ -18,16 +20,27 @@ export class PushService {
   private vapidSubject: string;
 
   constructor() {
-    this.vapidPublicKey = process.env.VAPID_PUBLIC_KEY || '';
-    this.vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || '';
-    this.vapidSubject = process.env.VAPID_SUBJECT || process.env.FRONTEND_URL || 'mailto:noreply@synchro.app';
+    this.vapidPublicKey = env.VAPID_PUBLIC_KEY || '';
+    this.vapidPrivateKey = ''; // Will be fetched from secretProvider
+    this.vapidSubject = env.VAPID_SUBJECT || env.FRONTEND_URL || 'mailto:noreply@synchro.app';
 
-    if (this.vapidPublicKey && this.vapidPrivateKey) {
-      webpush.setVapidDetails(this.vapidSubject, this.vapidPublicKey, this.vapidPrivateKey);
-      logger.info('Push service initialized with VAPID keys');
+    if (this.vapidPublicKey) {
+      logger.info('Push service initialized with public key');
     } else {
-      logger.warn('Push service VAPID keys not configured');
+      logger.warn('Push service VAPID public key not configured');
     }
+  }
+
+  private async getVapidDetails() {
+    const privateKey = await secretProvider.getSecret('VAPID_PRIVATE_KEY');
+    if (!privateKey) {
+      throw new Error('VAPID_PRIVATE_KEY not configured');
+    }
+    return {
+      subject: this.vapidSubject,
+      publicKey: this.vapidPublicKey,
+      privateKey: privateKey,
+    };
   }
 
   /**
@@ -40,7 +53,8 @@ export class PushService {
   ): Promise<DeliveryResult> {
     const { maxAttempts = 3 } = options;
 
-    if (!this.vapidPublicKey || !this.vapidPrivateKey) {
+    const vapidDetails = await this.getVapidDetails().catch(() => null);
+    if (!vapidDetails || !vapidDetails.publicKey || !vapidDetails.privateKey) {
       return {
         success: false,
         error: 'Push service not configured (missing VAPID keys)',
@@ -65,7 +79,9 @@ export class PushService {
             requireInteraction: payload.reminderType === 'renewal' && payload.daysBefore <= 1,
           });
 
-          await webpush.sendNotification(pushSubscription, notificationPayload);
+          await webpush.sendNotification(pushSubscription, notificationPayload, {
+            vapidDetails,
+          });
 
           logger.info('Push notification sent successfully', {
             subscriptionId: payload.subscription.id,
@@ -153,7 +169,8 @@ export class PushService {
     pushSubscription: PushSubscription,
     payload: { title: string; body: string; url?: string }
   ): Promise<DeliveryResult> {
-    if (!this.vapidPublicKey || !this.vapidPrivateKey) {
+    const vapidDetails = await this.getVapidDetails().catch(() => null);
+    if (!vapidDetails || !vapidDetails.publicKey || !vapidDetails.privateKey) {
       return {
         success: false,
         error: 'Push service not configured',
@@ -172,7 +189,9 @@ export class PushService {
         },
       });
 
-      await webpush.sendNotification(pushSubscription, notificationPayload);
+      await webpush.sendNotification(pushSubscription, notificationPayload, {
+        vapidDetails,
+      });
 
       return {
         success: true,

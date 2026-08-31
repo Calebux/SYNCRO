@@ -1,71 +1,24 @@
 import { Router, Response } from 'express';
-import { z } from 'zod';
 import { webhookService } from '../services/webhook-service';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { requireRole } from '../middleware/rbac';
+import { validate } from '../middleware/validate';
 import logger from '../config/logger';
+import { createWebhookSchema, updateWebhookSchema } from '../schemas/webhook';
+import { uuidParamSchema } from '../schemas/common';
 
-const router = Router();
+const router: Router = Router();
 
 // All routes require authentication
 router.use(authenticate);
 
-const webhookEventSchema = z.enum([
-  'subscription.renewal_due',
-  'subscription.renewed',
-  'subscription.renewal_failed',
-  'subscription.cancelled',
-  'subscription.risk_score_changed',
-  'reminder.sent'
-]);
-
-const createWebhookSchema = z.object({
-  url: z
-    .string()
-    .max(2000, 'URL must not exceed 2000 characters')
-    .url('Must be a valid URL')
-    .refine(
-      (val) => { try { const { protocol } = new URL(val); return protocol === 'http:' || protocol === 'https:'; } catch { return false; } },
-      { message: 'URL must use http or https protocol' }
-    ),
-  events: z.array(webhookEventSchema).min(1, 'At least one event type is required').max(6, 'Maximum 6 event types per webhook'),
-  description: z.string().max(255, 'Description must not exceed 255 characters').optional(),
-});
-
-const updateWebhookSchema = z.object({
-  url: z
-    .string()
-    .max(2000, 'URL must not exceed 2000 characters')
-    .url('Must be a valid URL')
-    .refine(
-      (val) => { try { const { protocol } = new URL(val); return protocol === 'http:' || protocol === 'https:'; } catch { return false; } },
-      { message: 'URL must use http or https protocol' }
-    )
-    .optional(),
-  events: z.array(webhookEventSchema).min(1, 'At least one event type is required').max(6, 'Maximum 6 event types per webhook').optional(),
-  enabled: z.boolean().optional(),
-  description: z.string().max(255, 'Description must not exceed 255 characters').optional(),
-});
-
-
 /**
  * POST /api/webhooks
- * Register a new webhook
  */
-router.post('/', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/', requireRole('owner', 'admin'), validate(createWebhookSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const validation = createWebhookSchema.safeParse(req.body);
-    if (!validation.success) {
-      return res.status(400).json({
-        success: false,
-        error: validation.error.errors.map((e) => e.message).join(', '),
-      });
-    }
-
     const webhook = await webhookService.registerWebhook(req.user!.id, req.body);
-    res.status(201).json({
-      success: true,
-      data: webhook,
-    });
+    res.status(201).json({ success: true, data: webhook });
   } catch (error) {
     logger.error('Create webhook error:', error);
     res.status(500).json({
@@ -77,15 +30,12 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
 
 /**
  * GET /api/webhooks
- * List all webhooks for the user
  */
-router.get('/', async (req: AuthenticatedRequest, res: Response) => {
+// VALIDATION_BYPASS: No request parameters needed
+router.get('/', requireRole('owner', 'admin'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const webhooks = await webhookService.listWebhooks(req.user!.id);
-    res.json({
-      success: true,
-      data: webhooks,
-    });
+    res.json({ success: true, data: webhooks });
   } catch (error) {
     logger.error('List webhooks error:', error);
     res.status(500).json({
@@ -97,27 +47,15 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
 
 /**
  * PUT /api/webhooks/:id
- * Update a webhook
  */
-router.put('/:id', async (req: AuthenticatedRequest, res: Response) => {
+router.put('/:id', requireRole('owner', 'admin'), validate(uuidParamSchema, 'params'), validate(updateWebhookSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const validation = updateWebhookSchema.safeParse(req.body);
-    if (!validation.success) {
-      return res.status(400).json({
-        success: false,
-        error: validation.error.errors.map((e) => e.message).join(', '),
-      });
-    }
-
     const webhook = await webhookService.updateWebhook(
       req.user!.id,
       Array.isArray(req.params.id) ? req.params.id[0] : req.params.id,
-      req.body
+      req.body,
     );
-    res.json({
-      success: true,
-      data: webhook,
-    });
+    res.json({ success: true, data: webhook });
   } catch (error) {
     logger.error('Update webhook error:', error);
     res.status(500).json({
@@ -129,18 +67,14 @@ router.put('/:id', async (req: AuthenticatedRequest, res: Response) => {
 
 /**
  * DELETE /api/webhooks/:id
- * Delete a webhook
  */
-router.delete('/:id', async (req: AuthenticatedRequest, res: Response) => {
+router.delete('/:id', requireRole('owner', 'admin'), validate(uuidParamSchema, 'params'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     await webhookService.deleteWebhook(
       req.user!.id,
-      Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
+      Array.isArray(req.params.id) ? req.params.id[0] : req.params.id,
     );
-    res.json({
-      success: true,
-      message: 'Webhook deleted',
-    });
+    res.json({ success: true, message: 'Webhook deleted' });
   } catch (error) {
     logger.error('Delete webhook error:', error);
     res.status(500).json({
@@ -152,18 +86,14 @@ router.delete('/:id', async (req: AuthenticatedRequest, res: Response) => {
 
 /**
  * POST /api/webhooks/:id/test
- * Trigger a test event
  */
-router.post('/:id/test', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/:id/test', requireRole('owner', 'admin'), validate(uuidParamSchema, 'params'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const delivery = await webhookService.triggerTestEvent(
       req.user!.id,
-      Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
+      Array.isArray(req.params.id) ? req.params.id[0] : req.params.id,
     );
-    res.json({
-      success: true,
-      data: delivery,
-    });
+    res.json({ success: true, data: delivery });
   } catch (error) {
     logger.error('Test webhook error:', error);
     res.status(500).json({
@@ -175,23 +105,133 @@ router.post('/:id/test', async (req: AuthenticatedRequest, res: Response) => {
 
 /**
  * GET /api/webhooks/:id/deliveries
- * Get delivery history for a webhook
  */
-router.get('/:id/deliveries', async (req: AuthenticatedRequest, res: Response) => {
+router.get('/:id/deliveries', requireRole('owner', 'admin'), validate(uuidParamSchema, 'params'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const deliveries = await webhookService.getDeliveries(
       req.user!.id,
-      Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
+      Array.isArray(req.params.id) ? req.params.id[0] : req.params.id,
     );
-    res.json({
-      success: true,
-      data: deliveries,
-    });
+    res.json({ success: true, data: deliveries });
   } catch (error) {
     logger.error('Get deliveries error:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to fetch deliveries',
+    });
+  }
+});
+
+/**
+ * GET /api/webhooks/dead-letter/all
+ * Get all dead-letter deliveries for the user
+ */
+router.get('/dead-letter/all', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const deadLetters = await webhookService.getAllUserDeadLetters(req.user!.id);
+    res.json({ success: true, data: deadLetters });
+  } catch (error) {
+    logger.error('Get all dead-letter deliveries error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to fetch dead-letter deliveries',
+    });
+  }
+});
+
+/**
+ * GET /api/webhooks/:id/dead-letter
+ * Get dead-letter deliveries for a specific webhook
+ */
+router.get('/:id/dead-letter', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const deadLetters = await webhookService.getDeadLetterDeliveries(
+      req.user!.id,
+      Array.isArray(req.params.id) ? req.params.id[0] : req.params.id,
+    );
+    res.json({ success: true, data: deadLetters });
+  } catch (error) {
+    logger.error('Get dead-letter deliveries error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to fetch dead-letter deliveries',
+    });
+  }
+});
+
+/**
+ * GET /api/webhooks/dead-letter/stats
+ * Get dead-letter statistics for the user
+ */
+router.get('/dead-letter/stats', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const stats = await webhookService.getDeadLetterStats(req.user!.id);
+    res.json({ success: true, data: stats });
+  } catch (error) {
+    logger.error('Get dead-letter stats error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to fetch dead-letter stats',
+    });
+  }
+});
+
+/**
+ * POST /api/webhooks/:deliveryId/dead-letter/replay
+ * Create a replay request for a dead-letter delivery
+ */
+router.post('/:deliveryId/dead-letter/replay', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { idempotency_key } = req.body;
+    const deliveryId = Array.isArray(req.params.deliveryId) ? req.params.deliveryId[0] : req.params.deliveryId;
+    
+    const replay = await webhookService.createDeadLetterReplay(
+      req.user!.id,
+      deliveryId,
+      idempotency_key,
+    );
+    res.status(201).json({ success: true, data: replay });
+  } catch (error) {
+    logger.error('Create replay request error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to create replay request',
+    });
+  }
+});
+
+/**
+ * GET /api/webhooks/:deliveryId/dead-letter/replay-history
+ * Get replay history for a dead-letter delivery
+ */
+router.get('/:deliveryId/dead-letter/replay-history', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const deliveryId = Array.isArray(req.params.deliveryId) ? req.params.deliveryId[0] : req.params.deliveryId;
+    const history = await webhookService.getDeadLetterReplayHistory(req.user!.id, deliveryId);
+    res.json({ success: true, data: history });
+  } catch (error) {
+    logger.error('Get replay history error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to fetch replay history',
+    });
+  }
+});
+
+/**
+ * POST /api/webhooks/dead-letter/replay/:replayId/execute
+ * Execute a replay for a dead-letter delivery
+ */
+router.post('/dead-letter/replay/:replayId/execute', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const replayId = Array.isArray(req.params.replayId) ? req.params.replayId[0] : req.params.replayId;
+    const result = await webhookService.executeDeadLetterReplay(req.user!.id, replayId);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    logger.error('Execute replay error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to execute replay',
     });
   }
 });

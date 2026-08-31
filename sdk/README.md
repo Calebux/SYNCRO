@@ -1,15 +1,27 @@
 # Syncro Backend SDK
 
-Subscription CRUD wrapper for the Syncro backend. Developers should use these SDK methods instead of calling raw API endpoints or Soroban contracts directly.
+Official TypeScript/JavaScript SDK for the **SYNCRO** Subscription Management Platform.
+
+Subscription CRUD wrapper for the Syncro backend with integrated privacy-preserving cryptography. Developers should use these SDK methods instead of calling raw API endpoints or Soroban contracts directly.
 
 ## Features
 
+### Subscription Management
 - **createSubscription()** – Create subscriptions with validation and backend + on-chain sync
 - **updateSubscription()** – Update subscriptions with validation
 - **getSubscription()** – Fetch a single subscription by ID
 - **cancelSubscription()** – Soft cancel (set status to `cancelled`)
 - **deleteSubscription()** – Permanently delete a subscription
 - **attachGiftCard()** – Attach gift card info (manual and gift-card subscriptions)
+
+### Privacy & Security
+- **Stealth Addresses** – One-time payment addresses hiding recipient wallet
+- **Metadata Encryption** – Client-side encryption for subscription details
+- **Pedersen Commitments** – Hide payment amounts while proving correctness
+- **Key Derivation** – Deterministic key generation from passwords
+- **Payment Commitments** – Prove payment facts without revealing data
+
+### Reliability & Configuration
 - **Strictly typed configuration** – Type-safe SDK initialization with sensible defaults
 - **Automatic retry logic** – Configurable exponential backoff for resilience
 - **Request timeout control** – Prevent hanging requests with timeout configuration
@@ -53,7 +65,7 @@ Official TypeScript/JavaScript SDK for the **SYNCRO** Subscription Management Pl
 ```bash
 npm install @syncro/sdk
 # or
-pnpm add @syncro/sdk
+npm add @syncro/sdk
 ```
 
 ---
@@ -207,6 +219,122 @@ await sdk.markNotificationRead('notification-uuid');
 
 ---
 
+## Privacy Features
+
+### Overview
+
+SYNCRO provides end-to-end encryption and privacy-preserving payment mechanisms:
+
+- **Hide Payment Recipient** – Stealth addresses make payments unlinkable
+- **Hide Service Details** – Metadata encryption keeps subscriptions private
+- **Hide Payment Amounts** – Pedersen commitments prove amounts without revealing them
+- **Deterministic Keys** – Derive encryption keys from passwords without storing them
+
+### Quick Start: Basic Privacy
+
+```typescript
+import {
+  generateStealthMetaAddress,
+  deriveEphemeralStealthAddress,
+  encryptSubscriptionMetadata,
+} from '@syncro/sdk';
+
+// Step 1: Generate your stealth identity (once)
+const meta = generateStealthMetaAddress();
+console.log('Share this:', meta.encoded);
+
+// Step 2: Generate one-time address for each payment
+const paymentAddr = deriveEphemeralStealthAddress(
+  { viewPublicKey: meta.viewPublicKey, spendPublicKey: meta.spendPublicKey },
+  'netflix-subscription:payment-0'
+);
+console.log('Send payment to:', paymentAddr.stealthAddress);
+
+// Step 3: Encrypt subscription metadata
+const encrypted = await encryptSubscriptionMetadata(
+  'your-aes-key-hex',
+  {
+    name: 'Netflix',
+    price: 15.99,
+    cycle: 'monthly',
+    provider: 'netflix.com'
+  }
+);
+// Only you can decrypt with your key
+```
+
+### Privacy API Reference
+
+#### Stealth Addresses
+
+```typescript
+import { generateStealthMetaAddress, deriveEphemeralStealthAddress } from '@syncro/sdk';
+
+// Generate stealth identity
+const meta = generateStealthMetaAddress();
+// { viewPublicKey, spendPublicKey, encoded }
+
+// Generate one-time address per payment
+const result = deriveEphemeralStealthAddress(meta, 'unique-entropy');
+// { ephemeralPubkey, stealthAddress }
+```
+
+#### Metadata Encryption
+
+```typescript
+import { encryptSubscriptionMetadata, decryptSubscriptionMetadata } from '@syncro/sdk';
+
+// Encrypt
+const encrypted = await encryptSubscriptionMetadata(keyHex, {
+  name: 'Netflix',
+  price: 15.99,
+  cycle: 'monthly',
+  provider: 'netflix.com'
+});
+
+// Decrypt (only with correct key)
+const metadata = await decryptSubscriptionMetadata(keyHex, encrypted);
+```
+
+#### Pedersen Commitments
+
+```typescript
+import { commit, verify } from '@syncro/sdk';
+
+// Create commitment to amount
+const commitment = commit(1500n); // $15.00
+// { commitment, blindingFactor }
+
+// Verify amount later
+const isValid = verify(1500n, blindingFactor, commitment.commitment);
+```
+
+#### Key Derivation
+
+```typescript
+import { deriveSubscriptionEncryptionKey } from '@syncro/sdk';
+
+// Derive key from password (deterministic)
+const key = await deriveSubscriptionEncryptionKey(password, subscriptionId);
+// Same password + subscription = same key
+// No need to store keys!
+```
+
+### Comprehensive Privacy Documentation
+
+For complete guides and examples, see the privacy documentation:
+
+- **[Privacy Features Overview](./docs/privacy/README.md)** – Start here
+- **[Stealth Addresses](./docs/privacy/stealth-addresses.md)** – One-time payment addresses
+- **[Metadata Encryption](./docs/privacy/metadata-encryption.md)** – Encrypt subscription details
+- **[Pedersen Commitments](./docs/privacy/pedersen-commitments.md)** – Hide payment amounts
+- **[Integration Guide](./docs/privacy/integration-guide.md)** – How to build privacy into your app
+- **[Migration Guide](./docs/privacy/migration-guide.md)** – Add privacy to existing apps
+- **[Security Considerations](./docs/privacy/security-considerations.md)** – Threat models & best practices
+- **[API Reference](./docs/privacy/api-reference.md)** – Complete function reference
+
+---
+
 ## Error Handling
 
 The SDK throws typed errors so you can handle them precisely:
@@ -337,7 +465,7 @@ interface RetryOptions {
 import { init } from "@syncro/sdk";
 
 const sdk = init({
-  apiKey: "sk_live_abc123xyz",
+  apiKey: "sk_live_...", // Your Syncro API key
   wallet: yourWallet,
 });
 
@@ -353,7 +481,7 @@ const sdk = init({
 
 ```typescript
 const sdk = init({
-  apiKey: "sk_live_abc123xyz",
+  apiKey: "sk_live_...", // Your Syncro API key
   baseURL: "https://api.syncro.com",
   timeout: 60000, // 60 seconds
   retryOptions: {
@@ -520,7 +648,7 @@ When `enableLogging` is enabled, the SDK logs:
 [SyncroSDK] Initializing with config: { ... }
 [SyncroSDK] Fetching subscription: sub_123
 [SyncroSDK] Retrying request (attempt 1/3) after 1000ms
-[SyncroSDK] Cache hit for key: syncro_subs_sk_live_abc123xyz
+[SyncroSDK] Cache hit for key: syncro_subs_<api_key_hash>
 ```
 
 ## Error Handling
@@ -544,6 +672,106 @@ try {
   console.error("Failed to fetch subscription:", error.message);
 }
 ```
+
+## Receiving Webhooks
+
+SYNCRO delivers webhook events as JSON envelopes signed with HMAC-SHA256. Use the SDK helpers to verify signatures and handle events in a type-safe way.
+
+```typescript
+import {
+  verifyWebhookSignature,
+  parseWebhookHeaders,
+  createWebhookHandler,
+  SYNCRO_WEBHOOK_HEADERS,
+} from "@syncro/sdk/webhooks";
+import type { SyncroWebhookEvent } from "@syncro/sdk";
+
+// Express-style example
+app.post("/webhooks/syncro", express.raw({ type: "application/json" }), async (req, res) => {
+  const rawBody = req.body.toString("utf8");
+  const headers = parseWebhookHeaders(req.headers);
+  const secret = process.env.SYNCRO_WEBHOOK_SECRET!;
+
+  if (!headers.signature || !verifyWebhookSignature(rawBody, headers.signature, secret)) {
+    return res.status(401).send("Invalid signature");
+  }
+
+  const event = JSON.parse(rawBody) as SyncroWebhookEvent;
+  switch (event.type) {
+    case "subscription.renewed":
+      await handleRenewal(event.data);
+      break;
+    case "subscription.renewal_failed":
+      await handleRenewalFailure(event.data);
+      break;
+    default:
+      break;
+  }
+
+  res.status(200).send("OK");
+});
+
+// Or use the bundled handler factory
+const handleSyncroWebhook = createWebhookHandler(process.env.SYNCRO_WEBHOOK_SECRET!, {
+  "subscription.renewed": async (event) => {
+    console.log("Renewed:", event.data.subscription_name);
+  },
+});
+```
+
+### Delivery headers
+
+| Header | Constant | Purpose |
+|--------|----------|---------|
+| `X-Syncro-Signature` | `SYNCRO_WEBHOOK_HEADERS.signature` | HMAC-SHA256 hex digest of the raw JSON body |
+| `X-Syncro-Delivery-Id` | `SYNCRO_WEBHOOK_HEADERS.deliveryId` | Unique delivery identifier |
+| `X-Syncro-Retry-Count` | `SYNCRO_WEBHOOK_HEADERS.retryCount` | Retry attempt number for redeliveries |
+| `X-Syncro-Replay-Id` | `SYNCRO_WEBHOOK_HEADERS.replayId` | Identifier when replaying from dead-letter queue |
+
+Always verify signatures against the **raw request body** string. Re-serializing parsed JSON can invalidate the signature.
+
+## Stellar Transaction Memos
+
+SYNCRO uses a compact, standardized memo format for Stellar transactions to support cross-platform receipt verification.
+
+**Format:** `S1:<type>:<subscriptionIdHash>`
+
+| Type code | Operation |
+|-----------|-----------|
+| `c` | subscription create |
+| `u` | subscription update |
+| `d` | subscription delete |
+| `x` | subscription cancel |
+| `p` | subscription pause |
+| `r` | subscription unpause |
+| `m` | reminder log |
+| `g` | gift card attached |
+| `k` | commitment record |
+
+`subscriptionIdHash` is the first 12 hex characters of `SHA-256(subscriptionId)`.
+
+```typescript
+import {
+  buildSyncroMemo,
+  parseSyncroMemo,
+  validateSyncroMemo,
+  verifyTransactionMemo,
+} from "@syncro/sdk/stellar";
+
+const memo = buildSyncroMemo("create", subscriptionId);
+// => "S1:c:a1b2c3d4e5f6"
+
+const parsed = parseSyncroMemo(memo);
+const isValid = validateSyncroMemo(memo, "create", subscriptionId);
+
+const receiptOk = verifyTransactionMemo(
+  { memo, successful: true, hash: txHash },
+  "create",
+  subscriptionId,
+);
+```
+
+Legacy memos that do not match the `S1:` format are treated as backward-compatible/unparsed.
 
 ## TypeScript Support
 

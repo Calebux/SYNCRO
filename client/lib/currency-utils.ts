@@ -51,22 +51,43 @@ export function convertCurrency(
   return usdAmount * toRate
 }
 
-export function formatCurrency(amount: number, currency: Currency | string, locale?: string): string {
+export const DEFAULT_CURRENCY: Currency = "USD"
+
+export function formatCurrency(
+  amount: number,
+  currency: Currency | string = DEFAULT_CURRENCY,
+  locale?: string
+): string {
+  // Normalize currency to uppercase
+  const normalizedCurrency = currency.toUpperCase()
+
   // XLM and USDC are not ISO 4217, so handle manually
-  if (currency === 'XLM' || currency === 'USDC') {
-    return `${amount.toFixed(2)} ${currency}`
+  if (normalizedCurrency === "XLM" || normalizedCurrency === "USDC") {
+    return `${amount.toLocaleString(locale || "en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })} ${normalizedCurrency}`
   }
 
-  const formatter = new Intl.NumberFormat(locale || "en-US", {
-    style: "currency",
-    currency: currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })
+  try {
+    const formatter = new Intl.NumberFormat(locale || "en-US", {
+      style: "currency",
+      currency: normalizedCurrency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
 
-  return formatter.format(amount)
+    return formatter.format(amount)
+  } catch (error) {
+    // Fallback if currency code is invalid or not supported
+    return `${amount.toLocaleString(locale || "en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })} ${normalizedCurrency}`
+  }
 }
 
 export function getCurrencySymbol(currency: Currency | string): string {
-  return CURRENCY_SYMBOLS[currency as Currency] || currency
+  const normalizedCurrency = currency.toUpperCase()
+  return CURRENCY_SYMBOLS[normalizedCurrency as Currency] || normalizedCurrency
 }

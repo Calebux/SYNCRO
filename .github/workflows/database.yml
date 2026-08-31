@@ -4,13 +4,13 @@ on:
   push:
     branches: [main, develop]
     paths:
-      - 'supabase/migrations/**'
-      - 'supabase/config.toml'
+      - "supabase/migrations/**"
+      - "supabase/config.toml"
   pull_request:
     branches: [main, develop]
     paths:
-      - 'supabase/migrations/**'
-      - 'supabase/config.toml'
+      - "supabase/migrations/**"
+      - "supabase/config.toml"
 
 jobs:
   validate-migrations:
@@ -19,10 +19,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Supabase CLI
-        uses: supabase/setup-cli@v1
+        uses: supabase/setup-cli@v3
         with:
           version: latest
 
@@ -35,6 +35,47 @@ jobs:
       - name: Lint SQL migrations
         run: supabase db lint
 
+      - name: Setup Node.js for RLS audit
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies for RLS audit
+        working-directory: backend
+        run: npm install
+
+      - name: Dump live schema for snapshot comparison
+        run: supabase db dump --local --schema-only -f /tmp/live-schema.sql
+
+      - name: Run migration drift check against local database
+        id: local-drift-check
+        env:
+          SUPABASE_URL: http://127.0.0.1:54321
+          SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: |
+          echo "🔍 Verifying migration history and schema against local database..."
+          node scripts/check-migration-drift.js \
+            --verify-db \
+            --verify-schema \
+            --compare-schema supabase/schema.snapshot.sql \
+            --live-schema /tmp/live-schema.sql \
+            --env local \
+            --strict \
+            --json > local-drift-result.json
+          cat local-drift-result.json
+
+      - name: Run RLS Policy Audit
+        env:
+          SUPABASE_URL: http://localhost:54321
+          # Official Supabase demo token for local CI - only works with localhost:54321
+          SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+        run: |
+          echo "🔍 Auditing RLS policies after migration..."
+          node scripts/check-rls-compliance.js
+
       - name: Stop Supabase local stack
         if: always()
-        run: supabase stop
+        run: if command -v supabase &> /dev/null; then supabase stop; fi

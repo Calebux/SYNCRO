@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import logger from '../config/logger';
+import { apiLatencyService } from '../services/api-latency-service';
 
 /**
  * Logs the start and end of every HTTP request including:
@@ -23,7 +24,7 @@ export function requestLoggerMiddleware(
   });
 
   // Hook into the response 'finish' event to log completion
-  res.on('finish', () => {
+  res.on('finish', async () => {
     const durationMs = Date.now() - startMs;
     const level = res.statusCode >= 500 ? 'error'
                 : res.statusCode >= 400 ? 'warn'
@@ -35,6 +36,14 @@ export function requestLoggerMiddleware(
       statusCode: res.statusCode,
       durationMs,
     });
+
+    // Record latency for endpoint family
+    try {
+      const family = apiLatencyService.getEndpointFamily(req.method, req.path);
+      await apiLatencyService.recordLatency(family, durationMs);
+    } catch (error) {
+      logger.error('Failed to record API latency metric:', error);
+    }
   });
 
   next();

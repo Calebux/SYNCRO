@@ -31,7 +31,7 @@ async function generatePlaceholderScreenshot() {
       <text x="50%" y="60%" font-family="Arial, sans-serif" font-size="18" fill="#888888" text-anchor="middle">Dashboard Preview</text>
       <rect x="10%" y="70%" width="80%" height="20%" fill="#2a2a2a" rx="8"/>
       <text x="50%" y="78%" font-family="Arial, sans-serif" font-size="16" fill="#ffffff" text-anchor="middle">Sample Subscription Cards</text>
-      <text x="50%" y="85%" font-family="Arial, sans-serif" font-size="14" fill="#666666" text-anchor="middle">PWA Screenshot Placeholder</text>
+      <text x="50%" y="85%" font-family="Arial, sans-serif" font-size="14" fill="#666666" text-anchor="middle">@syncro/client — Dashboard Preview</text>
     </svg>
   `;
 

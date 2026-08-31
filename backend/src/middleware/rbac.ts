@@ -14,9 +14,15 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
  */
 export function requireRole(...roles: UserRole[]) {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
-    const userRole = req.user?.role;
+    if (!req.user) {
+      res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Authentication required',
+      });
+      return;
+    }
 
-    if (!userRole || !roles.includes(userRole)) {
+    if (!roles.includes(req.user.role)) {
       res.status(403).json({
         error: 'Forbidden',
         message: `This action requires one of the following roles: ${roles.join(', ')}`,

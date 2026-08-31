@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "./bundle-size.schema.json",
+  "title": "Bundle Size Budget Configuration",
+  "description": "Defines bundle size budgets for the client application per route and per chunk.",
+  "type": "object",
+  "required": ["budgets"],
+  "properties": {
+    "budgets": {
+      "type": "object",
+      "required": ["total", "shared", "perRoute", "perChunk"],
+      "properties": {
+        "total": {
+          "type": "number",
+          "description": "Maximum total JS size in KB (uncompressed) across all client chunks.",
+          "minimum": 100
+        },
+        "shared": {
+          "type": "number",
+          "description": "Maximum size in KB for shared chunks (framework, common vendor code).",
+          "minimum": 50
+        },
+        "perRoute": {
+          "type": "object",
+          "description": "Per-route JS budgets in KB. Each key is a route path, value is max KB.",
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 50
+          }
+        },
+        "perChunk": {
+          "type": "number",
+          "description": "Maximum size in KB for any individual JS chunk. Prevents any single file from growing too large.",
+          "minimum": 50
+        }
+      }
+    }
+  }
+}

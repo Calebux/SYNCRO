@@ -1,0 +1,108 @@
+version: 2
+
+updates:
+  # ──────────────────────────────────────────────
+  # JavaScript / TypeScript (client)
+  # ──────────────────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/client"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "client"
+    groups:
+      client-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ──────────────────────────────────────────────
+  # JavaScript / TypeScript (backend)
+  # ──────────────────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:15"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "backend"
+    groups:
+      backend-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ──────────────────────────────────────────────
+  # JavaScript / TypeScript (SDK)
+  #
+  # Note: Dependabot updates work best when a lockfile is present.
+  # If the SDK intentionally ships without lockfiles, Dependabot will
+  # still raise manifest update PRs when possible.
+  # ──────────────────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/sdk"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:30"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "sdk"
+    groups:
+      sdk-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ──────────────────────────────────────────────
+  # Rust / Cargo (Soroban contracts workspace)
+  # ──────────────────────────────────────────────
+  - package-ecosystem: "cargo"
+    directory: "/contracts"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:45"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "contracts"
+      - "rust"
+    groups:
+      contracts-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ──────────────────────────────────────────────
+  # GitHub Actions
+  # ──────────────────────────────────────────────
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    groups:
+      actions-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+

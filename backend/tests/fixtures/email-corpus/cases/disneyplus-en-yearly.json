@@ -1,0 +1,18 @@
+{
+  "id": "disneyplus-en-yearly",
+  "merchant": "Disney+",
+  "locale": "en",
+  "kind": "positive",
+  "notes": "Annual Disney+ receipt.",
+  "email": {
+    "subject": "Your Disney+ annual plan renewed",
+    "from": "Disney Plus <billing@disneyplus.com>",
+    "body": "Your annual subscription was billed $139.99 per year."
+  },
+  "expected": {
+    "name": "Disney+",
+    "amount": 139.99,
+    "currency": "USD",
+    "interval": "yearly"
+  }
+}

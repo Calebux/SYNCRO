@@ -8,11 +8,11 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-soroban-sdk = "23.0"
-soroban-contract = "23.0"
+soroban-sdk = { workspace = true }
 
 [dev-dependencies]
-soroban-sdk = { version = "23.0", features = ["testutils"] }
+soroban-sdk = { workspace = true, features = ["testutils"] }
+proptest = { workspace = true }
 
 [profile.release]
 opt-level = "z"

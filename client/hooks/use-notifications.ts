@@ -8,15 +8,7 @@ import {
 } from "@/lib/subscription-utils";
 import type { Subscription } from "@/lib/supabase/subscriptions";
 import type { BudgetAlert } from "@/lib/budget-utils";
-
-interface Notification {
-  id: string | number;
-  title: string;
-  description: string;
-  type: string;
-  read: boolean;
-  [key: string]: any;
-}
+import type { Notification } from "@/lib/notification-types";
 
 interface UseNotificationsProps {
   subscriptions: Subscription[];
@@ -33,6 +25,8 @@ export function useNotifications({
   consolidationSuggestions,
   budgetAlert,
 }: UseNotificationsProps) {
+  const [readIds, setReadIds] = useState<Set<string | number>>(new Set());
+
   const [notifications, setNotifications] = useState<Notification[]>([
     {
       id: 1,
@@ -46,6 +40,7 @@ export function useNotifications({
         count: 2,
         totalCost: 40,
         potentialSavings: 20,
+        subscriptions: [{ id: 1, name: "ChatGPT Plus" }],
       },
     },
     {
@@ -87,6 +82,18 @@ export function useNotifications({
       },
     },
   ]);
+
+  // Load persisted read state on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("syncro_read_notifications");
+      if (saved) {
+        setReadIds(new Set(JSON.parse(saved)));
+      }
+    } catch (e) {
+      console.error("Failed to parse read notifications from localStorage");
+    }
+  }, []);
 
   useEffect(() => {
     const newNotifications: Notification[] = [];
@@ -151,16 +158,24 @@ export function useNotifications({
     });
   }, [priceChanges, renewalReminders, budgetAlert, consolidationSuggestions]);
 
-  const handleMarkNotificationRead = useCallback((id: number) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-    );
+  const handleMarkNotificationRead = useCallback((id: Notification["id"]) => {
+    setReadIds((prev) => {
+      const newSet = new Set(prev);
+      newSet.add(id);
+      localStorage.setItem("syncro_read_notifications", JSON.stringify(Array.from(newSet)));
+      return newSet;
+    });
   }, []);
 
-  const unreadNotifications = notifications.filter((n) => !n.read).length;
+  const processedNotifications = notifications.map((n) => ({
+    ...n,
+    read: n.read || readIds.has(n.id),
+  }));
+
+  const unreadNotifications = processedNotifications.filter((n) => !n.read).length;
 
   return {
-    notifications,
+    notifications: processedNotifications,
     unreadNotifications,
     handleMarkNotificationRead,
   };

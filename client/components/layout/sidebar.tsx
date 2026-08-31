@@ -77,6 +77,7 @@ export function Sidebar({
                                     onViewChange(item.id);
                                     onMobileMenuToggle();
                                 }}
+                                data-tour={item.id === "integrations" ? "connect-email" : item.id === "settings" ? "wallet-settings" : undefined}
                                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
                                     isActive
                                         ? darkMode

@@ -1,0 +1,23 @@
+﻿ M backend/package-lock.json
+ M backend/package.json
+ M backend/src/index.ts
+ M backend/src/routes/api-keys.ts
+ M backend/src/routes/audit.ts
+ M backend/src/routes/compliance.ts
+ M backend/src/routes/digest.ts
+ M backend/src/routes/exchange-rates.ts
+ M backend/src/routes/merchants.ts
+ M backend/src/routes/mfa.ts
+ M backend/src/routes/push-notifications.ts
+ M backend/src/routes/risk-score.ts
+ M backend/src/routes/simulation.ts
+ M backend/src/routes/subscriptions.ts
+ M backend/src/routes/team.ts
+ M backend/src/routes/webhooks.ts
+ M backend/src/swagger.ts
+ M sdk/src/errors.ts
+ M sdk/src/index.ts
+?? backend/src/errors/
+?? backend/src/middleware/errorHandler.ts
+?? backend/src/utils/validation.ts
+?? backend/status.txt

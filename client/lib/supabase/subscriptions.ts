@@ -7,11 +7,13 @@ export interface Subscription {
   category: string
   price: number
   icon: string
+  provider?: string
   renews_in: number | null
   status: string
   color: string
   renewal_url: string | null
   tags: string[]
+  is_encrypted?: boolean
   date_added: string
   email_account_id: number | null
   last_used_at?: string
@@ -35,6 +37,7 @@ export interface Subscription {
   expired_at?: string
   notes?: string
   custom_tag_ids?: string[]
+  currency?: string
 }
 
 export async function fetchSubscriptions(): Promise<Subscription[]> {

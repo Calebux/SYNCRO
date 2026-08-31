@@ -1,0 +1,18 @@
+{
+  "id": "spotify-en-family-monthly",
+  "merchant": "Spotify",
+  "locale": "en",
+  "kind": "positive",
+  "notes": "Family plan, higher amount, same structure.",
+  "email": {
+    "subject": "Spotify Premium Family renewal",
+    "from": "Spotify <no-reply@spotify.com>",
+    "body": "Your Premium Family plan renews on the 14th. You have been charged $16.99 per month."
+  },
+  "expected": {
+    "name": "Spotify",
+    "amount": 16.99,
+    "currency": "USD",
+    "interval": "monthly"
+  }
+}

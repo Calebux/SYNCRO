@@ -18,11 +18,51 @@ export interface Webhook {
   updated_at: string;
 }
 
+export interface WebhookEventPayloadMap {
+  'subscription.renewal_due': {
+    subscription_id: string;
+    subscription_name: string;
+    renewal_date: string;
+    amount: number;
+    currency: string;
+  };
+  'subscription.renewed': {
+    subscription_id: string;
+    subscription_name: string;
+    renewed_at: string;
+    amount: number;
+    currency: string;
+  };
+  'subscription.renewal_failed': {
+    subscription_id: string;
+    subscription_name: string;
+    failed_at: string;
+    reason: string;
+  };
+  'subscription.cancelled': {
+    subscription_id: string;
+    subscription_name: string;
+    cancelled_at: string;
+  };
+  'subscription.risk_score_changed': {
+    subscription_id: string;
+    subscription_name: string;
+    previous_score: number;
+    new_score: number;
+  };
+  'reminder.sent': {
+    subscription_id: string;
+    subscription_name: string;
+    reminder_type: string;
+    sent_at: string;
+  };
+}
+
 export interface WebhookDelivery {
   id: string;
   webhook_id: string;
   event_type: WebhookEventType;
-  payload: any;
+  payload: WebhookEventPayloadMap[WebhookEventType];
   response_code: number | null;
   response_body: string | null;
   status: 'pending' | 'success' | 'failed' | 'retrying';

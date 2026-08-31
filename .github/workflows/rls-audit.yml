@@ -1,0 +1,114 @@
+name: RLS Policy Audit
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "supabase/migrations/**"
+      - "backend/migrations/**"
+      - "scripts/check-rls-compliance.js"
+      - ".github/workflows/rls-audit.yml"
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "supabase/migrations/**"
+      - "backend/migrations/**"
+      - "scripts/check-rls-compliance.js"
+      - ".github/workflows/rls-audit.yml"
+
+jobs:
+  audit-rls-policies:
+    name: Audit RLS Policies
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm install
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v3
+        with:
+          version: latest
+
+      - name: Start Supabase local stack
+        run: |
+          supabase start
+          echo "Waiting for database to be ready..."
+          sleep 10
+
+      - name: Apply all migrations
+        run: supabase db push
+
+      - name: Run RLS Policy Audit
+        env:
+          SUPABASE_URL: http://localhost:54321
+          # Falls back to official Supabase demo token for local CI (localhost:54321 only)
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU' }}
+        run: |
+          echo "🔍 Running RLS Policy Audit..."
+          node scripts/check-rls-compliance.js
+
+      - name: Stop Supabase local stack
+        if: always()
+        run: if command -v supabase &> /dev/null; then supabase stop; fi
+
+  # Integration with main CI pipeline
+  validate-rls-on-production:
+    name: Validate RLS on Production Schema
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: audit-rls-policies
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm install
+
+      - name: Validate RLS on Production Database
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          echo "🔍 Validating RLS policies on production database..."
+          echo "⚠️  This is a read-only check against production"
+          node scripts/check-rls-compliance.js
+
+  # Comment on PR with audit results
+  comment-pr:
+    name: Comment PR with RLS Status
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    needs: audit-rls-policies
+
+    steps:
+      - name: Comment PR with RLS Status
+        uses: actions/github-script@v9
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ **RLS Policy Audit Passed**\n\nAll tables in the database have Row Level Security enabled with appropriate policies. Your changes maintain data security compliance.'
+            });

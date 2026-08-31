@@ -1,0 +1,6 @@
+﻿commit 4eb36e6514ab8f657810abe3d4b533df754c525d
+Merge: 1a36353 a18ffc6
+Author: calebux <petersoncaleb275@gmail.com>
+Date:   Sun Mar 29 17:42:18 2026 +0100
+
+    Merge PR #260: fix/137-event-listener-health-retry

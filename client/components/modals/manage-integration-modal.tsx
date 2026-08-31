@@ -2,8 +2,10 @@
 
 import { X } from "lucide-react"
 
+import type { Integration } from "@/lib/integration-types"
+
 interface ManageIntegrationModalProps {
-  integration: any
+  integration: Integration
   onClose: () => void
 }
 

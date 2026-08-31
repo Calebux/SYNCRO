@@ -30,8 +30,74 @@ Authorization: Bearer <token>
 **Query Parameters:**
 - `status` (optional): Filter by status (`active`, `cancelled`, `paused`, `trial`)
 - `category` (optional): Filter by category
-- `limit` (optional): Number of results (default: all)
-- `offset` (optional): Pagination offset
+- `limit` (optional): Number of results per page (default: 20, max: 100)
+- `cursor` (optional): Pagination cursor for fetching next page
+
+#### Cursor-Based Pagination
+
+The subscriptions endpoint supports cursor-based pagination, which is more efficient for large datasets and provides consistent results when data changes between requests.
+
+**How it works:**
+
+1. **First Request**: Fetch the first page without a cursor
+   ```http
+   GET /api/subscriptions?limit=10
+   ```
+
+2. **Response includes `nextCursor`**: If more results exist, the response includes a `nextCursor` value
+   ```json
+   {
+     "success": true,
+     "data": [...],
+     "pagination": {
+       "total": 100,
+       "limit": 10,
+       "hasMore": true,
+       "nextCursor": "eyJjcmVhdGVkX2F0IjoiMjAyNC0wMS0wMlQwMDowMDo1MC4wMFoifQ=="
+     }
+   }
+   ```
+
+3. **Next Page Request**: Use the `nextCursor` value to fetch the next page
+   ```http
+   GET /api/subscriptions?limit=10&cursor=eyJjcmVhdGVkX2F0IjoiMjAyNC0wMS0wMlQwMDowMDo1MC4wMFoifQ==
+   ```
+
+**Cursor Semantics:**
+
+- **Format**: Base64-encoded JSON containing a `created_at` timestamp
+- **Expiration**: Cursors do not expire but may become invalid if the underlying data is deleted
+- **Ordering**: Results are ordered by `created_at` descending (newest first)
+- **Limit Range**: Must be between 1 and 100 (inclusive)
+
+**Error Responses:**
+
+- **Invalid Cursor (400)**:
+  ```json
+  {
+    "success": false,
+    "error": "Invalid pagination cursor",
+    "code": "INVALID_CURSOR"
+  }
+  ```
+
+- **Malformed Cursor (400)**:
+  ```json
+  {
+    "success": false,
+    "error": "Invalid cursor: missing created_at field",
+    "code": "MALFORMED_CURSOR"
+  }
+  ```
+
+- **Invalid Limit (400)**:
+  ```json
+  {
+    "success": false,
+    "error": "Limit must be between 1 and 100",
+    "code": "INVALID_LIMIT"
+  }
+  ```
 
 **Response:**
 ```json
@@ -48,9 +114,10 @@ Authorization: Bearer <token>
     }
   ],
   "pagination": {
-    "total": 10,
+    "total": 100,
     "limit": 20,
-    "offset": 0
+    "hasMore": true,
+    "nextCursor": "eyJjcmVhdGVkX2F0IjoiMjAyNC0wMS0wMlQwMDowMDo1MC4wMFoifQ=="
   }
 }
 ```
@@ -230,9 +297,22 @@ Content-Type: application/json
 }
 ```
 
+### Pagination Error Response
+
+```json
+{
+  "success": false,
+  "error": "Invalid limit: must be between 1 and 100",
+  "code": "INVALID_LIMIT"
+}
+```
+
 ### Status Codes
 
-- `400`: Bad Request (validation error)
+- `400`: Bad Request (validation error, including pagination errors)
+  - `INVALID_CURSOR`: The provided cursor is malformed or invalid
+  - `MALFORMED_CURSOR`: The cursor is not properly formatted
+  - `INVALID_LIMIT`: The limit parameter is out of range or not a valid integer
 - `401`: Unauthorized (missing/invalid token)
 - `403`: Forbidden (ownership validation failed)
 - `404`: Not Found

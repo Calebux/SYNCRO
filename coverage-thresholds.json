@@ -1,0 +1,68 @@
+{
+  "$comment": [
+    "Per-package minimum coverage (issue #1090). Single source of truth for the",
+    "coverage gate: scripts/coverage-report.js --check reads this, and each",
+    "package's own test config mirrors its numbers so `npm test -- --coverage`",
+    "fails locally too.",
+    "",
+    "These are RATCHETS, not targets. Set at the measured floor so the gate is",
+    "green and meaningful today; raise them as coverage improves. Never lower a",
+    "minimum to make a red build pass — add tests instead.",
+    "",
+    "A minimum of 0 with \"pending\": true means the package's coverage has not",
+    "been measured in CI yet. The PR comment reports the real number on the first",
+    "run; raise the minimum to just under it in a follow-up."
+  ],
+  "packages": {
+    "backend": {
+      "dir": "backend",
+      "type": "jest",
+      "minimum": {
+        "lines": 55,
+        "statements": 55,
+        "functions": 55,
+        "branches": 44
+      },
+      "measuredAt": "2026-07-25",
+      "measured": {
+        "lines": 58.0,
+        "statements": 57.48,
+        "functions": 57.14,
+        "branches": 46.48
+      }
+    },
+    "client": {
+      "dir": "client",
+      "type": "vitest",
+      "pending": true,
+      "minimum": {
+        "lines": 0,
+        "statements": 0,
+        "functions": 0,
+        "branches": 0
+      },
+      "note": "vitest.config.ts declares 80/80/85/75 but CI has never run client tests with --coverage, so those numbers are unverified. Ratchet from the first reported run."
+    },
+    "sdk": {
+      "dir": "sdk",
+      "type": "jest",
+      "pending": true,
+      "minimum": {
+        "lines": 0,
+        "statements": 0,
+        "functions": 0,
+        "branches": 0
+      },
+      "note": "Ratchet from the first reported run."
+    },
+    "contracts": {
+      "dir": "contracts",
+      "type": "rust",
+      "pending": true,
+      "minimum": {
+        "lines": 0
+      },
+      "note": "cargo-llvm-cov line coverage. Ratchet from the first reported run."
+    }
+  }
+}

@@ -8,6 +8,7 @@ import {
   snoozeSubscription,
   type NotificationPreferences,
 } from "@/lib/supabase/notification-preferences"
+import { formatDate } from "@/lib/timezone-utils"
 
 const PRESET_DAYS = [30, 14, 7, 3, 1]
 
@@ -224,7 +225,7 @@ export default function NotificationPreferencesModal({
                 <div className="p-3 bg-[#FFD166]/10 border border-[#FFD166]/30 rounded-lg">
                   <p className="text-sm text-[#FFD166]">
                     Snoozed until{" "}
-                    {new Date(prefs!.muted_until!).toLocaleDateString()}
+                    {formatDate(prefs!.muted_until!)}
                   </p>
                 </div>
               )}

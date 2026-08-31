@@ -1,0 +1,110 @@
+---
+title: Quickstart
+description: "Add your first subscription via the SYNCRO API in under 5 minutes"
+---
+
+## Prerequisites
+
+- A SYNCRO account — [sign up here](https://app.syncro.app)
+- An API key from your dashboard
+
+## Step 1: Get your API key
+
+Log in to the [SYNCRO dashboard](https://app.syncro.app) and navigate to **Settings → API Keys**. Create a new key and copy it.
+
+## Step 2: Create your first subscription
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.syncro.app/subscriptions \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Netflix",
+    "price": 17.99,
+    "currency": "USD",
+    "billingCycle": "monthly",
+    "nextRenewalDate": "2025-05-01"
+  }'
+```
+
+```typescript TypeScript SDK
+import { SyncroSDK } from '@syncro/sdk';
+
+const syncro = new SyncroSDK({ apiKey: 'YOUR_API_KEY' });
+
+const subscription = await syncro.createSubscription({
+  name: 'Netflix',
+  price: 17.99,
+  currency: 'USD',
+  billingCycle: 'monthly',
+  nextRenewalDate: '2025-05-01',
+});
+
+console.log('Created:', subscription.id);
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    'https://api.syncro.app/subscriptions',
+    headers={'Authorization': 'Bearer YOUR_API_KEY'},
+    json={
+        'name': 'Netflix',
+        'price': 17.99,
+        'currency': 'USD',
+        'billingCycle': 'monthly',
+        'nextRenewalDate': '2025-05-01',
+    }
+)
+print(response.json())
+```
+
+</CodeGroup>
+
+## Step 3: List your subscriptions
+
+```bash
+curl https://api.syncro.app/subscriptions \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+**Response:**
+```json
+{
+  "data": [
+    {
+      "id": "sub_abc123",
+      "name": "Netflix",
+      "price": 17.99,
+      "currency": "USD",
+      "billingCycle": "monthly",
+      "nextRenewalDate": "2025-05-01",
+      "status": "active"
+    }
+  ],
+  "total": 1
+}
+```
+
+## Step 4: Set up a webhook (optional)
+
+Receive real-time events when a subscription renews or fails:
+
+```bash
+curl -X POST https://api.syncro.app/webhooks \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://yourapp.com/webhooks/syncro",
+    "events": ["subscription.renewed", "subscription.failed"]
+  }'
+```
+
+## Next Steps
+
+- [Full API Reference](/api-reference/subscriptions)
+- [Webhook Guide](/api-reference/webhooks)
+- [SDK Reference](/sdk-reference)

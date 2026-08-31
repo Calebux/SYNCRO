@@ -1,0 +1,62 @@
+{
+  "name": "@syncro/shared",
+  "version": "1.0.0",
+  "description": "Shared domain models and types for SYNCRO",
+  "main": "dist/index.js",
+  "types": "src/index.ts",
+  "typesVersions": {
+    "*": {
+      "subscription-math": ["src/subscription-math.ts"],
+      "security": ["src/security.ts"],
+      "crypto": ["src/crypto/index.ts"],
+      "*": ["src/*"]
+    }
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "require": "./dist/index.js"
+    },
+    "./subscription-math": {
+      "types": "./src/subscription-math.ts",
+      "import": "./src/subscription-math.ts",
+      "require": "./dist/subscription-math.js"
+    },
+    "./security": {
+      "types": "./src/security.ts",
+      "import": "./src/security.ts",
+      "require": "./dist/security.js"
+    },
+    "./crypto": {
+      "types": "./src/crypto/index.ts",
+      "import": "./src/crypto/index.ts",
+      "require": "./dist/crypto/index.js"
+    },
+    "./stellar/memo": {
+      "types": "./src/stellar/memo.ts",
+      "import": "./src/stellar/memo.ts",
+      "require": "./dist/stellar/memo.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "watch": "tsc --watch",
+    "test": "jest"
+  },
+  "keywords": ["syncro", "types", "domain-models", "crypto"],
+  "license": "ISC",
+  "dependencies": {
+    "@noble/curves": "^1.8.1",
+    "@noble/hashes": "^1.7.1",
+    "libsodium-wrappers": "^0.7.15"
+  },
+  "devDependencies": {
+    "@types/libsodium-wrappers": "^0.7.14",
+    "@types/jest": "^30.0.0",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.2.5",
+    "typescript": "^5.9.3"
+  }
+}

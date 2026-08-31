@@ -1,18 +1,42 @@
-import crypto from 'crypto';
+import * as crypto from 'crypto';
 import { Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
 import { supabase } from '../config/database';
 import logger from '../config/logger';
-import { setRequestUserId } from './requestContext';
+import { setRequestUserId, setRequestPrivacyMode, setRequestPrivacyPreferences } from './requestContext';
 import * as Sentry from '@sentry/node';
+
+async function loadPrivacyPreferences(userId: string): Promise<void> {
+  try {
+    const { data, error } = await supabase
+      .from('privacy_preferences')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+    
+    if (!error && data) {
+      setRequestPrivacyMode(!!data.privacy_mode);
+      setRequestPrivacyPreferences(data);
+    } else {
+      setRequestPrivacyMode(false);
+      setRequestPrivacyPreferences(null);
+    }
+  } catch (err) {
+    logger.warn(`Failed to load privacy preferences for user ${userId}: ${err instanceof Error ? err.message : String(err)}`);
+    setRequestPrivacyMode(false);
+    setRequestPrivacyPreferences(null);
+  }
+}
+import { roleService } from '../services/role-service';
+import { auditApiKeyEvent, emitSecurityEvent } from '../services/audit-service';
 
 export type UserRole = 'owner' | 'admin' | 'member' | 'viewer';
 
 export interface AuthenticatedRequest extends Request {
   user?: {
     id: string;
-    email: string;
-    role: UserRole;
     email?: string;
+    role: UserRole;
     authMethod?: 'jwt' | 'api_key';
     scopes?: string[];
   };
@@ -72,6 +96,11 @@ async function authenticateWithApiKey(
     .single();
 
   if (error || !keyRecord) {
+    await auditApiKeyEvent('api_key.auth_failed', undefined, {
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'] as string | undefined,
+      reason: 'Invalid or revoked API key',
+    });
     res.status(401).json({ error: 'Invalid API key' });
     return true;
   }
@@ -87,11 +116,14 @@ async function authenticateWithApiKey(
 
   req.user = {
     id: keyRecord.user_id,
+    role: 'user' as any,
     authMethod: 'api_key',
     scopes: Array.isArray(keyRecord.scopes) ? keyRecord.scopes : [],
+    role: await roleService.getUserRole(keyRecord.user_id),
   };
 
   setRequestUserId(keyRecord.user_id);
+  await loadPrivacyPreferences(keyRecord.user_id);
   next();
   return true;
 }
@@ -134,6 +166,17 @@ export async function authenticate(
 
     if (error || !user) {
       logger.warn('Authentication failed', { error: error?.message });
+      const isExpired = error?.message?.toLowerCase().includes('expired');
+      await emitSecurityEvent(
+        isExpired ? 'auth.jwt_expired' : 'auth.jwt_invalid',
+        {
+          severity: 'medium',
+          resourceType: 'auth',
+          reason: error?.message || 'Invalid or expired token',
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'] as string | undefined,
+        },
+      );
       res.status(401).json({
         error: 'Unauthorized',
         message: 'Invalid or expired token',
@@ -141,10 +184,56 @@ export async function authenticate(
       return;
     }
 
+    // Extract session_id from JWT payload to check for manual revocation
+    let sessionId: string | null = null;
+    try {
+      const decoded = jwt.decode(token);
+      if (decoded && typeof decoded === 'object' && 'session_id' in decoded) {
+        sessionId = decoded.session_id as string;
+      }
+    } catch (err) {
+      logger.warn('Failed to decode JWT payload for session check', { error: err });
+    }
+
+    if (sessionId) {
+      const { data: sessionRecord, error: dbError } = await supabase
+        .from('user_sessions')
+        .select('revoked_at')
+        .eq('id', sessionId)
+        .maybeSingle();
+
+      if (dbError) {
+        logger.warn('Failed to query user_sessions for validation', { error: dbError.message });
+      } else if (sessionRecord && sessionRecord.revoked_at) {
+        logger.warn('Authentication failed: session is revoked', { sessionId, userId: user.id });
+        await emitSecurityEvent('session.revoked', {
+          severity: 'high',
+          resourceType: 'auth',
+          reason: 'Session has been revoked',
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'] as string | undefined,
+        });
+        res.status(401).json({
+          error: 'Unauthorized',
+          message: 'Session has been revoked',
+        });
+        return;
+      } else if (!sessionRecord) {
+        // Dynamically track new active sessions from client logins
+        const { sessionService } = await import('../services/session-service');
+        await sessionService.recordSession(user.id, {
+          sessionId,
+          userAgent: req.headers['user-agent'] as string | undefined,
+          ipAddress: req.ip,
+        }).catch((err) => {
+          logger.warn('Failed to record new session on auth', { userId: user.id, error: err.message });
+        });
+      }
+    }
+
     // Attach user to request and propagate to log context
-    const rawRole = user.user_metadata?.role ?? 'member';
-    const validRoles: UserRole[] = ['owner', 'admin', 'member', 'viewer'];
-    const role: UserRole = validRoles.includes(rawRole) ? rawRole : 'member';
+    // Get role from authoritative source instead of metadata fallback
+    const role = await roleService.getUserRole(user.id);
 
     req.user = {
       id: user.id,
@@ -154,6 +243,7 @@ export async function authenticate(
       scopes: Array.from(API_KEY_SCOPES),
     };
     setRequestUserId(user.id);
+    await loadPrivacyPreferences(user.id);
     Sentry.setUser({ id: user.id, email: user.email });
 
 
@@ -194,20 +284,56 @@ export async function optionalAuthenticate(
     if (token) {
       const { data: { user }, error } = await supabase.auth.getUser(token);
       if (!error && user) {
-        const rawRole = user.user_metadata?.role ?? 'member';
-        const validRoles: UserRole[] = ['owner', 'admin', 'member', 'viewer'];
-        const role: UserRole = validRoles.includes(rawRole) ? rawRole : 'member';
-        req.user = {
-          id: user.id,
-          email: user.email || '',
-          role,
-          authMethod: 'jwt',
-          scopes: Array.from(API_KEY_SCOPES),
-        };
-        setRequestUserId(user.id);
-        Sentry.setUser({ id: user.id, email: user.email });
-      }
+        // Extract session_id from JWT payload to check for manual revocation
+        let sessionId: string | null = null;
+        try {
+          const decoded = jwt.decode(token);
+          if (decoded && typeof decoded === 'object' && 'session_id' in decoded) {
+            sessionId = decoded.session_id as string;
+          }
+        } catch (err) {
+          logger.warn('Failed to decode JWT payload for optional session check', { error: err });
+        }
 
+        let isRevoked = false;
+        if (sessionId) {
+          const { data: sessionRecord, error: dbError } = await supabase
+            .from('user_sessions')
+            .select('revoked_at')
+            .eq('id', sessionId)
+            .maybeSingle();
+
+          if (!dbError && sessionRecord && sessionRecord.revoked_at) {
+            isRevoked = true;
+          } else if (!dbError && !sessionRecord) {
+            // Dynamically track new active sessions from client logins
+            const { sessionService } = await import('../services/session-service');
+            await sessionService.recordSession(user.id, {
+              sessionId,
+              userAgent: req.headers['user-agent'] as string | undefined,
+              ipAddress: req.ip,
+            }).catch((err) => {
+              logger.warn('Failed to record new session on optional auth', { userId: user.id, error: err.message });
+            });
+          }
+        }
+
+        if (!isRevoked) {
+          // Get role from authoritative source instead of metadata fallback
+          const role = await roleService.getUserRole(user.id);
+
+          req.user = {
+            id: user.id,
+            email: user.email || '',
+            role,
+            authMethod: 'jwt',
+            scopes: Array.from(API_KEY_SCOPES),
+          };
+          setRequestUserId(user.id);
+          await loadPrivacyPreferences(user.id);
+          Sentry.setUser({ id: user.id, email: user.email });
+        }
+      }
     }
 
     next();

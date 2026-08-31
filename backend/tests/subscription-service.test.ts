@@ -493,11 +493,18 @@ describe('SubscriptionService', () => {
         }),
       };
 
+      const mockDeleteQuery = {
+        delete: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        then: jest.fn().mockResolvedValue({ error: null }),
+      };
+
       const mockClient = {
         from: jest
           .fn()
           .mockReturnValueOnce(mockSelectQuery)
-          .mockReturnValueOnce(mockUpdateQuery),
+          .mockReturnValueOnce(mockUpdateQuery)
+          .mockReturnValueOnce(mockDeleteQuery),
       };
 
       const { DatabaseTransaction } = require('../src/utils/transaction');
@@ -603,11 +610,18 @@ describe('SubscriptionService', () => {
         }),
       };
 
+      const mockDeleteQuery = {
+        delete: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        then: jest.fn().mockResolvedValue({ error: null }),
+      };
+
       const mockClient = {
         from: jest
           .fn()
           .mockReturnValueOnce(mockSelectQuery)
-          .mockReturnValueOnce(mockUpdateQuery),
+          .mockReturnValueOnce(mockUpdateQuery)
+          .mockReturnValueOnce(mockDeleteQuery),
       };
 
       const { DatabaseTransaction } = require('../src/utils/transaction');
@@ -632,18 +646,20 @@ describe('SubscriptionService', () => {
   describe('listSubscriptions()', () => {
     it('should list all subscriptions for a user', async () => {
       const mockSubscriptions = [
-        { id: 'sub-1', name: 'Netflix', status: 'active' },
-        { id: 'sub-2', name: 'Spotify', status: 'active' },
+        { id: 'sub-1', name: 'Netflix', status: 'active', created_at: '2024-01-01T00:00:00Z' },
+        { id: 'sub-2', name: 'Spotify', status: 'active', created_at: '2024-01-02T00:00:00Z' },
       ];
 
       const mockQuery = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
-        order: jest.fn().mockResolvedValue({
+        order: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        then: jest.fn().mockImplementation((resolve: any) => resolve({
           data: mockSubscriptions,
           error: null,
           count: 2,
-        }),
+        })),
       };
 
       (supabase.from as jest.Mock).mockReturnValue(mockQuery);
@@ -656,7 +672,7 @@ describe('SubscriptionService', () => {
 
     it('should filter subscriptions by status', async () => {
       const mockSubscriptions = [
-        { id: 'sub-1', name: 'Netflix', status: 'active' },
+        { id: 'sub-1', name: 'Netflix', status: 'active', created_at: '2024-01-01T00:00:00Z' },
       ];
 
       const mockQuery: any = {
@@ -686,7 +702,7 @@ describe('SubscriptionService', () => {
 
     it('should filter subscriptions by category', async () => {
       const mockSubscriptions = [
-        { id: 'sub-1', name: 'Netflix', category: 'entertainment' },
+        { id: 'sub-1', name: 'Netflix', category: 'entertainment', created_at: '2024-01-01T00:00:00Z' },
       ];
 
       const mockQuery: any = {
@@ -713,9 +729,9 @@ describe('SubscriptionService', () => {
       expect(result.subscriptions).toEqual(mockSubscriptions);
     });
 
-    it('should handle pagination with limit and offset', async () => {
+    it('should handle pagination with cursor-based approach', async () => {
       const mockSubscriptions = [
-        { id: 'sub-5', name: 'Service 5' },
+        { id: 'sub-5', name: 'Service 5', created_at: '2024-01-05T00:00:00Z' },
       ];
 
       const mockQuery = {
@@ -723,21 +739,22 @@ describe('SubscriptionService', () => {
         eq: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
         limit: jest.fn().mockReturnThis(),
-        range: jest.fn().mockResolvedValue({
+        lt: jest.fn().mockReturnThis(),
+        then: jest.fn().mockImplementation((resolve: any) => resolve({
           data: mockSubscriptions,
           error: null,
           count: 10,
-        }),
+        })),
       };
 
       (supabase.from as jest.Mock).mockReturnValue(mockQuery);
 
       const result = await subscriptionService.listSubscriptions('user-123', {
         limit: 10,
-        offset: 40,
+        cursor: Buffer.from(JSON.stringify({ created_at: '2024-01-01T00:00:00Z' })).toString('base64'),
       });
 
-      expect(mockQuery.range).toHaveBeenCalledWith(40, 49);
+      expect(mockQuery.lt).toHaveBeenCalledWith('created_at', '2024-01-01T00:00:00Z');
       expect(result.subscriptions.length).toBe(1);
     });
 
@@ -745,11 +762,13 @@ describe('SubscriptionService', () => {
       const mockQuery = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
-        order: jest.fn().mockResolvedValue({
+        order: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        then: jest.fn().mockImplementation((resolve: any) => resolve({
           data: [],
           error: null,
           count: 0,
-        }),
+        })),
       };
 
       (supabase.from as jest.Mock).mockReturnValue(mockQuery);
@@ -764,10 +783,12 @@ describe('SubscriptionService', () => {
       const mockQuery = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
-        order: jest.fn().mockResolvedValue({
+        order: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        then: jest.fn().mockImplementation((resolve: any) => resolve({
           data: null,
           error: { message: 'Database error' },
-        }),
+        })),
       };
 
       (supabase.from as jest.Mock).mockReturnValue(mockQuery);
@@ -775,6 +796,28 @@ describe('SubscriptionService', () => {
       await expect(
         subscriptionService.listSubscriptions('user-123')
       ).rejects.toThrow();
+    });
+
+    it('should throw error for invalid cursor', async () => {
+      const mockQuery = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        then: jest.fn().mockImplementation((resolve: any) => resolve({
+          data: [],
+          error: null,
+          count: 0,
+        })),
+      };
+
+      (supabase.from as jest.Mock).mockReturnValue(mockQuery);
+
+      await expect(
+        subscriptionService.listSubscriptions('user-123', {
+          cursor: 'invalid-cursor',
+        })
+      ).rejects.toThrow('Invalid pagination cursor');
     });
   });
 

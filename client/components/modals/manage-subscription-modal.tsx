@@ -12,12 +12,17 @@ import {
   Play,
   Ban,
   Bell,
+  Gift,
 } from "lucide-react"
-import { useState } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import NotificationPreferencesModal from "@/components/modals/notification-preferences-modal"
 import { NotesEditor } from "@/components/ui/notes-editor"
 import { TagInput } from "@/components/ui/tag-input"
 import { useTags } from "@/hooks/use-tags"
+import { apiPost } from "@/lib/api"
+import { getGiftCardProviderFromSubscription } from "@/lib/atomic-wallet"
+import { fetchUserPreferences } from "@/lib/api/user-preferences"
+import { getGiftCardProvider } from "@/lib/gift-card-providers"
 
 const CANCEL_LINKS: Record<string, string> = {
   "ChatGPT Plus": "https://platform.openai.com/account/billing/overview",
@@ -32,6 +37,9 @@ const CANCEL_LINKS: Record<string, string> = {
   "Figma Professional": "https://www.figma.com/settings",
   "Vercel Pro": "https://vercel.com/account/billing",
 }
+
+import { formatDate } from "@/lib/timezone-utils"
+import { formatCurrency } from "@/lib/currency-utils"
 
 interface ManageSubscriptionModalProps {
   subscription: any
@@ -63,6 +71,54 @@ export default function ManageSubscriptionModal({
     subscription.custom_tag_ids ?? [],
   )
 
+  // ── Focus trap & Escape key (Issue #956) ──────────────────────────────────
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
+
+  /** Focus the close button as the initial focus target when the dialog mounts. */
+  useEffect(() => {
+    closeButtonRef.current?.focus()
+  }, [])
+
+  /** Trap focus within the dialog and handle Escape to close. */
+  const handleDialogKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === "Escape") {
+        e.preventDefault()
+        onClose()
+        return
+      }
+      if (e.key !== "Tab") return
+
+      const dialog = dialogRef.current
+      if (!dialog) return
+
+      const focusableSelectors =
+        'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(focusableSelectors),
+      ).filter((el) => !el.closest("[aria-hidden='true']"))
+
+      if (focusable.length === 0) return
+
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault()
+          last.focus()
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault()
+          first.focus()
+        }
+      }
+    },
+    [onClose],
+  )
+
   const handleAddTag = async (tagId: string) => {
     await addTagToSubscription(String(subscription.id), tagId)
     setAssignedTagIds((prev) => [...prev, tagId])
@@ -74,6 +130,25 @@ export default function ManageSubscriptionModal({
   }
 
   const cancelLink = CANCEL_LINKS[subscription.name] || subscription.renewalUrl
+  const giftCardProvider = getGiftCardProviderFromSubscription(subscription)
+  const giftCardAmount = Number(subscription.price || 0)
+  const canBuyGiftCard = Boolean(giftCardProvider && giftCardAmount > 0)
+
+  const handleBuyGiftCard = async () => {
+    if (!giftCardProvider) return
+    let preferredProviderId: string | undefined
+    try {
+      const prefs = await fetchUserPreferences()
+      preferredProviderId = prefs.preferred_gift_card_provider
+    } catch {
+      // Fall back to the default (Atomic Wallet) if preferences can't be loaded.
+    }
+    const purchaseProvider = getGiftCardProvider(preferredProviderId)
+    const url = purchaseProvider.generatePurchaseUrl(giftCardAmount, giftCardProvider)
+    if (typeof window !== "undefined") {
+      window.location.href = url
+    }
+  }
 
   const handleDelete = () => {
     onDelete()
@@ -99,10 +174,12 @@ export default function ManageSubscriptionModal({
     <>
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
         <div
+          ref={dialogRef}
           role="dialog"
           aria-labelledby="manage-modal-title"
           aria-describedby="manage-modal-desc"
           aria-modal="true"
+          onKeyDown={handleDialogKeyDown}
           className={`${
             darkMode
               ? "bg-[#2D3748] text-[#F9F6F2]"
@@ -130,6 +207,7 @@ export default function ManageSubscriptionModal({
                   />
                 </button>
                 <button
+                  ref={closeButtonRef}
                   onClick={onClose}
                   aria-label="Close manage subscription dialog"
                   className="p-2 hover:bg-white/10 rounded-lg transition-colors"
@@ -225,9 +303,7 @@ export default function ManageSubscriptionModal({
                     <p className="text-xl font-bold">
                       {subscription.status === "cancelled" &&
                       subscription.activeUntil
-                        ? new Date(
-                            subscription.activeUntil,
-                          ).toLocaleDateString()
+                        ? formatDate(subscription.activeUntil)
                         : `${subscription.renewsIn} days`}
                     </p>
                   </div>
@@ -238,8 +314,7 @@ export default function ManageSubscriptionModal({
               {subscription.status === "paused" && subscription.resumesAt && (
                 <div className="mt-4 p-3 bg-[#FFD166]/10 border border-[#FFD166]/30 rounded-lg">
                   <p className="text-sm text-[#FFD166]">
-                    Paused - Resumes on{" "}
-                    {new Date(subscription.resumesAt).toLocaleDateString()}
+                    Paused - Resumes on {formatDate(subscription.resumesAt)}
                   </p>
                 </div>
               )}
@@ -248,10 +323,7 @@ export default function ManageSubscriptionModal({
                 subscription.activeUntil && (
                   <div className="mt-4 p-3 bg-[#E86A33]/10 border border-[#E86A33]/30 rounded-lg">
                     <p className="text-sm text-[#E86A33]">
-                      Cancelled - Active until{" "}
-                      {new Date(
-                        subscription.activeUntil,
-                      ).toLocaleDateString()}
+                      Cancelled - Active until {formatDate(subscription.activeUntil)}
                     </p>
                   </div>
                 )}
@@ -259,8 +331,7 @@ export default function ManageSubscriptionModal({
               {subscription.status === "expired" && subscription.expiredAt && (
                 <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
                   <p className="text-sm text-red-500">
-                    Expired on{" "}
-                    {new Date(subscription.expiredAt).toLocaleDateString()} due
+                    Expired on {formatDate(subscription.expiredAt)} due
                     to inactivity
                   </p>
                 </div>
@@ -297,51 +368,14 @@ export default function ManageSubscriptionModal({
                   Cancel on Provider Site
                 </button>
               )}
-            {/* Legacy plain tags */}
-            {subscription.tags && subscription.tags.length > 0 && (
-              <div className="mt-4 flex items-center gap-2 flex-wrap">
-                <Tag className="w-4 h-4 text-gray-400" />
-                {subscription.tags?.map((tag: string, idx: number) => (
-                  <span
-                    key={idx}
-                    className={`px-2 py-1 text-xs rounded-full ${darkMode ? "bg-[#2D3748] text-gray-300" : "bg-white text-gray-700"}`}
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {/* Custom coloured tags */}
-            <div className="mt-4">
-              <p className={`text-xs font-medium mb-1.5 ${darkMode ? "text-gray-400" : "text-gray-500"}`}>
-                Custom tags
-              </p>
-              <TagInput
-                allTags={tags}
-                selectedTagIds={assignedTagIds}
-                onAdd={handleAddTag}
-                onRemove={handleRemoveTag}
-                onCreateTag={createTag}
-                darkMode={darkMode}
-              />
-            </div>
-
-            {/* Notes */}
-            <NotesEditor
-              subscriptionId={String(subscription.id)}
-              initialNotes={subscription.notes ?? ""}
-              onSave={saveNotes}
-              darkMode={darkMode}
-            />
-          </div>
 
               {subscription.renewalUrl &&
                 subscription.status !== "cancelled" && (
                   <button
-                    onClick={() =>
+                    onClick={() => {
                       window.open(subscription.renewalUrl, "_blank")
-                    }
+                      apiPost(`/api/subscriptions/${subscription.id}/track-interaction`).catch(() => {})
+                    }}
                     className={`w-full flex items-center justify-center gap-2 px-4 py-3 border-2 ${
                       darkMode
                         ? "border-[#374151] hover:border-[#FFD166] text-[#F9F6F2]"
@@ -353,6 +387,15 @@ export default function ManageSubscriptionModal({
                   </button>
                 )}
 
+              {canBuyGiftCard && (
+                <button
+                  onClick={handleBuyGiftCard}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-[#007A5C] text-white rounded-lg font-semibold hover:bg-[#007A5C]/90 transition-colors"
+                >
+                  <Gift className="w-4 h-4" />
+                  Buy Gift Card
+                </button>
+              )}
               <button
                 onClick={onEdit}
                 className={`w-full flex items-center justify-center gap-2 px-4 py-3 border-2 ${
@@ -485,18 +528,12 @@ export default function ManageSubscriptionModal({
               >
                 Cancel subscription?
               </h3>
-              <p
-                className={`text-sm mb-6 ${
-                  darkMode ? "text-gray-400" : "text-gray-600"
-                }`}
-              >
+              <p className={`text-sm mb-6 ${darkMode ? "text-gray-400" : "text-gray-600"}`}>
                 {subscription.name} will remain active until{" "}
-                {new Date(
-                  Date.now() +
-                    (subscription.renewsIn || 0) * 24 * 60 * 60 * 1000,
-                ).toLocaleDateString()}
+                {formatDate(addDays(new Date(), subscription.renewsIn || 0))}
                 , then stop renewing.
               </p>
+
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowConfirmCancel(false)}

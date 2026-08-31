@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react"
 import { X, ExternalLink, CheckCircle2, AlertTriangle, Clock, MessageSquare, Phone, Info } from "lucide-react"
 import { fetchCancellationGuide, reportDifficulty, markAsCancelled, type CancellationGuide } from "@/lib/supabase/cancellation-guides"
+import { logCancellationGuideAction } from "@/lib/audit-log"
+import { getSupabaseBrowserClient } from "@/lib/supabase/browser-client"
 
 interface CancellationGuideModalProps {
   subscription: any
@@ -31,6 +33,11 @@ export default function CancellationGuideModal({
         setGuide(data)
         if (data) {
           setCompletedSteps(new Array(data.steps.length).fill(false))
+          const supabase = getSupabaseBrowserClient()
+          const { data: { user } } = await supabase.auth.getUser()
+          if (user) {
+            logCancellationGuideAction(user.id, "guide_opened", subscription.name)
+          }
         }
       } catch (error) {
         console.error("Failed to load cancellation guide:", error)
@@ -177,6 +184,13 @@ export default function CancellationGuideModal({
                   href={guide.direct_url}
                   target="_blank"
                   rel="noopener noreferrer"
+                  onClick={async () => {
+                    const supabase = getSupabaseBrowserClient()
+                    const { data: { user } } = await supabase.auth.getUser()
+                    if (user) {
+                      logCancellationGuideAction(user.id, "direct_url_clicked", subscription.name, { url: guide.direct_url })
+                    }
+                  }}
                   className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-[#1E2A35] text-white rounded-lg font-semibold hover:bg-[#2D3748] transition-colors"
                 >
                   Go to Cancellation Page

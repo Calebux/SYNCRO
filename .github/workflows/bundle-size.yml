@@ -1,0 +1,113 @@
+name: Bundle Size Report
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  bundle-size:
+    name: Bundle Size Check
+    runs-on: ubuntu-latest
+
+    env:
+      ANALYZE: "true"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install dependencies
+        working-directory: client
+        run: npm ci
+
+      - name: Build client with analyzer
+        working-directory: client
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+        run: npm run build
+
+      - name: Check bundle size budgets
+        id: check
+        working-directory: client
+        continue-on-error: true
+        run: node scripts/check-bundle-size.js --json > /tmp/bundle-size-report.json; echo "exit_code=$?" >> $GITHUB_OUTPUT
+
+      - name: Read bundle size report and comment PR
+        id: report
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = require('fs');
+            const reportPath = '/tmp/bundle-size-report.json';
+
+            if (!fs.existsSync(reportPath)) {
+              core.setOutput('status', 'error');
+              core.setOutput('message', 'Bundle size report not generated');
+              return;
+            }
+
+            const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+            const { measurement, result } = report;
+            const violations = result.violations || [];
+            const warnings = result.warnings || [];
+
+            let body = '## 📦 Bundle Size Report\n\n';
+
+            body += `| Metric | Size | Status |\n`;
+            body += `|---|---|---|\n`;
+            body += `| **Total JS** | ${measurement.totalJS} KB | — |\n`;
+
+            for (const [route, data] of Object.entries(measurement.routes)) {
+              const icon = violations.some(v => v.type === 'route' && v.route === route) ? '❌' :
+                           warnings.some(w => w.type === 'route' && w.route === route) ? '⚠️' : '✅';
+              body += `| ${route} | ${data.totalKB} KB | ${icon} |\n`;
+            }
+
+            if (violations.length > 0) {
+              body += '\n### ❌ Budget Violations\n\n';
+              for (const v of violations) {
+                body += `- ${v.message}\n`;
+              }
+            }
+
+            if (warnings.length > 0) {
+              body += '\n### ⚠️ Warnings\n\n';
+              for (const w of warnings) {
+                body += `- ${w.message}\n`;
+              }
+            }
+
+            if (violations.length === 0 && warnings.length === 0) {
+              body += '\n✅ All bundle size budgets are within limits.\n';
+            }
+
+            body += '\n---\n';
+            body += '_Budgets defined in `client/bundle-size.json`. Exceptions require team review._\n';
+
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+            const status = violations.length > 0 ? 'violations' : 'pass';
+            core.setOutput('status', status);
+            core.setOutput('violations', String(violations.length));
+
+      - name: Fail on budget violations
+        if: steps.report.outputs.status == 'violations'
+        run: |
+          echo "❌ Bundle size budgets exceeded. Check the PR comment for details."
+          exit 1

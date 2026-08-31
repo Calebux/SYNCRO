@@ -1,0 +1,103 @@
+---
+title: Webhooks
+description: "Receive real-time events when subscriptions change"
+---
+
+> Note: The canonical API surface is generated from source. See the OpenAPI spec at
+> [/api-reference/openapi.json](./openapi.json). This page contains human-friendly examples and is marked as secondary.
+
+## Overview
+
+SYNCRO sends HTTP `POST` requests to your registered webhook URLs when subscription events occur.
+
+## Event Types
+
+| Event                    | Description                             |
+| ------------------------ | --------------------------------------- |
+| `subscription.created`   | A new subscription was added            |
+| `subscription.renewed`   | A subscription was successfully renewed |
+| `subscription.failed`    | A renewal attempt failed                |
+| `subscription.cancelled` | A subscription was cancelled            |
+| `subscription.updated`   | Subscription details changed            |
+
+## Webhook Payload
+
+```json
+{
+  "id": "evt_xyz789",
+  "type": "subscription.renewed",
+  "createdAt": "2025-04-27T10:00:00Z",
+  "data": {
+    "subscriptionId": "sub_abc123",
+    "name": "Netflix",
+    "amount": 17.99,
+    "currency": "USD"
+  }
+}
+```
+
+## Verifying Signatures
+
+Every webhook request includes an `X-Syncro-Signature` header. Verify it to ensure the payload came from SYNCRO:
+
+<CodeGroup>
+
+```typescript TypeScript
+import { createHmac } from "crypto";
+
+function verifyWebhook(
+  payload: string,
+  signature: string,
+  secret: string,
+): boolean {
+  const expected = createHmac("sha256", secret).update(payload).digest("hex");
+  return signature === `sha256=${expected}`;
+}
+
+// In your webhook handler:
+app.post("/webhooks/syncro", (req, res) => {
+  const isValid = verifyWebhook(
+    JSON.stringify(req.body),
+    req.headers["x-syncro-signature"] as string,
+    process.env.SYNCRO_WEBHOOK_SECRET!,
+  );
+  if (!isValid) return res.status(401).send("Invalid signature");
+
+  const { type, data } = req.body;
+  if (type === "subscription.renewed") {
+    console.log("Renewed:", data.subscriptionId);
+  }
+  res.status(200).send("OK");
+});
+```
+
+```python Python
+import hmac
+import hashlib
+
+def verify_webhook(payload: str, signature: str, secret: str) -> bool:
+    expected = hmac.new(
+        secret.encode(), payload.encode(), hashlib.sha256
+    ).hexdigest()
+    return signature == f"sha256={expected}"
+```
+
+</CodeGroup>
+
+## Registering a Webhook
+
+```bash
+POST /webhooks
+Authorization: Bearer YOUR_API_KEY
+Content-Type: application/json
+
+{
+  "url": "https://yourapp.com/webhooks/syncro",
+  "events": ["subscription.renewed", "subscription.failed"],
+  "secret": "your_webhook_secret"
+}
+```
+
+## Retry Policy
+
+SYNCRO retries failed webhooks up to **5 times** with exponential backoff (1s, 2s, 4s, 8s, 16s). After 5 failures the webhook is disabled and an alert is sent.

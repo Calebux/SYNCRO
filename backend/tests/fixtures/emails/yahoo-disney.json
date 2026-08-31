@@ -1,0 +1,14 @@
+{
+  "provider": "yahoo",
+  "messageId": "yahoo-msg-disney-001",
+  "subject": "Disney+ billing confirmation",
+  "from": "billing@disneyplus.com",
+  "body": "Your Disney+ subscription renewed. Charged $13.99/month. Thank you for your membership.",
+  "receivedAt": "2026-05-04T20:15:00.000Z",
+  "expected": {
+    "nameContains": "Disney",
+    "amount": 13.99,
+    "currency": "USD",
+    "interval": "monthly"
+  }
+}

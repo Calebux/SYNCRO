@@ -1,5 +1,5 @@
 import { type NextRequest } from "next/server"
-import { createApiRoute, createSuccessResponse, validateRequestBody, RateLimiters } from "@/lib/api/index"
+import { createAuthenticatedApiRoute, createSuccessResponse, validateRequestBody, RateLimiters } from "@/lib/api/index"
 import { HttpStatus } from "@/lib/api/types"
 import { z } from "zod"
 import { fetchUserTags, createTag } from "@/lib/supabase/tags"
@@ -12,24 +12,20 @@ const createTagSchema = z.object({
     .default("#6366f1"),
 })
 
-export const GET = createApiRoute(
+export const GET = createAuthenticatedApiRoute(
   async (_req, context, user) => {
-    if (!user) throw new Error("User not authenticated")
-
     const tags = await fetchUserTags(user.id)
     return createSuccessResponse({ tags }, HttpStatus.OK, context.requestId)
   },
-  { requireAuth: true, rateLimit: RateLimiters.standard },
+  { rateLimit: RateLimiters.standard },
 )
 
-export const POST = createApiRoute(
+export const POST = createAuthenticatedApiRoute(
   async (request, context, user) => {
-    if (!user) throw new Error("User not authenticated")
-
     const { name, color } = await validateRequestBody(request as NextRequest, createTagSchema)
     const tag = await createTag(user.id, name, color)
 
     return createSuccessResponse({ tag }, HttpStatus.CREATED, context.requestId)
   },
-  { requireAuth: true, rateLimit: RateLimiters.standard },
+  { rateLimit: RateLimiters.tagMutation },
 )

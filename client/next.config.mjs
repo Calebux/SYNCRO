@@ -2,6 +2,11 @@ import { withSentryConfig } from '@sentry/nextjs';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Disable Next.js telemetry by default to avoid sending build/runtime usage data.
+  env: {
+    NEXT_TELEMETRY_DISABLED: '1',
+  },
+  transpilePackages: ['@syncro/shared'],
   eslint: {
     ignoreDuringBuilds: true,
   },
@@ -19,6 +24,15 @@ const nextConfig = {
   },
   async headers() {
     return [
+      {
+        source: '/:path*',
+        headers: [
+          {
+            key: 'Referrer-Policy',
+            value: 'no-referrer',
+          },
+        ],
+      },
       {
         source: '/sw.js',
         headers: [
@@ -41,7 +55,7 @@ const nextConfig = {
   },
 }
 
-export default withSentryConfig(
+let config = withSentryConfig(
   nextConfig,
   {
     silent: true,
@@ -57,3 +71,17 @@ export default withSentryConfig(
     automaticVercelMonitors: true,
   }
 );
+
+if (process.env.ANALYZE === 'true') {
+  try {
+    const withBundleAnalyzer = (await import('@next/bundle-analyzer')).default({
+      enabled: true,
+      openAnalyzer: false,
+    });
+    config = withBundleAnalyzer(config);
+  } catch {
+    console.warn('⚠️  @next/bundle-analyzer not available. Install with: npm install --save-dev @next/bundle-analyzer');
+  }
+}
+
+export default config;

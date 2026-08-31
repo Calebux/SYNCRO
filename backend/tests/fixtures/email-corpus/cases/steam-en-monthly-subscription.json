@@ -1,0 +1,18 @@
+{
+  "id": "steam-en-monthly-subscription",
+  "merchant": "Steam",
+  "locale": "en",
+  "kind": "positive",
+  "notes": "Recurring Steam subscription charge.",
+  "email": {
+    "subject": "Steam subscription receipt",
+    "from": "Steam <noreply@steampowered.com>",
+    "body": "Thank you for your purchase. Your subscription has been billed $9.99/month."
+  },
+  "expected": {
+    "name": "Steam",
+    "amount": 9.99,
+    "currency": "USD",
+    "interval": "monthly"
+  }
+}

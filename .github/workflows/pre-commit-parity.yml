@@ -1,0 +1,34 @@
+name: Pre-commit parity
+
+# Runs the same gates as .husky/pre-commit so CI catches what local hooks catch.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  pre-commit-parity:
+    name: Lint · typecheck · conflicts · TODOs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --ignore-scripts
+
+      - name: Conflict markers
+        run: node scripts/check-conflict-markers.mjs
+
+      - name: TODO / FIXME policy
+        run: node scripts/check-todos.mjs
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint client
+        run: npm run lint -w client --if-present

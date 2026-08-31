@@ -11,21 +11,23 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
+    // Issue #1265: backend/src is 100% TypeScript. Keep it that way — no new .js.
+    "allowJs": false,
     "moduleResolution": "node",
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
+    "isolatedModules": true,
     "types": [
       "node",
       "jest"
     ]
   },
-  "include": [ "src/**/*", "services/subscription-classifier.js"],
+  "include": [ "src/**/*", "tests/**/*.ts"],
   "exclude": [
     "node_modules",
     "dist",
     "src/services/blockchain-service-impl-example.ts",
-    "tests",
     "src/rate-limit/**/*"
   ]
 }

@@ -19,6 +19,9 @@ import {
   StyleSheet,
   pdf,
 } from "@react-pdf/renderer"
+import { calculateMonthlySpend } from "@syncro/shared/subscription-math"
+import { formatCurrency } from "./currency-utils"
+import { formatDate, addDays } from "./timezone-utils"
 
 // ─── Styles ────────────────────────────────────────────────────────────────
 
@@ -187,14 +190,9 @@ interface SubscriptionReportProps {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
-function formatCurrency(amount: number): string {
-  return `$${amount.toFixed(2)}`
-}
-
 function nextRenewal(sub: ReportSubscription): string {
   if (sub.renewsIn == null) return "—"
-  const d = new Date(Date.now() + sub.renewsIn * 24 * 60 * 60 * 1000)
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+  return formatDate(addDays(new Date(), sub.renewsIn))
 }
 
 function groupByCategory(
@@ -219,12 +217,7 @@ const SubscriptionReport: React.FC<SubscriptionReportProps> = ({
 }) => {
   const grouped = groupByCategory(subscriptions)
   const sortedCategories = Object.keys(grouped).sort()
-  const generatedOn = new Date().toLocaleDateString("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  })
+  const generatedOn = formatDate(new Date(), { dateStyle: "full" })
 
   return (
     <Document
@@ -304,8 +297,9 @@ const SubscriptionReport: React.FC<SubscriptionReportProps> = ({
                     {nextRenewal(sub)}
                   </Text>
                   <Text style={[styles.tdText, styles.colPrice]}>
-                    {formatCurrency(sub.price)}
+                    {formatCurrency(sub.price, sub.currency)}
                   </Text>
+
                 </View>
               ))}
             </View>
@@ -340,7 +334,7 @@ export async function downloadSubscriptionPDF(
   subscriptions: ReportSubscription[],
 ): Promise<void> {
   const active = subscriptions.filter((s) => s.status === "active")
-  const monthlyTotal = active.reduce((sum, s) => sum + (s.price ?? 0), 0)
+  const monthlyTotal = calculateMonthlySpend(active)
 
   const summary: ReportSummary = {
     activeCount: active.length,

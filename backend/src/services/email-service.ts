@@ -1,9 +1,12 @@
 import nodemailer from 'nodemailer';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { NotificationPayload, DeliveryResult } from '../types/reminder';
 import { withRetry, RetryableError, NonRetryableError } from '../utils/retry';
 import { sanitizeUrl } from '../utils/sanitize-url';
 import { complianceService } from './compliance-service';
+import { secretProvider } from './secret-provider';
+import { EXTERNAL_SERVICE_POLICIES } from '../config/external-services';
 
 export interface EmailConfig {
   host?: string;
@@ -19,50 +22,63 @@ export interface EmailConfig {
 export class EmailService {
   private transporter: nodemailer.Transporter | null = null;
   private fromEmail: string;
+  private policy = EXTERNAL_SERVICE_POLICIES.gmail; // Default to gmail policy for email service
 
   constructor(config?: EmailConfig) {
-    this.fromEmail = config?.from || process.env.EMAIL_FROM || 'noreply@synchro.app';
+    this.fromEmail = config?.from || env.EMAIL_FROM || 'noreply@synchro.app';
 
-    // Initialize transporter based on config
+    // Initialize transporter based on config if provided synchronously
     if (config?.host) {
-      // SMTP configuration
       this.transporter = nodemailer.createTransport({
         host: config.host,
         port: config.port || 587,
         secure: config.secure || false,
         auth: config.auth,
       });
-    } else if (process.env.SMTP_HOST) {
-      // SMTP from environment variables
+    }
+  }
+
+  private async getTransporter(): Promise<nodemailer.Transporter> {
+    if (this.transporter) {
+      return this.transporter;
+    }
+
+    if (env.SMTP_HOST) {
+      const password = await secretProvider.getSecret('SMTP_PASSWORD') || await secretProvider.getSecret('SMTP_PASS') || '';
+      
       this.transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: parseInt(process.env.SMTP_PORT || '587'),
-        secure: process.env.SMTP_SECURE === 'true',
+        host: env.SMTP_HOST,
+        port: parseInt(env.SMTP_PORT || '587'),
+        secure: env.SMTP_SECURE === 'true',
         auth: {
-          user: process.env.SMTP_USER || '',
-          pass: process.env.SMTP_PASSWORD || '',
+          user: env.SMTP_USER || '',
+          pass: password,
         },
+        connectionTimeout: this.policy.timeoutMs,
+        greetingTimeout: this.policy.timeoutMs,
+        socketTimeout: this.policy.timeoutMs,
       });
     } else {
-      // Use SendGrid, Mailgun, or other service via API
-      // For now, log that email service is not configured
       logger.warn('Email service not fully configured. Using mock transporter.');
       this.transporter = nodemailer.createTransport({
-        jsonTransport: true, // Mock transport for development
+        jsonTransport: true,
       });
     }
+
+    return this.transporter;
   }
 
   /**
    * Verify email service connection
    */
   async verifyConnection(): Promise<boolean> {
-    if (!this.transporter) {
+    const transporter = await this.getTransporter();
+    if (!transporter) {
       return false;
     }
 
     try {
-      await this.transporter.verify();
+      await transporter.verify();
       logger.info('Email service connection verified');
       return true;
     } catch (error) {
@@ -79,7 +95,7 @@ export class EmailService {
     payload: NotificationPayload,
     options: { maxAttempts?: number } = {}
   ): Promise<DeliveryResult> {
-    const { maxAttempts = 3 } = options;
+    const maxAttempts = options.maxAttempts || this.policy.retryPolicy.maxAttempts;
 
     try {
       return await withRetry(
@@ -87,7 +103,8 @@ export class EmailService {
           const subject = this.getEmailSubject(payload);
           const html = this.getEmailTemplate(payload);
 
-          if (!this.transporter) {
+          const transporter = await this.getTransporter();
+          if (!transporter) {
             throw new NonRetryableError('Email transporter not configured');
           }
 
@@ -95,7 +112,7 @@ export class EmailService {
           const unsubscribeFooter = userId ? this.getUnsubscribeFooter(userId, 'reminders') : '';
           const unsubscribeHeaders = userId ? this.getUnsubscribeHeaders(userId, 'reminders') : {};
 
-          const info = await this.transporter.sendMail({
+          const info = await transporter.sendMail({
             from: this.fromEmail,
             to: recipientEmail,
             subject,
@@ -104,7 +121,7 @@ export class EmailService {
             headers: unsubscribeHeaders,
           });
 
-          logger.info(`Email sent successfully to ${recipientEmail}`, {
+          logger.info('Email sent successfully', {
             messageId: info.messageId,
           });
 
@@ -117,7 +134,10 @@ export class EmailService {
             },
           };
         },
-        { maxAttempts }
+        {
+          ...this.policy.retryPolicy,
+          maxAttempts,
+        }
       );
     } catch (error) {
       const errorMessage =
@@ -126,7 +146,7 @@ export class EmailService {
       // Determine if error is retryable
       const isRetryable = this.isRetryableError(error);
 
-      logger.error(`Failed to send email to ${recipientEmail}:`, errorMessage);
+      logger.error('Failed to send email', { errorMessage });
 
       return {
         success: false,
@@ -142,8 +162,8 @@ export class EmailService {
    * Generate unsubscribe footer HTML for emails
    */
   private getUnsubscribeFooter(userId: string, emailType: string): string {
-    const appUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    const apiUrl = process.env.BACKEND_URL || 'http://localhost:3001';
+    const appUrl = env.FRONTEND_URL;
+    const apiUrl = env.BACKEND_URL;
     const token = complianceService.generateUnsubscribeToken(userId, emailType);
     const unsubscribeUrl = `${apiUrl}/api/compliance/unsubscribe?token=${token}`;
     const preferencesUrl = `${appUrl}/email-preferences?token=${token}`;
@@ -164,7 +184,7 @@ export class EmailService {
    * Generate List-Unsubscribe headers for emails
    */
   private getUnsubscribeHeaders(userId: string, emailType: string): Record<string, string> {
-    const apiUrl = process.env.BACKEND_URL || 'http://localhost:3001';
+    const apiUrl = env.BACKEND_URL;
     const token = complianceService.generateUnsubscribeToken(userId, emailType);
     const unsubscribeUrl = `${apiUrl}/api/compliance/unsubscribe?token=${token}`;
 
@@ -343,7 +363,8 @@ This is an automated reminder from Synchro.
     text: string,
     options?: { userId?: string; emailType?: string }
   ): Promise<void> {
-    if (!this.transporter) {
+    const transporter = await this.getTransporter();
+    if (!transporter) {
       throw new Error('Email transporter not configured');
     }
     const userId = options?.userId || '';
@@ -351,7 +372,7 @@ This is an automated reminder from Synchro.
     const unsubscribeFooter = userId ? this.getUnsubscribeFooter(userId, emailType) : '';
     const unsubscribeHeaders = userId ? this.getUnsubscribeHeaders(userId, emailType) : {};
 
-    await this.transporter.sendMail({
+    await transporter.sendMail({
       from: this.fromEmail,
       to,
       subject,
@@ -359,7 +380,7 @@ This is an automated reminder from Synchro.
       html: `<p>${text}</p>` + unsubscribeFooter,
       headers: unsubscribeHeaders,
     });
-    logger.info(`Simple email sent to ${to}`, { subject });
+    logger.info('Simple email sent', { subject });
   }
 
   /**
@@ -371,7 +392,8 @@ This is an automated reminder from Synchro.
   ): Promise<DeliveryResult> {
     try {
       return await withRetry(async () => {
-        if (!this.transporter) {
+        const transporter = await this.getTransporter();
+        if (!transporter) {
           throw new NonRetryableError('Email transporter not configured');
         }
 
@@ -413,7 +435,7 @@ This is an automated reminder from Synchro.
 
         const text = `${payload.inviterEmail} has invited you to join ${payload.teamName} on Synchro as a ${payload.role}.\n\nAccept invitation: ${payload.acceptUrl}\n\nThis invitation expires on ${expiresFormatted}.`;
 
-        const info = await this.transporter.sendMail({
+        const info = await transporter.sendMail({
           from: this.fromEmail,
           to: recipientEmail,
           subject,
@@ -421,7 +443,7 @@ This is an automated reminder from Synchro.
           text,
         });
 
-        logger.info(`Invitation email sent to ${recipientEmail}`, { messageId: info.messageId });
+        logger.info('Invitation email sent', { messageId: info.messageId });
 
         return {
           success: true,
@@ -430,7 +452,7 @@ This is an automated reminder from Synchro.
       }, { maxAttempts: 3 });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to send invitation email to ${recipientEmail}:`, errorMessage);
+      logger.error('Failed to send invitation email', { errorMessage });
       return { success: false, error: errorMessage, metadata: { retryable: this.isRetryableError(error) } };
     }
   }
@@ -446,7 +468,8 @@ This is an automated reminder from Synchro.
   }): Promise<DeliveryResult> {
     try {
       return await withRetry(async () => {
-        if (!this.transporter) {
+        const transporter = await this.getTransporter();
+        if (!transporter) {
           throw new NonRetryableError('Email transporter not configured');
         }
 
@@ -478,7 +501,7 @@ This is an automated reminder from Synchro.
     </div>
 
     <div style="text-align: center; margin: 30px 0;">
-      <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard" style="background: #e53e3e; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">
+      <a href="${env.FRONTEND_URL}/dashboard" style="background: #e53e3e; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">
         Review Subscription
       </a>
     </div>
@@ -489,7 +512,7 @@ This is an automated reminder from Synchro.
 
         const text = `Risk Alert: ${payload.subscriptionName} renewal at risk\n\nFactors:\n${factorsText}\n\nRecommendation: ${payload.recommendedAction}`;
 
-        const info = await this.transporter.sendMail({
+        const info = await transporter.sendMail({
           from: this.fromEmail,
           to: payload.to,
           subject,
@@ -497,7 +520,7 @@ This is an automated reminder from Synchro.
           text,
         });
 
-        logger.info(`Risk alert email sent to ${payload.to}`, { messageId: info.messageId });
+        logger.info('Risk alert email sent', { messageId: info.messageId });
 
         return {
           success: true,
@@ -506,7 +529,7 @@ This is an automated reminder from Synchro.
       }, { maxAttempts: 3 });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to send risk alert email to ${payload.to}:`, errorMessage);
+        logger.error('Failed to send risk alert email', { errorMessage });
       return { success: false, error: errorMessage, metadata: { retryable: this.isRetryableError(error) } };
     }
   }

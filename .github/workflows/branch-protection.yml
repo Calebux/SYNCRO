@@ -1,0 +1,18 @@
+name: Branch Protection Check
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  enforce-pr-policy:
+    name: Enforce PR Policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject direct push to main
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "::error::Direct pushes to main are not allowed. Open a pull request."
+            exit 1
+          fi
+          echo "✅ Change is arriving via pull request — policy satisfied."

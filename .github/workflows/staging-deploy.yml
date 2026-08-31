@@ -1,0 +1,55 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - 'client/**'
+      - 'shared/**'
+      - '.github/workflows/staging-deploy.yml'
+  workflow_dispatch:
+    inputs:
+      force_full_run:
+        description: 'Force a full staging deployment'
+        type: boolean
+        default: false
+
+jobs:
+  deploy-staging:
+    name: Deploy to Staging (Vercel)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Deploy to Vercel staging
+        working-directory: client
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          vercel pull --yes --environment=preview --token=$VERCEL_TOKEN
+          vercel build --token=$VERCEL_TOKEN
+          vercel deploy --prebuilt --token=$VERCEL_TOKEN \
+            --env NEXT_PUBLIC_API_BASE=${{ secrets.STAGING_API_BASE_URL }} \
+            --env NEXT_PUBLIC_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_SUPABASE_URL }} \
+            --env NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }} \
+            --meta githubCommitSha=${{ github.sha }} \
+            --meta githubBranch=develop \
+            2>&1 | tee /tmp/deploy-output.txt
+          echo "STAGING_URL=$(grep -o 'https://[^ ]*vercel.app' /tmp/deploy-output.txt | tail -1)" >> $GITHUB_ENV
+
+      - name: Print staging URL
+        run: echo "✅ Staging deployed to $STAGING_URL"

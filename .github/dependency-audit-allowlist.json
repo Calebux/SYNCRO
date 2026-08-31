@@ -1,0 +1,248 @@
+{
+  "_comment": [
+    "Triaged allowlist for the dependency-vulnerability CI gate (issue #1079).",
+    "",
+    "KEYS are GitHub Security Advisory ids (GHSA-*); uppercased at load by",
+    "scripts/security-audit-gate.js, so mixed-case input also matches.",
+    "Each key hard-fails EVERY workspace whose `npm audit --json` reports the",
+    "advisory unless (a) the key is present here and (b) `expires_at` is in",
+    "the future. A GHSA is an advisory-level concept that applies wherever",
+    "the affected package appears; that is why every entry here is GLOBAL: a",
+    "single allowance covers all four workspaces without per-workspace tags.",
+    "",
+    "If a future advisory truly is workspace-specific (rare), add a",
+    "`workspace` array listing only the workspaces that MUST accept. The gate",
+    "treats absence-of-tag as global acceptance (default), and presence as a",
+    "restriction to listed workspaces.",
+    "",
+    "When you add or update an entry, pair it with a fix ticket.",
+    "'TBD-issue-followup-*' is a placeholder until the real ticket is filed;",
+    "the placeholder is fine for the first ship, but the next reader who",
+    "follows up on expiry should replace it with a real numbered issue.",
+    "",
+    "Reason codes (see docs/security/dependency-triage.md for the full legend):",
+    "  no-fix-yet            Upstream has not published a fix; tracked by upstream ticket.",
+    "  transitive-only       The vuln package is a transitive dep of a package we control.",
+    "  fix-scheduled         A patch is published; expires_at is the deadline for the fix.",
+    "  impact-assessed       A code-path review showed the vuln path is unreachable.",
+    "  dev-only              Vuln only surfaces in dev tooling that does not ship to production.",
+    "  pinned-by-upstream    Pinned to a specific version by an upstream framework; cannot move.",
+    "",
+    "Fields starting with `_` (e.g. _transitive_callers_doc_only, _comment) are",
+    "documentation only and never consulted by the gate at runtime."
+  ],
+  "ignored_advisories": {
+    "GHSA-P63J-VCC4-9VMV": {
+      "package": "@vitest/browser",
+      "transitive_callers": ["vitest", "@vitest/browser-playwright", "@vitest/coverage-v8"],
+      "_transitive_callers_doc_only": "Documentation only. The gate computes its own transitive closure at runtime from `npm audit --json`; this field is not consulted by the gate.",
+      "severity": "critical",
+      "reason": "fix-scheduled",
+      "rationale": "Vite/Vitest 4.1.9 dropped a Node.js fix; bumping to ^4.39 requires updating vitest.browserPlaywright config and storybook integration. Tracked together in TBD-issue-followup-vitest.",
+      "ticket": "TBD-issue-followup-vitest",
+      "expires_at": "2026-08-01"
+    },
+
+    "GHSA-3JXR-9VMJ-R5CP": {
+      "package": "brace-expansion",
+      "severity": "high",
+      "reason": "transitive-only",
+      "rationale": "Transitive via dev-tooling chains (vitest, jest, lerna). Pinned >=2.0.2 in each workspace, but the lockfile still resolves to vulnerable 1.x where a newer ancestor overrides. Tracked in TBD-issue-followup-brace-expansion.",
+      "ticket": "TBD-issue-followup-brace-expansion",
+      "expires_at": "2026-08-15"
+    },
+    "GHSA-MH99-V99M-4GVG": {
+      "package": "brace-expansion",
+      "severity": "high",
+      "reason": "transitive-only",
+      "rationale": "Same chain as GHSA-3JXR-9VMJ-R5CP. Co-shipped fix in TBD-issue-followup-brace-expansion.",
+      "ticket": "TBD-issue-followup-brace-expansion",
+      "expires_at": "2026-08-15"
+    },
+
+    "GHSA-HMW2-7CC7-3QXX": {
+      "package": "form-data",
+      "severity": "high",
+      "reason": "transitive-only",
+      "rationale": "form-data is a transitive dep of multer, axios, and several test harnesses. Bumping it requires coordinated updates across those callers. Tracked in TBD-issue-followup-form-data.",
+      "ticket": "TBD-issue-followup-form-data",
+      "expires_at": "2026-08-15"
+    },
+
+    "GHSA-H67P-54HQ-RP68": {
+      "package": "js-yaml",
+      "severity": "high",
+      "reason": "transitive-only",
+      "rationale": "js-yaml is pulled in by swagger-jsdoc and ts-node. Upgrade path requires checking every consumer parses YAML safely. Reviewed in monthly dependency sprint.",
+      "ticket": "TBD-issue-followup-js-yaml",
+      "expires_at": "2026-08-15"
+    },
+    "GHSA-52CP-R559-CP3M": {
+      "package": "js-yaml",
+      "severity": "high",
+      "reason": "transitive-only",
+      "rationale": "Same consumer tracking as GHSA-H67P-54HQ-RP68; upgrade co-shipped.",
+      "ticket": "TBD-issue-followup-js-yaml",
+      "expires_at": "2026-08-15"
+    },
+
+    "GHSA-V2HH-GCRM-F6HX": {
+      "package": "fast-uri",
+      "severity": "high",
+      "reason": "fix-scheduled",
+      "rationale": "Pulled in via swagger-ui-express chain. Pinned bump planned in monthly dependency sprint.",
+      "ticket": "TBD-issue-followup-fast-uri",
+      "expires_at": "2026-08-08"
+    },
+    "GHSA-4C8G-83QW-93J6": {
+      "package": "fast-uri",
+      "severity": "high",
+      "reason": "fix-scheduled",
+      "rationale": "Same fix path as GHSA-V2HH-GCRM-F6HX.",
+      "ticket": "TBD-issue-followup-fast-uri",
+      "expires_at": "2026-08-08"
+    },
+
+    "GHSA-P6GQ-J5CR-W38F": {
+      "package": "nodemailer",
+      "severity": "high",
+      "reason": "transitive-only",
+      "rationale": "Bump blocked by integration with the existing SMTP configuration in backend/src/services/notification-service.ts. Tracked for Q3.",
+      "ticket": "TBD-issue-followup-nodemailer",
+      "expires_at": "2026-08-15"
+    },
+
+    "GHSA-6GPP-XCG3-4W24": {
+      "package": "next",
+      "severity": "high",
+      "reason": "fix-scheduled",
+      "rationale": "Next.js has published patched versions, but upgrading requires touching next.config.mjs (cache API surfacing), middleware.ts (Edge runtime version mismatch), and the Storybook integration. Coordinated upgrade tracked in TBD-issue-followup-next.",
+      "ticket": "TBD-issue-followup-next",
+      "expires_at": "2026-08-08"
+    },
+    "GHSA-M99W-X7HQ-7VFJ": {
+      "package": "next",
+      "severity": "high",
+      "reason": "fix-scheduled",
+      "rationale": "Same upgrade plan as GHSA-6GPP-XCG3-4W24. Tracked together in TBD-issue-followup-next.",
+      "ticket": "TBD-issue-followup-next",
+      "expires_at": "2026-08-08"
+    },
+    "GHSA-89XV-2M56-2M9X": {
+      "package": "next",
+      "severity": "high",
+      "reason": "fix-scheduled",
+      "rationale": "Same upgrade plan as GHSA-6GPP-XCG3-4W24.",
+      "ticket": "TBD-issue-followup-next",
+      "expires_at": "2026-08-08"
+    },
+    "GHSA-68G3-V927-F742": {
+      "package": "next",
+      "severity": "high",
+      "reason": "fix-scheduled",
+      "rationale": "Same upgrade plan as GHSA-6GPP-XCG3-4W24.",
+      "ticket": "TBD-issue-followup-next",
+      "expires_at": "2026-08-08"
+    },
+    "GHSA-4633-3J49-MH5Q": {
+      "package": "next",
+      "severity": "high",
+      "reason": "fix-scheduled",
+      "rationale": "Same upgrade plan as GHSA-6GPP-XCG3-4W24.",
+      "ticket": "TBD-issue-followup-next",
+      "expires_at": "2026-08-08"
+    },
+    "GHSA-4C39-4CCG-62R3": {
+      "package": "next",
+      "severity": "high",
+      "reason": "fix-scheduled",
+      "rationale": "Same upgrade plan as GHSA-6GPP-XCG3-4W24.",
+      "ticket": "TBD-issue-followup-next",
+      "expires_at": "2026-08-08"
+    },
+    "GHSA-P9J2-GV94-2WF4": {
+      "package": "next",
+      "severity": "high",
+      "reason": "fix-scheduled",
+      "rationale": "Same upgrade plan as GHSA-6GPP-XCG3-4W24.",
+      "ticket": "TBD-issue-followup-next",
+      "expires_at": "2026-08-08"
+    },
+    "GHSA-Q8WF-6R8G-63CH": {
+      "package": "next",
+      "severity": "high",
+      "reason": "fix-scheduled",
+      "rationale": "Same upgrade plan as GHSA-6GPP-XCG3-4W24.",
+      "ticket": "TBD-issue-followup-next",
+      "expires_at": "2026-08-08"
+    },
+    "GHSA-955P-X3MX-JCVP": {
+      "package": "next",
+      "severity": "high",
+      "reason": "fix-scheduled",
+      "rationale": "Same upgrade plan as GHSA-6GPP-XCG3-4W24.",
+      "ticket": "TBD-issue-followup-next",
+      "expires_at": "2026-08-08"
+    },
+
+    "GHSA-QX2V-QP2M-JG93": {
+      "package": "postcss",
+      "severity": "high",
+      "reason": "transitive-only",
+      "rationale": "postcss is pulled in via @tailwindcss/postcss and storybook. Bump tracked in monthly dependency sprint. Tracked in TBD-issue-followup-postcss.",
+      "ticket": "TBD-issue-followup-postcss",
+      "expires_at": "2026-08-15"
+    },
+    "GHSA-6G55-P6WH-862Q": {
+      "package": "postcss",
+      "severity": "high",
+      "reason": "transitive-only",
+      "rationale": "Same chain as GHSA-QX2V-QP2M-JG93. Co-shipped fix in TBD-issue-followup-postcss.",
+      "ticket": "TBD-issue-followup-postcss",
+      "expires_at": "2026-08-15"
+    },
+    "GHSA-R28C-9Q8G-F849": {
+      "package": "postcss",
+      "severity": "high",
+      "reason": "transitive-only",
+      "rationale": "Same chain as GHSA-QX2V-QP2M-JG93. Co-shipped fix in TBD-issue-followup-postcss.",
+      "ticket": "TBD-issue-followup-postcss",
+      "expires_at": "2026-08-15"
+    },
+
+    "GHSA-F88M-G3JW-G9CJ": {
+      "package": "sharp",
+      "severity": "high",
+      "reason": "fix-scheduled",
+      "rationale": "Sharp 0.35.0 patches the issue; bump blocked until the offline build script (client/scripts/generate-pwa-assets.js) regenerates precomputed AVIF samples.",
+      "ticket": "TBD-issue-followup-sharp",
+      "expires_at": "2026-08-08"
+    }
+  },
+
+  "_informational_only": {
+    "_comment": [
+      "Read by humans only. The gate does NOT consult this section; moderate",
+      "and low findings come directly from `npm audit --json` in CI and are",
+      "shown under the \"non-blocking\" report block. This section is here so",
+      "the file is the single place a triager looks when planning a sprint.",
+      "Anything here that has stopped appearing in `npm audit --json` is a",
+      "candidate for removal."
+    ],
+    "GHSA-8988-4F7V-96QF": {
+      "package": "@opentelemetry/core",
+      "severity": "moderate",
+      "rationale": "Sentry's transitive peg; tracked by Sentry Node SDK release notes."
+    },
+    "GHSA-V422-HMWV-36X6": {
+      "package": "body-parser",
+      "severity": "low",
+      "rationale": "Express 5 ships its own body-parser; bumping express supersedes this."
+    },
+    "GHSA-G7R4-M6W7-QQQR": {
+      "package": "esbuild",
+      "severity": "low",
+      "rationale": "Vite 8 will bump esbuild; upgrade tracked alongside the next.js family."
+    }
+  }
+}

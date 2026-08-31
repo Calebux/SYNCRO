@@ -1,0 +1,13 @@
+{
+  "id": "utility-en-monthly-bill",
+  "merchant": "Unknown",
+  "locale": "en",
+  "kind": "negative",
+  "notes": "Ambiguous negative: recurring utility bill, not a tracked subscription service.",
+  "email": {
+    "subject": "Your monthly electricity bill",
+    "from": "Grid Utilities <billing@grid-utilities.example>",
+    "body": "Your bill is ready. Amount due $87.40 for this month. Payment is due on the 15th."
+  },
+  "expected": null
+}

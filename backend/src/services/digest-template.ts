@@ -1,3 +1,4 @@
+import { env } from '../config/env';
 import type { MonthlyDigestSummary, UpcomingRenewal, PriceChange, DigestAlert } from '../types/digest';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -187,13 +188,12 @@ function priceChangesSection(changes: PriceChange[], currency: string): string {
 
 export function buildDigestEmailHtml(
   summary: MonthlyDigestSummary,
-  dashboardUrl: string = process.env.FRONTEND_URL ?? 'https://app.syncro.ai',
+  dashboardUrl: string = env.FRONTEND_URL,
 ): string {
   const {
     userFullName,
     periodLabel,
     totalMonthlySpend,
-    lastMonthSpend,
     spendDifference,
     spendDifferencePercent,
     yearToDateSpend,
@@ -378,7 +378,7 @@ export function buildDigestEmailHtml(
 
 export function buildDigestEmailText(
   summary: MonthlyDigestSummary,
-  dashboardUrl: string = process.env.FRONTEND_URL ?? 'https://app.syncro.ai',
+  dashboardUrl: string = env.FRONTEND_URL,
 ): string {
   const {
     userFullName,

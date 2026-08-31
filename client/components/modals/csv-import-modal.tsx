@@ -11,6 +11,8 @@ import {
   FileText,
   Loader2,
 } from "lucide-react"
+import { useUserSettings } from "@/components/providers/user-settings-provider"
+import { encryptMetadata } from "@syncro/shared/crypto"
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -45,7 +47,7 @@ interface ImportResult {
   errors: number
 }
 
-type Step = "upload" | "preview" | "done"
+type Step = "upload" | "mapping" | "preview" | "done"
 
 // ─── Props ────────────────────────────────────────────────────────────────
 
@@ -77,6 +79,34 @@ function StatusBadge({ status }: { status: RowStatus }) {
   )
 }
 
+// ─── CSV Parsing Helper ────────────────────────────────────────────────────
+
+function parseCSV(text: string): { headers: string[]; records: Record<string, string>[] } {
+  const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n")
+  if (lines.length < 1) return { headers: [], records: [] }
+
+  const headers = lines[0]
+    .split(",")
+    .map((h) => h.replace(/^\uFEFF/, "").trim())
+
+  if (lines.length < 2) return { headers, records: [] }
+
+  const records: Record<string, string>[] = []
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (!line) continue
+    const values = line.split(",")
+    const row: Record<string, string> = {}
+    headers.forEach((h, idx) => {
+      row[h] = (values[idx] ?? "").trim()
+    })
+    records.push(row)
+  }
+
+  return { headers, records }
+}
+
 // ─── Main component ──────────────────────────────────────────────────────
 
 export default function CSVImportModal({
@@ -84,23 +114,28 @@ export default function CSVImportModal({
   onImportComplete,
   darkMode,
 }: CSVImportModalProps) {
+  const { settings } = useUserSettings()
   const [step, setStep] = useState<Step>("upload")
   const [dragging, setDragging] = useState(false)
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<Preview | null>(null)
   const [result, setResult] = useState<ImportResult | null>(null)
   const [skipDupes, setSkipDupes] = useState(true)
+  const [headers, setHeaders] = useState<string[]>([])
+  const [sampleRows, setSampleRows] = useState<Record<string, string>[]>([])
+  const [mappings, setMappings] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const [csvData, setCsvData] = useState<{ text: string; parsed: ReturnType<typeof parseCSV> } | null>(null)
 
-  // ── Styles ──
+  // ─── Styles ───
   const card = `${darkMode ? "bg-[#2D3748] text-[#F9F6F2]" : "bg-white text-[#1E2A35]"} rounded-2xl shadow-2xl max-w-3xl w-full overflow-hidden max-h-[90vh] flex flex-col`
   const inputCls = `${darkMode ? "bg-[#1E2A35] border-[#374151] text-white" : "bg-white border-gray-200 text-gray-900"}`
   const btnSecondary = `px-4 py-2 border rounded-lg text-sm font-medium transition-colors ${darkMode ? "border-[#374151] text-gray-300 hover:border-[#FFD166]" : "border-gray-300 text-gray-700 hover:border-[#1E2A35]"}`
 
-  // ── File handling ──
-  const handleFile = useCallback((f: File) => {
+  // ─── File handling ───
+  const handleFile = useCallback(async (f: File) => {
     if (!f.name.endsWith(".csv")) {
       setError("Only CSV files are accepted.")
       return
@@ -111,23 +146,40 @@ export default function CSVImportModal({
     }
     setFile(f)
     setError(null)
+    
+    // Parse CSV immediately for privacy mode
+    const text = await f.text()
+    const parsed = parseCSV(text)
+    setCsvData({ text, parsed })
   }, [])
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = (e: any) => {
     e.preventDefault()
     setDragging(false)
     const f = e.dataTransfer.files[0]
     if (f) handleFile(f)
   }
 
-  // ── Preview ──
-  const handlePreview = async () => {
-    if (!file) return
+  // ─── Preview ───
+  const handleUploadOrMapping = async (currentMappings?: Record<string, string>) => {
+    if (!file || !csvData) return
     setLoading(true)
     setError(null)
     try {
       const form = new FormData()
-      form.append("file", file)
+
+      if (settings.privacyModeEnabled && settings.encryptionKey) {
+        // Privacy mode: encrypt data before sending
+        const encryptedData = await encryptMetadata(csvData.text, settings.encryptionKey)
+        form.append("encrypted", JSON.stringify(encryptedData))
+        form.append("mappings", JSON.stringify(currentMappings || {}))
+      } else {
+        // Normal mode: send raw CSV
+        form.append("file", file)
+        if (currentMappings) {
+          form.append("mappings", JSON.stringify(currentMappings))
+        }
+      }
 
       const res = await fetch("/api/subscriptions/import", {
         method: "POST",
@@ -135,25 +187,56 @@ export default function CSVImportModal({
       })
       const json = await res.json()
 
-      if (!json.success) throw new Error(json.error ?? "Preview failed")
+      if (!json.success) throw new Error(json.error ?? "Operation failed")
 
-      setPreview(json.data.preview)
-      setStep("preview")
+      if (json.data.headers) {
+        // Initial upload response - show mapping step
+        setHeaders(json.data.headers)
+        setSampleRows(json.data.sampleRows)
+        // Auto-map if possible
+        const initialMappings: Record<string, string> = {}
+        const fields = ["name", "price", "currency", "billing_cycle", "next_renewal", "category", "renewal_url"]
+        fields.forEach(f => {
+          const match = (json.data.headers || csvData.parsed.headers).find((h: string) => h.toLowerCase() === f.toLowerCase() || h.toLowerCase() === f.replace("_", " ").toLowerCase())
+          if (match) initialMappings[f] = match
+        })
+        setMappings(initialMappings)
+        setStep("mapping")
+      } else {
+        // Preview response
+        setPreview(json.data.preview)
+        setStep("preview")
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Preview failed")
+      setError(err instanceof Error ? err.message : "Request failed")
     } finally {
       setLoading(false)
     }
   }
 
-  // ── Commit ──
+  // ─── Preview (now calls the shared helper) ───
+  const handlePreview = () => handleUploadOrMapping(mappings)
+
+  // ─── Commit ───
   const handleCommit = async () => {
-    if (!file) return
+    if (!file || !csvData) return
     setLoading(true)
     setError(null)
     try {
       const form = new FormData()
-      form.append("file", file)
+
+      if (settings.privacyModeEnabled && settings.encryptionKey) {
+        // Privacy mode: encrypt data before sending
+        const encryptedData = await encryptMetadata(csvData.text, settings.encryptionKey)
+        form.append("encrypted", JSON.stringify(encryptedData))
+        form.append("mappings", JSON.stringify(mappings))
+      } else {
+        // Normal mode: send raw CSV
+        form.append("file", file)
+        if (mappings) {
+          form.append("mappings", JSON.stringify(mappings))
+        }
+      }
 
       const url = `/api/subscriptions/import?commit=true&skip_dupes=${skipDupes}`
       const res = await fetch(url, { method: "POST", body: form })
@@ -171,7 +254,7 @@ export default function CSVImportModal({
     }
   }
 
-  // ── Template download ──
+  // ─── Template download ───
   const handleTemplate = () => {
     window.location.href = "/api/subscriptions/import?template=true"
   }
@@ -203,23 +286,23 @@ export default function CSVImportModal({
 
           {/* Step indicators */}
           <div className="flex items-center gap-2 mt-4">
-            {(["upload", "preview", "done"] as Step[]).map((s, i) => (
+            {(["upload", "mapping", "preview", "done"] as Step[]).map((s, i) => (
               <div key={s} className="flex items-center gap-2">
                 <div
                   className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
                     step === s
                       ? "bg-[#FFD166] text-[#1E2A35]"
-                      : (step === "preview" && s === "upload") || step === "done"
+                      : (step === "mapping" && s === "upload") || (step === "preview" && ["upload", "mapping"].includes(s)) || step === "done"
                       ? "bg-[#007A5C] text-white"
                       : "bg-white/20 text-white/60"
                   }`}
                 >
-                  {(step === "preview" && s === "upload") || step === "done" ? "✓" : i + 1}
+                  {(step === "mapping" && s === "upload") || (step === "preview" && ["upload", "mapping"].includes(s)) || step === "done" ? "✓" : i + 1}
                 </div>
                 <span className={`text-xs ${step === s ? "text-white" : "text-white/50"}`}>
-                  {s === "upload" ? "Upload" : s === "preview" ? "Preview" : "Done"}
+                  {s.charAt(0).toUpperCase() + s.slice(1)}
                 </span>
-                {i < 2 && <div className="w-8 h-px bg-white/20" />}
+                {i < 3 && <div className="w-8 h-px bg-white/20" />}
               </div>
             ))}
           </div>
@@ -227,7 +310,7 @@ export default function CSVImportModal({
 
         {/* Body */}
         <div className="p-6 overflow-y-auto flex-1">
-          {/* ── Upload step ── */}
+          {/* ─── Upload step ─── */}
           {step === "upload" && (
             <div className="space-y-5">
               {/* Drop zone */}
@@ -303,18 +386,88 @@ export default function CSVImportModal({
                 <div className="flex-1" />
                 <button onClick={onClose} className={btnSecondary}>Cancel</button>
                 <button
-                  onClick={handlePreview}
+                  onClick={() => handleUploadOrMapping()}
                   disabled={!file || loading}
                   className="flex items-center gap-2 px-5 py-2 bg-[#FFD166] text-[#1E2A35] rounded-lg font-semibold text-sm hover:bg-[#FFD166]/90 transition-colors disabled:opacity-50"
                 >
                   {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-                  Preview import
+                  Continue to Mapping
                 </button>
               </div>
             </div>
           )}
 
-          {/* ── Preview step ── */}
+          {/* ─── Mapping step ─── */}
+          {step === "mapping" && (
+            <div className="space-y-6">
+              <div className={`p-4 rounded-xl border ${darkMode ? "bg-[#1E2A35]/50 border-[#374151]" : "bg-gray-50 border-gray-200"}`}>
+                <h3 className={`text-sm font-semibold mb-4 ${darkMode ? "text-gray-200" : "text-gray-900"}`}>
+                  Map CSV Columns to Syncro Fields
+                </h3>
+                <div className="space-y-4">
+                  {[
+                    { key: "name", label: "Subscription Name", required: true },
+                    { key: "price", label: "Price", required: true },
+                    { key: "currency", label: "Currency", required: false },
+                    { key: "billing_cycle", label: "Billing Cycle", required: true },
+                    { key: "next_renewal", label: "Next Renewal", required: false },
+                    { key: "category", label: "Category", required: false },
+                    { key: "renewal_url", label: "Renewal URL", required: false },
+                  ].map((field) => (
+                    <div key={field.key} className="grid grid-cols-2 items-center gap-4">
+                      <label className={`text-sm ${darkMode ? "text-gray-300" : "text-gray-700"}`}>
+                        {field.label} {field.required && <span className="text-red-500">*</span>}
+                      </label>
+                      <div className="relative">
+                        <select
+                          value={mappings[field.key] || ""}
+                          onChange={(e) => setMappings({ ...mappings, [field.key]: e.target.value })}
+                          className={`w-full px-3 py-1.5 rounded-lg border text-sm appearance-none ${
+                            darkMode 
+                              ? "bg-[#2D3748] border-[#374151] text-gray-200" 
+                              : "bg-white border-gray-300 text-gray-900"
+                          } ${!mappings[field.key] && field.required ? "border-amber-400" : ""}`}
+                        >
+                          <option value="">-- Select Column --</option>
+                          {headers.map((h) => (
+                            <option key={h} value={h}>{h}</option>
+                          ))}
+                        </select>
+                        <div className={`absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-xs ${darkMode ? "text-gray-500" : "text-gray-400"}`}>
+                          ▼
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {error && (
+                <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  {error}
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button onClick={() => setStep("upload")} className={btnSecondary}>
+                  ← Back
+                </button>
+                <div className="flex-1" />
+                <button onClick={onClose} className={btnSecondary}>Cancel</button>
+                <button
+                  onClick={handlePreview}
+                  disabled={loading || !mappings.name || !mappings.price || !mappings.billing_cycle}
+                  className="flex items-center gap-2 px-5 py-2 bg-[#FFD166] text-[#1E2A35] rounded-lg font-semibold text-sm hover:bg-[#FFD166]/90 transition-colors disabled:opacity-50"
+                >
+                  {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+                  Review Preview
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ─── Preview step ─── */}
           {step === "preview" && preview && (
             <div className="space-y-4">
               {/* Summary chips */}
@@ -418,7 +571,7 @@ export default function CSVImportModal({
 
               {/* Actions */}
               <div className="flex gap-3 pt-1">
-                <button onClick={() => setStep("upload")} className={btnSecondary}>
+                <button onClick={() => setStep("mapping")} className={btnSecondary}>
                   ← Back
                 </button>
                 <div className="flex-1" />
@@ -435,7 +588,7 @@ export default function CSVImportModal({
             </div>
           )}
 
-          {/* ── Done step ── */}
+          {/* ─── Done step ─── */}
           {step === "done" && result && (
             <div className="text-center py-8 space-y-6">
               <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto">

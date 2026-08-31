@@ -65,6 +65,8 @@ describe('EventListener - Reconnection Logic', () => {
     // Reset fetch mock
     (global.fetch as jest.Mock).mockResolvedValue({
       json: jest.fn().mockResolvedValue({
+        jsonrpc: '2.0',
+        id: 1,
         result: { sequence: 200 },
       }),
     });
@@ -155,6 +157,8 @@ describe('EventListener - Reconnection Logic', () => {
 
     it('should retry after failed event processing', async () => {
       const mockEventResponse = {
+        jsonrpc: '2.0',
+        id: 1,
         result: {
           events: [
             {
@@ -254,6 +258,8 @@ describe('EventListener - Reconnection Logic', () => {
         .mockRejectedValueOnce(new Error('Network error 2'))
         .mockResolvedValueOnce({
           json: jest.fn().mockResolvedValue({
+            jsonrpc: '2.0',
+            id: 1,
             result: { events: [] },
           }),
         });
@@ -284,6 +290,8 @@ describe('EventListener - Reconnection Logic', () => {
 
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         json: jest.fn().mockResolvedValue({
+          jsonrpc: '2.0',
+          id: 1,
           result: { events: [mockEvent] },
         }),
       });
@@ -301,6 +309,26 @@ describe('EventListener - Reconnection Logic', () => {
 
       const events = await (listener as any).fetchEvents(100);
       expect(events.length).toBe(1);
+    });
+
+    it('should skip unsupported contract event schema versions', async () => {
+      const unsupportedEvent = {
+        type: 'RenewalSuccess',
+        ledger: 150,
+        txHash: 'tx-unsupported',
+        contractId: 'test-contract-id',
+        topics: [],
+        value: { sub_id: 42, schema_version: 2 },
+      };
+
+      jest.clearAllMocks();
+      const mod = await import('../src/services/event-listener');
+      const schemaListener = new mod.EventListener();
+
+      const processed = await (schemaListener as any).processEvents([unsupportedEvent]);
+
+      expect(processed).toEqual([]);
+      expect(supabase.from).not.toHaveBeenCalled();
     });
 
     it('should retry failed event saves', async () => {
@@ -364,13 +392,11 @@ describe('EventListener - Reconnection Logic', () => {
     });
 
     it('should validate contract address on initialization', () => {
-      const missingContractListener = () => {
-        process.env.SOROBAN_CONTRACT_ADDRESS = '';
-        const mod = require('../src/services/event-listener');
-        return new mod.EventListener();
-      };
-
-      expect(missingContractListener).toThrow('SOROBAN_CONTRACT_ADDRESS not configured');
+      process.env.SOROBAN_CONTRACT_ADDRESS = '';
+      // Clear cache to ensure fresh instance if needed, but here we just call the constructor
+      const mod = require('../src/services/event-listener');
+      const listener = new mod.EventListener();
+      expect(listener.getHealth().status).toBe('disabled');
     });
   });
 
@@ -399,6 +425,8 @@ describe('EventListener - Reconnection Logic', () => {
     it('should handle missing data in RPC response', async () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         json: jest.fn().mockResolvedValue({
+          jsonrpc: '2.0',
+          id: 1,
           result: {}, // Missing events
         }),
       });

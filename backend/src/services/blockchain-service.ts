@@ -1,15 +1,80 @@
 import logger from "../config/logger";
 import { supabase } from "../config/database";
+import { env } from "../config/env";
 import { NotificationPayload } from "../types/reminder";
+import { getRequestId } from "../middleware/requestContext";
+import crypto from 'crypto';
+import { calculateBackoffDelay } from "../utils/retry";
 import {
   Contract,
   Keypair,
+  Memo,
   Networks,
   TransactionBuilder,
   xdr,
 } from "@stellar/stellar-sdk";
 import { rpc as SorobanRpc } from "@stellar/stellar-sdk";
 import { createClient, RedisClientType } from "redis";
+import { secretProvider } from "./secret-provider";
+import {
+  getBlockchainFlags,
+  resolveStellarNetwork,
+} from "../../../shared/blockchain-flags";
+import { agentWalletRotationService } from './agent-wallet-rotation';
+import { EXTERNAL_SERVICE_POLICIES } from "../config/external-services";
+import {
+  BLOCKCHAIN_INVOKE_METHODS,
+  resolveSubscriptionMethod,
+} from "../blockchain/backend-contract-bindings";
+import { commitmentStorageService } from "./commitment-storage-service";
+import {
+  buildSyncroMemo,
+  resolveMemoOperationFromMethod,
+  verifyTransactionMemo,
+} from "@syncro/shared/stellar/memo";
+
+export type PayloadVersion = '1.0';
+
+export interface SubscriptionEventPayload {
+  subscriptionId: string;
+  operation: string;
+  subscriptionName: string;
+  price: string | number;
+  billingCycle: string;
+  status: string;
+  timestamp: string;
+}
+
+export interface ReminderEventPayload {
+  subscriptionId: string;
+  subscriptionName: string;
+  reminderType: string;
+  renewalDate: string;
+  daysBefore: number;
+  price: string | number;
+  billingCycle: string;
+  deliveryChannels: string[];
+  timestamp: string;
+}
+
+export interface GiftCardEventPayload {
+  subscriptionId: string;
+  giftCardHash: string;
+  provider: string;
+  eventType: string;
+  timestamp: string;
+}
+
+export interface DLQPayload<T = unknown> {
+  version: PayloadVersion;
+  eventType: string;
+  payload: T;
+  failedAt: string;
+  errorReason: string;
+  retryCount: number;
+  contractAddress?: string | null;
+  rpcUrl?: string;
+}
 
 export interface BlockchainLogEntry {
   user_id: string;
@@ -17,26 +82,150 @@ export interface BlockchainLogEntry {
   event_data: Record<string, any>;
 }
 
+
+export interface MigrationProgress {
+  total: number;
+  migrated: number;
+  failed: number;
+  status: 'idle' | 'processing' | 'completed' | 'failed';
+}
+
 /**
  * Blockchain logging service for reminder events
  * This service writes reminder events to on-chain logs via Soroban contracts
  */
 export class BlockchainService {
-  private contractAddress: string | null;
+  // ... (existing constructor and other methods)
+
+  /**
+   * Migrate existing plaintext subscriptions to encrypted format on-chain
+   */
+  async migrateSubscriptions(
+    userId: string,
+    subscriptions: any[],
+    progressCallback: (progress: MigrationProgress) => void
+  ): Promise<void> {
+    let progress: MigrationProgress = {
+      total: subscriptions.length,
+      migrated: 0,
+      failed: 0,
+      status: 'processing'
+    };
+    progressCallback(progress);
+
+    for (const sub of subscriptions) {
+      try {
+        // Idempotency check: check if already completed
+        const { data: migrationRecord } = await supabase
+          .from('subscription_migration_status')
+          .select('id, status')
+          .eq('subscription_id', sub.id)
+          .single();
+        
+        if (migrationRecord?.status === 'completed') {
+          progress.migrated++;
+          progressCallback(progress);
+          continue;
+        }
+
+        // Phase 1: Mark as pending
+        await supabase
+          .from('subscription_migration_status')
+          .upsert({
+            subscription_id: sub.id,
+            user_id: userId,
+            status: 'pending_migration',
+            updated_at: new Date().toISOString(),
+          });
+
+        // Perform migration
+        const encryptedData = await this.encryptSubscriptionData(sub);
+        await this.writeSubscriptionToBlockchain('update', { ...sub, ...encryptedData });
+
+        // Phase 2: Mark as completed
+        await supabase
+          .from('subscription_migration_status')
+          .update({
+            status: 'completed',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('subscription_id', sub.id);
+
+        // Cleanup: Nullify legacy fields
+        await supabase
+          .from('subscriptions')
+          .update({
+            plaintext_data: null,
+            is_encrypted: true,
+          })
+          .eq('id', sub.id);
+
+        progress.migrated++;
+      } catch (e) {
+        logger.error(`Failed to migrate subscription ${sub.id}:`, e);
+        
+        // Record failure in DB for later retry
+        await supabase
+          .from('subscription_migration_status')
+          .upsert({
+            subscription_id: sub.id,
+            user_id: userId,
+            status: 'failed',
+            error: e instanceof Error ? e.message : 'Unknown error',
+            updated_at: new Date().toISOString(),
+          });
+          
+        progress.failed++;
+      }
+      progressCallback(progress);
+    }
+    
+    progress.status = 'completed';
+    progressCallback(progress);
+  }
+
+  // NOTE: Simple encryption mock; replace with actual robust encryption service call
+  private async encryptSubscriptionData(data: any): Promise<any> {
+    return { encrypted_payload: btoa(JSON.stringify(data)) };
+  }
+  
+  // ... (rest of methods)
   private rpcUrl: string;
-  private sourceSecret?: string;
   private networkPassphrase: string;
   private redisClient: RedisClientType | null = null;
-  private readonly maxRetries = 3;
-  private readonly baseRetryDelayMs = 750;
+  private readonly policy = EXTERNAL_SERVICE_POLICIES.stellar_rpc;
 
   constructor() {
-    this.contractAddress = process.env.SOROBAN_CONTRACT_ADDRESS || null;
-    this.rpcUrl =
-      process.env.SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
-    this.sourceSecret = process.env.STELLAR_SECRET_KEY;
+    this.contractAddress = env.SOROBAN_CONTRACT_ADDRESS || null;
+
+    const flags = getBlockchainFlags();
+    const network = resolveStellarNetwork();
+
+    // Resolve RPC URL — never silently fall back to testnet in production.
+    const configuredRpc = env.SOROBAN_RPC_URL;
+    if (!configuredRpc && flags.isProduction) {
+      throw new Error(
+        "[blockchain] SOROBAN_RPC_URL must be explicitly set in production. " +
+          "Refusing to fall back to the testnet RPC endpoint.",
+      );
+    }
+    this.rpcUrl = configuredRpc || "https://soroban-testnet.stellar.org";
+
+    // Resolve network passphrase — never silently use testnet passphrase in production.
+    const configuredPassphrase = env.STELLAR_NETWORK_PASSPHRASE;
+    if (!configuredPassphrase && flags.isProduction) {
+      throw new Error(
+        "[blockchain] STELLAR_NETWORK_PASSPHRASE must be explicitly set in production. " +
+          "Refusing to fall back to the testnet network passphrase.",
+      );
+    }
     this.networkPassphrase =
-      process.env.STELLAR_NETWORK_PASSPHRASE || Networks.TESTNET;
+      configuredPassphrase ||
+      (network === "mainnet"
+        ? Networks.PUBLIC
+        : network === "futurenet"
+          ? Networks.FUTURENET
+          : Networks.TESTNET);
 
     if (!this.contractAddress) {
       logger.warn(
@@ -44,8 +233,15 @@ export class BlockchainService {
       );
     }
 
+    if (!flags.blockchainEnabled) {
+      logger.warn(
+        "ENABLE_BLOCKCHAIN=false — on-chain writes are disabled. " +
+          "All events will be logged to the database only.",
+      );
+    }
+
     // Initialize optional Redis client for DLQ if REDIS_URL present
-    const redisUrl = process.env.REDIS_URL;
+    const redisUrl = env.REDIS_URL;
     if (redisUrl) {
       try {
         this.redisClient = createClient({ url: redisUrl });
@@ -78,6 +274,7 @@ export class BlockchainService {
       price: payload.subscription.price,
       billingCycle: payload.subscription.billing_cycle,
       deliveryChannels,
+      correlationId: getRequestId(),
       timestamp: new Date().toISOString(),
     };
 
@@ -101,10 +298,36 @@ export class BlockchainService {
 
       logger.info("Event logged to database", { logId: dbLog.id });
 
+      // Create privacy-preserving commitment (non-blocking)
+      this.createAndRecordEventCommitment({
+        userId,
+        eventType: "reminder_sent",
+        eventData,
+      }).catch((err) => logger.warn("Non-blocking commitment creation failed:", err));
+
       // If contract address is configured, attempt to write to blockchain
       if (this.contractAddress) {
         try {
-          const result = await this.writeToBlockchain(eventData);
+          const { privacyService } = require('./privacy-service');
+          const useCommitments = await privacyService.isPrivacyFeatureEnabled(userId, 'PRIVACY_AUDIT_COMMITMENTS');
+
+          let result;
+          if (useCommitments) {
+            const userCommitment = this.computePedersenCommitment(userId, userId);
+            const eventCommitment = this.computePedersenCommitment(JSON.stringify(eventData), userId);
+            const coarsenedTime = this.getCoarsenedTimestamp(eventData.timestamp);
+            
+            result = await this.invokeContractWithRetry(
+              "log_commitment",
+              [
+                xdr.ScVal.scvBytes(userCommitment),
+                xdr.ScVal.scvBytes(eventCommitment),
+                xdr.ScVal.scvU64(xdr.Uint64.fromString(String(coarsenedTime))),
+              ]
+            );
+          } else {
+            result = await this.writeToBlockchain(eventData);
+          }
 
           // Update database log with transaction hash
           if (result.transactionHash) {
@@ -173,9 +396,13 @@ export class BlockchainService {
    * Write event data to Soroban contract
    */
   private async writeToBlockchain(
-    eventData: Record<string, any>,
+    eventData: ReminderEventPayload,
   ): Promise<{ transactionHash: string }> {
-    return this.invokeContractWithRetry("log_reminder", this.encodeReminderArgs(eventData));
+    return this.invokeContractWithRetry(
+      BLOCKCHAIN_INVOKE_METHODS.logReminder,
+      this.encodeReminderArgs(eventData),
+      eventData.subscriptionId,
+    );
   }
 
   /**
@@ -214,6 +441,7 @@ export class BlockchainService {
       price: subscriptionData.price,
       billingCycle: subscriptionData.billing_cycle,
       status: subscriptionData.status,
+      correlationId: getRequestId(),
       timestamp: new Date().toISOString(),
     };
 
@@ -241,13 +469,39 @@ export class BlockchainService {
         subscriptionId,
       });
 
+      // Create privacy-preserving commitment (non-blocking)
+      this.createAndRecordEventCommitment({
+        userId,
+        eventType: `subscription_${operation}`,
+        eventData,
+      }).catch((err) => logger.warn("Non-blocking commitment creation failed:", err));
+
       // If contract address is configured, attempt to write to blockchain
       if (this.contractAddress) {
         try {
-          const result = await this.writeSubscriptionToBlockchain(
-            operation,
-            eventData,
-          );
+          const { privacyService } = require('./privacy-service');
+          const useCommitments = await privacyService.isPrivacyFeatureEnabled(userId, 'PRIVACY_AUDIT_COMMITMENTS');
+
+          let result;
+          if (useCommitments) {
+            const userCommitment = this.computePedersenCommitment(userId, userId);
+            const eventCommitment = this.computePedersenCommitment(JSON.stringify(eventData), userId);
+            const coarsenedTime = this.getCoarsenedTimestamp(eventData.timestamp);
+
+            result = await this.invokeContractWithRetry(
+              "log_commitment",
+              [
+                xdr.ScVal.scvBytes(userCommitment),
+                xdr.ScVal.scvBytes(eventCommitment),
+                xdr.ScVal.scvU64(xdr.Uint64.fromString(String(coarsenedTime))),
+              ]
+            );
+          } else {
+            result = await this.writeSubscriptionToBlockchain(
+              operation,
+              eventData,
+            );
+          }
 
           // Update database log with transaction hash
           if (result.transactionHash) {
@@ -321,10 +575,14 @@ export class BlockchainService {
    */
   private async writeSubscriptionToBlockchain(
     operation: "create" | "update" | "delete" | "cancel" | "pause" | "unpause",
-    eventData: Record<string, any>,
+    eventData: SubscriptionEventPayload,
   ): Promise<{ transactionHash: string }> {
-    const method = `subscription_${operation}`;
-    return this.invokeContractWithRetry(method, this.encodeSubscriptionArgs(eventData));
+    const method = resolveSubscriptionMethod(operation);
+    return this.invokeContractWithRetry(
+      method,
+      this.encodeSubscriptionArgs(eventData),
+      eventData.subscriptionId,
+    );
   }
 
   /**
@@ -341,6 +599,7 @@ export class BlockchainService {
       giftCardHash,
       provider,
       eventType: 'gift_card_attached',
+      correlationId: getRequestId(),
       timestamp: new Date().toISOString(),
     };
 
@@ -360,6 +619,13 @@ export class BlockchainService {
         logger.error('Failed to log gift card event to database:', dbError);
         throw dbError;
       }
+
+      // Create privacy-preserving commitment (non-blocking)
+      this.createAndRecordEventCommitment({
+        userId,
+        eventType: 'gift_card_attached',
+        eventData,
+      }).catch((err) => logger.warn("Non-blocking commitment creation failed:", err));
 
       if (this.contractAddress) {
         try {
@@ -414,9 +680,13 @@ export class BlockchainService {
   }
 
   private async writeGiftCardToBlockchain(
-    eventData: Record<string, any>
+    eventData: GiftCardEventPayload
   ): Promise<{ transactionHash: string }> {
-    return this.invokeContractWithRetry("gift_card_attached", this.encodeGiftCardArgs(eventData));
+    return this.invokeContractWithRetry(
+      BLOCKCHAIN_INVOKE_METHODS.giftCardAttached,
+      this.encodeGiftCardArgs(eventData),
+      eventData.subscriptionId,
+    );
   }
 
   /**
@@ -425,29 +695,85 @@ export class BlockchainService {
   private async invokeContractWithRetry(
     method: string,
     args: xdr.ScVal[],
+    subscriptionId?: string,
   ): Promise<{ transactionHash: string }> {
+    const correlationId = getRequestId();
+    
     if (!this.contractAddress) {
+      logger.error('Contract invocation failed: SOROBAN_CONTRACT_ADDRESS not configured', { 
+        method, 
+        correlationId 
+      });
       throw new Error("SOROBAN_CONTRACT_ADDRESS not configured");
     }
-    if (!this.sourceSecret) {
-      throw new Error("STELLAR_SECRET_KEY not configured");
+
+    // Honour the ENABLE_BLOCKCHAIN master switch
+    const flags = getBlockchainFlags();
+    if (!flags.blockchainEnabled) {
+      const errorMsg = `[blockchain] On-chain write for "${method}" was blocked: ENABLE_BLOCKCHAIN is set to false.`;
+      logger.warn('Contract invocation blocked by feature flag', { 
+        method, 
+        correlationId,
+        blockchainEnabled: flags.blockchainEnabled 
+      });
+      throw new Error(errorMsg);
     }
 
+    logger.info('Starting contract invocation', { 
+      method, 
+      subscriptionId, 
+      correlationId,
+      contractAddress: this.contractAddress 
+    });
+
     const rpc = new SorobanRpc.Server(this.rpcUrl);
-    const sourceKeypair = Keypair.fromSecret(this.sourceSecret);
+    
+    // Use rotated agent wallet keypair instead of a single static secret key.
+    // The "executor" agent is used for contract invocations; its address rotates
+    // on a configurable schedule (per-task, daily, weekly) to prevent address
+    // clustering.
+    let sourceKeypair: Keypair;
+    try {
+      const derived = await agentWalletRotationService.getActiveKeypair('executor');
+      sourceKeypair = derived.keypair;
+    } catch {
+      // Fallback to the legacy STELLAR_SECRET_KEY if the rotation service
+      // is not configured (e.g., AGENT_MASTER_SEED not set).
+      const secret = await secretProvider.getSecret("STELLAR_SECRET_KEY");
+      if (!secret) {
+        throw new Error(
+          "No signing key available: configure AGENT_MASTER_SEED (for HD wallet rotation) " +
+          "or set STELLAR_SECRET_KEY (legacy fallback).",
+        );
+      }
+      sourceKeypair = Keypair.fromSecret(secret);
+    }
     const contract = new Contract(this.contractAddress);
 
     let lastErr: unknown = null;
-    for (let attempt = 0; attempt < this.maxRetries; attempt++) {
+    const { maxAttempts = 5, initialDelay = 1000, multiplier = 2, maxDelay = 16000, jitter = true } = this.policy.retryPolicy;
+
+    const memoOperation = subscriptionId ? resolveMemoOperationFromMethod(method) : null;
+    const expectedMemo =
+      subscriptionId && memoOperation
+        ? buildSyncroMemo(memoOperation, subscriptionId)
+        : null;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         const account = await rpc.getAccount(sourceKeypair.publicKey());
-        const tx = new TransactionBuilder(account, {
+        let builder = new TransactionBuilder(account, {
           fee: "100",
           networkPassphrase: this.networkPassphrase,
         })
           .addOperation(contract.call(method, ...args))
-          .setTimeout(30)
-          .build();
+          .setTimeout(Math.floor(this.policy.timeoutMs / 1000));
+
+        if (expectedMemo) {
+          builder = builder.addMemo(Memo.text(expectedMemo));
+        }
+
+        const tx = builder.build();
 
         const sim = await rpc.simulateTransaction(tx);
         if (SorobanRpc.Api.isSimulationError(sim)) {
@@ -462,44 +788,185 @@ export class BlockchainService {
           throw new Error(`Send failed: ${send.errorResult}`);
         }
 
+        logger.info('Contract transaction submitted', { 
+          method, 
+          transactionHash: send.hash, 
+          correlationId,
+          subscriptionId,
+          attempt: attempt + 1 
+        });
+
         // Wait for confirmation
         const getTx = await rpc.getTransaction(send.hash);
         if (getTx.status === "NOT_FOUND") {
           // brief wait+retry fetch
-          await this.sleep(500);
+          await this.sleep(initialDelay);
+        } else if (
+          expectedMemo &&
+          subscriptionId &&
+          memoOperation &&
+          getTx.status === "SUCCESS" &&
+          !verifyTransactionMemo(
+            { memo: expectedMemo, successful: true, hash: send.hash },
+            memoOperation,
+            subscriptionId,
+          )
+        ) {
+          throw new Error(`Transaction memo verification failed for method ${method}`);
         }
+
+        logger.info('Contract transaction confirmed', { 
+          method, 
+          transactionHash: send.hash, 
+          correlationId,
+          subscriptionId,
+          status: getTx.status 
+        });
 
         return { transactionHash: send.hash };
       } catch (err) {
         lastErr = err;
-        const delay = this.baseRetryDelayMs * Math.pow(2, attempt);
-        logger.warn(
-          `Soroban tx attempt ${attempt + 1}/${this.maxRetries} failed for method ${method}: ${
-            err instanceof Error ? err.message : String(err)
-          } — retrying in ${delay}ms`,
-        );
+        const reason = err instanceof Error ? err.message : String(err);
+        const delay = calculateBackoffDelay(attempt + 1, { initialDelay, maxDelay, multiplier, jitter });
+        logger.warn('Soroban tx attempt failed', {
+          method,
+          subscriptionId,
+          attempt: attempt + 1,
+          maxAttempts,
+          reason,
+          retryInMs: delay,
+          correlationId,
+        });
         await this.sleep(delay);
       }
     }
 
     // After all retries failed, enqueue to DLQ if available
+    logger.error('Contract transaction failed after all retries', { 
+      method, 
+      subscriptionId, 
+      maxAttempts, 
+      correlationId,
+      error: lastErr instanceof Error ? lastErr.message : String(lastErr) 
+    });
+    
     await this.enqueueDeadLetter({
-      method,
-      argsJson: this.previewArgs(args),
+      version: '1.0',
+      eventType: method,
+      payload: this.previewArgs(args),
+      failedAt: new Date().toISOString(),
+      errorReason: lastErr instanceof Error ? lastErr.message : String(lastErr),
+      retryCount: maxAttempts,
       contractAddress: this.contractAddress,
       rpcUrl: this.rpcUrl,
-      error: lastErr instanceof Error ? lastErr.message : String(lastErr),
-      createdAt: new Date().toISOString(),
     });
 
     throw new Error(
-      `Soroban transaction failed after ${this.maxRetries} attempts: ${
+      `Soroban transaction failed after ${maxAttempts} attempts: ${
         lastErr instanceof Error ? lastErr.message : String(lastErr)
       }`,
     );
   }
 
-  private encodeReminderArgs(eventData: Record<string, any>): xdr.ScVal[] {
+  async recordCommitment(
+    commitmentHash: Buffer,
+  ): Promise<{ commitmentIndex: number; transactionHash?: string; error?: string }> {
+    if (!this.contractAddress) {
+      return { commitmentIndex: -1, error: 'SOROBAN_CONTRACT_ADDRESS not configured' };
+    }
+
+    try {
+      const args = [xdr.ScVal.scvBytes(commitmentHash)];
+      const result = await this.invokeContractWithRetry(
+        BLOCKCHAIN_INVOKE_METHODS.recordCommitment,
+        args,
+      );
+
+      const sim = await this.simulateContractCall(
+        BLOCKCHAIN_INVOKE_METHODS.recordCommitment,
+        args,
+      );
+
+      return {
+        commitmentIndex: sim ?? -1,
+        transactionHash: result.transactionHash,
+      };
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      logger.error('Failed to record commitment on-chain:', errorMessage);
+      return { commitmentIndex: -1, error: errorMessage };
+    }
+  }
+
+  private async simulateContractCall(
+    method: string,
+    args: xdr.ScVal[],
+  ): Promise<number | null> {
+    try {
+      if (!this.contractAddress) return null;
+
+      const rpc = new SorobanRpc.Server(this.rpcUrl);
+      const secret = await secretProvider.getSecret("STELLAR_SECRET_KEY");
+      if (!secret) return null;
+
+      const sourceKeypair = Keypair.fromSecret(secret);
+      const contract = new Contract(this.contractAddress);
+
+      const account = await rpc.getAccount(sourceKeypair.publicKey());
+      const tx = new TransactionBuilder(account, {
+        fee: "100",
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(contract.call(method, ...args))
+        .setTimeout(30)
+        .build();
+
+      const sim = await rpc.simulateTransaction(tx);
+      if (SorobanRpc.Api.isSimulationError(sim)) {
+        logger.warn(`Simulation failed for ${method}: ${sim.error}`);
+        return null;
+      }
+
+      const result = SorobanRpc.Api.isSimulationSuccess(sim) ? sim.result : null;
+      if (result && result.retval) {
+        const val = result.retval;
+        if (val?.switch()?.name === 'scvU64') {
+          return Number(val.u64());
+        }
+      }
+      return null;
+    } catch (err) {
+      logger.warn(`Simulation error for ${method}:`, err);
+      return null;
+    }
+  }
+
+  async createAndRecordEventCommitment(params: {
+    userId: string;
+    eventType: string;
+    eventData: Record<string, unknown>;
+  }): Promise<{ commitmentHash: Buffer; dbId: string | null; commitmentIndex: number } | null> {
+    try {
+      const { commitmentHash, dbId } = await commitmentStorageService.createAndStoreCommitment(params);
+
+      const onChain = await this.recordCommitment(commitmentHash);
+
+      if (dbId && onChain.commitmentIndex >= 0) {
+        await commitmentStorageService.updateCommitmentIndex(dbId, onChain.commitmentIndex);
+      }
+
+      return {
+        commitmentHash,
+        dbId,
+        commitmentIndex: onChain.commitmentIndex,
+      };
+    } catch (err) {
+      logger.error('Failed to create and record event commitment:', err);
+      return null;
+    }
+  }
+
+  private encodeReminderArgs(eventData: ReminderEventPayload): xdr.ScVal[] {
     return [
       xdr.ScVal.scvString(eventData.subscriptionId),
       xdr.ScVal.scvString(eventData.subscriptionName ?? ""),
@@ -515,7 +982,7 @@ export class BlockchainService {
     ];
   }
 
-  private encodeSubscriptionArgs(eventData: Record<string, any>): xdr.ScVal[] {
+  private encodeSubscriptionArgs(eventData: SubscriptionEventPayload): xdr.ScVal[] {
     return [
       xdr.ScVal.scvString(eventData.subscriptionId),
       xdr.ScVal.scvString(eventData.operation ?? ""),
@@ -527,7 +994,7 @@ export class BlockchainService {
     ];
   }
 
-  private encodeGiftCardArgs(eventData: Record<string, any>): xdr.ScVal[] {
+  private encodeGiftCardArgs(eventData: GiftCardEventPayload): xdr.ScVal[] {
     return [
       xdr.ScVal.scvString(eventData.subscriptionId),
       xdr.ScVal.scvString(eventData.giftCardHash),
@@ -536,12 +1003,13 @@ export class BlockchainService {
     ];
   }
 
-  private async enqueueDeadLetter(payload: Record<string, any>): Promise<void> {
+  private async enqueueDeadLetter<T>(payload: DLQPayload<T>): Promise<void> {
+    const correlationId = getRequestId();
     const dlqKey = "dlq:blockchain_tx";
     try {
       if (this.redisClient) {
-        await this.redisClient.lPush(dlqKey, JSON.stringify(payload));
-        logger.error("Enqueued to DLQ (Redis) for blockchain tx", { dlqKey });
+        await this.redisClient.lPush(dlqKey, JSON.stringify({ ...payload, correlationId }));
+        logger.error("Enqueued to DLQ (Redis) for blockchain tx", { dlqKey, correlationId });
         return;
       }
     } catch (err) {
@@ -553,10 +1021,10 @@ export class BlockchainService {
       await supabase.from("blockchain_logs").insert({
         user_id: "system",
         event_type: "blockchain_dead_letter",
-        event_data: payload,
+        event_data: { ...payload, correlationId },
         status: "dead_letter",
       });
-      logger.error("Recorded blockchain dead letter in database");
+      logger.error("Recorded blockchain dead letter in database", { correlationId });
     } catch (dbErr) {
       logger.error("Failed to record dead letter in database:", dbErr);
     }
@@ -564,6 +1032,144 @@ export class BlockchainService {
 
   private async sleep(ms: number): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // Helper to calculate a simulated Pedersen commitment (using SHA256 with blinding)
+  private computePedersenCommitment(data: string, userId: string): Buffer {
+    const systemSecret = env.ENCRYPTION_KEY || env.JWT_SECRET || 'system-secret';
+    const blinding = crypto.createHmac('sha256', systemSecret).update(userId).digest('hex');
+    return crypto.createHash('sha256').update(`${data}:${blinding}`).digest();
+  }
+
+  // Coarsen a timestamp to day-level (00:00:00 UTC) as unix epoch seconds
+  private getCoarsenedTimestamp(isoString: string): number {
+    const date = new Date(isoString);
+    date.setUTCHours(0, 0, 0, 0);
+    return Math.floor(date.getTime() / 1000);
+  }
+
+  /**
+   * Write encrypted subscription blob to blockchain
+   */
+  async storeEncryptedSubscription(
+    userId: string,
+    subscriptionId: string,
+    encryptedBlob: string,
+  ): Promise<{ success: boolean; transactionHash?: string; error?: string }> {
+    try {
+      const { data: dbLog, error: dbError } = await supabase
+        .from("blockchain_logs")
+        .insert({
+          user_id: userId,
+          event_type: "subscription_encrypted_store",
+          event_data: { subscriptionId, encryptedBlob, correlationId: getRequestId(), timestamp: new Date().toISOString() },
+          status: "pending",
+        })
+        .select()
+        .single();
+
+      if (dbError) {
+        logger.error("Failed to log encrypted sub event to database:", dbError);
+        throw dbError;
+      }
+
+      if (this.contractAddress) {
+        try {
+          const result = await this.invokeContractWithRetry(
+            "store_encrypted_subscription",
+            [
+              xdr.ScVal.scvString(subscriptionId),
+              xdr.ScVal.scvString(encryptedBlob),
+            ]
+          );
+
+          if (result.transactionHash) {
+            await supabase
+              .from("blockchain_logs")
+              .update({
+                transaction_hash: result.transactionHash,
+                status: "confirmed",
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", dbLog.id);
+          }
+
+          return { success: true, transactionHash: result.transactionHash };
+        } catch (blockchainError) {
+          const errorMessage = blockchainError instanceof Error ? blockchainError.message : String(blockchainError);
+          logger.error("Failed to write encrypted sub to blockchain:", errorMessage);
+
+          await supabase
+            .from("blockchain_logs")
+            .update({
+              status: "failed",
+              error_message: errorMessage,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", dbLog.id);
+
+          return { success: true, error: errorMessage };
+        }
+      }
+
+      return { success: true };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error("Failed to store encrypted subscription:", errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  /**
+   * Read encrypted subscription blob from blockchain
+   */
+  async getEncryptedSubscription(
+    userId: string,
+    subscriptionId: string,
+  ): Promise<string> {
+    if (!this.contractAddress) {
+      throw new Error("SOROBAN_CONTRACT_ADDRESS not configured");
+    }
+
+    const rpc = new SorobanRpc.Server(this.rpcUrl);
+    const contract = new Contract(this.contractAddress);
+    
+    const secret = await secretProvider.getSecret("STELLAR_SECRET_KEY");
+    if (!secret) {
+      throw new Error("STELLAR_SECRET_KEY not configured");
+    }
+    const sourceKeypair = Keypair.fromSecret(secret);
+    const account = await rpc.getAccount(sourceKeypair.publicKey());
+    
+    const tx = new TransactionBuilder(account, {
+      fee: "100",
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        contract.call(
+          "get_encrypted_subscription",
+          xdr.ScVal.scvString(subscriptionId)
+        )
+      )
+      .setTimeout(30)
+      .build();
+
+    const sim = await rpc.simulateTransaction(tx);
+    if (SorobanRpc.Api.isSimulationError(sim)) {
+      throw new Error(`Simulation failed: ${sim.error}`);
+    }
+
+    if (sim.result && sim.result.retval) {
+      const val = sim.result.retval;
+      if (val.switch() === xdr.ScValType.scvString()) {
+        return val.str().toString();
+      }
+      if (val.switch() === xdr.ScValType.scvVoid()) {
+        return "";
+      }
+    }
+    
+    return "";
   }
 
   private previewArgs(args: xdr.ScVal[]): string {
@@ -574,6 +1180,191 @@ export class BlockchainService {
       );
     } catch {
       return "[unavailable]";
+    }
+  }
+
+  /**
+   * TTL Management: Extend a contract entry's time-to-live.
+   * Idempotent: calling with the same newTtl multiple times is safe.
+   */
+  async extendTTL(
+    entryKey: string,
+    newTtl: number,
+    workerKeyPath?: string,
+  ): Promise<{ txHash: string; sequence: number }> {
+    const startTime = Date.now();
+    const { TTL_CONTRACT_HELPERS } = require("../blockchain/ttl-contract-helpers");
+
+    logger.info("Extending entry TTL", {
+      entryKey: entryKey.substring(0, 16),
+      newTtl,
+    });
+
+    try {
+      // Validate inputs
+      if (!TTL_CONTRACT_HELPERS.validateEntryKey(entryKey)) {
+        throw new Error(`Invalid entry key: ${entryKey}`);
+      }
+      if (!TTL_CONTRACT_HELPERS.validateTTL(newTtl)) {
+        throw new Error(`Invalid TTL value: ${newTtl}`);
+      }
+
+      const args = TTL_CONTRACT_HELPERS.prepareExtendTTLArgs(entryKey, newTtl);
+      const result = await this.invokeContractWithRetry(
+        TTL_CONTRACT_HELPERS.TTL_CONTRACT_METHODS.extendTTL,
+        args,
+      );
+
+      logger.info("TTL extended successfully", {
+        entryKey: entryKey.substring(0, 16),
+        txHash: result.transactionHash,
+        durationMs: Date.now() - startTime,
+      });
+
+      return {
+        txHash: result.transactionHash,
+        sequence: 0, // Sequence extracted from confirmed transaction if needed
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error("Failed to extend TTL", {
+        entryKey: entryKey.substring(0, 16),
+        error: errorMessage,
+        durationMs: Date.now() - startTime,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * TTL Management: Read the current TTL of a contract entry.
+   * Returns the ledger sequence at which the entry expires.
+   */
+  async getTTL(entryKey: string): Promise<number> {
+    const startTime = Date.now();
+    const { TTL_CONTRACT_HELPERS } = require("../blockchain/ttl-contract-helpers");
+
+    logger.info("Reading entry TTL", {
+      entryKey: entryKey.substring(0, 16),
+    });
+
+    try {
+      // Validate input
+      if (!TTL_CONTRACT_HELPERS.validateEntryKey(entryKey)) {
+        throw new Error(`Invalid entry key: ${entryKey}`);
+      }
+
+      const args = TTL_CONTRACT_HELPERS.prepareGetTTLArgs(entryKey);
+
+      if (!this.contractAddress) {
+        throw new Error("SOROBAN_CONTRACT_ADDRESS not configured");
+      }
+
+      const rpc = new SorobanRpc.Server(this.rpcUrl);
+      const contract = new Contract(this.contractAddress);
+
+      const secret = await secretProvider.getSecret("STELLAR_SECRET_KEY");
+      if (!secret) {
+        throw new Error("STELLAR_SECRET_KEY not configured");
+      }
+
+      const sourceKeypair = Keypair.fromSecret(secret);
+      const account = await rpc.getAccount(sourceKeypair.publicKey());
+
+      const tx = new TransactionBuilder(account, {
+        fee: "100",
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(contract.call(TTL_CONTRACT_HELPERS.TTL_CONTRACT_METHODS.getTTL, ...args))
+        .setTimeout(30)
+        .build();
+
+      const sim = await rpc.simulateTransaction(tx);
+      if (SorobanRpc.Api.isSimulationError(sim)) {
+        throw new Error(`Simulation failed: ${sim.error}`);
+      }
+
+      if (sim.result && sim.result.retval) {
+        const ttlValue = TTL_CONTRACT_HELPERS.extractU64FromScVal(sim.result.retval);
+        logger.info("TTL read successfully", {
+          entryKey: entryKey.substring(0, 16),
+          ttl: ttlValue,
+          durationMs: Date.now() - startTime,
+        });
+        return ttlValue;
+      }
+
+      throw new Error("Failed to extract TTL from contract response");
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error("Failed to read TTL", {
+        entryKey: entryKey.substring(0, 16),
+        error: errorMessage,
+        durationMs: Date.now() - startTime,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * TTL Management: Mark an entry as archived with a snapshot hash proof.
+   * Records immutable proof of archival on-chain.
+   */
+  async markArchived(
+    entryKey: string,
+    snapshotHash: string,
+    operatorId: string,
+  ): Promise<{ txHash: string; sequence: number }> {
+    const startTime = Date.now();
+    const { TTL_CONTRACT_HELPERS } = require("../blockchain/ttl-contract-helpers");
+
+    logger.info("Marking entry as archived", {
+      entryKey: entryKey.substring(0, 16),
+      snapshotHash: snapshotHash.substring(0, 16),
+      operatorId,
+    });
+
+    try {
+      // Validate inputs
+      if (!TTL_CONTRACT_HELPERS.validateEntryKey(entryKey)) {
+        throw new Error(`Invalid entry key: ${entryKey}`);
+      }
+      if (!TTL_CONTRACT_HELPERS.validateSnapshotHash(snapshotHash)) {
+        throw new Error(`Invalid snapshot hash: ${snapshotHash}`);
+      }
+
+      const args = TTL_CONTRACT_HELPERS.prepareMarkArchivedArgs(
+        entryKey,
+        snapshotHash,
+      );
+      const result = await this.invokeContractWithRetry(
+        TTL_CONTRACT_HELPERS.TTL_CONTRACT_METHODS.markArchived,
+        args,
+      );
+
+      logger.info("Entry marked as archived successfully", {
+        entryKey: entryKey.substring(0, 16),
+        txHash: result.transactionHash,
+        operatorId,
+        durationMs: Date.now() - startTime,
+      });
+
+      return {
+        txHash: result.transactionHash,
+        sequence: 0, // Sequence extracted from confirmed transaction if needed
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error("Failed to mark entry as archived", {
+        entryKey: entryKey.substring(0, 16),
+        error: errorMessage,
+        operatorId,
+        durationMs: Date.now() - startTime,
+      });
+      throw error;
     }
   }
 }

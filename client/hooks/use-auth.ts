@@ -110,7 +110,20 @@ export function useAuth() {
     setShowOnboarding(true);
     setIsAuthenticated(true); // Set authenticated so they can proceed after onboarding
   }, []);
-
+  const handleSignOut = useCallback(async () => {
+    setAuthLoading(true);
+    try {
+      // Attempt to tell the backend to clear the HTTP-only cookie
+      await apiPost("/api/auth/logout", {});
+    } catch (error) {
+      console.debug("Logout API call failed or endpoint missing:", error);
+    } finally {
+      // Reset the local UI state regardless of API success
+      setIsAuthenticated(false);
+      setShowLandingAuth(true);
+      setAuthLoading(false);
+    }
+  }, []);
   // Listen for storage events (when OAuth success sets sessionStorage)
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
@@ -147,6 +160,7 @@ export function useAuth() {
     setShowOnboarding,
     handleLogin,
     handleSignup,
+    handleSignOut,
     refreshAuth,
   };
 }

@@ -14,13 +14,19 @@ import {
 } from "lucide-react"
 import { useEffect, useRef } from "react"
 import { EmptyState } from "@/components/ui/empty-state"
+import type {
+  Notification,
+  DetectedSubscription,
+  NotificationActionHandler,
+  NotificationType,
+} from "@/lib/notification-types"
 
 interface NotificationsPanelProps {
-  notifications: any[]
-  onMarkRead: (id: number) => void
+  notifications: Notification[]
+  onMarkRead: (id: Notification["id"]) => void
   onClose: () => void
-  onAddSubscription: (subscription: any) => void
-  onResolveAction: (action: string, data: any) => void
+  onAddSubscription: (subscription: DetectedSubscription) => void
+  onResolveAction: NotificationActionHandler
   darkMode?: boolean
 }
 
@@ -39,7 +45,7 @@ export default function NotificationsPanel({
     closeButtonRef.current?.focus()
   }, [])
 
-  const getNotificationIcon = (type: string) => {
+  const getNotificationIcon = (type: NotificationType) => {
     const iconClass = "w-5 h-5"
     switch (type) {
       case "duplicate":
