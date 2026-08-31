@@ -9,3 +9,5 @@ Issue2:#1064 Hardening: standardize pause coverage across all mutating entrypoin
 subscription_renewal checks is_paused on some entrypoints but not all mutating fns; audit every contract for consistent pause gating.
 
 Acceptance: Matrix of entrypoint × pause-gated; missing gates added; tests.
+
+
