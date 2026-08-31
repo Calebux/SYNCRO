@@ -3,6 +3,7 @@ import { webhookService } from '../services/webhook-service';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/rbac';
 import { validate } from '../middleware/validate';
+import { idempotent } from '../middleware/idempotency';
 import logger from '../config/logger';
 import { createWebhookSchema, updateWebhookSchema } from '../schemas/webhook';
 import { uuidParamSchema } from '../schemas/common';
@@ -180,7 +181,7 @@ router.get('/dead-letter/stats', async (req: AuthenticatedRequest, res: Response
  * POST /api/webhooks/:deliveryId/dead-letter/replay
  * Create a replay request for a dead-letter delivery
  */
-router.post('/:deliveryId/dead-letter/replay', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/:deliveryId/dead-letter/replay', idempotent(), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { idempotency_key } = req.body;
     const deliveryId = Array.isArray(req.params.deliveryId) ? req.params.deliveryId[0] : req.params.deliveryId;
@@ -222,7 +223,7 @@ router.get('/:deliveryId/dead-letter/replay-history', async (req: AuthenticatedR
  * POST /api/webhooks/dead-letter/replay/:replayId/execute
  * Execute a replay for a dead-letter delivery
  */
-router.post('/dead-letter/replay/:replayId/execute', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/dead-letter/replay/:replayId/execute', idempotent(), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const replayId = Array.isArray(req.params.replayId) ? req.params.replayId[0] : req.params.replayId;
     const result = await webhookService.executeDeadLetterReplay(req.user!.id, replayId);
