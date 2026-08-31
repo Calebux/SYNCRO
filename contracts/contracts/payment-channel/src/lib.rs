@@ -4,12 +4,21 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env,
 };
 
+/// Time (in seconds) a contract must be continuously paused before any party
+/// may invoke the escape-hatch withdrawal for their own balance.
+///
+/// 7 days — compile-time constant, not admin-settable.
+pub const ESCAPE_HATCH_GRACE_PERIOD_SECS: u64 = 7 * 24 * 60 * 60; // 604 800 s
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
     Admin,
     Channel(u64),
     ChannelCount,
+    /// Unix timestamp at which the contract entered the paused state.
+    /// Key absent ⟹ contract is not paused.
+    PausedSince,
 }
 
 #[contracttype]
@@ -58,6 +67,8 @@ pub enum Error {
     DisputeWindowExpired = 9,
     StaleState = 10,
     CounterOverflow = 11,
+    ContractNotPaused = 12,
+    GracePeriodNotElapsed = 13,
 }
 
 #[contract]
@@ -399,6 +410,117 @@ impl PaymentChannelContract {
         env.storage()
             .persistent()
             .get(&DataKey::Channel(channel_id))
+    }
+
+    // ── Pause / escape-hatch ─────────────────────────────────────────────────
+
+    /// Pause the contract.  Only the admin may call this.
+    pub fn pause(env: Env) -> Result<(), Error> {
+        Self::require_admin(&env)?;
+        if !env.storage().instance().has(&DataKey::PausedSince) {
+            let now = env.ledger().timestamp();
+            env.storage()
+                .instance()
+                .set(&DataKey::PausedSince, &now);
+        }
+        Ok(())
+    }
+
+    /// Unpause the contract.  Only the admin may call this.
+    pub fn unpause(env: Env) -> Result<(), Error> {
+        Self::require_admin(&env)?;
+        env.storage().instance().remove(&DataKey::PausedSince);
+        Ok(())
+    }
+
+    /// Returns `true` when the contract is currently paused.
+    pub fn is_paused(env: Env) -> bool {
+        env.storage().instance().has(&DataKey::PausedSince)
+    }
+
+    /// Emergency escape-hatch — allows a channel party to recover their own
+    /// balance (according to the latest on-chain state) after the contract has
+    /// been paused for longer than `ESCAPE_HATCH_GRACE_PERIOD_SECS`.
+    ///
+    /// Both depositor (balance_a) and counterparty (balance_b) may call this
+    /// independently; each receives only their own recorded balance.
+    ///
+    /// # Security
+    /// * Contract MUST be paused.
+    /// * Grace period MUST have elapsed — prevents griefing via momentary pause.
+    /// * Caller MUST be one of the two channel parties.
+    /// * The channel is marked `Closed` before any token transfer (reentrancy
+    ///   guard via state check on re-entry).
+    /// * A caller can only withdraw their own share; attempting to call twice
+    ///   or as the wrong party returns `InvalidState` / `Unauthorized`.
+    pub fn escape_hatch_withdraw(env: Env, channel_id: u64, caller: Address) -> Result<(), Error> {
+        // ── 1. Contract must be paused ───────────────────────────
+        let paused_since: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::PausedSince)
+            .ok_or(Error::ContractNotPaused)?;
+
+        // ── 2. Grace period must have elapsed ────────────────────
+        let now = env.ledger().timestamp();
+        let elapsed = now.saturating_sub(paused_since);
+        if elapsed < ESCAPE_HATCH_GRACE_PERIOD_SECS {
+            return Err(Error::GracePeriodNotElapsed);
+        }
+
+        // ── 3. Load channel ───────────────────────────────────────
+        let mut channel: PaymentChannel = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Channel(channel_id))
+            .ok_or(Error::ChannelNotFound)?;
+
+        // Already closed — no funds remain
+        if channel.state == ChannelState::Closed {
+            return Err(Error::InvalidState);
+        }
+
+        // ── 4. Caller must be a party ────────────────────────────
+        if caller != channel.depositor && caller != channel.counterparty {
+            return Err(Error::Unauthorized);
+        }
+        caller.require_auth();
+
+        // ── 5. Determine this caller's share ─────────────────────
+        let amount = if caller == channel.depositor {
+            channel.balance_a
+        } else {
+            channel.balance_b
+        };
+
+        // ── 6. EFFECTS — mark closed and zero out the withdrawn side ─
+        // Setting the channel to Closed prevents double-withdrawal by
+        // either party or a re-entrant call.  Both balances are zeroed
+        // so a subsequent call (by the other party) also sees Closed.
+        channel.state = ChannelState::Closed;
+        channel.balance_a = 0;
+        channel.balance_b = 0;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Channel(channel_id), &channel);
+
+        // ── 7. Emit distinct escape-hatch event ──────────────────
+        env.events().publish(
+            (symbol_short!("escape"), symbol_short!("channel")),
+            (channel_id, caller.clone(), amount, paused_since),
+        );
+
+        // ── 8. INTERACTIONS — transfer funds ─────────────────────
+        if amount > 0 {
+            let token_client = token::Client::new(&env, &channel.token);
+            token_client.transfer(
+                &env.current_contract_address(),
+                &caller,
+                &amount,
+            );
+        }
+
+        Ok(())
     }
 }
 
