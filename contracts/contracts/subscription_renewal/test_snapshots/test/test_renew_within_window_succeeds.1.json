@@ -30,9 +30,6 @@
                 },
                 {
                   "i128": "1000"
-                },
-                {
-                  "u64": "902"
                 }
               ]
             }
@@ -51,7 +48,7 @@
               "function_name": "set_window",
               "args": [
                 {
-                  "u64": "902"
+                  "u64": "1"
                 },
                 {
                   "u64": "1000"
@@ -76,7 +73,7 @@
               "function_name": "approve_renewal",
               "args": [
                 {
-                  "u64": "902"
+                  "u64": "1"
                 },
                 {
                   "u64": "1"
@@ -120,7 +117,7 @@
                     "symbol": "Approval"
                   },
                   {
-                    "u64": "902"
+                    "u64": "1"
                   },
                   {
                     "u64": "1"
@@ -151,7 +148,7 @@
                       "symbol": "sub_id"
                     },
                     "val": {
-                      "u64": "902"
+                      "u64": "1"
                     }
                   },
                   {
@@ -183,7 +180,7 @@
                     "symbol": "Cycle"
                   },
                   {
-                    "u64": "902"
+                    "u64": "1"
                   }
                 ]
               },
@@ -210,7 +207,7 @@
                     "symbol": "Lifecycle"
                   },
                   {
-                    "u64": "902"
+                    "u64": "1"
                   }
                 ]
               },
@@ -270,7 +267,7 @@
                     "symbol": "Subscription"
                   },
                   {
-                    "u64": "902"
+                    "u64": "1"
                   }
                 ]
               },
@@ -401,7 +398,7 @@
                     "symbol": "Window"
                   },
                   {
-                    "u64": "902"
+                    "u64": "1"
                   }
                 ]
               },
@@ -447,6 +444,14 @@
                     "wasm": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
                   },
                   "storage": [
+                    {
+                      "key": {
+                        "symbol": "SubscriptionCounter"
+                      },
+                      "val": {
+                        "u64": "1"
+                      }
+                    },
                     {
                       "key": {
                         "vec": [
@@ -584,7 +589,7 @@
                     "symbol": "sub_id"
                   },
                   "val": {
-                    "u64": "902"
+                    "u64": "1"
                   }
                 }
               ]
@@ -621,7 +626,7 @@
                     "symbol": "sub_id"
                   },
                   "val": {
-                    "u64": "902"
+                    "u64": "1"
                   }
                 },
                 {
@@ -666,7 +671,60 @@
                     "symbol": "sub_id"
                   },
                   "val": {
-                    "u64": "902"
+                    "u64": "1"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "subscription_renewed"
+              }
+            ],
+            "data": {
+              "map": [
+                {
+                  "key": {
+                    "symbol": "amount"
+                  },
+                  "val": {
+                    "i128": "500"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "merchant"
+                  },
+                  "val": {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "owner"
+                  },
+                  "val": {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "sub_id"
+                  },
+                  "val": {
+                    "u64": "1"
                   }
                 }
               ]

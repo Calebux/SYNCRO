@@ -50,7 +50,7 @@
               "function_name": "process_payment",
               "args": [
                 {
-                  "u32": 1
+                  "u64": "1"
                 },
                 {
                   "i128": "90"
@@ -77,7 +77,7 @@
               "function_name": "process_payment",
               "args": [
                 {
-                  "u32": 1
+                  "u64": "1"
                 },
                 {
                   "i128": "50"
@@ -177,7 +177,7 @@
                     "symbol": "CardMeta"
                   },
                   {
-                    "u32": 1
+                    "u64": "1"
                   }
                 ]
               },
@@ -237,7 +237,7 @@
                       "symbol": "id"
                     },
                     "val": {
-                      "u32": 1
+                      "u64": "1"
                     }
                   },
                   {
@@ -277,7 +277,7 @@
                     "symbol": "SpendCounters"
                   },
                   {
-                    "u32": 1
+                    "u64": "1"
                   }
                 ]
               },
@@ -341,26 +341,18 @@
                   "storage": [
                     {
                       "key": {
-                        "vec": [
-                          {
-                            "symbol": "CardCounter"
-                          }
-                        ]
+                        "symbol": "CardCounter"
                       },
                       "val": {
-                        "u32": 1
+                        "u64": "1"
                       }
                     },
                     {
                       "key": {
-                        "vec": [
-                          {
-                            "symbol": "TxCounter"
-                          }
-                        ]
+                        "symbol": "TxCounter"
                       },
                       "val": {
-                        "u32": 2
+                        "u64": "2"
                       }
                     }
                   ]

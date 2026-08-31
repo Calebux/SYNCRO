@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+  "common",
   "contracts",
   "contracts/subscription_renewal",
   "contracts/subscription_logging",

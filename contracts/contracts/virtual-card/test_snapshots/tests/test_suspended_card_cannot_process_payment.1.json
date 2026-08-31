@@ -50,7 +50,7 @@
               "function_name": "suspend_card",
               "args": [
                 {
-                  "u32": 1
+                  "u64": "1"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
@@ -127,7 +127,7 @@
                     "symbol": "CardMeta"
                   },
                   {
-                    "u32": 1
+                    "u64": "1"
                   }
                 ]
               },
@@ -187,7 +187,7 @@
                       "symbol": "id"
                     },
                     "val": {
-                      "u32": 1
+                      "u64": "1"
                     }
                   },
                   {
@@ -227,7 +227,7 @@
                     "symbol": "SpendCounters"
                   },
                   {
-                    "u32": 1
+                    "u64": "1"
                   }
                 ]
               },
@@ -291,14 +291,10 @@
                   "storage": [
                     {
                       "key": {
-                        "vec": [
-                          {
-                            "symbol": "CardCounter"
-                          }
-                        ]
+                        "symbol": "CardCounter"
                       },
                       "val": {
-                        "u32": 1
+                        "u64": "1"
                       }
                     }
                   ]
