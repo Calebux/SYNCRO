@@ -1,0 +1,28 @@
+# SYNCRO local development Docker Compose stack
+#
+# Status: planned — service definitions are not yet checked in.
+# Today, local development uses the Supabase CLI (`supabase start`) for Postgres
+# and Auth; see CONTRIBUTING.md. Redis, Soroban RPC, and SMTP are configured via
+# backend/.env and client/.env.example (external or locally installed services).
+#
+# Intended services for this file (Epic H — local/CI stack):
+#
+# postgres:
+#   Supabase-compatible Postgres for migrations (supabase/migrations/) and seed
+#   data (supabase/seed.sql). Replaces hosted Supabase credentials in dev/CI.
+#
+# redis:
+#   Local cache/queue dependency for rate limiting, renewal jobs, and other
+#   Redis-backed backend features (REDIS_URL, RATE_LIMIT_REDIS_URL).
+#
+# soroban-rpc:
+#   Local Stellar/Soroban RPC endpoint for contract reads/writes in development
+#   and integration tests (SOROBAN_RPC_URL, STELLAR_NETWORK_URL).
+#
+# mailpit (or similar):
+#   SMTP mail catcher for development email delivery; replaces real SMTP_* creds.
+#
+# Tor hidden-service deployment (separate concern):
+#   deploy/tor/docker-compose.tor.yml — dashboard behind a .onion address.
+#
+services: {}
