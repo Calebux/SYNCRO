@@ -1,5 +1,5 @@
 import sodium from 'libsodium-wrappers';
-import { StealthKeyConverter } from '../crypto/stealth-keys';
+import { StealthKeyConverter } from '../logic/crypto/stealth-keys';
 
 function hexToU8(hex: string): Uint8Array {
   const clean = hex.replace(/\s+/g, '');

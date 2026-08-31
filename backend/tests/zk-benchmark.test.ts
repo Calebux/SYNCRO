@@ -3,7 +3,7 @@ import { performance } from 'node:perf_hooks';
 import {
   createPaymentCommitment,
   verifyPaymentCommitment,
-} from '../../shared/src/crypto/payment-commitment';
+} from '@syncro/shared/crypto';
 
 describe('ZK proof benchmark smoke', () => {
   it('generates and verifies proofs within 5s p95 budget (n=30)', () => {

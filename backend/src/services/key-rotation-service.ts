@@ -1,5 +1,5 @@
 import { supabase } from '../config/database';
-import { deriveKeyHex } from '../../../shared/src/crypto/key-derivation';
+import { deriveKeyHex } from '@syncro/shared/crypto';
 import logger from '../config/logger';
 
 export interface KeyRotationInitResult {

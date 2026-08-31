@@ -8,8 +8,7 @@ import logger from "../config/logger";
 import { DatabaseTransaction } from "../utils/transaction";
 import SERVICE_CATEGORIES from "./service-categories";
 import { validateCursor, encodeCursor } from "../utils/pagination";
-import { deriveStealthAddress } from "../../../shared/src/crypto/stealth-derive";
-import { encryptMetadata } from "../../../shared/src/crypto/metadata-encryption";
+import { deriveStealthAddress, encryptMetadata } from "@syncro/shared/crypto";
 import type {
   Subscription,
   SubscriptionCreateInput,

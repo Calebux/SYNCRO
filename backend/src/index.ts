@@ -5,7 +5,7 @@ import * as Sentry from '@sentry/node';
 import { nodeProfilingIntegration } from '@sentry/profiling-node';
 import swaggerUi from 'swagger-ui-express';
 import * as bip39 from 'bip39';
-import { resolveRelease, resolveEnvironment, scrubEvent, SENTRY_TAG_KEYS } from '../../shared/src/sentry';
+import { resolveRelease, resolveEnvironment, scrubEvent, SENTRY_TAG_KEYS } from '@syncro/shared/sentry';
 import { validateEnv, env } from './config/env';
 
 // Load environment variables before importing other modules

@@ -5,7 +5,7 @@
  * shared/soroban-contract-interfaces.ts in integration tests.
  */
 
-import type { SorobanArgKind } from '../../../shared/src/soroban-contract-interfaces';
+import type { SorobanArgKind } from '@syncro/shared/soroban-contract-interfaces';
 
 export type SubscriptionOperation =
   | 'create'

@@ -6,7 +6,7 @@ import { env } from '../config/env';
 import {
   PRIVACY_FLAGS_CONFIG,
   PrivacyFlag,
-} from '../../../shared/src/blockchain-flags';
+} from '@syncro/shared';
 
 export class PrivacyService {
   /**

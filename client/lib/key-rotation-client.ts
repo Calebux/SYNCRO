@@ -4,7 +4,7 @@ import {
   decryptSubscriptionMetadata,
   type SubscriptionMetadata,
   type EncryptedData,
-} from '../../shared/src/crypto/metadata-encryption';
+} from '@syncro/shared/crypto';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -116,10 +116,10 @@ export class KeyRotationClient {
 
       if (subscription.encrypted_price) {
         const encryptedPrice = JSON.parse(subscription.encrypted_price) as EncryptedData;
-        const plaintext = await import('../../shared/src/crypto/metadata-encryption').then((m) =>
+        const plaintext = await import('@syncro/shared/crypto').then((m) =>
           m.decryptMetadata(encryptedPrice, oldEncryptionKey)
         );
-        const reEncrypted = await import('../../shared/src/crypto/metadata-encryption').then((m) =>
+        const reEncrypted = await import('@syncro/shared/crypto').then((m) =>
           m.encryptMetadata(plaintext, newEncryptionKey)
         );
         reEncryptedData.encrypted_price = JSON.stringify(reEncrypted);
@@ -127,10 +127,10 @@ export class KeyRotationClient {
 
       if (subscription.encrypted_category) {
         const encryptedCategory = JSON.parse(subscription.encrypted_category) as EncryptedData;
-        const plaintext = await import('../../shared/src/crypto/metadata-encryption').then((m) =>
+        const plaintext = await import('@syncro/shared/crypto').then((m) =>
           m.decryptMetadata(encryptedCategory, oldEncryptionKey)
         );
-        const reEncrypted = await import('../../shared/src/crypto/metadata-encryption').then((m) =>
+        const reEncrypted = await import('@syncro/shared/crypto').then((m) =>
           m.encryptMetadata(plaintext, newEncryptionKey)
         );
         reEncryptedData.encrypted_category = JSON.stringify(reEncrypted);
@@ -138,10 +138,10 @@ export class KeyRotationClient {
 
       if (subscription.encrypted_renewal_url) {
         const encryptedUrl = JSON.parse(subscription.encrypted_renewal_url) as EncryptedData;
-        const plaintext = await import('../../shared/src/crypto/metadata-encryption').then((m) =>
+        const plaintext = await import('@syncro/shared/crypto').then((m) =>
           m.decryptMetadata(encryptedUrl, oldEncryptionKey)
         );
-        const reEncrypted = await import('../../shared/src/crypto/metadata-encryption').then((m) =>
+        const reEncrypted = await import('@syncro/shared/crypto').then((m) =>
           m.encryptMetadata(plaintext, newEncryptionKey)
         );
         reEncryptedData.encrypted_renewal_url = JSON.stringify(reEncrypted);

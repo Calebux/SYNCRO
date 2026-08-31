@@ -17,8 +17,8 @@ import {
   verifyMerkleProof,
   createPaymentCommitment,
   verifyPaymentCommitment,
-} from '../crypto';
-import type { SubscriptionMetadata, EncryptedData } from '../crypto';
+} from '../logic/crypto';
+import type { SubscriptionMetadata, EncryptedData } from '../logic/crypto';
 
 describe('Crypto Utilities', () => {
   describe('Key Derivation (HKDF)', () => {
