@@ -20,6 +20,7 @@ This index catalogs all documentation in the SYNCRO repository, organized by cat
 - [introduction.mdx](introduction.mdx) - Project introduction
 - [environment-variables.md](environment-variables.md) - Environment configuration
 - [ENVIRONMENT.md](ENVIRONMENT.md) - Environment setup guide
+- [v2-rewrite-plan.md](v2-rewrite-plan.md) - v2 rewrite wave sequencing and live status index
 
 ### API & Integration
 - [api-reference/](api-reference/) - API documentation
