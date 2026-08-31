@@ -11,6 +11,8 @@ on:
     branches: [main]
     paths: 
       - "contracts/**"
+  schedule:
+    - cron: "0 2 * * *"
 
 permissions:
   contents: read
@@ -64,7 +66,10 @@ jobs:
             - name: Run contract fuzz tests
               run: cargo test -p subscription_renewal -p escrow -p payment-channel -p virtual-card fuzz_
               env:
-                  PROPTYST_CASES: "8"
+                  PROPTEST_CASES: "8"
+                  # Fixed seed so the property/state-machine tests are
+                  # reproducible on every PR run.
+                  PROPTEST_SEED: "0x1234567890abcdef1234567890abcdef"
 
             - name: Verify backend contract interface alignment
               working-directory: ..
@@ -97,3 +102,29 @@ jobs:
             - name: Verify mainnet promotion gates
               working-directory: ..
               run: npx -y tsx deploy/verify-gates.ts
+
+    fuzz-nightly:
+        runs-on: ubuntu-latest
+        if: github.event_name == 'schedule'
+        timeout-minutes: 60
+        defaults:
+            run:
+              working-directory: contracts
+
+        steps:
+            - uses: actions/checkout@v7
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: contracts
+
+            - name: Run extended property/fuzz runs
+              run: cargo test -p subscription_renewal -p escrow -p payment-channel -p virtual-card fuzz_
+              env:
+                  # Extended case count for the nightly soak (PR runs use a
+                  # small, fixed count via PROPTEST_CASES=8 + PROPTEST_SEED).
+                  PROPTEST_CASES: "512"
