@@ -1,99 +1,297 @@
 name: Contracts
 
-name: Contracts
-
 on:
   push:
     branches: [main]
-    paths: 
+    # Also run on tags so the build-manifest is published with the release
+    tags:
+      - "v*"
+    paths:
       - "contracts/**"
   pull_request:
     branches: [main]
-    paths: 
+    paths:
       - "contracts/**"
 
 permissions:
   contents: read
 
 concurrency:
-  group: contracts-$ {{ github.workflow }}-$ {{ github.ref }}
+  group: contracts-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-    build-contracts:
-        runs-on: ubuntu-latest
-        timeout-minutes: 20
-        defaults:
-            run:
-              working-directory: contracts
+  build-contracts:
+    name: Build & verify contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: contracts
 
-        steps:
-            - uses: actions/checkout@v7
+    steps:
+      - uses: actions/checkout@v4
 
-            - name: Install Rust
-              uses: dtolnay/rust-toolchain@stable
-              with:
-                  targets: wasm32-unknown-unknown
+      # rust-toolchain.toml in contracts/ is automatically picked up by rustup.
+      # We install it explicitly here so the cache key matches the pinned version.
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          # Read the channel straight from the toolchain file so this step
+          # stays in sync automatically when the file is updated.
+          toolchain: "1.81.0"
+          targets: wasm32-unknown-unknown
 
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@v2
-              with:
-                  workspaces: contracts
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: contracts
 
-            - name: Build contracts
-              run: cargo build --target wasm32-unknown-unknown --release
+      # ── First build ─────────────────────────────────────────────────────────
+      - name: Build contracts (pass 1)
+        run: |
+          cargo build --target wasm32-unknown-unknown --release --locked
+          # Capture first-pass hashes immediately after the build
+          mkdir -p /tmp/wasm-pass1
+          cp target/wasm32-unknown-unknown/release/*.wasm /tmp/wasm-pass1/
 
-            - name: Check snapshot layout (no flat snapshots outside test/ subdir)
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  # Snapshots must live under {contract}/test_snapshots/test/
-                  # Flat JSON files directly in test_snapshots/ indicate a misconfigured Env path
-                  flat=$(find contracts -maxdepth 2 -name "test_snapshots" -type d \
-                    | xargs -I {} find {} -maxdepth 1 -name "*.json" 2>/dev/null || true)
-                  if [ -n "$flat" ]; then
-                    echo "ERROR: snapshot files found directly in test_snapshots/ (missing test/ subdir):"
-                    echo "$flat"
-                    exit 1
-                  fi
-                  echo "Snapshot layout OK"
+      # ── Emit hashes after first build ───────────────────────────────────────
+      - name: Compute and print WASM hashes (pass 1)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "### WASM sha256 hashes (pass 1)" | tee /tmp/wasm-hashes-pass1.txt
+          echo "" | tee -a /tmp/wasm-hashes-pass1.txt
+          for f in /tmp/wasm-pass1/*.wasm; do
+            name=$(basename "$f")
+            hash=$(sha256sum "$f" | awk '{print $1}')
+            echo "${hash}  ${name}" | tee -a /tmp/wasm-hashes-pass1.txt
+          done
 
-            - name: Run contract tests
-              run: cargo test
+      # ── Second build (determinism check) ────────────────────────────────────
+      # Clean only the WASM output — keep the incremental cache so this doesn't
+      # double the build time — then rebuild from source.
+      - name: Wipe WASM output directory
+        run: rm -f target/wasm32-unknown-unknown/release/*.wasm
 
-            - name: Run contract fuzz tests
-              run: cargo test -p subscription_renewal -p escrow -p payment-channel -p virtual-card fuzz_
-              env:
-                  PROPTYST_CASES: "8"
+      - name: Build contracts (pass 2)
+        run: cargo build --target wasm32-unknown-unknown --release --locked
 
-            - name: Verify backend contract interface alignment
-              working-directory: ..
-              run: |
-                npm ci --legacy-peer-deps --ignore-scripts --workspace=@syncro/backend --workspace=@syncro/shared 2>/dev/null || npm install --legacy-peer-deps --ignore-scripts --workspace=@syncro/backend --workspace=@syncro/shared
-                npm test -w @syncro/backend -- tests/integration/contract-interface-drift.test.ts
+      - name: Compute WASM hashes (pass 2)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "### WASM sha256 hashes (pass 2)" | tee /tmp/wasm-hashes-pass2.txt
+          echo "" | tee -a /tmp/wasm-hashes-pass2.txt
+          for f in target/wasm32-unknown-unknown/release/*.wasm; do
+            name=$(basename "$f")
+            hash=$(sha256sum "$f" | awk '{print $1}')
+            echo "${hash}  ${name}" | tee -a /tmp/wasm-hashes-pass2.txt
+          done
 
-            - name: Check contract sizes
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  shopt -s nullglob
+      # ── Determinism gate ────────────────────────────────────────────────────
+      - name: Verify determinism (pass 1 == pass 2)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mismatch=0
+          while IFS= read -r line; do
+            [[ -z "$line" || "$line" == \#* ]] && continue
+            hash1=$(echo "$line" | awk '{print $1}')
+            name=$(echo  "$line" | awk '{print $2}')
+            hash2=$(grep -F "  ${name}" /tmp/wasm-hashes-pass2.txt | awk '{print $1}' || true)
+            if [ "$hash1" != "$hash2" ]; then
+              echo "DETERMINISM FAILURE: ${name}"
+              echo "  pass-1: ${hash1}"
+              echo "  pass-2: ${hash2}"
+              mismatch=1
+            fi
+          done < /tmp/wasm-hashes-pass1.txt
 
-                  wasm_files=(target/wasm32-unknown-unknown/release/*.wasm)
+          if [ "$mismatch" -eq 1 ]; then
+            echo ""
+            echo "ERROR: Non-deterministic build detected. The toolchain, compiler flags,"
+            echo "or source may embed timestamps or random seeds. Investigate before merging."
+            exit 1
+          fi
+          echo "All WASM artifacts are deterministic."
 
-                  if [ ${#wasm_files[@]_ -} eq 0 ]; then
-                    echo "No WASM artifacts found in target/wasm32-unknown-unknown/release"
-                    exit 1
-                  fi
+      # ── Publish hashes to job summary ───────────────────────────────────────
+      - name: Write hashes to job summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "## WASM Build Hashes"
+            echo ""
+            echo "Commit: \`${{ github.sha }}\`"
+            echo "Toolchain: \`$(rustc --version)\`"
+            echo ""
+            echo "| Contract | sha256 |"
+            echo "| --- | --- |"
+            while IFS= read -r line; do
+              [[ -z "$line" || "$line" == \#* ]] && continue
+              hash=$(echo "$line" | awk '{print $1}')
+              name=$(echo "$line" | awk '{print $2}')
+              echo "| \`${name}\` | \`${hash}\` |"
+            done < /tmp/wasm-hashes-pass1.txt
+          } >> "$GITHUB_STEP_SUMMARY"
 
-                  for wasm in "${wasm_files[@]_ }"; do
-                    size=$wc -c < "$wasm"
-                    echo "$wasm: ${size} bytes"
+      # ── Upload WASM + hash files as artifacts ────────────────────────────────
+      - name: Upload WASM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-contracts-${{ github.sha }}
+          path: |
+            contracts/target/wasm32-unknown-unknown/release/*.wasm
+          retention-days: 90
 
-                    if [ "$size" -gt 65536 ]; then
-                      echo "WARNING: Contract exceeds 64KB limit"
-                    fi
-                  done
+      - name: Upload hash file
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-hashes-${{ github.sha }}
+          path: /tmp/wasm-hashes-pass1.txt
+          retention-days: 90
 
-            - name: Verify mainnet promotion gates
-              working-directory: ..
-              run: npx -y tsx deploy/verify-gates.ts
+      # ── Tests ────────────────────────────────────────────────────────────────
+      - name: Check snapshot layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          flat=$(find contracts -maxdepth 2 -name "test_snapshots" -type d \
+            | xargs -I {} find {} -maxdepth 1 -name "*.json" 2>/dev/null || true)
+          if [ -n "$flat" ]; then
+            echo "ERROR: snapshot files found directly in test_snapshots/ (missing test/ subdir):"
+            echo "$flat"
+            exit 1
+          fi
+          echo "Snapshot layout OK"
+
+      - name: Run contract tests
+        run: cargo test --locked
+
+      - name: Run contract fuzz tests
+        run: >-
+          cargo test --locked
+          -p subscription_renewal -p escrow -p payment-channel -p virtual-card
+          fuzz_
+        env:
+          PROPTEST_CASES: "8"
+
+      - name: Verify backend contract interface alignment
+        working-directory: ..
+        run: |
+          npm ci --legacy-peer-deps --ignore-scripts \
+            --workspace=@syncro/backend \
+            --workspace=@syncro/shared \
+            2>/dev/null \
+            || npm install --legacy-peer-deps --ignore-scripts \
+               --workspace=@syncro/backend \
+               --workspace=@syncro/shared
+          npm test -w @syncro/backend -- tests/integration/contract-interface-drift.test.ts
+
+      - name: Check contract sizes
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          wasm_files=(target/wasm32-unknown-unknown/release/*.wasm)
+          if [ ${#wasm_files[@]} -eq 0 ]; then
+            echo "No WASM artifacts found in target/wasm32-unknown-unknown/release"
+            exit 1
+          fi
+          for wasm in "${wasm_files[@]}"; do
+            size=$(wc -c < "$wasm")
+            echo "$wasm: ${size} bytes"
+            if [ "$size" -gt 65536 ]; then
+              echo "WARNING: Contract exceeds 64KB limit"
+            fi
+          done
+
+      - name: Verify mainnet promotion gates
+        working-directory: ..
+        run: npx -y tsx deploy/verify-gates.ts
+
+  # ── Tagged-release manifest publication ─────────────────────────────────────
+  publish-manifest:
+    name: Publish build-manifest.json
+    needs: build-contracts
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to push the manifest file
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Fetch full history so we can push back to the tag
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download hash file
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-hashes-${{ github.sha }}
+          path: /tmp
+
+      - name: Download WASM artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-contracts-${{ github.sha }}
+          path: /tmp/wasm
+
+      - name: Generate build-manifest.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit="${{ github.sha }}"
+          tag="${{ github.ref_name }}"
+          toolchain=$(cat contracts/rust-toolchain.toml | grep 'channel' | sed 's/.*= *"\(.*\)"/\1/')
+          timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Build the contracts array from the hash file
+          contracts_json="[]"
+          while IFS= read -r line; do
+            [[ -z "$line" || "$line" == \#* ]] && continue
+            hash=$(echo "$line" | awk '{print $1}')
+            name=$(echo  "$line" | awk '{print $2}')
+            # Strip .wasm extension for the contract name
+            contract_name="${name%.wasm}"
+            contracts_json=$(echo "$contracts_json" | \
+              jq --arg n "$contract_name" --arg h "$hash" --arg f "$name" \
+                '. + [{"contract": $n, "wasm_file": $f, "sha256": $h}]')
+          done < /tmp/wasm-hashes-pass1.txt
+
+          jq -n \
+            --arg commit  "$commit" \
+            --arg tag      "$tag" \
+            --arg toolchain "$toolchain" \
+            --arg timestamp "$timestamp" \
+            --argjson contracts "$contracts_json" \
+            '{
+              "$schema": "https://syncro.dev/schemas/build-manifest.json",
+              "version": $tag,
+              "commit":  $commit,
+              "built_at": $timestamp,
+              "rust_toolchain": $toolchain,
+              "contracts": $contracts
+            }' > contracts/build-manifest.json
+
+          echo "Generated build-manifest.json:"
+          cat contracts/build-manifest.json
+
+      - name: Commit and push build-manifest.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add contracts/build-manifest.json
+          if git diff --cached --quiet; then
+            echo "No changes to build-manifest.json"
+          else
+            git commit -m "chore(contracts): update build-manifest.json for ${{ github.ref_name }} [skip ci]"
+            # Push to the tag's branch (main) rather than the tag itself
+            git push origin HEAD:main
+          fi
