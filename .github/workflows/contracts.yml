@@ -1,7 +1,5 @@
 name: Contracts
 
-name: Contracts
-
 on:
   push:
     branches: [main]
@@ -18,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: contracts-$ {{ github.workflow }}-$ {{ github.ref }}
+  group: contracts-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -85,13 +83,13 @@ jobs:
 
                   wasm_files=(target/wasm32-unknown-unknown/release/*.wasm)
 
-                  if [ ${#wasm_files[@]_ -} eq 0 ]; then
+                  if [ "${#wasm_files[@]}" -eq 0 ]; then
                     echo "No WASM artifacts found in target/wasm32-unknown-unknown/release"
                     exit 1
                   fi
 
-                  for wasm in "${wasm_files[@]_ }"; do
-                    size=$wc -c < "$wasm"
+                  for wasm in "${wasm_files[@]}"; do
+                    size=$(wc -c < "$wasm")
                     echo "$wasm: ${size} bytes"
 
                     if [ "$size" -gt 65536 ]; then
