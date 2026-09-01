@@ -301,7 +301,7 @@ proptest! {
     /// Card IDs must be sequentially assigned starting from 1 and must never
     /// skip or repeat.
     #[test]
-    fn fuzz_card_id_sequential(n in 1u32..=10u32) {
+    fn fuzz_card_id_sequential(n in 1u64..=10u64) {
         let (env, user) = fuzz_setup();
         let client = register_client(&env);
 

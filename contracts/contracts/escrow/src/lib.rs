@@ -2,7 +2,7 @@
 
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype,
-    panic_with_error, token, Address, Env, String,
+    panic_with_error, token, vec, Address, Env, String, Symbol, Vec,
 };
 use syncro_common;
 
@@ -12,7 +12,6 @@ use syncro_common;
 #[derive(Clone)]
 enum DataKey {
     Escrow(u64),
-    EscrowCount,
     Admin,
 }
 
@@ -276,14 +275,10 @@ impl EscrowContract {
         }
         Self::validate_arbiter_set(&env, &arbiter_set, &payer, &payee);
 
-        let count: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::EscrowCount)
-            .unwrap_or(0);
-        let escrow_id = count
-            .checked_add(1)
-            .unwrap_or_else(|| panic_with_error!(&env, EscrowError::CounterOverflow));
+        let escrow_id =
+            syncro_common::next_counter_id(&env, Symbol::new(&env, "EscrowCount"))
+                .map_err(|_| EscrowError::CounterOverflow)
+                .unwrap_or_else(|e| panic_with_error!(&env, e));
 
         let now = env.ledger().timestamp();
         if expires_at <= now {
@@ -313,9 +308,6 @@ impl EscrowContract {
         env.storage()
             .persistent()
             .set(&DataKey::Escrow(escrow_id), &escrow);
-        env.storage()
-            .instance()
-            .set(&DataKey::EscrowCount, &escrow_id);
 
         EscrowCreated {
             escrow_id,
@@ -615,7 +607,7 @@ impl EscrowContract {
         if escrow.state != EscrowState::Disputed {
             panic_with_error!(&env, EscrowError::NotInDispute);
         }
-        if escrow.arbiter_approvals.len() as u32 < escrow.arbiter_set.threshold {
+        if (escrow.arbiter_approvals.len() as u32) < escrow.arbiter_set.threshold {
             panic_with_error!(&env, EscrowError::Unauthorized);
         }
 
@@ -715,7 +707,7 @@ impl EscrowContract {
     pub fn get_escrow_count(env: Env) -> u64 {
         env.storage()
             .instance()
-            .get(&DataKey::EscrowCount)
+            .get(&Symbol::new(&env, "EscrowCount"))
             .unwrap_or(0)
     }
 

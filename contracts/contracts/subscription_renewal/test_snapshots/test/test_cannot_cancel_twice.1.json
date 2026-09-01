@@ -30,9 +30,6 @@
                 },
                 {
                   "i128": "1000"
-                },
-                {
-                  "u64": "601"
                 }
               ]
             }
@@ -51,7 +48,7 @@
               "function_name": "cancel_sub",
               "args": [
                 {
-                  "u64": "601"
+                  "u64": "1"
                 }
               ]
             }
@@ -85,7 +82,7 @@
                     "symbol": "Lifecycle"
                   },
                   {
-                    "u64": "601"
+                    "u64": "1"
                   }
                 ]
               },
@@ -145,7 +142,7 @@
                     "symbol": "Subscription"
                   },
                   {
-                    "u64": "601"
+                    "u64": "1"
                   }
                 ]
               },
@@ -251,6 +248,14 @@
                     "wasm": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
                   },
                   "storage": [
+                    {
+                      "key": {
+                        "symbol": "SubscriptionCounter"
+                      },
+                      "val": {
+                        "u64": "1"
+                      }
+                    },
                     {
                       "key": {
                         "vec": [

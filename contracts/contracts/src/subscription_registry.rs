@@ -34,7 +34,7 @@ pub trait VirtualCardInterface {
         expires_at: u64,
         daily_limit: i128,
         monthly_limit: i128,
-    ) -> u32;
+    ) -> u64;
 }
 
 /// Lifecycle status for a registered subscription.

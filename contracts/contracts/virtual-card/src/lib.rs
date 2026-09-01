@@ -40,13 +40,9 @@ pub enum VirtualCardError {
     MerchantBlocked = 15,
 }
 
-// ── Card ID u32 Upgrade Path Consideration ─────────────────────────────────────
-// `card_id` is currently typed as `u32` (max ~4.29B unique card IDs).
-// For high-volume multi-tenant scaling where issuance may exceed 4,294,967,295 cards:
-// 1. Upgrade contract state key from `DataKey::CardCounter` (u32) to `u64`.
-// 2. Migration: Retain `CardMeta(u32)` for backwards-compatible lookups while
-//    introducing `CardMetaV2(u64)` (or expanding `CardMeta(u64)`) in next WASM build.
-// 3. Off-chain SDK & DB mappings should parse card IDs as `u64`/`BigInt` to prevent truncation.
+// ── Card ID type ─────────────────────────────────────────────────────────────
+// `card_id` is typed as `u64`, issued by the shared counter helper in the
+// `syncro-common` crate, so the identifier space is effectively unbounded.
 
 // ============================================================================
 // Storage Keys
@@ -55,14 +51,12 @@ pub enum VirtualCardError {
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
-    CardCounter,
-    CardMeta(u32),
-    CardBalance(u32),
-    CardStatus(u32),
-    TxCounter,
-    SpendCounters(u32),
-    MerchantAllowlist(u32),
-    MerchantBlocklist(u32),
+    CardMeta(u64),
+    CardBalance(u64),
+    CardStatus(u64),
+    SpendCounters(u64),
+    MerchantAllowlist(u64),
+    MerchantBlocklist(u64),
 }
 
 // ============================================================================
@@ -93,7 +87,7 @@ pub enum CardType {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct Card {
-    pub id: u32,
+    pub id: u64,
     pub holder: Address,
     pub card_type: CardType,
     pub balance: i128,
@@ -133,7 +127,7 @@ impl VirtualCardContract {
     }
 
     /// Load spend counters and lazily reset buckets that have rolled over.
-    fn load_spend_counters(env: &Env, card_id: u32) -> SpendCounters {
+    fn load_spend_counters(env: &Env, card_id: u64) -> SpendCounters {
         let ts = env.ledger().timestamp();
         let current_daily = Self::daily_bucket(ts);
         let current_monthly = Self::monthly_bucket(ts);
@@ -161,7 +155,7 @@ impl VirtualCardContract {
         counters
     }
 
-    fn save_spend_counters(env: &Env, card_id: u32, counters: &SpendCounters) {
+    fn save_spend_counters(env: &Env, card_id: u64, counters: &SpendCounters) {
         env.storage()
             .persistent()
             .set(&DataKey::SpendCounters(card_id), counters);
@@ -178,7 +172,7 @@ impl VirtualCardContract {
 
     fn check_merchant(
         env: &Env,
-        card_id: u32,
+        card_id: u64,
         merchant: &String,
     ) -> Result<(), VirtualCardError> {
         let blocklist: Vec<String> = env
@@ -207,7 +201,7 @@ impl VirtualCardContract {
     fn check_velocity_limits(
         env: &Env,
         card: &Card,
-        card_id: u32,
+        card_id: u64,
         amount: i128,
     ) -> Result<SpendCounters, VirtualCardError> {
         let mut counters = Self::load_spend_counters(env, card_id);
@@ -281,7 +275,7 @@ impl VirtualCardContract {
         expires_at: u64,
         daily_limit: i128,
         monthly_limit: i128,
-    ) -> Result<u32, VirtualCardError> {
+    ) -> Result<u64, VirtualCardError> {
         user.require_auth();
 
         if amount < 0 || daily_limit < 0 || monthly_limit < 0 {
@@ -293,17 +287,11 @@ impl VirtualCardContract {
             return Err(VirtualCardError::Expired);
         }
 
-        let count: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::CardCounter)
-            .unwrap_or(0_u32);
-        let card_id = count
-            .checked_add(1)
-            .ok_or(VirtualCardError::CounterOverflow)?;
-        env.storage()
-            .instance()
-            .set(&DataKey::CardCounter, &card_id);
+        let card_id = syncro_common::next_counter_id(
+            &env,
+            soroban_sdk::Symbol::new(&env, "CardCounter"),
+        )
+        .map_err(|_| VirtualCardError::CounterOverflow)?;
 
         let card = Card {
             id: card_id,
@@ -342,10 +330,10 @@ impl VirtualCardContract {
     /// Auto-closes the card when balance reaches zero.
     pub fn process_payment(
         env: Env,
-        card_id: u32,
+        card_id: u64,
         amount: i128,
         merchant: String,
-    ) -> Result<u32, VirtualCardError> {
+    ) -> Result<u64, VirtualCardError> {
         if amount <= 0 {
             return Err(VirtualCardError::InvalidInput);
         }
@@ -390,15 +378,11 @@ impl VirtualCardContract {
             .set(&DataKey::CardMeta(card_id), &card);
         Self::save_spend_counters(&env, card_id, &counters);
 
-        let tx_count: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::TxCounter)
-            .unwrap_or(0_u32);
-        let tx_id = tx_count
-            .checked_add(1)
-            .ok_or(VirtualCardError::CounterOverflow)?;
-        env.storage().instance().set(&DataKey::TxCounter, &tx_id);
+        let tx_id = syncro_common::next_counter_id(
+            &env,
+            soroban_sdk::Symbol::new(&env, "TxCounter"),
+        )
+        .map_err(|_| VirtualCardError::CounterOverflow)?;
 
         env.events().publish(
             (
@@ -415,7 +399,7 @@ impl VirtualCardContract {
     /// When non-empty, only listed merchants may charge the card.
     pub fn set_merchant_allowlist(
         env: Env,
-        card_id: u32,
+        card_id: u64,
         caller: Address,
         merchants: Vec<String>,
     ) -> Result<(), VirtualCardError> {
@@ -441,7 +425,7 @@ impl VirtualCardContract {
     /// Set the merchant blocklist for a card. Only the card holder may call this.
     pub fn set_merchant_blocklist(
         env: Env,
-        card_id: u32,
+        card_id: u64,
         caller: Address,
         merchants: Vec<String>,
     ) -> Result<(), VirtualCardError> {
@@ -465,7 +449,7 @@ impl VirtualCardContract {
     }
 
     /// Remaining spend allowance for the current rolling day window.
-    pub fn remaining_daily(env: Env, card_id: u32) -> Result<i128, VirtualCardError> {
+    pub fn remaining_daily(env: Env, card_id: u64) -> Result<i128, VirtualCardError> {
         let card: Card = env
             .storage()
             .persistent()
@@ -480,7 +464,7 @@ impl VirtualCardContract {
     }
 
     /// Remaining spend allowance for the current rolling 30-day window.
-    pub fn remaining_monthly(env: Env, card_id: u32) -> Result<i128, VirtualCardError> {
+    pub fn remaining_monthly(env: Env, card_id: u64) -> Result<i128, VirtualCardError> {
         let card: Card = env
             .storage()
             .persistent()
@@ -495,13 +479,13 @@ impl VirtualCardContract {
     }
 
     /// Returns the current balance of a card.
-    pub fn get_balance(env: Env, card_id: u32) -> i128 {
+    pub fn get_balance(env: Env, card_id: u64) -> i128 {
         let card: Option<Card> = env.storage().persistent().get(&DataKey::CardMeta(card_id));
         card.map(|c| c.balance).unwrap_or(0)
     }
 
     /// Returns the full card metadata.
-    pub fn get_card(env: Env, card_id: u32) -> Result<Card, VirtualCardError> {
+    pub fn get_card(env: Env, card_id: u64) -> Result<Card, VirtualCardError> {
         env.storage()
             .persistent()
             .get(&DataKey::CardMeta(card_id))
@@ -509,7 +493,7 @@ impl VirtualCardContract {
     }
 
     /// Activate a pending card. Caller must be the card holder.
-    pub fn activate_card(env: Env, card_id: u32, caller: Address) -> Result<(), VirtualCardError> {
+    pub fn activate_card(env: Env, card_id: u64, caller: Address) -> Result<(), VirtualCardError> {
         caller.require_auth();
 
         let mut card: Card = env
@@ -542,7 +526,7 @@ impl VirtualCardContract {
     /// Deactivate / permanently close a card. Caller must be the card holder.
     pub fn deactivate_card(
         env: Env,
-        card_id: u32,
+        card_id: u64,
         caller: Address,
         reason: String,
     ) -> Result<(), VirtualCardError> {
@@ -575,7 +559,7 @@ impl VirtualCardContract {
     }
 
     /// Temporarily suspend a card. Caller must be the card holder.
-    pub fn suspend_card(env: Env, card_id: u32, caller: Address) -> Result<(), VirtualCardError> {
+    pub fn suspend_card(env: Env, card_id: u64, caller: Address) -> Result<(), VirtualCardError> {
         caller.require_auth();
 
         let mut card: Card = env
@@ -606,13 +590,13 @@ impl VirtualCardContract {
     }
 
     /// Verify that `claimant` is the holder of `card_id`.
-    pub fn verify_ownership(env: Env, card_id: u32, claimant: Address) -> bool {
+    pub fn verify_ownership(env: Env, card_id: u64, claimant: Address) -> bool {
         let card: Option<Card> = env.storage().persistent().get(&DataKey::CardMeta(card_id));
         card.map(|c| c.holder == claimant).unwrap_or(false)
     }
 
     /// Check whether a card is eligible to process a given `amount`.
-    pub fn can_transact(env: Env, card_id: u32, amount: i128) -> bool {
+    pub fn can_transact(env: Env, card_id: u64, amount: i128) -> bool {
         let card: Option<Card> = env.storage().persistent().get(&DataKey::CardMeta(card_id));
         match card {
             None => false,
@@ -663,7 +647,7 @@ mod tests {
         client: &VirtualCardContractClient,
         user: &Address,
         amount: i128,
-    ) -> u32 {
+    ) -> u64 {
         client.issue_card(user, &amount, &CardType::Standard, &0_u64, &0_i128, &0_i128)
     }
 
