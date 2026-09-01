@@ -121,6 +121,61 @@ jobs:
             }'
 
   # ──────────────────────────────────────────────
+  # 6. Publish SBOM & build provenance attestation
+  # ──────────────────────────────────────────────
+  publish-sbom-and-provenance:
+    name: Publish SBOM & Provenance
+    needs: promote-to-production
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom.cyclonedx.json
+
+      - name: Stage release artifacts
+        run: |
+          mkdir -p release-artifacts
+          cp sbom.cyclonedx.json release-artifacts/
+          printf 'commit=%s\nref=%s\nrun_id=%s\n' \
+            "${{ github.sha }}" \
+            "${{ github.ref }}" \
+            "${{ github.run_id }}" > release-artifacts/deployment-metadata.txt
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: release-artifacts
+          output-path: attestation.jsonl
+
+      - name: Verify provenance attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh attestation verify release-artifacts/sbom.cyclonedx.json --owner "${{ github.repository_owner }}"
+          gh attestation verify release-artifacts/deployment-metadata.txt --owner "${{ github.repository_owner }}"
+
+      - name: Publish SBOM and attestation as release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: deploy-${{ github.sha }}
+          name: Deploy ${{ github.sha }}
+          files: |
+            release-artifacts/sbom.cyclonedx.json
+            release-artifacts/deployment-metadata.txt
+            attestation.jsonl
+          update_release: true
+          fail_on_unmatched_files: true
+
+  # ──────────────────────────────────────────────
   # 3. Smoke tests on the blue (inactive) slot
   # ──────────────────────────────────────────────
   smoke-test-blue-slot:
