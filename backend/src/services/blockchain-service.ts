@@ -4,6 +4,8 @@ import { env } from "../config/env";
 import { NotificationPayload } from "../types/reminder";
 import { getRequestId } from "../middleware/requestContext";
 import crypto from 'crypto';
+import fs from "fs";
+import path from "path";
 import { calculateBackoffDelay } from "../utils/retry";
 import {
   Contract,
@@ -196,10 +198,9 @@ export class BlockchainService {
   private readonly policy = EXTERNAL_SERVICE_POLICIES.stellar_rpc;
 
   constructor() {
-    this.contractAddress = env.SOROBAN_CONTRACT_ADDRESS || null;
-
     const flags = getBlockchainFlags();
     const network = resolveStellarNetwork();
+    this.contractAddress = this.resolveContractAddress(network);
 
     // Resolve RPC URL — never silently fall back to testnet in production.
     const configuredRpc = env.SOROBAN_RPC_URL;
@@ -255,6 +256,41 @@ export class BlockchainService {
         this.redisClient = null;
       }
     }
+  }
+
+  private resolveContractAddress(network: string): string | null {
+    if (env.SOROBAN_CONTRACT_ADDRESS) {
+      logger.warn(
+        "[blockchain] SOROBAN_CONTRACT_ADDRESS env override is in use; overriding deployment manifest.",
+      );
+      return env.SOROBAN_CONTRACT_ADDRESS;
+    }
+
+    try {
+      const manifestPath = path.resolve(
+        __dirname,
+        "../../../contracts/deployments",
+        `${network}.json`,
+      );
+      const manifest = JSON.parse(
+        fs.readFileSync(manifestPath, "utf8"),
+      ) as { contracts?: { syncro?: { address?: string } } };
+      const address = manifest.contracts?.syncro?.address;
+      if (address) {
+        logger.info(
+          "[blockchain] Resolved contract address from deployment manifest",
+          { network },
+        );
+        return address;
+      }
+    } catch (err) {
+      logger.warn(
+        `[blockchain] Could not read deployment manifest for network "${network}".`,
+        err,
+      );
+    }
+
+    return null;
   }
 
   /**
