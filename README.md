@@ -142,6 +142,12 @@ For detailed information about directory ownership, responsibilities, and triage
 - [CODEOWNERS](./.github/CODEOWNERS) - GitHub enforcement
 - [Code Review Process](./docs/code-review-process.md) - Review procedures
 
+## v2 Rewrite
+
+SYNCRO is undergoing a staged v2 rewrite tracked in [#1323](https://github.com/Calebux/SYNCRO/issues/1323).
+See [docs/v2-rewrite-plan.md](./docs/v2-rewrite-plan.md) for the wave sequencing, prerequisites,
+exit criteria, and a live status summary across all v2 issues.
+
 ## Environment Variables
 
 Each package declares its environment variables in a manifest that drives both
