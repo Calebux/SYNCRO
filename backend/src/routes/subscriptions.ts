@@ -3,6 +3,7 @@ import { z } from 'zod';
 import multer from 'multer';
 import { subscriptionService } from '../services/subscription-service';
 import { idempotencyService } from '../services/idempotency';
+import { idempotent } from '../middleware/idempotency';
 import { giftCardService } from '../services/gift-card-service';
 import { notificationPreferenceService } from '../services/notification-preference-service';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth';
@@ -159,14 +160,12 @@ router.post('/encrypt-all', async (req: AuthenticatedRequest, res: Response) => 
  * POST /api/subscriptions
  * Create new subscription with idempotency support
  */
-router.post('/', async (req: AuthenticatedRequest, res: Response) => {
-  const idempotencyKey = req.headers['idempotency-key'] as string;
+router.post('/', idempotent({ required: false }), async (req: AuthenticatedRequest, res: Response) => {
   const validatedData = validateRequest(createSubscriptionSchema, req.body);
 
   const result = await subscriptionService.createSubscription(
     req.user!.id,
     validatedData,
-    idempotencyKey
   );
 
   const statusCode = result.syncStatus === 'failed' ? 207 : 201;
