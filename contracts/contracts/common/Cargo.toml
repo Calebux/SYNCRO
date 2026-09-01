@@ -1,16 +1,14 @@
 [package]
-name = "allowance"
-version = "0.0.1"
+name = "syncro-common"
+version = "0.1.0"
 edition = "2021"
 publish = false
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["rlib"]
 
 [dependencies]
 soroban-sdk = { workspace = true }
-syncro-common = { path = "../common" }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
-proptest = { workspace = true }

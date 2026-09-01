@@ -1,0 +1,1113 @@
+{
+  "version": "1.0",
+  "description": "Global error code registry for SYNCRO contracts (#1225)",
+  "generated_at": "2026-08-30",
+  "total_contracts": 22,
+  "code_range": "1000-3199",
+  "errors": {
+    "1200": {
+      "contract": "virtual-card",
+      "variant": "CardNotFound",
+      "global_code": 1200,
+      "local_code": 1
+    },
+    "1201": {
+      "contract": "virtual-card",
+      "variant": "Unauthorized",
+      "global_code": 1201,
+      "local_code": 2
+    },
+    "1202": {
+      "contract": "virtual-card",
+      "variant": "CardInactive",
+      "global_code": 1202,
+      "local_code": 3
+    },
+    "1203": {
+      "contract": "virtual-card",
+      "variant": "InvalidCardState",
+      "global_code": 1203,
+      "local_code": 4
+    },
+    "1204": {
+      "contract": "virtual-card",
+      "variant": "LimitExceeded",
+      "global_code": 1204,
+      "local_code": 5
+    },
+    "1205": {
+      "contract": "virtual-card",
+      "variant": "InvalidInput",
+      "global_code": 1205,
+      "local_code": 6
+    },
+    "1206": {
+      "contract": "virtual-card",
+      "variant": "Expired",
+      "global_code": 1206,
+      "local_code": 7
+    },
+    "1207": {
+      "contract": "virtual-card",
+      "variant": "DuplicateCard",
+      "global_code": 1207,
+      "local_code": 8
+    },
+    "1208": {
+      "contract": "virtual-card",
+      "variant": "NotSupported",
+      "global_code": 1208,
+      "local_code": 9
+    },
+    "1209": {
+      "contract": "virtual-card",
+      "variant": "InternalError",
+      "global_code": 1209,
+      "local_code": 10
+    },
+    "1210": {
+      "contract": "virtual-card",
+      "variant": "CounterOverflow",
+      "global_code": 1210,
+      "local_code": 11
+    },
+    "1300": {
+      "contract": "escrow",
+      "variant": "AlreadyInitialized",
+      "global_code": 1300,
+      "local_code": 1
+    },
+    "1301": {
+      "contract": "escrow",
+      "variant": "NotInitialized",
+      "global_code": 1301,
+      "local_code": 2
+    },
+    "1302": {
+      "contract": "escrow",
+      "variant": "EscrowNotFound",
+      "global_code": 1302,
+      "local_code": 3
+    },
+    "1303": {
+      "contract": "escrow",
+      "variant": "Unauthorized",
+      "global_code": 1303,
+      "local_code": 4
+    },
+    "1304": {
+      "contract": "escrow",
+      "variant": "InvalidAmount",
+      "global_code": 1304,
+      "local_code": 5
+    },
+    "1305": {
+      "contract": "escrow",
+      "variant": "InsufficientDeposit",
+      "global_code": 1305,
+      "local_code": 6
+    },
+    "1306": {
+      "contract": "escrow",
+      "variant": "AlreadyFunded",
+      "global_code": 1306,
+      "local_code": 7
+    },
+    "1307": {
+      "contract": "escrow",
+      "variant": "NotFunded",
+      "global_code": 1307,
+      "local_code": 8
+    },
+    "1308": {
+      "contract": "escrow",
+      "variant": "AlreadyApproved",
+      "global_code": 1308,
+      "local_code": 9
+    },
+    "1309": {
+      "contract": "escrow",
+      "variant": "NotApproved",
+      "global_code": 1309,
+      "local_code": 10
+    },
+    "1310": {
+      "contract": "escrow",
+      "variant": "AlreadyReleased",
+      "global_code": 1310,
+      "local_code": 11
+    },
+    "1311": {
+      "contract": "escrow",
+      "variant": "AlreadyRefunded",
+      "global_code": 1311,
+      "local_code": 12
+    },
+    "1312": {
+      "contract": "escrow",
+      "variant": "Expired",
+      "global_code": 1312,
+      "local_code": 13
+    },
+    "1313": {
+      "contract": "escrow",
+      "variant": "NotExpired",
+      "global_code": 1313,
+      "local_code": 14
+    },
+    "1314": {
+      "contract": "escrow",
+      "variant": "InDispute",
+      "global_code": 1314,
+      "local_code": 15
+    },
+    "1315": {
+      "contract": "escrow",
+      "variant": "NotInDispute",
+      "global_code": 1315,
+      "local_code": 16
+    },
+    "1316": {
+      "contract": "escrow",
+      "variant": "SelfAsCounterparty",
+      "global_code": 1316,
+      "local_code": 17
+    },
+    "1317": {
+      "contract": "escrow",
+      "variant": "SameArbiterAsParty",
+      "global_code": 1317,
+      "local_code": 18
+    },
+    "1318": {
+      "contract": "escrow",
+      "variant": "InvalidBasisPoints",
+      "global_code": 1318,
+      "local_code": 19
+    },
+    "1319": {
+      "contract": "escrow",
+      "variant": "ArithmeticOverflow",
+      "global_code": 1319,
+      "local_code": 20
+    },
+    "1320": {
+      "contract": "escrow",
+      "variant": "CounterOverflow",
+      "global_code": 1320,
+      "local_code": 21
+    },
+    "1400": {
+      "contract": "agent-registry",
+      "variant": "AlreadyInitialized",
+      "global_code": 1400,
+      "local_code": 1
+    },
+    "1401": {
+      "contract": "agent-registry",
+      "variant": "NotInitialized",
+      "global_code": 1401,
+      "local_code": 2
+    },
+    "1402": {
+      "contract": "agent-registry",
+      "variant": "Unauthorized",
+      "global_code": 1402,
+      "local_code": 3
+    },
+    "1403": {
+      "contract": "agent-registry",
+      "variant": "InvalidScope",
+      "global_code": 1403,
+      "local_code": 4
+    },
+    "1404": {
+      "contract": "agent-registry",
+      "variant": "NoPendingAdmin",
+      "global_code": 1404,
+      "local_code": 5
+    },
+    "1405": {
+      "contract": "agent-registry",
+      "variant": "NotPendingAdmin",
+      "global_code": 1405,
+      "local_code": 6
+    },
+    "1600": {
+      "contract": "payment-channel",
+      "variant": "AlreadyInitialized",
+      "global_code": 1600,
+      "local_code": 1
+    },
+    "1601": {
+      "contract": "payment-channel",
+      "variant": "NotInitialized",
+      "global_code": 1601,
+      "local_code": 2
+    },
+    "1602": {
+      "contract": "payment-channel",
+      "variant": "Unauthorized",
+      "global_code": 1602,
+      "local_code": 3
+    },
+    "1603": {
+      "contract": "payment-channel",
+      "variant": "ChannelNotFound",
+      "global_code": 1603,
+      "local_code": 4
+    },
+    "1604": {
+      "contract": "payment-channel",
+      "variant": "InvalidAmount",
+      "global_code": 1604,
+      "local_code": 5
+    },
+    "1605": {
+      "contract": "payment-channel",
+      "variant": "InvalidState",
+      "global_code": 1605,
+      "local_code": 6
+    },
+    "1606": {
+      "contract": "payment-channel",
+      "variant": "InsufficientBalance",
+      "global_code": 1606,
+      "local_code": 7
+    },
+    "1607": {
+      "contract": "payment-channel",
+      "variant": "DisputeWindowActive",
+      "global_code": 1607,
+      "local_code": 8
+    },
+    "1608": {
+      "contract": "payment-channel",
+      "variant": "DisputeWindowExpired",
+      "global_code": 1608,
+      "local_code": 9
+    },
+    "1609": {
+      "contract": "payment-channel",
+      "variant": "StaleState",
+      "global_code": 1609,
+      "local_code": 10
+    },
+    "1610": {
+      "contract": "payment-channel",
+      "variant": "CounterOverflow",
+      "global_code": 1610,
+      "local_code": 11
+    },
+    "1700": {
+      "contract": "contract-upgrade",
+      "variant": "NotInitialized",
+      "global_code": 1700,
+      "local_code": 1
+    },
+    "1701": {
+      "contract": "contract-upgrade",
+      "variant": "AlreadyInitialized",
+      "global_code": 1701,
+      "local_code": 2
+    },
+    "1702": {
+      "contract": "contract-upgrade",
+      "variant": "Unauthorized",
+      "global_code": 1702,
+      "local_code": 3
+    },
+    "1703": {
+      "contract": "contract-upgrade",
+      "variant": "NotGuardian",
+      "global_code": 1703,
+      "local_code": 4
+    },
+    "1704": {
+      "contract": "contract-upgrade",
+      "variant": "ProposalNotFound",
+      "global_code": 1704,
+      "local_code": 5
+    },
+    "1705": {
+      "contract": "contract-upgrade",
+      "variant": "InvalidStateTransition",
+      "global_code": 1705,
+      "local_code": 6
+    },
+    "1706": {
+      "contract": "contract-upgrade",
+      "variant": "AlreadyApprovedBySigner",
+      "global_code": 1706,
+      "local_code": 7
+    },
+    "1707": {
+      "contract": "contract-upgrade",
+      "variant": "DuplicateGuardian",
+      "global_code": 1707,
+      "local_code": 8
+    },
+    "1708": {
+      "contract": "contract-upgrade",
+      "variant": "GuardianSetFull",
+      "global_code": 1708,
+      "local_code": 9
+    },
+    "1709": {
+      "contract": "contract-upgrade",
+      "variant": "UpgradesPaused",
+      "global_code": 1709,
+      "local_code": 10
+    },
+    "1710": {
+      "contract": "contract-upgrade",
+      "variant": "TimelockNotExpired",
+      "global_code": 1710,
+      "local_code": 11
+    },
+    "1711": {
+      "contract": "contract-upgrade",
+      "variant": "NoRollbackAvailable",
+      "global_code": 1711,
+      "local_code": 12
+    },
+    "1712": {
+      "contract": "contract-upgrade",
+      "variant": "RollbackAlreadyConsumed",
+      "global_code": 1712,
+      "local_code": 13
+    },
+    "1713": {
+      "contract": "contract-upgrade",
+      "variant": "InvalidArgument",
+      "global_code": 1713,
+      "local_code": 14
+    },
+    "1800": {
+      "contract": "allowance",
+      "variant": "AlreadyInitialized",
+      "global_code": 1800,
+      "local_code": 1
+    },
+    "1801": {
+      "contract": "allowance",
+      "variant": "NotInitialized",
+      "global_code": 1801,
+      "local_code": 2
+    },
+    "1802": {
+      "contract": "allowance",
+      "variant": "AllowanceNotFound",
+      "global_code": 1802,
+      "local_code": 3
+    },
+    "1803": {
+      "contract": "allowance",
+      "variant": "Unauthorized",
+      "global_code": 1803,
+      "local_code": 4
+    },
+    "1804": {
+      "contract": "allowance",
+      "variant": "InvalidAmount",
+      "global_code": 1804,
+      "local_code": 5
+    },
+    "1805": {
+      "contract": "allowance",
+      "variant": "InvalidCap",
+      "global_code": 1805,
+      "local_code": 6
+    },
+    "1806": {
+      "contract": "allowance",
+      "variant": "InvalidPeriod",
+      "global_code": 1806,
+      "local_code": 7
+    },
+    "1807": {
+      "contract": "allowance",
+      "variant": "SelfAsMerchant",
+      "global_code": 1807,
+      "local_code": 8
+    },
+    "1808": {
+      "contract": "allowance",
+      "variant": "NotActive",
+      "global_code": 1808,
+      "local_code": 9
+    },
+    "1809": {
+      "contract": "allowance",
+      "variant": "PeriodCapExceeded",
+      "global_code": 1809,
+      "local_code": 10
+    },
+    "1810": {
+      "contract": "allowance",
+      "variant": "AbsoluteCapExceeded",
+      "global_code": 1810,
+      "local_code": 11
+    },
+    "1811": {
+      "contract": "allowance",
+      "variant": "CapBelowSpent",
+      "global_code": 1811,
+      "local_code": 12
+    },
+    "1812": {
+      "contract": "allowance",
+      "variant": "Paused",
+      "global_code": 1812,
+      "local_code": 13
+    },
+    "1900": {
+      "contract": "payment-adapter",
+      "variant": "AlreadyInitialized",
+      "global_code": 1900,
+      "local_code": 1
+    },
+    "1901": {
+      "contract": "payment-adapter",
+      "variant": "NotInitialized",
+      "global_code": 1901,
+      "local_code": 2
+    },
+    "1902": {
+      "contract": "payment-adapter",
+      "variant": "Unauthorized",
+      "global_code": 1902,
+      "local_code": 3
+    },
+    "1903": {
+      "contract": "payment-adapter",
+      "variant": "InvalidAmount",
+      "global_code": 1903,
+      "local_code": 4
+    },
+    "1904": {
+      "contract": "payment-adapter",
+      "variant": "InvalidCap",
+      "global_code": 1904,
+      "local_code": 5
+    },
+    "1905": {
+      "contract": "payment-adapter",
+      "variant": "TokenNotAllowlisted",
+      "global_code": 1905,
+      "local_code": 6
+    },
+    "1906": {
+      "contract": "payment-adapter",
+      "variant": "TokenInactive",
+      "global_code": 1906,
+      "local_code": 7
+    },
+    "1907": {
+      "contract": "payment-adapter",
+      "variant": "CapExceeded",
+      "global_code": 1907,
+      "local_code": 8
+    },
+    "1908": {
+      "contract": "payment-adapter",
+      "variant": "UnsupportedDecimals",
+      "global_code": 1908,
+      "local_code": 9
+    },
+    "2000": {
+      "contract": "voucher-ledger",
+      "variant": "AlreadyInitialized",
+      "global_code": 2000,
+      "local_code": 1
+    },
+    "2001": {
+      "contract": "voucher-ledger",
+      "variant": "NotInitialized",
+      "global_code": 2001,
+      "local_code": 2
+    },
+    "2002": {
+      "contract": "voucher-ledger",
+      "variant": "Unauthorized",
+      "global_code": 2002,
+      "local_code": 3
+    },
+    "2003": {
+      "contract": "voucher-ledger",
+      "variant": "InvalidAmount",
+      "global_code": 2003,
+      "local_code": 4
+    },
+    "2004": {
+      "contract": "voucher-ledger",
+      "variant": "VoucherNotFound",
+      "global_code": 2004,
+      "local_code": 5
+    },
+    "2005": {
+      "contract": "voucher-ledger",
+      "variant": "VoucherInactive",
+      "global_code": 2005,
+      "local_code": 6
+    },
+    "2006": {
+      "contract": "voucher-ledger",
+      "variant": "DuplicateVoucher",
+      "global_code": 2006,
+      "local_code": 7
+    },
+    "2007": {
+      "contract": "voucher-ledger",
+      "variant": "InsufficientBalance",
+      "global_code": 2007,
+      "local_code": 8
+    },
+    "2100": {
+      "contract": "fee-collector",
+      "variant": "NotInitialized",
+      "global_code": 2100,
+      "local_code": 1
+    },
+    "2101": {
+      "contract": "fee-collector",
+      "variant": "AlreadyInitialized",
+      "global_code": 2101,
+      "local_code": 2
+    },
+    "2102": {
+      "contract": "fee-collector",
+      "variant": "Unauthorized",
+      "global_code": 2102,
+      "local_code": 3
+    },
+    "2103": {
+      "contract": "fee-collector",
+      "variant": "NotGuardian",
+      "global_code": 2103,
+      "local_code": 4
+    },
+    "2104": {
+      "contract": "fee-collector",
+      "variant": "InvalidArgument",
+      "global_code": 2104,
+      "local_code": 5
+    },
+    "2105": {
+      "contract": "fee-collector",
+      "variant": "TimelockNotExpired",
+      "global_code": 2105,
+      "local_code": 6
+    },
+    "2106": {
+      "contract": "fee-collector",
+      "variant": "WithdrawalNotFound",
+      "global_code": 2106,
+      "local_code": 7
+    },
+    "2107": {
+      "contract": "fee-collector",
+      "variant": "WithdrawalAlreadyExecuted",
+      "global_code": 2107,
+      "local_code": 8
+    },
+    "2108": {
+      "contract": "fee-collector",
+      "variant": "InsufficientBalance",
+      "global_code": 2108,
+      "local_code": 9
+    },
+    "2109": {
+      "contract": "fee-collector",
+      "variant": "DuplicateGuardian",
+      "global_code": 2109,
+      "local_code": 10
+    },
+    "2110": {
+      "contract": "fee-collector",
+      "variant": "GuardianSetFull",
+      "global_code": 2110,
+      "local_code": 11
+    },
+    "2200": {
+      "contract": "resolver-registry",
+      "variant": "AlreadyInitialized",
+      "global_code": 2200,
+      "local_code": 1
+    },
+    "2201": {
+      "contract": "resolver-registry",
+      "variant": "NotInitialized",
+      "global_code": 2201,
+      "local_code": 2
+    },
+    "2202": {
+      "contract": "resolver-registry",
+      "variant": "Unauthorized",
+      "global_code": 2202,
+      "local_code": 3
+    },
+    "2203": {
+      "contract": "resolver-registry",
+      "variant": "NotAnArbiter",
+      "global_code": 2203,
+      "local_code": 4
+    },
+    "2204": {
+      "contract": "resolver-registry",
+      "variant": "AlreadyArbiter",
+      "global_code": 2204,
+      "local_code": 5
+    },
+    "2205": {
+      "contract": "resolver-registry",
+      "variant": "InvalidQuorum",
+      "global_code": 2205,
+      "local_code": 6
+    },
+    "2206": {
+      "contract": "resolver-registry",
+      "variant": "CaseNotFound",
+      "global_code": 2206,
+      "local_code": 7
+    },
+    "2207": {
+      "contract": "resolver-registry",
+      "variant": "CaseClosed",
+      "global_code": 2207,
+      "local_code": 8
+    },
+    "2208": {
+      "contract": "resolver-registry",
+      "variant": "AlreadyVoted",
+      "global_code": 2208,
+      "local_code": 9
+    },
+    "2209": {
+      "contract": "resolver-registry",
+      "variant": "InvalidOutcome",
+      "global_code": 2209,
+      "local_code": 10
+    },
+    "2210": {
+      "contract": "resolver-registry",
+      "variant": "NoArbiters",
+      "global_code": 2210,
+      "local_code": 11
+    },
+    "2300": {
+      "contract": "subscription_refund",
+      "variant": "AlreadyInitialized",
+      "global_code": 2300,
+      "local_code": 1
+    },
+    "2301": {
+      "contract": "subscription_refund",
+      "variant": "NotInitialized",
+      "global_code": 2301,
+      "local_code": 2
+    },
+    "2302": {
+      "contract": "subscription_refund",
+      "variant": "Unauthorized",
+      "global_code": 2302,
+      "local_code": 3
+    },
+    "2303": {
+      "contract": "subscription_refund",
+      "variant": "ChargeNotFound",
+      "global_code": 2303,
+      "local_code": 4
+    },
+    "2304": {
+      "contract": "subscription_refund",
+      "variant": "AlreadyRefunded",
+      "global_code": 2304,
+      "local_code": 5
+    },
+    "2305": {
+      "contract": "subscription_refund",
+      "variant": "InvalidAmount",
+      "global_code": 2305,
+      "local_code": 6
+    },
+    "2306": {
+      "contract": "subscription_refund",
+      "variant": "DisputeNotFound",
+      "global_code": 2306,
+      "local_code": 7
+    },
+    "2307": {
+      "contract": "subscription_refund",
+      "variant": "DisputeAlreadyExists",
+      "global_code": 2307,
+      "local_code": 8
+    },
+    "2308": {
+      "contract": "subscription_refund",
+      "variant": "DisputeNotApproved",
+      "global_code": 2308,
+      "local_code": 9
+    },
+    "2309": {
+      "contract": "subscription_refund",
+      "variant": "ContractPaused",
+      "global_code": 2309,
+      "local_code": 10
+    },
+    "2310": {
+      "contract": "subscription_refund",
+      "variant": "ChargeAlreadyExists",
+      "global_code": 2310,
+      "local_code": 11
+    },
+    "2400": {
+      "contract": "recurring_allowance",
+      "variant": "AllowanceNotFound",
+      "global_code": 2400,
+      "local_code": 1
+    },
+    "2401": {
+      "contract": "recurring_allowance",
+      "variant": "AllowanceInactive",
+      "global_code": 2401,
+      "local_code": 2
+    },
+    "2402": {
+      "contract": "recurring_allowance",
+      "variant": "Unauthorized",
+      "global_code": 2402,
+      "local_code": 3
+    },
+    "2403": {
+      "contract": "recurring_allowance",
+      "variant": "InvalidAmount",
+      "global_code": 2403,
+      "local_code": 4
+    },
+    "2404": {
+      "contract": "recurring_allowance",
+      "variant": "InvalidCap",
+      "global_code": 2404,
+      "local_code": 5
+    },
+    "2405": {
+      "contract": "recurring_allowance",
+      "variant": "InvalidPeriod",
+      "global_code": 2405,
+      "local_code": 6
+    },
+    "2406": {
+      "contract": "recurring_allowance",
+      "variant": "Expired",
+      "global_code": 2406,
+      "local_code": 7
+    },
+    "2407": {
+      "contract": "recurring_allowance",
+      "variant": "PeriodCapExceeded",
+      "global_code": 2407,
+      "local_code": 8
+    },
+    "2408": {
+      "contract": "recurring_allowance",
+      "variant": "AbsoluteCapExceeded",
+      "global_code": 2408,
+      "local_code": 9
+    },
+    "2409": {
+      "contract": "recurring_allowance",
+      "variant": "AlreadyActive",
+      "global_code": 2409,
+      "local_code": 10
+    },
+    "2500": {
+      "contract": "loyalty_rewards",
+      "variant": "NotInitialized",
+      "global_code": 2500,
+      "local_code": 1
+    },
+    "2501": {
+      "contract": "loyalty_rewards",
+      "variant": "AlreadyInitialized",
+      "global_code": 2501,
+      "local_code": 2
+    },
+    "2502": {
+      "contract": "loyalty_rewards",
+      "variant": "Unauthorized",
+      "global_code": 2502,
+      "local_code": 3
+    },
+    "2503": {
+      "contract": "loyalty_rewards",
+      "variant": "Paused",
+      "global_code": 2503,
+      "local_code": 4
+    },
+    "2504": {
+      "contract": "loyalty_rewards",
+      "variant": "RedeemTooSmall",
+      "global_code": 2504,
+      "local_code": 5
+    },
+    "2505": {
+      "contract": "loyalty_rewards",
+      "variant": "InsufficientPoints",
+      "global_code": 2505,
+      "local_code": 6
+    },
+    "2506": {
+      "contract": "loyalty_rewards",
+      "variant": "Overflow",
+      "global_code": 2506,
+      "local_code": 7
+    },
+    "2600": {
+      "contract": "subscription_nft",
+      "variant": "NotInitialized",
+      "global_code": 2600,
+      "local_code": 1
+    },
+    "2601": {
+      "contract": "subscription_nft",
+      "variant": "AlreadyInitialized",
+      "global_code": 2601,
+      "local_code": 2
+    },
+    "2602": {
+      "contract": "subscription_nft",
+      "variant": "Unauthorized",
+      "global_code": 2602,
+      "local_code": 3
+    },
+    "2603": {
+      "contract": "subscription_nft",
+      "variant": "Paused",
+      "global_code": 2603,
+      "local_code": 4
+    },
+    "2604": {
+      "contract": "subscription_nft",
+      "variant": "TokenNotFound",
+      "global_code": 2604,
+      "local_code": 5
+    },
+    "2605": {
+      "contract": "subscription_nft",
+      "variant": "TransferBlocked",
+      "global_code": 2605,
+      "local_code": 6
+    },
+    "2606": {
+      "contract": "subscription_nft",
+      "variant": "TokenAlreadyExists",
+      "global_code": 2606,
+      "local_code": 7
+    },
+    "2607": {
+      "contract": "subscription_nft",
+      "variant": "Overflow",
+      "global_code": 2607,
+      "local_code": 8
+    },
+    "2608": {
+      "contract": "subscription_nft",
+      "variant": "OwnerCapExceeded",
+      "global_code": 2608,
+      "local_code": 9
+    },
+    "2609": {
+      "contract": "subscription_nft",
+      "variant": "NotApproved",
+      "global_code": 2609,
+      "local_code": 10
+    },
+    "2700": {
+      "contract": "attestation",
+      "variant": "AlreadyInit",
+      "global_code": 2700,
+      "local_code": 1
+    },
+    "2701": {
+      "contract": "attestation",
+      "variant": "Unauthorized",
+      "global_code": 2701,
+      "local_code": 2
+    },
+    "2702": {
+      "contract": "attestation",
+      "variant": "NotFound",
+      "global_code": 2702,
+      "local_code": 3
+    },
+    "2703": {
+      "contract": "attestation",
+      "variant": "Revoked",
+      "global_code": 2703,
+      "local_code": 4
+    },
+    "2704": {
+      "contract": "attestation",
+      "variant": "InvalidDigest",
+      "global_code": 2704,
+      "local_code": 5
+    },
+    "2800": {
+      "contract": "guardian",
+      "variant": "AlreadyInitialized",
+      "global_code": 2800,
+      "local_code": 1
+    },
+    "2801": {
+      "contract": "guardian",
+      "variant": "NotInitialized",
+      "global_code": 2801,
+      "local_code": 2
+    },
+    "2802": {
+      "contract": "guardian",
+      "variant": "Unauthorized",
+      "global_code": 2802,
+      "local_code": 3
+    },
+    "2803": {
+      "contract": "guardian",
+      "variant": "ContractAlreadyRegistered",
+      "global_code": 2803,
+      "local_code": 4
+    },
+    "2804": {
+      "contract": "guardian",
+      "variant": "ContractNotFound",
+      "global_code": 2804,
+      "local_code": 5
+    },
+    "2805": {
+      "contract": "guardian",
+      "variant": "NoContractsRegistered",
+      "global_code": 2805,
+      "local_code": 6
+    },
+    "2806": {
+      "contract": "guardian",
+      "variant": "InvalidAddress",
+      "global_code": 2806,
+      "local_code": 7
+    },
+    "3000": {
+      "contract": "payment-splitter",
+      "variant": "AlreadyInitialized",
+      "global_code": 3000,
+      "local_code": 1
+    },
+    "3001": {
+      "contract": "payment-splitter",
+      "variant": "NotInitialized",
+      "global_code": 3001,
+      "local_code": 2
+    },
+    "3002": {
+      "contract": "payment-splitter",
+      "variant": "SplitNotFound",
+      "global_code": 3002,
+      "local_code": 3
+    },
+    "3003": {
+      "contract": "payment-splitter",
+      "variant": "Unauthorized",
+      "global_code": 3003,
+      "local_code": 4
+    },
+    "3004": {
+      "contract": "payment-splitter",
+      "variant": "InvalidAmount",
+      "global_code": 3004,
+      "local_code": 5
+    },
+    "3005": {
+      "contract": "payment-splitter",
+      "variant": "NoPayers",
+      "global_code": 3005,
+      "local_code": 6
+    },
+    "3006": {
+      "contract": "payment-splitter",
+      "variant": "TooManyPayers",
+      "global_code": 3006,
+      "local_code": 7
+    },
+    "3007": {
+      "contract": "payment-splitter",
+      "variant": "ZeroShare",
+      "global_code": 3007,
+      "local_code": 8
+    },
+    "3008": {
+      "contract": "payment-splitter",
+      "variant": "DuplicatePayer",
+      "global_code": 3008,
+      "local_code": 9
+    },
+    "3009": {
+      "contract": "payment-splitter",
+      "variant": "SharesMustSum100Pct",
+      "global_code": 3009,
+      "local_code": 10
+    },
+    "3010": {
+      "contract": "payment-splitter",
+      "variant": "AlreadyExecuted",
+      "global_code": 3010,
+      "local_code": 11
+    },
+    "3011": {
+      "contract": "payment-splitter",
+      "variant": "AlreadyCancelled",
+      "global_code": 3011,
+      "local_code": 12
+    },
+    "3012": {
+      "contract": "payment-splitter",
+      "variant": "MerchantIsPayer",
+      "global_code": 3012,
+      "local_code": 13
+    },
+    "3100": {
+      "contract": "stealth-announcement",
+      "variant": "AlreadyInit",
+      "global_code": 3100,
+      "local_code": 1
+    },
+    "3101": {
+      "contract": "stealth-announcement",
+      "variant": "EmptyPubkey",
+      "global_code": 3101,
+      "local_code": 2
+    },
+    "3102": {
+      "contract": "stealth-announcement",
+      "variant": "PubkeyTooLong",
+      "global_code": 3102,
+      "local_code": 3
+    },
+    "3103": {
+      "contract": "stealth-announcement",
+      "variant": "RangeTooLarge",
+      "global_code": 3103,
+      "local_code": 4
+    },
+    "3104": {
+      "contract": "stealth-announcement",
+      "variant": "InvalidRange",
+      "global_code": 3104,
+      "local_code": 5
+    },
+    "3105": {
+      "contract": "stealth-announcement",
+      "variant": "NotAdmin",
+      "global_code": 3105,
+      "local_code": 6
+    }
+  }
+}

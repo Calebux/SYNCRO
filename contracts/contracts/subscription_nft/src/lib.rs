@@ -37,6 +37,7 @@ use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, Address,
     Env,
 };
+use syncro_common;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -50,26 +51,16 @@ pub const MAX_TOKENS_PER_OWNER: u32 = 100;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum NftError {
-    /// Contract has not been initialised.
-    NotInitialized = 1,
-    /// Contract was already initialised.
-    AlreadyInitialized = 2,
-    /// Caller is not authorised for this action.
-    Unauthorized = 3,
-    /// Contract is paused.
-    Paused = 4,
-    /// Token does not exist.
-    TokenNotFound = 5,
-    /// Transfer is blocked because the subscription is overdue or cancelled.
-    TransferBlocked = 6,
-    /// Token already exists for this subscription id.
-    TokenAlreadyExists = 7,
-    /// Arithmetic overflow.
-    Overflow = 8,
-    /// Owner has reached the per-address token cap.
-    OwnerCapExceeded = 9,
-    /// Spender is not approved for this token.
-    NotApproved = 10,
+    NotInitialized = 2600,
+    AlreadyInitialized = 2601,
+    Unauthorized = 2602,
+    Paused = 2603,
+    TokenNotFound = 2604,
+    TransferBlocked = 2605,
+    TokenAlreadyExists = 2606,
+    Overflow = 2607,
+    OwnerCapExceeded = 2608,
+    NotApproved = 2609,
 }
 
 // ─── Renewal state ────────────────────────────────────────────────────────────
@@ -599,6 +590,19 @@ impl SubscriptionNftContract {
         env.storage()
             .instance()
             .set(&TokenKey::Balance(owner.clone()), &balance);
+    }
+
+    /// Returns the contract version.
+    /// Incremented when the implementation changes (used for deployments).
+    pub fn version(_env: Env) -> u32 {
+        syncro_common::version(&_env)
+    }
+
+    /// Returns the contract interface version.
+    /// Incremented when public methods or error handling changes.
+    /// Used to detect API mismatches at runtime.
+    pub fn interface_version(_env: Env) -> u32 {
+        syncro_common::interface_version_call(&_env)
     }
 }
 

@@ -4,6 +4,7 @@ use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype,
     panic_with_error, token, Address, Env,
 };
+use syncro_common;
 
 // ── Storage Keys ─────────────────────────────────────────────────────────────
 
@@ -37,16 +38,16 @@ pub struct RecurringAllowance {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum RecurringAllowanceError {
-    AllowanceNotFound = 1,
-    AllowanceInactive = 2,
-    Unauthorized = 3,
-    InvalidAmount = 4,
-    InvalidCap = 5,
-    InvalidPeriod = 6,
-    Expired = 7,
-    PeriodCapExceeded = 8,
-    AbsoluteCapExceeded = 9,
-    AlreadyActive = 10,
+    AllowanceNotFound = 2400,
+    AllowanceInactive = 2401,
+    Unauthorized = 2402,
+    InvalidAmount = 2403,
+    InvalidCap = 2404,
+    InvalidPeriod = 2405,
+    Expired = 2406,
+    PeriodCapExceeded = 2407,
+    AbsoluteCapExceeded = 2408,
+    AlreadyActive = 2409,
 }
 
 // ── Events ───────────────────────────────────────────────────────────────────
@@ -380,9 +381,20 @@ impl RecurringAllowanceContract {
             allowance.absolute_cap.saturating_sub(allowance.total_spent)
         }
     }
-}
 
-// ── Unit Tests ───────────────────────────────────────────────────────────────
+    /// Returns the contract version.
+    /// Incremented when the implementation changes (used for deployments).
+    pub fn version(_env: Env) -> u32 {
+        syncro_common::version(&_env)
+    }
+
+    /// Returns the contract interface version.
+    /// Incremented when public methods or error handling changes.
+    /// Used to detect API mismatches at runtime.
+    pub fn interface_version(_env: Env) -> u32 {
+        syncro_common::interface_version_call(&_env)
+    }
+}
 
 #[cfg(test)]
 mod test {
@@ -391,6 +403,7 @@ mod test {
         testutils::{Address as _, Ledger},
         token::{StellarAssetClient, TokenClient},
     };
+use syncro_common;
 
     fn setup() -> (Env, Address, Address, Address, TokenClient<'static>) {
         let env = Env::default();

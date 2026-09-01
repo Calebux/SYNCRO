@@ -2,6 +2,7 @@
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env,
 };
+use syncro_common;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]

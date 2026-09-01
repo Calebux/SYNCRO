@@ -25,6 +25,7 @@ use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,
     Address, Env,
 };
+use syncro_common;
 
 // ── Storage keys ────────────────────────────────────────────────────────────────
 
@@ -73,19 +74,19 @@ pub struct Allowance {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum AllowanceError {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    AllowanceNotFound = 3,
-    Unauthorized = 4,
-    InvalidAmount = 5,
-    InvalidCap = 6,
-    InvalidPeriod = 7,
-    SelfAsMerchant = 8,
-    NotActive = 9,
-    PeriodCapExceeded = 10,
-    AbsoluteCapExceeded = 11,
-    CapBelowSpent = 12,
-    Paused = 13,
+    AlreadyInitialized = 1800,
+    NotInitialized = 1801,
+    AllowanceNotFound = 1802,
+    Unauthorized = 1803,
+    InvalidAmount = 1804,
+    InvalidCap = 1805,
+    InvalidPeriod = 1806,
+    SelfAsMerchant = 1807,
+    NotActive = 1808,
+    PeriodCapExceeded = 1809,
+    AbsoluteCapExceeded = 1810,
+    CapBelowSpent = 1811,
+    Paused = 1812,
 }
 
 // ── Events ──────────────────────────────────────────────────────────────────────
@@ -457,9 +458,20 @@ impl AllowanceContract {
             allowance.period_spent = 0;
         }
     }
-}
 
-// ── Tests ───────────────────────────────────────────────────────────────────────
+    /// Returns the contract version.
+    /// Incremented when the implementation changes (used for deployments).
+    pub fn version(_env: Env) -> u32 {
+        syncro_common::version(&_env)
+    }
+
+    /// Returns the contract interface version.
+    /// Incremented when public methods or error handling changes.
+    /// Used to detect API mismatches at runtime.
+    pub fn interface_version(_env: Env) -> u32 {
+        syncro_common::interface_version_call(&_env)
+    }
+}
 
 #[cfg(test)]
 mod test;

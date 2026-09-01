@@ -28,20 +28,22 @@ use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, vec, Address, Bytes, Env,
     Vec,
 };
+use syncro_common;
 
 // ============================================================================
 // Errors
 // ============================================================================
 
 #[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
 pub enum AnnouncementError {
-    AlreadyInit       = 1,  // contract already initialised
-    EmptyPubkey       = 2,  // ephemeral_pubkey has zero length
-    PubkeyTooLong     = 3,  // ephemeral_pubkey exceeds 128 bytes
-    RangeTooLarge     = 4,  // pagination range exceeds MAX_PAGE_SIZE
-    InvalidRange      = 5,  // start > end
-    NotAdmin          = 6,  // caller is not the admin
+    AlreadyInit = 3100,
+    EmptyPubkey = 3101,
+    PubkeyTooLong = 3102,
+    RangeTooLarge = 3103,
+    InvalidRange = 3104,
+    NotAdmin = 3105,
 }
 
 /// Maximum number of announcements returned in a single paginated query.
@@ -312,6 +314,19 @@ impl StealthAnnouncementContract {
             .ok_or(AnnouncementError::NotAdmin)?;
         admin.require_auth();
         Ok(())
+    }
+
+    /// Returns the contract version.
+    /// Incremented when the implementation changes (used for deployments).
+    pub fn version(_env: Env) -> u32 {
+        syncro_common::version(&_env)
+    }
+
+    /// Returns the contract interface version.
+    /// Incremented when public methods or error handling changes.
+    /// Used to detect API mismatches at runtime.
+    pub fn interface_version(_env: Env) -> u32 {
+        syncro_common::interface_version_call(&_env)
     }
 }
 

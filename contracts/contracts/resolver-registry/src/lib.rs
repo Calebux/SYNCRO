@@ -25,6 +25,7 @@ use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, Address,
     Env, IntoVal, Symbol, Val, Vec,
 };
+use syncro_common;
 
 // ── Outcome codes (mirror escrow::resolve_dispute) ─────────────────────────────
 
@@ -80,17 +81,17 @@ pub struct DisputeCase {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum RegistryError {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    Unauthorized = 3,
-    NotAnArbiter = 4,
-    AlreadyArbiter = 5,
-    InvalidQuorum = 6,
-    CaseNotFound = 7,
-    CaseClosed = 8,
-    AlreadyVoted = 9,
-    InvalidOutcome = 10,
-    NoArbiters = 11,
+    AlreadyInitialized = 2200,
+    NotInitialized = 2201,
+    Unauthorized = 2202,
+    NotAnArbiter = 2203,
+    AlreadyArbiter = 2204,
+    InvalidQuorum = 2205,
+    CaseNotFound = 2206,
+    CaseClosed = 2207,
+    AlreadyVoted = 2208,
+    InvalidOutcome = 2209,
+    NoArbiters = 2210,
 }
 
 // ── Events ─────────────────────────────────────────────────────────────────────
@@ -395,6 +396,19 @@ impl ResolverRegistry {
         if who != &admin && !Self::arbiters(env).contains(who) {
             panic_with_error!(env, RegistryError::Unauthorized);
         }
+    }
+
+    /// Returns the contract version.
+    /// Incremented when the implementation changes (used for deployments).
+    pub fn version(_env: Env) -> u32 {
+        syncro_common::version(&_env)
+    }
+
+    /// Returns the contract interface version.
+    /// Incremented when public methods or error handling changes.
+    /// Used to detect API mismatches at runtime.
+    pub fn interface_version(_env: Env) -> u32 {
+        syncro_common::interface_version_call(&_env)
     }
 }
 

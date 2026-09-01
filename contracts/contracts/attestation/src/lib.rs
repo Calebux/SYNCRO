@@ -7,15 +7,17 @@
 
 use soroban_sdk::{contract, contractevent, contractimpl, contracttype, contracterror,
                   Address, BytesN, Env, Symbol};
+use syncro_common;
 
 #[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
 pub enum AttestError {
-    AlreadyInit   = 1, // contract already initialised
-    Unauthorized  = 2, // caller is not the issuer
-    NotFound      = 3, // no attestation for (subject, type)
-    Revoked       = 4, // attestation already revoked
-    InvalidDigest = 5, // zero digest not accepted
+    AlreadyInit = 2700,
+    Unauthorized = 2701,
+    NotFound = 2702,
+    Revoked = 2703,
+    InvalidDigest = 2704,
 }
 
 #[contracttype]
@@ -96,6 +98,19 @@ impl AttestationContract {
             .get(&Key::Issuer).ok_or(AttestError::Unauthorized)?;
         issuer.require_auth();
         Ok(())
+    }
+
+    /// Returns the contract version.
+    /// Incremented when the implementation changes (used for deployments).
+    pub fn version(_env: Env) -> u32 {
+        syncro_common::version(&_env)
+    }
+
+    /// Returns the contract interface version.
+    /// Incremented when public methods or error handling changes.
+    /// Used to detect API mismatches at runtime.
+    pub fn interface_version(_env: Env) -> u32 {
+        syncro_common::interface_version_call(&_env)
     }
 }
 

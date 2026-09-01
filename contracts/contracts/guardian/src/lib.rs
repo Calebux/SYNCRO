@@ -16,6 +16,7 @@ use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, Address,
     Env, Vec,
 };
+use syncro_common;
 
 // ── Storage Keys ────────────────────────────────────────────────────────────────
 
@@ -52,13 +53,13 @@ pub struct RegisteredContract {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum GuardianError {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    Unauthorized = 3,
-    ContractAlreadyRegistered = 4,
-    ContractNotFound = 5,
-    NoContractsRegistered = 6,
-    InvalidAddress = 7,
+    AlreadyInitialized = 2800,
+    NotInitialized = 2801,
+    Unauthorized = 2802,
+    ContractAlreadyRegistered = 2803,
+    ContractNotFound = 2804,
+    NoContractsRegistered = 2805,
+    InvalidAddress = 2806,
 }
 
 // ── Events ──────────────────────────────────────────────────────────────────────
@@ -418,6 +419,19 @@ impl GuardianContract {
             }
         }
         false
+    }
+
+    /// Returns the contract version.
+    /// Incremented when the implementation changes (used for deployments).
+    pub fn version(_env: Env) -> u32 {
+        syncro_common::version(&_env)
+    }
+
+    /// Returns the contract interface version.
+    /// Incremented when public methods or error handling changes.
+    /// Used to detect API mismatches at runtime.
+    pub fn interface_version(_env: Env) -> u32 {
+        syncro_common::interface_version_call(&_env)
     }
 }
 

@@ -3,6 +3,7 @@
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, Address, BytesN, Env,
 };
+use syncro_common;
 
 #[contracttype]
 #[derive(Clone)]
@@ -39,14 +40,14 @@ pub struct Voucher {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum VoucherError {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    Unauthorized = 3,
-    InvalidAmount = 4,
-    VoucherNotFound = 5,
-    VoucherInactive = 6,
-    DuplicateVoucher = 7,
-    InsufficientBalance = 8,
+    AlreadyInitialized = 2000,
+    NotInitialized = 2001,
+    Unauthorized = 2002,
+    InvalidAmount = 2003,
+    VoucherNotFound = 2004,
+    VoucherInactive = 2005,
+    DuplicateVoucher = 2006,
+    InsufficientBalance = 2007,
 }
 
 #[contractevent]
@@ -233,6 +234,19 @@ impl VoucherLedgerContract {
 
     pub fn is_active(env: Env, voucher_id: u64) -> bool {
         matches!(Self::load_voucher(&env, voucher_id), Ok(voucher) if voucher.state == VoucherState::Active && voucher.remaining_value > 0)
+    }
+
+    /// Returns the contract version.
+    /// Incremented when the implementation changes (used for deployments).
+    pub fn version(_env: Env) -> u32 {
+        syncro_common::version(&_env)
+    }
+
+    /// Returns the contract interface version.
+    /// Incremented when public methods or error handling changes.
+    /// Used to detect API mismatches at runtime.
+    pub fn interface_version(_env: Env) -> u32 {
+        syncro_common::interface_version_call(&_env)
     }
 }
 

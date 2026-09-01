@@ -6,6 +6,7 @@ mod test;
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, Symbol, Vec,
 };
+use syncro_common;
 
 pub const DEFAULT_TIMELOCK_SECONDS: u64 = 172_800;
 
@@ -36,17 +37,17 @@ pub struct WithdrawalRequest {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum TreasuryError {
-    NotInitialized = 1,
-    AlreadyInitialized = 2,
-    Unauthorized = 3,
-    NotGuardian = 4,
-    InvalidArgument = 5,
-    TimelockNotExpired = 6,
-    WithdrawalNotFound = 7,
-    WithdrawalAlreadyExecuted = 8,
-    InsufficientBalance = 9,
-    DuplicateGuardian = 10,
-    GuardianSetFull = 11,
+    NotInitialized = 2100,
+    AlreadyInitialized = 2101,
+    Unauthorized = 2102,
+    NotGuardian = 2103,
+    InvalidArgument = 2104,
+    TimelockNotExpired = 2105,
+    WithdrawalNotFound = 2106,
+    WithdrawalAlreadyExecuted = 2107,
+    InsufficientBalance = 2108,
+    DuplicateGuardian = 2109,
+    GuardianSetFull = 2110,
 }
 
 #[contract]

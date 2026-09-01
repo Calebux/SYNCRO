@@ -3,6 +3,7 @@
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env,
 };
+use syncro_common;
 
 #[contracttype]
 #[derive(Clone)]
@@ -47,17 +48,17 @@ pub struct PaymentChannel {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    Unauthorized = 3,
-    ChannelNotFound = 4,
-    InvalidAmount = 5,
-    InvalidState = 6,
-    InsufficientBalance = 7,
-    DisputeWindowActive = 8,
-    DisputeWindowExpired = 9,
-    StaleState = 10,
-    CounterOverflow = 11,
+    AlreadyInitialized = 1600,
+    NotInitialized = 1601,
+    Unauthorized = 1602,
+    ChannelNotFound = 1603,
+    InvalidAmount = 1604,
+    InvalidState = 1605,
+    InsufficientBalance = 1606,
+    DisputeWindowActive = 1607,
+    DisputeWindowExpired = 1608,
+    StaleState = 1609,
+    CounterOverflow = 1610,
 }
 
 #[contract]
@@ -400,9 +401,20 @@ impl PaymentChannelContract {
             .persistent()
             .get(&DataKey::Channel(channel_id))
     }
-}
 
-mod test;
+    /// Returns the contract version.
+    /// Incremented when the implementation changes (used for deployments).
+    pub fn version(_env: Env) -> u32 {
+        syncro_common::version(&_env)
+    }
+
+    /// Returns the contract interface version.
+    /// Incremented when public methods or error handling changes.
+    /// Used to detect API mismatches at runtime.
+    pub fn interface_version(_env: Env) -> u32 {
+        syncro_common::interface_version_call(&_env)
+    }
+}
 
 #[cfg(test)]
 mod fuzz;

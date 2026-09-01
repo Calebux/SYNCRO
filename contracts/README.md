@@ -158,6 +158,167 @@ cargo test
 - `mint_voucher` - Admin creates a voucher with a unique code hash and face value.
 - `redeem_voucher` - Voucher recipient redeems part or all of the balance.
 - `void_voucher` - Admin voids an active voucher and clears any remaining balance.
+
+## Global Error Code Registry (#1225)
+
+### Overview
+
+To prevent ambiguity when errors are surfaced across contract boundaries (e.g., renewal → logging), SYNCRO implements a **global, non-overlapping error code registry**. Each contract is allocated a 100-code block to ensure no discriminant collisions.
+
+### Error Code Allocation
+
+| Contract                  | Range      | Description |
+|---------------------------|-----------|-------------|
+| subscription_renewal      | 1000-1099 | Subscription renewal logic |
+| subscription_logging      | 1100-1199 | Event logging |
+| virtual-card              | 1200-1299 | Virtual card management |
+| escrow                    | 1300-1399 | Escrow agreement handling |
+| agent-registry            | 1400-1499 | Agent registry & permissions |
+| zk-payment-verifier       | 1500-1599 | Zero-knowledge proof verification |
+| payment-channel           | 1600-1699 | Payment channel operations |
+| contract-upgrade          | 1700-1799 | Contract upgrade governance |
+| allowance                 | 1800-1899 | Recurring allowance management |
+| payment-adapter           | 1900-1999 | Payment adapter |
+| voucher-ledger            | 2000-2099 | Voucher ledger |
+| fee-collector             | 2100-2199 | Fee collection |
+| resolver-registry         | 2200-2299 | Resolver registry |
+| subscription_refund       | 2300-2399 | Subscription refund logic |
+| recurring_allowance       | 2400-2499 | Recurring allowance (legacy) |
+| loyalty_rewards           | 2500-2599 | Loyalty rewards |
+| subscription_nft          | 2600-2699 | Subscription NFT |
+| attestation               | 2700-2799 | Attestation service |
+| guardian                  | 2800-2899 | Guardian authority |
+| fx-oracle                 | 2900-2999 | FX oracle |
+| payment-splitter          | 3000-3099 | Payment splitter |
+| stealth-announcement      | 3100-3199 | Stealth payment announcements |
+
+**Total Capacity**: 22 contracts × 100 codes = 2200 codes (range: 1000-3199)
+
+### Error Code Conversion
+
+For a contract with base code B and original error discriminant D:
+```
+global_code = B + (D - 1)
+```
+
+**Example**: `escrow::InvalidAmount = 5` (original) → `1300 + (5 - 1) = 1304` (global)
+
+### Decoding Global Error Codes
+
+**SDK Function**: `decodeContractError(globalCode: number)` in `sdk/src/errors.ts`
+
+```typescript
+import { decodeContractError, formatContractError } from '@syncro/sdk';
+
+// Decode a contract error
+const decoded = decodeContractError(1304);
+// Returns: { globalCode: 1304, contract: "escrow", variant: "InvalidAmount", ... }
+
+// Format for logging
+console.log(formatContractError(decoded));
+// Output: "Contract Error: escrow::InvalidAmount (code: 1304, local: 5)"
+```
+
+### Machine-Readable Registry
+
+All error codes are documented in `contracts/errors.json`:
+```json
+{
+  "1304": {
+    "contract": "escrow",
+    "variant": "InvalidAmount",
+    "global_code": 1304,
+    "local_code": 5
+  },
+  ...
+}
+```
+
+**Generated**: `python3 scripts/generate-error-registry.py`
+
+### Testing Error Code Overlaps
+
+Verify that no two contracts use the same error code:
+
+```bash
+cd contracts/integration_tests
+cargo test --test error_registry_tests -- --nocapture
+```
+
+Tests validate:
+- No discriminant overlaps between contracts
+- All error codes fit within allocated ranges
+- Round-trip encode/decode correctness
+
+## Contract Version Metadata (#1226)
+
+### Overview
+
+Every contract now exposes version information for deployment traceability and API compatibility detection. This allows the backend to:
+- Detect version mismatches at startup
+- Log which build was deployed
+- Make rollback decisions based on version metadata
+
+### Public Interface
+
+All contracts expose:
+
+```rust
+/// Returns the contract version (e.g., 0x00010000 for v1.0.0).
+pub fn version(env: Env) -> u32
+
+/// Returns the interface version for API compatibility.
+pub fn interface_version(env: Env) -> u32
+```
+
+### Version Format
+
+**Contract Version**: `0xMMmmPPPP` (Major.minor.patch)
+- Bits 24-31: Major version (breaking changes)
+- Bits 16-23: Minor version (new features, backward compatible)
+- Bits 0-15: Patch version (bug fixes)
+
+**Example**: `0x00010205` → v1.2.5
+
+### Backend Contract Version Logging
+
+At startup, the backend logs all deployed contract versions:
+
+```typescript
+import { initializeContractVersioning } from './services/contract-version-manager';
+
+// During server startup
+await initializeContractVersioning();
+
+// Output:
+// ============================================================
+// Deployed Contract Versions
+// ============================================================
+// subscription_renewal: v1.0 (interface v1)
+// escrow: v1.0 (interface v1)
+// virtual-card: v1.0 (interface v1)
+// ⚠ version mismatch: SDK expects v1, deployed is v1.1
+// ============================================================
+```
+
+### Version Mismatch Detection
+
+If the SDK was built against a different version than the deployed contract:
+
+```
+[WARN] Version mismatch for escrow: SDK expects v1.0, but deployed contract is v1.1
+```
+
+This indicates:
+- **Minor/Patch version increase**: Backward compatible, likely safe
+- **Major version increase**: Breaking changes, likely requires SDK rebuild
+- **Major version decrease**: Rollback occurred, verify compatibility
+
+### Related Issues
+
+- **#1225**: Global unique contract error-code registry
+- **#1226**: Add version() and interface_version() to every contract
+
 - `get_voucher` / `balance` / `is_active` - Read voucher state and remaining balance.
 ### 10. Resolver Registry Contract (`contracts/contracts/resolver-registry/`)
 **Purpose**: Decentralize escrow dispute resolution from a single admin arbiter to a voting set of arbiters. When a configurable quorum agrees on an outcome, the registry issues a binding `resolve_dispute` cross-contract call into the escrow. (Wire it up by setting the escrow's `arbiter` to the registry's contract address.)

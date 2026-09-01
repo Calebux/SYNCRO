@@ -4,6 +4,7 @@
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, vec, Address, Env, String, Vec,
 };
+use syncro_common;
 
 // ============================================================================
 // Constants
@@ -20,6 +21,7 @@ const SECONDS_PER_MONTH: u64 = 86_400 * 30;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
 pub enum VirtualCardError {
     CardNotFound = 1,
     Unauthorized = 2,

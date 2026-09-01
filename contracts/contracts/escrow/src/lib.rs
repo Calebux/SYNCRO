@@ -4,6 +4,7 @@ use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype,
     panic_with_error, token, Address, Env, String,
 };
+use syncro_common;
 
 // ── Storage keys ──────────────────────────────────────────────────────────────
 
@@ -86,27 +87,27 @@ pub struct EscrowAgreement {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum EscrowError {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    EscrowNotFound = 3,
-    Unauthorized = 4,
-    InvalidAmount = 5,
-    InsufficientDeposit = 6,
-    AlreadyFunded = 7,
-    NotFunded = 8,
-    AlreadyApproved = 9,
-    NotApproved = 10,
-    AlreadyReleased = 11,
-    AlreadyRefunded = 12,
-    Expired = 13,
-    NotExpired = 14,
-    InDispute = 15,
-    NotInDispute = 16,
-    SelfAsCounterparty = 17,
-    SameArbiterAsParty = 18,
-    InvalidBasisPoints = 19,
-    ArithmeticOverflow = 20,
-    CounterOverflow = 21,
+    AlreadyInitialized = 1300,
+    NotInitialized = 1301,
+    EscrowNotFound = 1302,
+    Unauthorized = 1303,
+    InvalidAmount = 1304,
+    InsufficientDeposit = 1305,
+    AlreadyFunded = 1306,
+    NotFunded = 1307,
+    AlreadyApproved = 1308,
+    NotApproved = 1309,
+    AlreadyReleased = 1310,
+    AlreadyRefunded = 1311,
+    Expired = 1312,
+    NotExpired = 1313,
+    InDispute = 1314,
+    NotInDispute = 1315,
+    SelfAsCounterparty = 1316,
+    SameArbiterAsParty = 1317,
+    InvalidBasisPoints = 1318,
+    ArithmeticOverflow = 1319,
+    CounterOverflow = 1320,
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
@@ -744,6 +745,19 @@ impl EscrowContract {
             .expect("escrow not found");
 
         escrow.state == EscrowState::Approved
+    }
+
+    /// Returns the contract version.
+    /// Incremented when the implementation changes (used for deployments).
+    pub fn version(_env: Env) -> u32 {
+        syncro_common::version(&_env)
+    }
+
+    /// Returns the contract interface version.
+    /// Incremented when public methods or error handling changes.
+    /// Used to detect API mismatches at runtime.
+    pub fn interface_version(_env: Env) -> u32 {
+        syncro_common::interface_version_call(&_env)
     }
 }
 

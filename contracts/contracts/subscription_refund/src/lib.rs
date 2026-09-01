@@ -3,7 +3,20 @@
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,
     Address, Env, String,
-};
+
+    /// Returns the contract version.
+    /// Incremented when the implementation changes (used for deployments).
+    pub fn version(_env: Env) -> u32 {
+        syncro_common::version(&_env)
+    }
+
+    /// Returns the contract interface version.
+    /// Incremented when public methods or error handling changes.
+    /// Used to detect API mismatches at runtime.
+    pub fn interface_version(_env: Env) -> u32 {
+        syncro_common::interface_version_call(&_env)
+    }
+}
 
 #[cfg(test)]
 mod test;
@@ -65,17 +78,17 @@ pub struct DisputeRecord {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum RefundError {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    Unauthorized = 3,
-    ChargeNotFound = 4,
-    AlreadyRefunded = 5,
-    InvalidAmount = 6,
-    DisputeNotFound = 7,
-    DisputeAlreadyExists = 8,
-    DisputeNotApproved = 9,
-    ContractPaused = 10,
-    ChargeAlreadyExists = 11,
+    AlreadyInitialized = 2300,
+    NotInitialized = 2301,
+    Unauthorized = 2302,
+    ChargeNotFound = 2303,
+    AlreadyRefunded = 2304,
+    InvalidAmount = 2305,
+    DisputeNotFound = 2306,
+    DisputeAlreadyExists = 2307,
+    DisputeNotApproved = 2308,
+    ContractPaused = 2309,
+    ChargeAlreadyExists = 2310,
 }
 
 // ── Contract Events ──────────────────────────────────────────────────────────
