@@ -1,9 +1,8 @@
 name: Contracts
 
-on:
+n:
   push:
     branches: [main]
-    # Also run on tags so the build-manifest is published with the release
     tags:
       - "v*"
     paths:
@@ -34,13 +33,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # rust-toolchain.toml in contracts/ is automatically picked up by rustup.
-      # We install it explicitly here so the cache key matches the pinned version.
       - name: Install pinned Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          # Read the channel straight from the toolchain file so this step
-          # stays in sync automatically when the file is updated.
           toolchain: "1.81.0"
           targets: wasm32-unknown-unknown
 
@@ -49,15 +44,12 @@ jobs:
         with:
           workspaces: contracts
 
-      # ── First build ─────────────────────────────────────────────────────────
       - name: Build contracts (pass 1)
         run: |
           cargo build --target wasm32-unknown-unknown --release --locked
-          # Capture first-pass hashes immediately after the build
           mkdir -p /tmp/wasm-pass1
           cp target/wasm32-unknown-unknown/release/*.wasm /tmp/wasm-pass1/
 
-      # ── Emit hashes after first build ───────────────────────────────────────
       - name: Compute and print WASM hashes (pass 1)
         shell: bash
         run: |
@@ -70,71 +62,17 @@ jobs:
             echo "${hash}  ${name}" | tee -a /tmp/wasm-hashes-pass1.txt
           done
 
-      # ── Second build (determinism check) ────────────────────────────────────
-      # Clean only the WASM output — keep the incremental cache so this doesn't
-      # double the build time — then rebuild from source.
       - name: Wipe WASM output directory
         run: rm -f target/wasm32-unknown-unknown/release/*.wasm
 
-            - name: Run contract fuzz tests
-              run: cargo test -p subscription_renewal -p escrow -p payment-channel -p virtual-card fuzz_
-              env:
-                  PROPTEST_CASES: "8"
-                  # Fixed seed so the property/state-machine tests are
-                  # reproducible on every PR run.
-                  PROPTEST_SEED: "0x1234567890abcdef1234567890abcdef"
-
-            - name: Measure contract resource budgets
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  echo "Recording resource budgets for all contract entrypoints..."
-                  
-                  # Run tests with budget instrumentation
-                  cargo test --release -- --nocapture --test-threads=1 \
-                    -Z unstable-options --unstable-features 2>&1 | tee budget_output.log
-                  
-                  # Check if any entrypoints exceeded their budgets
-                  if grep -q "REGRESSION\|❌" budget_output.log; then
-                    echo "⚠️  Budget regression detected!"
-                    grep "REGRESSION\|❌" budget_output.log || true
-                    echo "Review the output above and update budgets.json if changes are intentional"
-                    echo "(Current tolerance: 5%)"
-                  fi
-                  
-                  echo "✓ Budget check complete"
-
-            - name: Validate budgets.json structure
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  echo "Validating budgets.json structure..."
-                  
-                  # Check that budgets.json is valid JSON
-                  if ! jq empty budgets.json; then
-                    echo "❌ budgets.json is not valid JSON"
-                    exit 1
-                  fi
-                  
-                  # Verify all required fields
-                  jq -e '.metadata.version' budgets.json > /dev/null || exit 1
-                  jq -e '.budgets | length > 0' budgets.json > /dev/null || exit 1
-                  
-                  echo "✓ budgets.json is valid"
-                  echo "Tracked entrypoints: $(jq '.budgets | length' budgets.json)"
-
-            - name: Upload WASM artifacts
-              uses: actions/upload-artifact@v7
-              with:
-                  name: contract-wasm
-                  path: contracts/target/wasm32-unknown-unknown/release/*.wasm
-                  retention-days: 1
+      - name: Build contracts (pass 2)
+        run: cargo build --target wasm32-unknown-unknown --release --locked
 
       - name: Compute WASM hashes (pass 2)
         shell: bash
         run: |
           set -euo pipefail
-          echo "### WASM sha256 hashes (pass 2)" | tee /tmp/wasm-hashes-pass2.txt
+          echo "### WSAM sha256 hashes (pass 2)" | tee /tmp/wasm-hashes-pass2.txt
           echo "" | tee -a /tmp/wasm-hashes-pass2.txt
           for f in target/wasm32-unknown-unknown/release/*.wasm; do
             name=$(basename "$f")
@@ -142,7 +80,6 @@ jobs:
             echo "${hash}  ${name}" | tee -a /tmp/wasm-hashes-pass2.txt
           done
 
-      # ── Determinism gate ────────────────────────────────────────────────────
       - name: Verify determinism (pass 1 == pass 2)
         shell: bash
         run: |
@@ -154,7 +91,7 @@ jobs:
             name=$(echo  "$line" | awk '{print $2}')
             hash2=$(grep -F "  ${name}" /tmp/wasm-hashes-pass2.txt | awk '{print $1}' || true)
             if [ "$hash1" != "$hash2" ]; then
-              echo "DETERMINISM FAILURE: ${name}"
+              echo "DETERMINISTM FAILURE: ${name}"
               echo "  pass-1: ${hash1}"
               echo "  pass-2: ${hash2}"
               mismatch=1
@@ -169,14 +106,77 @@ jobs:
           fi
           echo "All WASM artifacts are deterministic."
 
-                  if [ "${#wasm_files[@]}" -eq 0 ]; then
-                    echo "No WASM artifacts found in target/wasm32-unknown-unknown/release"
-                    exit 1
-                  fi
+      - name: Check WASM artifacts exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          wasm_files=(target/wasm32-unknown-unknown/release/*.wasm)
+          if [ "${#wasm_files[@]}" -eq 0 ]; then
+            echo "No WASM artifacts found in target/wasm32-unknown-unknown/release"
+            exit 1
+          fi
+          for wasm in "${wasm_files[@]}"; do
+            size=$(wc -c < "$wasm")
+            echo "$wasm: ${size} bytes"
+          done
 
-                  for wasm in "${wasm_files[@]}"; do
-                    size=$(wc -c < "$wasm")
-                    echo "$wasm: ${size} bytes"
+      - name: Run contract fuzz tests
+        run: cargo test -p subscription_renewal -p escrow -p payment-channel -p virtual-card fuzz_
+        env:
+          PROPTEST_CASES: "8"
+          # Fixed seed so the property/state-machine tests are
+          # reproducible on every PR run.
+          PROPTEST_SEED: "0x1234567890abcdef123456789abcdef"
+
+      - name: Measure contract resource budgets
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Recording resource budgets for all contract entrypoints..."
+          
+          # Run tests with budget instrumentation
+          cargo test --release -- --nocapture --test-threads=1 \
+            -Z unstable-options --unstable-features 2>&1 | tee budget_output.log
+          
+          # Check if any entrypoints exceeded their budgets
+          if grep -q "REGRESSION\\┍‍" budget_output.log; then
+            echo "⚠ Budget regression detected!"
+            grep "REGRESSION\\┍‍" budget_output.log || true
+            echo "Review the output above and update budgets.json if changes are intentional"
+            echo "(Current tolerance: 5%)"
+          fi
+          
+          echo "∣ Budget check complete"
+
+      - name: Validate budgets.json structure
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Validating budgets.json structure..."
+          
+          # Check that budgets.json is valid JSON
+          if ! jq empty budgets.json; then
+            echo "✅ budgets.json is not valid JSON"
+            exit 1
+          fi
+          
+          # Verify all required fields
+          jq -e '.metadata.version' budgets.json > /dev/null || exit 1
+          jq -e '.budgets | length > 0' budgets.json > /dev/null || exit 1
+          
+          echo "✅ budgets.json is valid"
+          echo "Tracked entrypoints: $(jq '.budgets | length' budgets.json)"
+
+      - name: Verify mainnet promotion gates
+        working-directory: ..
+        run: npx -y tsx deploy/verify-gates.ts
+
+      - name: Upload WSAM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-wasm
+          path: contracts/target/wasm32-unknown-unknown/release/*.wasm
+          retention-days: 1
 
       - name: Upload hash file
         uses: actions/upload-artifact@v4
@@ -185,32 +185,64 @@ jobs:
           path: /tmp/wasm-hashes-pass1.txt
           retention-days: 90
 
-            - name: Verify mainnet promotion gates
-              working-directory: ..
-              run: npx -y tsx deploy/verify-gates.ts
+  release:
+    name: Generate SBOM and provenance for release
+    runs-on: ubuntu-latest
+    needs: build-contracts
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
 
-    fuzz-nightly:
-        runs-on: ubuntu-latest
-        if: github.event_name == 'schedule'
-        timeout-minutes: 60
-        defaults:
-            run:
-              working-directory: contracts
+      - name: Download contract WASM artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: contract-wasm
+          path: contracts/target/wasm32-unknown-unknown/release
 
-        steps:
-            - uses: actions/checkout@v7
+      - name: Generate SBOM for contracts (CycloneDX)
+        uses: anchore/sbom-action@v0.17.2
+        with:
+          path: contracts
+          format: cyclondex-json
+          output-file: contracts-sbom.cyclondex.json
 
-            - name: Install Rust
-              uses: dtolnay/rust-toolchain@stable
+      - name: Generate SLSA build provenance
+        id: provenance
+        uses: slsa-framework/slsa-github-generator/actions/generate-buildprovenance@v2.0.0
+        with:
+          artifact-path: contracts/target/wasm32-unknown-unknown/release
+          upload-to-release: false
 
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@v2
-              with:
-                  workspaces: contracts
+      - name: Create/update release with SBOM and provenance
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            contracts-sbom.cyclondex.json
+            ${{ steps.provenance.outputs.provenance-path }}
 
-            - name: Run extended property/fuzz runs
-              run: cargo test -p subscription_renewal -p escrow -p payment-channel -p virtual-card fuzz_
-              env:
-                  # Extended case count for the nightly soak (PR runs use a
-                  # small, fixed count via PROPTEST_CASES=8 + PROPTEST_SEED).
-                  PROPTEST_CASES: "512"
+  fuzz-nightly:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: contracts
+
+      - name: Run extended property/fuzz runs
+        run: cargo test -p subscription_renewal -p escrow -p payment-channel -p virtual-card fuzz_
+        env:
+          PROPTEST_CASES: "512"
