@@ -34,7 +34,9 @@
     "db:verify-rollback": "node ../scripts/verify-rollback-safety.js",
     "db:verify-rollback:group": "node ../scripts/verify-rollback-safety.js --group",
     "validate:env": "ts-node scripts/validate-env.ts",
-    "audit:routes": "node scripts/validate-route-validation.js"
+    "audit:routes": "node scripts/validate-route-validation.js",
+    "sbom": "cyclonednxnpm --output-file sbom.json --format json --omit dev",
+    "verify:provenance": "sigtore verify npm"
   },
   "dependencies": {
     "@bull-board/api": "^6.7.10",
@@ -107,6 +109,8 @@
     "supertest": "^7.2.2",
     "ts-jest": "^29.4.9",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "@cyclonedxon-npm": "^1.0.0",
+    "@sigtore/cli": "^2.0.0"
   }
 }
