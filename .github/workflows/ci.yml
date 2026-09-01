@@ -11,6 +11,8 @@ on:
         description: 'Force a full CI run'
         type: boolean
         default: false
+  release:
+    types: [published]
 
 jobs:
   # ──────────────────────────────────────────────
@@ -270,6 +272,41 @@ jobs:
 
       - name: Run CONTRIBUTING guide unit tests
         run: node --test scripts/check-contributing.test.js
+
+  # ──────────────────────────────────────────────
+  # Job 4: SBOM generation and provenance attestation
+  # Runs on published releases to create and attach CycloneDX SBOM
+  # and SLSA provenance attestation to the release assets.
+  # ──────────────────────────────────────────────
+  release-supply-chain:
+    name: SBOM & Provenance
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' && github.event.action == 'published'
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+
+      - name: Generate CycloneDX SBOM
+        run: |
+          npx @cyclonedx/cyclonedx-npm --output-file sbom.json --format json
+
+      - name: Attach SBOM to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: sbom.json
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: sbom.json
 
   # ──────────────────────────────────────────────
   # Job 3: Dependency vulnerability scan (issue #1079)
