@@ -5,12 +5,21 @@ use soroban_sdk::{
 };
 use syncro_common;
 
+/// Time (in seconds) a contract must be continuously paused before any party
+/// may invoke the escape-hatch withdrawal for their own balance.
+///
+/// 7 days — compile-time constant, not admin-settable.
+pub const ESCAPE_HATCH_GRACE_PERIOD_SECS: u64 = 7 * 24 * 60 * 60; // 604 800 s
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
     Admin,
     Channel(u64),
     ChannelCount,
+    /// Unix timestamp at which the contract entered the paused state.
+    /// Key absent ⟹ contract is not paused.
+    PausedSince,
 }
 
 #[contracttype]

@@ -409,3 +409,118 @@ fn unauthorized_dispute_fails() {
     let result = client.try_dispute(&channel_id, &80, &20, &2, &attacker1, &attacker2);
     assert_eq!(result, Err(Ok(Error::Unauthorized)));
 }
+
+// ── Escape-hatch tests ────────────────────────────────────────────────────────
+
+#[test]
+fn escape_hatch_depositor_recovers_after_grace_period() {
+    let (env, admin, depositor, counterparty, token, token_client) = setup();
+    let client = register_contract(&env);
+
+    let deposit = 500i128;
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &deposit, &3600);
+
+    // Simulate partial off-chain activity: balance_a=300, balance_b=200 at seq 5
+    client.submit_state(&channel_id, &300, &200, &5, &depositor, &counterparty);
+
+    // Admin pauses the contract
+    client.pause();
+    let paused_at = env.ledger().timestamp();
+
+    // Advance past the grace period
+    env.ledger().set_timestamp(paused_at + ESCAPE_HATCH_GRACE_PERIOD_SECS + 1);
+
+    let depositor_before = token_client.balance(&depositor);
+    client.escape_hatch_withdraw(&channel_id, &depositor);
+    let depositor_after = token_client.balance(&depositor);
+
+    // Depositor should recover balance_a = 300
+    assert_eq!(depositor_after - depositor_before, 300i128);
+
+    let ch = client.get_channel(&channel_id).unwrap();
+    assert_eq!(ch.state, ChannelState::Closed);
+}
+
+#[test]
+fn escape_hatch_counterparty_can_also_call_but_channel_already_closed() {
+    // After depositor calls escape_hatch_withdraw the channel is Closed;
+    // a subsequent call by counterparty should fail with InvalidState.
+    let (env, _admin, depositor, counterparty, token, _token_client) = setup();
+    let client = register_contract(&env);
+
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &400, &3600);
+    client.submit_state(&channel_id, &300, &100, &1, &depositor, &counterparty);
+
+    client.pause();
+    let paused_at = env.ledger().timestamp();
+    env.ledger().set_timestamp(paused_at + ESCAPE_HATCH_GRACE_PERIOD_SECS + 1);
+
+    client.escape_hatch_withdraw(&channel_id, &depositor);
+
+    // Counterparty's share (100) was also zeroed; channel is now Closed.
+    let result = client.try_escape_hatch_withdraw(&channel_id, &counterparty);
+    assert_eq!(result, Err(Ok(Error::InvalidState)));
+}
+
+#[test]
+fn escape_hatch_fails_before_grace_period() {
+    let (env, _admin, depositor, counterparty, token, _token_client) = setup();
+    let client = register_contract(&env);
+
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &100, &3600);
+
+    client.pause();
+    let paused_at = env.ledger().timestamp();
+    // Only 60 seconds elapsed — well within 7-day grace period
+    env.ledger().set_timestamp(paused_at + 60);
+
+    let result = client.try_escape_hatch_withdraw(&channel_id, &depositor);
+    assert_eq!(result, Err(Ok(Error::GracePeriodNotElapsed)));
+}
+
+#[test]
+fn escape_hatch_fails_when_not_paused() {
+    let (env, _admin, depositor, counterparty, token, _token_client) = setup();
+    let client = register_contract(&env);
+
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &100, &3600);
+
+    // No pause — must fail
+    let result = client.try_escape_hatch_withdraw(&channel_id, &depositor);
+    assert_eq!(result, Err(Ok(Error::ContractNotPaused)));
+}
+
+#[test]
+fn escape_hatch_fails_after_unpause() {
+    let (env, _admin, depositor, counterparty, token, _token_client) = setup();
+    let client = register_contract(&env);
+
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &100, &3600);
+
+    client.pause();
+    let paused_at = env.ledger().timestamp();
+    env.ledger().set_timestamp(paused_at + ESCAPE_HATCH_GRACE_PERIOD_SECS + 1);
+
+    // Admin recovers and unpauses before user acts
+    client.unpause();
+
+    let result = client.try_escape_hatch_withdraw(&channel_id, &depositor);
+    assert_eq!(result, Err(Ok(Error::ContractNotPaused)));
+}
+
+#[test]
+fn escape_hatch_cross_user_theft_prevented() {
+    let (env, _admin, depositor, counterparty, token, _token_client) = setup();
+    let attacker = Address::generate(&env);
+    let client = register_contract(&env);
+
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &100, &3600);
+
+    client.pause();
+    let paused_at = env.ledger().timestamp();
+    env.ledger().set_timestamp(paused_at + ESCAPE_HATCH_GRACE_PERIOD_SECS + 1);
+
+    // Attacker is not a party to this channel
+    let result = client.try_escape_hatch_withdraw(&channel_id, &attacker);
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
+}

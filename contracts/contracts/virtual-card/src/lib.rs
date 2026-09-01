@@ -15,6 +15,12 @@ const SECONDS_PER_DAY: u64 = 86_400;
 /// Rolling 30-day month bucket length in seconds.
 const SECONDS_PER_MONTH: u64 = 86_400 * 30;
 
+/// Time (in seconds) a contract must be continuously paused before any card
+/// holder may invoke the escape-hatch withdrawal for their own balance.
+///
+/// 7 days — compile-time constant, not admin-settable.
+pub const ESCAPE_HATCH_GRACE_PERIOD_SECS: u64 = 7 * 24 * 60 * 60; // 604 800 s
+
 // ============================================================================
 // Error Types
 // ============================================================================
@@ -38,6 +44,8 @@ pub enum VirtualCardError {
     MonthlyLimitExceeded = 13,
     MerchantNotAllowed = 14,
     MerchantBlocked = 15,
+    ContractNotPaused = 16,
+    GracePeriodNotElapsed = 17,
 }
 
 // ── Card ID type ─────────────────────────────────────────────────────────────
@@ -622,6 +630,108 @@ impl VirtualCardContract {
     pub fn version(_env: Env) -> u32 {
         2
     }
+
+    // ── Pause / escape-hatch ─────────────────────────────────────────────────
+
+    /// Pause the contract.
+    ///
+    /// Only the card-holder should call this in practice; in a real deployment
+    /// this would be restricted to an admin key.  For the MVP the caller is
+    /// not restricted here — add `caller.require_auth()` + admin check once an
+    /// admin key storage pattern is introduced to this contract.
+    pub fn pause(env: Env) {
+        if !env.storage().instance().has(&DataKey::PausedSince) {
+            let now = env.ledger().timestamp();
+            env.storage()
+                .instance()
+                .set(&DataKey::PausedSince, &now);
+        }
+    }
+
+    /// Unpause the contract.
+    pub fn unpause(env: Env) {
+        env.storage().instance().remove(&DataKey::PausedSince);
+    }
+
+    /// Returns `true` when the contract is currently paused.
+    pub fn is_paused(env: Env) -> bool {
+        env.storage().instance().has(&DataKey::PausedSince)
+    }
+
+    /// Emergency escape-hatch — allows a card holder to recover their own
+    /// remaining balance after the contract has been paused for longer than
+    /// `ESCAPE_HATCH_GRACE_PERIOD_SECS`.
+    ///
+    /// In this contract the "balance" is an off-chain accounting unit (not
+    /// an on-chain token balance), so the escape hatch zeroes the card and
+    /// emits an auditable event.  Actual token refund happens off-chain via
+    /// the event log; the on-chain record is updated so the card cannot be
+    /// double-claimed.
+    ///
+    /// # Security
+    /// * Contract MUST be paused.
+    /// * Grace period MUST have elapsed.
+    /// * Only the card's recorded holder may call this.
+    /// * Calling a second time returns `CardInactive` — the card was already
+    ///   closed/zeroed on the first call.
+    pub fn escape_hatch_withdraw(
+        env: Env,
+        card_id: u32,
+        caller: Address,
+    ) -> Result<i128, VirtualCardError> {
+        // ── 1. Contract must be paused ───────────────────────────
+        let paused_since: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::PausedSince)
+            .ok_or(VirtualCardError::ContractNotPaused)?;
+
+        // ── 2. Grace period must have elapsed ────────────────────
+        let now = env.ledger().timestamp();
+        let elapsed = now.saturating_sub(paused_since);
+        if elapsed < ESCAPE_HATCH_GRACE_PERIOD_SECS {
+            return Err(VirtualCardError::GracePeriodNotElapsed);
+        }
+
+        // ── 3. Load card ──────────────────────────────────────────
+        let mut card: Card = env
+            .storage()
+            .persistent()
+            .get(&DataKey::CardMeta(card_id))
+            .ok_or(VirtualCardError::CardNotFound)?;
+
+        // ── 4. Caller must be the card holder ────────────────────
+        if card.holder != caller {
+            return Err(VirtualCardError::Unauthorized);
+        }
+        caller.require_auth();
+
+        // ── 5. Card must still have a claimable balance ──────────
+        // Closed cards have already been settled or previously escaped.
+        if card.status == CardStatus::Closed {
+            return Err(VirtualCardError::CardInactive);
+        }
+
+        let recoverable_balance = card.balance;
+
+        // ── 6. EFFECTS — zero balance and close the card ─────────
+        card.balance = 0;
+        card.status = CardStatus::Closed;
+        env.storage()
+            .persistent()
+            .set(&DataKey::CardMeta(card_id), &card);
+
+        // ── 7. Emit distinct escape-hatch event ──────────────────
+        env.events().publish(
+            (
+                soroban_sdk::Symbol::new(&env, "escape_hatch"),
+                soroban_sdk::Symbol::new(&env, "card"),
+            ),
+            (card_id, caller, recoverable_balance, paused_since),
+        );
+
+        Ok(recoverable_balance)
+    }
 }
 
 // ============================================================================
@@ -988,5 +1098,154 @@ mod tests {
             VirtualCardError::MerchantBlocked,
         ];
         assert_eq!(errors.len(), 14);
+    }
+
+    // ── Escape-hatch tests ───────────────────────────────────────
+
+    #[test]
+    fn test_escape_hatch_recovers_balance_after_grace_period() {
+        let (env, user) = setup();
+        let contract_id = env.register(VirtualCardContract, ());
+        let client = VirtualCardContractClient::new(&env, &contract_id);
+
+        let card_id = client.issue_card(
+            &user,
+            &800_i128,
+            &CardType::Standard,
+            &0_u64,
+            &0_i128,
+            &0_i128,
+        );
+
+        // Spend some balance first
+        client.process_payment(&card_id, &200_i128, &String::from_str(&env, "merchant"));
+        assert_eq!(client.get_balance(&card_id), 600_i128);
+
+        // Pause and advance past grace period
+        client.pause();
+        let paused_at = env.ledger().timestamp();
+        env.ledger().set_timestamp(paused_at + ESCAPE_HATCH_GRACE_PERIOD_SECS + 1);
+
+        let recovered = client.escape_hatch_withdraw(&card_id, &user);
+        assert_eq!(recovered, 600_i128);
+
+        // Card must be closed and zeroed
+        let card = client.get_card(&card_id);
+        assert_eq!(card.balance, 0_i128);
+        assert_eq!(card.status, CardStatus::Closed);
+    }
+
+    #[test]
+    fn test_escape_hatch_fails_before_grace_period() {
+        let (env, user) = setup();
+        let contract_id = env.register(VirtualCardContract, ());
+        let client = VirtualCardContractClient::new(&env, &contract_id);
+
+        let card_id = issue_standard(&client, &user, 500_i128);
+
+        client.pause();
+        let paused_at = env.ledger().timestamp();
+        // Only 1 second elapsed
+        env.ledger().set_timestamp(paused_at + 1);
+
+        let result = client.try_escape_hatch_withdraw(&card_id, &user);
+        assert_eq!(result, Err(Ok(VirtualCardError::GracePeriodNotElapsed)));
+    }
+
+    #[test]
+    fn test_escape_hatch_fails_when_not_paused() {
+        let (env, user) = setup();
+        let contract_id = env.register(VirtualCardContract, ());
+        let client = VirtualCardContractClient::new(&env, &contract_id);
+
+        let card_id = issue_standard(&client, &user, 500_i128);
+
+        // No pause — must fail
+        let result = client.try_escape_hatch_withdraw(&card_id, &user);
+        assert_eq!(result, Err(Ok(VirtualCardError::ContractNotPaused)));
+    }
+
+    #[test]
+    fn test_escape_hatch_fails_after_unpause() {
+        let (env, user) = setup();
+        let contract_id = env.register(VirtualCardContract, ());
+        let client = VirtualCardContractClient::new(&env, &contract_id);
+
+        let card_id = issue_standard(&client, &user, 500_i128);
+
+        client.pause();
+        let paused_at = env.ledger().timestamp();
+        env.ledger().set_timestamp(paused_at + ESCAPE_HATCH_GRACE_PERIOD_SECS + 1);
+        client.unpause();
+
+        let result = client.try_escape_hatch_withdraw(&card_id, &user);
+        assert_eq!(result, Err(Ok(VirtualCardError::ContractNotPaused)));
+    }
+
+    #[test]
+    fn test_escape_hatch_cross_user_theft_prevented() {
+        let (env, user) = setup();
+        let attacker = Address::generate(&env);
+        let contract_id = env.register(VirtualCardContract, ());
+        let client = VirtualCardContractClient::new(&env, &contract_id);
+
+        let card_id = issue_standard(&client, &user, 500_i128);
+
+        client.pause();
+        let paused_at = env.ledger().timestamp();
+        env.ledger().set_timestamp(paused_at + ESCAPE_HATCH_GRACE_PERIOD_SECS + 1);
+
+        // Attacker is not the card holder
+        let result = client.try_escape_hatch_withdraw(&card_id, &attacker);
+        assert_eq!(result, Err(Ok(VirtualCardError::Unauthorized)));
+    }
+
+    #[test]
+    fn test_escape_hatch_cannot_double_withdraw() {
+        let (env, user) = setup();
+        let contract_id = env.register(VirtualCardContract, ());
+        let client = VirtualCardContractClient::new(&env, &contract_id);
+
+        let card_id = issue_standard(&client, &user, 500_i128);
+
+        client.pause();
+        let paused_at = env.ledger().timestamp();
+        env.ledger().set_timestamp(paused_at + ESCAPE_HATCH_GRACE_PERIOD_SECS + 1);
+
+        client.escape_hatch_withdraw(&card_id, &user);
+
+        // Second call must fail — card is now Closed
+        let result = client.try_escape_hatch_withdraw(&card_id, &user);
+        assert_eq!(result, Err(Ok(VirtualCardError::CardInactive)));
+    }
+
+    #[test]
+    fn test_escape_hatch_zero_balance_card() {
+        let (env, user) = setup();
+        let contract_id = env.register(VirtualCardContract, ());
+        let client = VirtualCardContractClient::new(&env, &contract_id);
+
+        // Issue and immediately spend full balance so it auto-closes
+        let card_id = client.issue_card(
+            &user,
+            &100_i128,
+            &CardType::Disposable,
+            &0_u64,
+            &0_i128,
+            &0_i128,
+        );
+        client.process_payment(&card_id, &100_i128, &String::from_str(&env, "merchant"));
+
+        // Card is now Closed with zero balance
+        let card = client.get_card(&card_id);
+        assert_eq!(card.status, CardStatus::Closed);
+
+        client.pause();
+        let paused_at = env.ledger().timestamp();
+        env.ledger().set_timestamp(paused_at + ESCAPE_HATCH_GRACE_PERIOD_SECS + 1);
+
+        // Closed card — escape hatch correctly refuses
+        let result = client.try_escape_hatch_withdraw(&card_id, &user);
+        assert_eq!(result, Err(Ok(VirtualCardError::CardInactive)));
     }
 }
