@@ -108,6 +108,13 @@ jobs:
                   echo "✓ budgets.json is valid"
                   echo "Tracked entrypoints: $(jq '.budgets | length' budgets.json)"
 
+            - name: Upload WASM artifacts
+              uses: actions/upload-artifact@v7
+              with:
+                  name: contract-wasm
+                  path: contracts/target/wasm32-unknown-unknown/release/*.wasm
+                  retention-days: 1
+
             - name: Verify backend contract interface alignment
               working-directory: ..
               run: |

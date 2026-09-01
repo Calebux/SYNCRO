@@ -886,16 +886,28 @@ export type {
   // Notification types
   AppNotification,
 } from "./types.js";
+// ── Error taxonomy (v2 — #1303) ──────────────────────────────────────────────
 export {
+  // Primary hierarchy (stable public surface)
   SyncroError,
-  NotFoundError,
-  AuthenticationError,
-  RateLimitError,
   ValidationError,
-  ConflictError,
+  AuthError,
+  NetworkError,
+  RpcError,
+  ContractError,
+  NotFoundError,
+  // Backwards-compatible aliases
+  AuthenticationError,
   ForbiddenError,
+  RateLimitError,
+  ConflictError,
+  // Factories and helpers
   createApiError,
+  resolveContractErrorVariant,
+  withRetry,
+  computeBackoffDelay,
 } from "./errors.js";
+export type { RetryPolicy, ProblemDetails } from "./errors.js";
 export {
   verifyWebhookSignature,
   parseWebhookHeaders,

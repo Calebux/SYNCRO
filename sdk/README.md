@@ -4,6 +4,48 @@ Official TypeScript/JavaScript SDK for the **SYNCRO** Subscription Management Pl
 
 Subscription CRUD wrapper for the Syncro backend with integrated privacy-preserving cryptography. Developers should use these SDK methods instead of calling raw API endpoints or Soroban contracts directly.
 
+---
+
+## Versioning and Deprecation Policy
+
+`@syncro/sdk` follows [Semantic Versioning 2.0.0](https://semver.org/).
+
+### What constitutes a breaking change (major bump)
+
+- Removing or renaming an export listed in `sdk/api-surface.md`
+- Changing a stable error `code` string or `retryable` flag
+- Making a previously optional field required
+- Narrowing an accepted type or widening a returned type in a way that breaks existing consumers
+
+### What is a non-breaking addition (minor bump)
+
+- New exported symbol
+- New optional field on an existing interface
+- New error subclass
+- New method on `SyncroSDK`
+
+### Deprecation window
+
+1. A symbol is marked `@deprecated` in JSDoc for at least **one minor release** before removal.
+2. The `[Unreleased]` section of `CHANGELOG.md` must document the deprecation.
+3. Removal ships in the next **major** version.
+
+### Experimental APIs
+
+Unstable/preview exports live under the `./experimental` sub-path and may change in any release:
+
+```typescript
+import { something } from "@syncro/sdk/experimental";
+```
+
+### API Surface report
+
+`sdk/api-surface.md` is committed to the repo and lists every public symbol.
+CI (`npm run check:api-surface -w sdk`) fails when a new export is added
+without updating the report — making surface changes visible in review.
+
+---
+
 ## Features
 
 ### Subscription Management

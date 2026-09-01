@@ -44,10 +44,12 @@
     "lint": "eslint \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit",
     "generate:contracts": "node scripts/generate-contract-bindings.cjs",
+    "check:api-surface": "node scripts/check-api-surface.cjs",
     "prebuild": "npm run generate:contracts",
     "build": "tsc",
     "test": "jest",
-    "prepublishOnly": "npm run lint && npm run typecheck && npm run build"
+    "test:integration": "bash scripts/run-integration.sh",
+    "prepublishOnly": "npm run lint && npm run typecheck && npm run check:api-surface && npm run build"
   },
   "keywords": [
     "syncro",
