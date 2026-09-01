@@ -15,7 +15,7 @@
 import logger from '../config/logger';
 import { supabase } from '../config/database';
 import { env } from '../config/env';
-import { RpcClient } from '../../../shared/src/rpc-client';
+import { RpcClient } from '@syncro/shared/rpc-client';
 import {
   getBlockchainFlags,
   resolveStellarNetwork,

@@ -5,7 +5,7 @@ import { reorgHandler } from './reorg-handler';
 import { generateCycleId } from '../utils/cycle-id';
 import { renewalCooldownService } from './renewal-cooldown-service';
 import { calculateBackoffDelay } from '../utils/retry';
-import { RpcClient } from '../../../shared/src/rpc-client';
+import { RpcClient } from '@syncro/shared/rpc-client';
 import {
   getBlockchainFlags,
   resolveStellarNetwork,

@@ -1,1 +1,1 @@
-export * from '../../../shared/src/stellar/memo.js';
+export * from '@syncro/shared/stellar/memo';

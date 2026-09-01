@@ -100,6 +100,13 @@ function bytesToHex(bytes: Uint8Array): string {
 
 /**
  * Recipient-side stealth detection: derive one-time destination from memo R.
+ *
+ * `ephemeralPubkeyHex` normally arrives as the 32-byte x-only coordinate
+ * stored in a Stellar `memo_return` field (see `encodeSteaithMemo` /
+ * `decodeStealthMemo`), which is why a bare 64-hex-char value is normalized
+ * to a compressed point (assumed even-y, `02` prefix) before parsing. A
+ * caller that already has the full 33-byte compressed point (66 hex chars)
+ * can pass it through unchanged.
  */
 export function detectStealthDestination(
   viewPrivateKeyHex: string,
@@ -112,29 +119,6 @@ export function detectStealthDestination(
   if (viewScalar === 0n) throw new Error("Invalid view private key");
 
   const R = secp256k1.ProjectivePoint.fromHex(normalized);
-  const S = R.multiply(viewScalar);
-  const h = BigInt("0x" + bytesToHex(sha256(S.toRawBytes(true)))) % n;
-
-  const spendPoint = secp256k1.ProjectivePoint.fromHex(spendPublicKeyHex);
-  const P = spendPoint.add(secp256k1.ProjectivePoint.BASE.multiply(h));
-
-  return bytesToHex(P.toRawBytes(true));
-}
-
-/**
- * Recipient-side stealth detection: given ephemeral pubkey R from a tx memo,
- * derive the one-time destination P = spend_pubkey + hash(view_privkey * R)*G.
- */
-export function detectStealthDestination(
-  viewPrivateKeyHex: string,
-  spendPublicKeyHex: string,
-  ephemeralPubkeyHex: string,
-): string {
-  const n = secp256k1.CURVE.n;
-  const viewScalar = BigInt("0x" + viewPrivateKeyHex) % n;
-  if (viewScalar === 0n) throw new Error("Invalid view private key");
-
-  const R = secp256k1.ProjectivePoint.fromHex(ephemeralPubkeyHex);
   const S = R.multiply(viewScalar);
   const h = BigInt("0x" + bytesToHex(sha256(S.toRawBytes(true)))) % n;
 

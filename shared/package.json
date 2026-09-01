@@ -6,10 +6,36 @@
   "types": "src/index.ts",
   "typesVersions": {
     "*": {
-      "subscription-math": ["src/subscription-math.ts"],
-      "security": ["src/security.ts"],
-      "crypto": ["src/crypto/index.ts"],
-      "*": ["src/*"]
+      "subscription-math": [
+        "src/logic/subscription-math.ts"
+      ],
+      "security": [
+        "src/logic/security.ts"
+      ],
+      "common": [
+        "src/logic/common.ts"
+      ],
+      "crypto": [
+        "src/logic/crypto/index.ts"
+      ],
+      "stellar/memo": [
+        "src/logic/stellar/memo.ts"
+      ],
+      "stealth-derive": [
+        "src/logic/stealth-memo.ts"
+      ],
+      "stealth-meta-address": [
+        "src/logic/stealth-meta-address.ts"
+      ],
+      "soroban-contract-interfaces": [
+        "src/logic/soroban-contract-interfaces.ts"
+      ],
+      "rpc-client": [
+        "src/platform/rpc-client.ts"
+      ],
+      "sentry": [
+        "src/platform/sentry.ts"
+      ]
     }
   },
   "exports": {
@@ -19,33 +45,69 @@
       "require": "./dist/index.js"
     },
     "./subscription-math": {
-      "types": "./src/subscription-math.ts",
-      "import": "./src/subscription-math.ts",
-      "require": "./dist/subscription-math.js"
+      "types": "./src/logic/subscription-math.ts",
+      "import": "./src/logic/subscription-math.ts",
+      "require": "./dist/logic/subscription-math.js"
     },
     "./security": {
-      "types": "./src/security.ts",
-      "import": "./src/security.ts",
-      "require": "./dist/security.js"
+      "types": "./src/logic/security.ts",
+      "import": "./src/logic/security.ts",
+      "require": "./dist/logic/security.js"
+    },
+    "./common": {
+      "types": "./src/logic/common.ts",
+      "import": "./src/logic/common.ts",
+      "require": "./dist/logic/common.js"
     },
     "./crypto": {
-      "types": "./src/crypto/index.ts",
-      "import": "./src/crypto/index.ts",
-      "require": "./dist/crypto/index.js"
+      "types": "./src/logic/crypto/index.ts",
+      "import": "./src/logic/crypto/index.ts",
+      "require": "./dist/logic/crypto/index.js"
     },
     "./stellar/memo": {
-      "types": "./src/stellar/memo.ts",
-      "import": "./src/stellar/memo.ts",
-      "require": "./dist/stellar/memo.js"
+      "types": "./src/logic/stellar/memo.ts",
+      "import": "./src/logic/stellar/memo.ts",
+      "require": "./dist/logic/stellar/memo.js"
+    },
+    "./stealth-derive": {
+      "types": "./src/logic/stealth-memo.ts",
+      "import": "./src/logic/stealth-memo.ts",
+      "require": "./dist/logic/stealth-memo.js"
+    },
+    "./stealth-meta-address": {
+      "types": "./src/logic/stealth-meta-address.ts",
+      "import": "./src/logic/stealth-meta-address.ts",
+      "require": "./dist/logic/stealth-meta-address.js"
+    },
+    "./soroban-contract-interfaces": {
+      "types": "./src/logic/soroban-contract-interfaces.ts",
+      "import": "./src/logic/soroban-contract-interfaces.ts",
+      "require": "./dist/logic/soroban-contract-interfaces.js"
+    },
+    "./rpc-client": {
+      "types": "./src/platform/rpc-client.ts",
+      "import": "./src/platform/rpc-client.ts",
+      "require": "./dist/platform/rpc-client.js"
+    },
+    "./sentry": {
+      "types": "./src/platform/sentry.ts",
+      "import": "./src/platform/sentry.ts",
+      "require": "./dist/platform/sentry.js"
     }
   },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "watch": "tsc --watch",
-    "test": "jest"
+    "test": "jest",
+    "check-imports": "depcruise src --config .dependency-cruiser.cjs"
   },
-  "keywords": ["syncro", "types", "domain-models", "crypto"],
+  "keywords": [
+    "syncro",
+    "types",
+    "domain-models",
+    "crypto"
+  ],
   "license": "ISC",
   "dependencies": {
     "@noble/curves": "^1.8.1",
@@ -53,8 +115,10 @@
     "libsodium-wrappers": "^0.7.15"
   },
   "devDependencies": {
-    "@types/libsodium-wrappers": "^0.7.14",
     "@types/jest": "^30.0.0",
+    "@types/libsodium-wrappers": "^0.7.14",
+    "dependency-cruiser": "^17.4.3",
+    "esbuild": "^0.28.2",
     "jest": "^30.4.2",
     "ts-jest": "^29.2.5",
     "typescript": "^5.9.3"

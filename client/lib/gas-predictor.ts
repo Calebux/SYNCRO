@@ -14,7 +14,7 @@
  *   if (estimate.congestion === 'high') { …warn user… }
  */
 
-import { RpcClient } from '../../shared/src/rpc-client';
+import { RpcClient } from '@syncro/shared/rpc-client';
 
 export type CongestionLevel = "low" | "medium" | "high" | "severe";
 

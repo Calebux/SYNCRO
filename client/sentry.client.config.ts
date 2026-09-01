@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/nextjs';
-import { resolveRelease, resolveEnvironment, scrubEvent, SENTRY_TAG_KEYS } from '../shared/src/sentry';
+import { resolveRelease, resolveEnvironment, scrubEvent, SENTRY_TAG_KEYS } from '@syncro/shared/sentry';
 
 Sentry.init({
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,

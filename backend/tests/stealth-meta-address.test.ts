@@ -3,7 +3,7 @@ import {
   encodeStealthMetaAddress,
   generateStealthMetaAddress,
   isValidStealthMetaAddress,
-} from '../../shared/src/types/stealth';
+} from '@syncro/shared/stealth-meta-address';
 
 describe('stealth meta-address helpers', () => {
   it('round-trips the versioned format', () => {
