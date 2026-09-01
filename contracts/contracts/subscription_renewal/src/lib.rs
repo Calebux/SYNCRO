@@ -1,3 +1,35 @@
+//! SYNCRO subscription renewal contract.
+//!
+//! # Renewal state machine invariants
+//!
+//! The renewal flow moves money on a schedule, so it is property-tested
+//! (see `fuzz.rs`) to guarantee the following invariants hold across arbitrary
+//! sequences of `init_sub`, `approve_renewal`, `renew`, `cancel_sub`,
+//! `set_window` and `set_user_cap`:
+//!
+//! 1. **Per-subscription renewals respect the spending cap.** Every *accepted*
+//!    renewal is rejected (`SpendingCapViolated`) whenever `amount > spending_cap`
+//!    when a cap is configured, so no single renewal exceeds its subscription cap.
+//! 2. **Total charged <= global user cap.** A successful renewal is rejected
+//!    (`GlobalCapViolated`) whenever `current_spent + amount > user_cap`, so a
+//!    user's cumulative `UserSpent` never exceeds its configured `UserCap`.
+//! 3. **At most one successful renewal per billing window.** Each successful
+//!    renewal stores its `cycle_id`; a later renewal for the same `cycle_id` is
+//!    rejected as a duplicate (`DuplicateRenewalRejected`). Retries of a failed
+//!    renewal never store the cycle, so at most one success per cycle/window
+//!    is possible.
+//! 4. **`SubscriptionState` transitions follow the declared graph.** The legal
+//!    transitions are `Active -> {Active, Retrying, Failed, Cancelled}`,
+//!    `Retrying -> {Active, Retrying, Failed, Cancelled}`,
+//!    `Failed -> {Cancelled}` (plus re-init to `Active`), and
+//!    `Cancelled -> {Active}` via re-initialisation. No path may enter or leave
+//!    the state machine illegally.
+//! 5. **The renewal lock is never held after a completed call.** Every `renew`
+//!    that reaches the success or retry path releases the `RenewalLock(sub_id)`
+//!    before returning, so a completed call never leaves a lock held.
+//!
+//! These invariants are mirrored (and asserted) in the test module `fuzz.rs`.
+
 #![no_std]
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,

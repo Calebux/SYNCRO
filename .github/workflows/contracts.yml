@@ -1,7 +1,5 @@
 name: Contracts
 
-name: Contracts
-
 on:
   push:
     branches: [main]
@@ -11,12 +9,14 @@ on:
     branches: [main]
     paths: 
       - "contracts/**"
+  schedule:
+    - cron: "0 2 * * *"
 
 permissions:
   contents: read
 
 concurrency:
-  group: contracts-$ {{ github.workflow }}-$ {{ github.ref }}
+  group: contracts-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -64,7 +64,10 @@ jobs:
             - name: Run contract fuzz tests
               run: cargo test -p subscription_renewal -p escrow -p payment-channel -p virtual-card fuzz_
               env:
-                  PROPTYST_CASES: "8"
+                  PROPTEST_CASES: "8"
+                  # Fixed seed so the property/state-machine tests are
+                  # reproducible on every PR run.
+                  PROPTEST_SEED: "0x1234567890abcdef1234567890abcdef"
 
             - name: Measure contract resource budgets
               shell: bash
@@ -119,13 +122,13 @@ jobs:
 
                   wasm_files=(target/wasm32-unknown-unknown/release/*.wasm)
 
-                  if [ ${#wasm_files[@]_ -} eq 0 ]; then
+                  if [ "${#wasm_files[@]}" -eq 0 ]; then
                     echo "No WASM artifacts found in target/wasm32-unknown-unknown/release"
                     exit 1
                   fi
 
-                  for wasm in "${wasm_files[@]_ }"; do
-                    size=$wc -c < "$wasm"
+                  for wasm in "${wasm_files[@]}"; do
+                    size=$(wc -c < "$wasm")
                     echo "$wasm: ${size} bytes"
 
                     if [ "$size" -gt 65536 ]; then
@@ -136,3 +139,29 @@ jobs:
             - name: Verify mainnet promotion gates
               working-directory: ..
               run: npx -y tsx deploy/verify-gates.ts
+
+    fuzz-nightly:
+        runs-on: ubuntu-latest
+        if: github.event_name == 'schedule'
+        timeout-minutes: 60
+        defaults:
+            run:
+              working-directory: contracts
+
+        steps:
+            - uses: actions/checkout@v7
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: contracts
+
+            - name: Run extended property/fuzz runs
+              run: cargo test -p subscription_renewal -p escrow -p payment-channel -p virtual-card fuzz_
+              env:
+                  # Extended case count for the nightly soak (PR runs use a
+                  # small, fixed count via PROPTEST_CASES=8 + PROPTEST_SEED).
+                  PROPTEST_CASES: "512"
