@@ -21,11 +21,30 @@ pub enum Error {
 
 #[contracttype]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[repr(u32)]
-pub enum Scope {
-    Renewals = 1,
-    GiftCards = 2,
-    Approvals = 4,
+pub struct ScopeSet(pub u32);
+
+impl ScopeSet {
+    pub const RENEWALS: u32 = 1 << 0;
+    pub const GIFTCARDS: u32 = 1 << 1;
+    pub const APPROVALS: u32 = 1 << 2;
+    // Remaining bits (3..=31) are reserved for future scopes.
+    pub const ALL_DEFINED: u32 = Self::RENEWALS | Self::GIFTCARDS | Self::APPROVALS;
+
+    pub fn is_valid(&self) -> bool {
+        (self.0 & !Self::ALL_DEFINED) == 0
+    }
+
+    pub fn contains(&self, other: &ScopeSet) -> bool {
+        (self.0 & other.0) == other.0
+    }
+
+    pub fn union(&self, other: &ScopeSet) -> ScopeSet {
+        ScopeSet(self.0 | other.0)
+    }
+
+    pub fn difference(&self, other: &ScopeSet) -> ScopeSet {
+        ScopeSet(self.0 & !other.0)
+    }
 }
 
 
@@ -165,9 +184,13 @@ impl AgentRegistry {
     pub fn update_scopes(
         env: Env,
         agent: Address,
-        scopes: u32,
+        scopes: ScopeSet,
     ) -> Result<(), Error> {
         Self::require_admin(&env)?;
+
+        if !scopes.is_valid() {
+            return Err(Error::InvalidScope);
+        }
 
         if !env.storage().persistent().has(&DataKey::Agent(agent.clone())) {
             return Err(Error::Unauthorized);
@@ -175,11 +198,11 @@ impl AgentRegistry {
 
         env.storage()
             .persistent()
-            .set(&DataKey::Agent(agent.clone()), &scopes);
+            .set(&DataKey::Agent(agent.clone()), &scopes.0);
 
         env.events().publish(
             (symbol_short!("agent"), symbol_short!("scopes")),
-            (agent, scopes),
+            (agent, scopes.0),
         );
 
         Ok(())
@@ -215,19 +238,19 @@ impl AgentRegistry {
         Ok(())
     }
 
-       pub fn has_scope(env: Env, agent: Address, scope: Scope) -> bool {
+    pub fn has_scope(env: Env, agent: Address, scope: ScopeSet) -> bool {
         match env
             .storage()
             .persistent()
             .get::<_, u32>(&DataKey::Agent(agent))
         {
-            Some(mask) => (mask & scope as u32) != 0,
+            Some(mask) => ScopeSet(mask).contains(&scope),
             None => false,
         }
     }
 
     /// Return Err(Error::MissingScope) if the agent lacks the requested scope.
-    pub fn require_scope(env: Env, agent: Address, scope: Scope) -> Result<(), Error> {
+    pub fn require_scope(env: Env, agent: Address, scope: ScopeSet) -> Result<(), Error> {
         agent.require_auth();
 
         if !Self::has_scope(env, agent.clone(), scope) {
@@ -236,6 +259,10 @@ impl AgentRegistry {
         Ok(())
     }
 
+    /// Return Err(Error::MissingScope) if the agent lacks the requested scopes.
+    pub fn require_scopes(env: Env, agent: Address, scopes: ScopeSet) -> Result<(), Error> {
+        Self::require_scope(env, agent, scopes)
+    }
 }
 
 mod test;
