@@ -63,6 +63,26 @@ export const SOROBAN_CONTRACT_INTERFACES: SorobanContractInterface[] = [
         name: 'record_log',
         args: ['U64', 'String', 'String'],
       },
+      {
+        name: 'record_commitment',
+        args: ['BytesN32'],
+      },
+      {
+        name: 'add_writer',
+        args: ['Address'],
+      },
+      {
+        name: 'remove_writer',
+        args: ['Address'],
+      },
+      {
+        name: 'is_writer',
+        args: ['Address'],
+      },
+      {
+        name: 'get_writers',
+        args: [],
+      },
     ],
   },
   {

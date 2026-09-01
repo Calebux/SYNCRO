@@ -13,6 +13,12 @@ fn create_test_env() -> (Env, Address, SubscriptionLoggingContractClient<'static
     let admin = Address::generate(&env);
     client.init(&admin);
 
+    // Register a writer so the write entrypoints (record_log / record_commitment)
+    // are callable. Under mock_all_auths the writer is authenticated, matching
+    // the real cross-contract flow where the renewal contract is a writer.
+    let writer = Address::generate(&env);
+    client.add_writer(&writer);
+
     (env, admin, client)
 }
 
@@ -509,4 +515,115 @@ fn test_prune_logs_after_anchor_and_verify_membership() {
         &proof_path,
         &proof_directions,
     ));
+}
+
+// ============================================================================
+// WRITER ALLOWLIST TESTS
+// ============================================================================
+
+/// Set up a logging contract with real (non-mocked) auths and register
+/// `writer` (a distinct contract instance) as the sole writer on the allowlist.
+/// Returns (env, admin, writer, client).
+///
+/// Both `admin` and `writer` are represented as contract instances so their
+/// auth can be exercised via `env.as_contract` under real (non-mocked) auths.
+fn create_writer_env(
+) -> (Env, Address, Address, SubscriptionLoggingContractClient<'static>) {
+    let env = Env::default();
+    let contract_id = env.register(SubscriptionLoggingContract, ());
+    let client = SubscriptionLoggingContractClient::new(&env, &contract_id);
+
+    let admin = env.register(SubscriptionLoggingContract, ());
+    client.init(&admin);
+
+    // `writer` is a separate contract instance, granted the writer role by the
+    // admin. Under real auths, `as_contract(&admin, ...)` authenticates admin.
+    let writer = env.register(SubscriptionLoggingContract, ());
+    env.as_contract(&admin, || client.add_writer(&writer));
+
+    (env, admin, writer, client)
+}
+
+#[test]
+fn test_writer_allowlist_management() {
+    let (env, admin, writer, client) = create_writer_env();
+
+    // Writer registered at setup; admin is NOT a writer (distinct roles).
+    assert!(client.is_writer(&writer));
+    assert_eq!(client.get_writers().len(), 1);
+
+    let other = Address::generate(&env);
+    assert!(!client.is_writer(&other));
+
+    // Admin may add then remove a writer.
+    env.as_contract(&admin, || client.add_writer(&other));
+    assert!(client.is_writer(&other));
+    assert_eq!(client.get_writers().len(), 2);
+
+    env.as_contract(&admin, || client.remove_writer(&other));
+    assert!(!client.is_writer(&other));
+    assert_eq!(client.get_writers().len(), 1);
+}
+
+#[test]
+fn test_registered_writer_can_record_log() {
+    let (env, _admin, writer, client) = create_writer_env();
+    let sub_id = 1u64;
+    let data = String::from_str(&env, "authorized write");
+
+    // The registered writer contract (acting as itself) may append a log.
+    env.as_contract(&writer, || {
+        client.record_log(&sub_id, &LogEvent::Renewal, &data);
+    });
+    assert_eq!(client.get_logs(&sub_id, &0, &50).len(), 1);
+
+    // And record a commitment.
+    let hash = BytesN::from_array(&env, &[7u8; 32]);
+    env.as_contract(&writer, || {
+        assert_eq!(client.record_commitment(&hash), 0);
+    });
+    assert_eq!(client.get_commitment_count(), 1);
+}
+
+#[test]
+fn test_unregistered_contract_cannot_record_log() {
+    let (env, _admin, _writer, client) = create_writer_env();
+    // A distinct contract instance that was never granted the writer role.
+    let unregistered = env.register(SubscriptionLoggingContract, ());
+    let data = String::from_str(&env, "forged write");
+
+    let result = env.as_contract(&unregistered, || {
+        client.try_record_log(&1u64, &LogEvent::Renewal, &data)
+    });
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_unregistered_contract_cannot_record_commitment() {
+    let (env, _admin, _writer, client) = create_writer_env();
+    let unregistered = env.register(SubscriptionLoggingContract, ());
+    let hash = BytesN::from_array(&env, &[9u8; 32]);
+
+    let result =
+        env.as_contract(&unregistered, || client.try_record_commitment(&hash));
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_user_direct_call_cannot_record_log() {
+    let (env, _admin, _writer, client) = create_writer_env();
+    let data = String::from_str(&env, "direct user write");
+
+    // A non-contract caller that is not a registered writer must be rejected.
+    let result = client.try_record_log(&1u64, &LogEvent::Reminder, &data);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_user_direct_call_cannot_record_commitment() {
+    let (env, _admin, _writer, client) = create_writer_env();
+    let hash = BytesN::from_array(&env, &[5u8; 32]);
+
+    let result = client.try_record_commitment(&hash);
+    assert!(result.is_err());
 }

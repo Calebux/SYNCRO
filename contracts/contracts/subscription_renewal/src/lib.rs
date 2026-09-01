@@ -759,6 +759,16 @@ impl SubscriptionRenewalContract {
         Ok(sub_id)
     }
 
+    /// Record an audit commitment in the configured logging contract.
+    ///
+    /// # Trust model
+    /// This function acts as the renewal **contract identity** (not an end user):
+    /// it self-authenticates via `env.current_contract_address()`, so the
+    /// subscriber's auth is NOT forwarded to the logging contract. For the call
+    /// to be authorized, THIS contract must be registered as a **writer** on the
+    /// logging contract via `add_writer` — it must never be granted the logging
+    /// contract's admin role. This keeps the renewal and logging admin trust
+    /// domains distinct.
     fn record_log(env: &Env, sub_id: u64, event_type: u32, data_str: soroban_sdk::String) {
         if let Some(log_addr) = env
             .storage()

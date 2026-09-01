@@ -104,6 +104,8 @@ pub enum SubscriptionLoggingError {
 enum DataKey {
     // Legacy keys
     Admin,
+    /// Writer allowlist (distinct from admin) authorised to append logs.
+    Writers,
     Logs(u64),
     LogWindowMeta(u64),
     LogMerkleRoot(u64, u64),
@@ -157,6 +159,8 @@ impl SubscriptionLoggingContract {
             panic!("Already initialized");
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
+        let writers: Vec<Address> = vec![&env];
+        env.storage().instance().set(&DataKey::Writers, &writers);
         env.storage()
             .instance()
             .set(&DataKey::CommitmentCount, &0u64);
@@ -168,6 +172,78 @@ impl SubscriptionLoggingContract {
     fn require_admin(env: &Env) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
+    }
+
+    /// Load the writer allowlist. The writer role is scoped narrowly to log
+    /// appending (see [`Self::require_writer`]) and is intentionally distinct
+    /// from the admin role, so an upstream contract that writes audit entries
+    /// (e.g. `subscription_renewal`) does NOT need to be granted admin powers.
+    fn load_writers(env: &Env) -> Vec<Address> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Writers)
+            .unwrap_or_else(|| vec![env])
+    }
+
+    /// Authenticate the caller as a registered writer. A writer is any contract
+    /// address that has been explicitly granted write access via
+    /// [`Self::add_writer`]. The caller contract authenticates itself through
+    /// `require_auth`, so a registered writer may append logs, while an
+    /// unregistered contract or an end-user calling directly is rejected.
+    fn require_writer(env: &Env) {
+        let writers = Self::load_writers(env);
+        if writers.is_empty() {
+            panic!("No writers registered");
+        }
+        // A cross-contract caller authenticates against its own address. Calling
+        // `require_auth` for each registered writer authorizes the current caller
+        // if (and only if) it is one of the writers; any other caller fails.
+        for writer in writers.iter() {
+            writer.require_auth();
+        }
+    }
+
+    // ========================================================================
+    // WRITER ALLOWLIST MANAGEMENT
+    // ========================================================================
+
+    /// Grant write access to `writer` so it may append logs on behalf of the
+    /// audit trail. Admin only. Writers are contract identities (e.g. the
+    /// `subscription_renewal` contract) that call `record_log` /
+    /// `record_commitment` as themselves; they do NOT receive admin powers.
+    /// Adding an already-registered writer is a no-op.
+    pub fn add_writer(env: Env, writer: Address) {
+        Self::require_admin(&env);
+        let mut writers = Self::load_writers(&env);
+        if !writers.contains(&writer) {
+            writers.push_back(writer);
+            env.storage().instance().set(&DataKey::Writers, &writers);
+        }
+    }
+
+    /// Revoke write access from `writer`. Admin only. Removing a writer that is
+    /// not registered is a no-op.
+    pub fn remove_writer(env: Env, writer: Address) {
+        Self::require_admin(&env);
+        let mut writers = Self::load_writers(&env);
+        let mut kept = vec![&env];
+        for w in writers.iter() {
+            if w != writer {
+                kept.push_back(w);
+            }
+        }
+        env.storage().instance().set(&DataKey::Writers, &kept);
+    }
+
+    /// Return whether `writer` is currently a registered writer.
+    pub fn is_writer(env: Env, writer: Address) -> bool {
+        let writers = Self::load_writers(&env);
+        writers.contains(&writer)
+    }
+
+    /// Return the full writer allowlist.
+    pub fn get_writers(env: Env) -> Vec<Address> {
+        Self::load_writers(&env)
     }
 
     fn load_log_window(env: &Env, sub_id: u64) -> LogWindowMeta {
@@ -240,7 +316,7 @@ impl SubscriptionLoggingContract {
     // ========================================================================
 
     pub fn record_log(env: Env, sub_id: u64, event: LogEvent, data: String) {
-        Self::require_admin(&env);
+        Self::require_writer(&env);
 
         let key = DataKey::Logs(sub_id);
         let mut logs: Vec<LogEntry> = env.storage().persistent().get(&key).unwrap_or(vec![&env]);
@@ -429,7 +505,7 @@ impl SubscriptionLoggingContract {
     /// No subscription metadata is stored on-chain. The commitment reveals
     /// nothing about the underlying event without the blinding factor.
     pub fn record_commitment(env: Env, commitment_hash: BytesN<32>) -> u64 {
-        Self::require_admin(&env);
+        Self::require_writer(&env);
 
         // Get and increment commitment counter
         let commitment_index: u64 = env
