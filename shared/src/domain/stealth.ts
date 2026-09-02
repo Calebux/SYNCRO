@@ -1,6 +1,3 @@
-<<<<<<< HEAD:shared/src/logic/stealth-meta-address.ts
-import { cryptoPrimitives } from '../crypto/runtime/node';
-
 export interface StealthMetaAddress {
   version: 'syncro:stealth:v1';
   spendingPubkey: string;
@@ -50,10 +47,13 @@ export function generateStealthMetaAddress(): StealthMetaAddress {
 }
 
 function randomHex(length: number): string {
-  const bytes = cryptoPrimitives.randomBytes(length / 2);
+  const bytes = new Uint8Array(length / 2);
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i += 1) {
+      bytes[i] = Math.floor(Math.random() * 256);
+    }
+  }
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
-=======
-/** @deprecated Import from `@syncro/shared/domain` or `./domain/stealth`. */
-export * from '../domain/stealth';
->>>>>>> refs/pr/1340:shared/src/types/stealth.ts

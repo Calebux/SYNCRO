@@ -1,0 +1,58 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "stream",
+  "remoteCache": {
+    "enabled": true
+  },
+  "globalDependencies": [
+    "package-lock.json",
+    "tsconfig.json"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "src/**",
+        "tsconfig.json",
+        "tsup.config.ts",
+        "package.json",
+        "contracts/**/*.rs",
+        "Cargo.toml",
+        "Cargo.lock"
+      ],
+      "outputs": ["dist/**", ".next/**", "target/wasm32-unknown-unknown/release/*.wasm"]
+    },
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/**", "tsconfig.json", "contracts/**/*.rs", "Cargo.toml"]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/**", "tests/**", "jest.config.*", "vitest.config.*", "contracts/**/*.rs"],
+      "outputs": ["coverage/**"]
+    },
+    "lint": {
+      "inputs": ["src/**", ".eslintrc.*", "eslint.config.*"]
+    },
+    "generate": {
+      "inputs": [
+        "../supabase/migrations/**",
+        "../scripts/generate-db-types.mjs",
+        "../scripts/generate-contract-types.mjs",
+        "../contracts/contracts/**/*.rs"
+      ],
+      "outputs": ["src/generated/**", "../supabase/schema.snapshot.json"]
+    },
+    "check:package": {
+      "dependsOn": ["build"],
+      "inputs": ["dist/**", "package.json", "package-size.json", "scripts/**"]
+    },
+    "check:generated": {
+      "inputs": [
+        "src/generated/**",
+        "../supabase/schema.snapshot.json",
+        "../sdk/src/generated/**"
+      ]
+    }
+  }
+}

@@ -1,0 +1,33 @@
+name: Generated types
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+      - 'shared/src/generated/**'
+      - 'sdk/src/generated/**'
+      - 'contracts/**'
+      - 'scripts/generate-db-types.mjs'
+      - 'scripts/generate-contract-types.mjs'
+      - 'scripts/check-generated-types.mjs'
+
+jobs:
+  check-generated:
+    name: Stale generated types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --ignore-scripts || npm install --legacy-peer-deps --ignore-scripts
+
+      - name: Fail if generated types are stale
+        run: npm run check:generated

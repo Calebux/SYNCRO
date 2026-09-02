@@ -126,14 +126,14 @@ function extractFromInterfaces() {
     );
   }
   const functions = [];
-  for (const iface of SOROBAN_CONTRACT_INTERFACES) {
+  for (const iface of abi.contracts) {
     for (const fn of iface.functions) {
       functions.push({
         contract: iface.contract,
         name: fn.name,
         args: fn.args.map((arg, i) => ({
-          name: `arg${i}`,
-          type: ARG_TYPE_MAP[arg] ?? 'unknown',
+          name: arg.name || `arg${i}`,
+          type: ARG_TYPE_MAP[arg.kind] ?? 'unknown',
         })),
       });
     }
