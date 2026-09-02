@@ -6,7 +6,7 @@ const nextConfig = {
   env: {
     NEXT_TELEMETRY_DISABLED: '1',
   },
-  transpilePackages: ['@syncro/shared'],
+  transpilePackages: ['@syncro/shared', '@syncro/ui'],
   eslint: {
     ignoreDuringBuilds: true,
   },

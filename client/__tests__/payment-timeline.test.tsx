@@ -14,7 +14,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { PaymentTimeline } from '@/components/ui/payment-timeline';
+import { PaymentTimeline } from "@/components/widgets/payment-timeline";
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -28,7 +28,8 @@ vi.mock('@/components/providers/user-settings-provider', () => ({
   useUserSettings: () => ({ settings: { currency: 'USD' } }),
 }));
 
-vi.mock('@/components/ui/skeleton', () => ({
+vi.mock("@syncro/ui", async (importOriginal) => ({
+  ...(await importOriginal()),
   Skeleton: ({ className }: any) => <div data-testid="skeleton" className={className} />,
 }));
 

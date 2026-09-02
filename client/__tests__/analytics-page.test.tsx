@@ -30,7 +30,8 @@ vi.mock('@/components/pages/analytics', () => ({
   default: () => <div data-testid="analytics-page">Analytics Content</div>,
 }));
 
-vi.mock('@/components/ui/skeleton', () => ({
+vi.mock("@syncro/ui", async (importOriginal) => ({
+  ...(await importOriginal()),
   Skeleton: ({ className }: any) => <div data-testid="skeleton" className={className} />,
 }));
 

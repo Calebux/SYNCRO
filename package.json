@@ -7,7 +7,8 @@
     "backend",
     "client",
     "sdk",
-    "shared"
+    "shared",
+    "packages/ui"
   ],
   "scripts": {
     "prepare": "node -e \"try{require('fs').accessSync('.git');require('child_process').execSync('chmod +x .husky/pre-commit',{stdio:'ignore'})}catch(e){}\"",

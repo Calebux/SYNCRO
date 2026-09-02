@@ -11,7 +11,7 @@ import {
 import { ChannelCard } from '@/components/channels/ChannelCard';
 import { ChannelDetail } from '@/components/channels/ChannelDetail';
 import { OpenChannelModal } from '@/components/channels/OpenChannelModal';
-import { Button } from '@/components/ui/button';
+import { Button } from "@syncro/ui";
 
 export default function ChannelsPage() {
   const [channels, setChannels] = useState<PaymentChannel[]>([]);

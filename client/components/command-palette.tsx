@@ -8,7 +8,7 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from "@/components/ui/command"
+} from "@syncro/ui"
 import { Search, Plus, Settings, Users, BarChart3, LogOut, Moon } from "lucide-react"
 
 interface CommandPaletteProps {

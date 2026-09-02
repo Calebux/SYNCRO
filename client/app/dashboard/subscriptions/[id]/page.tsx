@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
-import { PaymentTimeline } from '@/components/ui/payment-timeline';
+import { PaymentTimeline } from "@/components/widgets/payment-timeline";
 
 interface Props {
   params: Promise<{ id: string }>;

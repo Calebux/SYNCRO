@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { stellarWallet } from '@/lib/stellar-wallet';
-import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
+import { Button } from "@syncro/ui";
+import { Progress } from "@syncro/ui";
 import { toast } from 'sonner';
 
 export default function MigrateEncryption() {

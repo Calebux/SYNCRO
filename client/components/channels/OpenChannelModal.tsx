@@ -2,9 +2,9 @@
 
 import { useState } from 'react';
 import { openChannel, PaymentChannel } from '@/lib/payment-channel';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Button } from "@syncro/ui";
+import { Input } from "@syncro/ui";
+import { Label } from "@syncro/ui";
 
 interface OpenChannelModalProps {
   isOpen: boolean;

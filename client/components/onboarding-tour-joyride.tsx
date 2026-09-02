@@ -1,9 +1,9 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+import { Button } from "@syncro/ui"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@syncro/ui"
+import { Badge } from "@syncro/ui"
 import { Plus, Mail, Wallet, BarChart3, Settings, Users, X, ArrowRight, ArrowLeft } from "lucide-react"
 
 interface OnboardingTourProps {

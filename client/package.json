@@ -66,6 +66,7 @@
     "@rolldown/binding-linux-x64-gnu": "^1.2.6",
     "@syncro/shared": "file:../shared",
     "@tanstack/react-query": "^5.102.8",
+    "@syncro/ui": "file:../packages/ui",
     "@tremor/react": "^3.17.4",
     "@types/papaparse": "^5.5.2",
     "@types/uuid": "^11.0.0",

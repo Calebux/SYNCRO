@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { Shield, Lock, CheckCircle2, XCircle, Plus, Trash2 } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { Button } from "@syncro/ui"
 import { MFASetup } from "./mfa-setup"
 import { useMFA } from "@/hooks/use-mfa"
 import { useToast } from "@/hooks/use-toast"

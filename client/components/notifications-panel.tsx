@@ -13,7 +13,7 @@ import {
   Info,
 } from "lucide-react"
 import { useEffect, useRef } from "react"
-import { EmptyState } from "@/components/ui/empty-state"
+import { EmptyState } from "@syncro/ui"
 import type {
   Notification,
   DetectedSubscription,

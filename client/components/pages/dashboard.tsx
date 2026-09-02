@@ -7,7 +7,7 @@ import { TrialSection } from "./trial-section"
 import { formatCurrency, convertCurrency, type Currency } from "@/lib/currency-utils"
 import { formatDate, formatDateTime, getDaysDifference } from "@/lib/timezone-utils"
 import { useUserSettings } from "@/components/providers/user-settings-provider"
-import { Skeleton } from "@/components/ui/skeleton"
+import { Skeleton } from "@syncro/ui"
 import type { AnalyticsSummary } from "@/lib/api/analytics"
 import type {
   DashboardSubscription,
