@@ -1,6 +1,6 @@
 {
   "name": "@syncro/sdk",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Official SDK for the SYNCRO Subscription Management Platform",
   "packageManager": "npm@10.9.2",
   "type": "module",
@@ -115,12 +115,11 @@
     "test:integration": "bash scripts/run-integration.sh",
     "test:browser": "jest --config jest.browser.config.js",
     "assert:no-node-crypto": "node scripts/assert-no-node-crypto.mjs",
-    "prepublishOnly": "npm run lint && npm run typecheck && npm run check:api-surface && npm run build",
+    "prepublishOnly": "node ../scripts/assert-ci-publish.mjs && npm run lint && npm run typecheck && npm run build && npm run check:package",
     "check:layout": "node scripts/check-package-layout.mjs",
     "check:tree-shake": "node scripts/check-tree-shake.mjs",
     "check:size": "node scripts/check-package-size.mjs",
-    "check:package": "npm run check:layout && npm run check:tree-shake && npm run check:size",
-    "prepublishOnly": "node ../scripts/assert-ci-publish.mjs && npm run lint && npm run typecheck && npm run build && npm run check:package"
+    "check:package": "npm run check:layout && npm run check:tree-shake && npm run check:size"
   },
   "keywords": [
     "syncro",
@@ -130,7 +129,7 @@
   "author": "SYNCRO",
   "license": "MIT",
   "dependencies": {
-    "@syncro/shared": "1.0.0",
+    "@syncro/shared": "1.1.0",
     "axios": "^1.13.5",
     "events": "^3.3.0"
   },

@@ -1,6 +1,6 @@
 {
   "name": "@syncro/shared",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Shared domain models and types for SYNCRO",
   "main": "dist/index.js",
   "types": "src/index.ts",
@@ -136,9 +136,8 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "watch": "tsc --watch",
-    "test": "jest && jest --config jest.browser.config.js",
-    "check-imports": "depcruise src --config .dependency-cruiser.cjs",
     "test": "jest",
+    "check-imports": "depcruise src --config .dependency-cruiser.cjs",
     "prepublishOnly": "node ../scripts/assert-ci-publish.mjs && npm run build"
   },
   "keywords": [
