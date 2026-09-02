@@ -18,6 +18,25 @@ describe('Secret Management', () => {
       const secret = await secretProvider.getSecret('NON_EXISTENT_SECRET');
       expect(secret).toBeUndefined();
     });
+
+    it('supports overlapping versioned reads during rotation', async () => {
+      const provider = new LocalSecretProvider();
+      await provider.rotate('ROTATING_KEY', 'old-value', 'v1');
+      await provider.rotate('ROTATING_KEY', 'new-value', 'v2');
+      expect(await provider.get({ name: 'ROTATING_KEY', version: 'v1' })).toBe('old-value');
+      expect(await provider.getSecret('ROTATING_KEY', 'v2')).toBe('new-value');
+      expect((await provider.describe('ROTATING_KEY')).versions).toEqual(expect.arrayContaining(['v1', 'v2']));
+      delete process.env.ROTATING_KEY;
+      delete process.env.ROTATING_KEY__v1;
+      delete process.env.ROTATING_KEY__v2;
+    });
+
+    it('refuses the environment backend in production', () => {
+      const previous = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      expect(() => new LocalSecretProvider()).toThrow('disabled in production');
+      process.env.NODE_ENV = previous;
+    });
   });
 
   describe('Log Masking', () => {

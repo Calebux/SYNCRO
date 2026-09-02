@@ -375,3 +375,14 @@ This flow diagram illustrates:
 - ✅ Real-world timeline example
 
 All flows are designed for maximum security, user transparency, and error recovery.
+# Versioned secret backends
+
+Production key material is resolved through `SecretProvider`; set
+`SECRET_PROVIDER_TYPE=aws` for AWS Secrets Manager or `vault` with
+`VAULT_ADDR`, `VAULT_TOKEN`, and optional `VAULT_MOUNT`. The environment
+backend is development-only and refuses to start under `NODE_ENV=production`.
+
+Rotation jobs accept `secret://NAME@VERSION` references. Keep the old and new
+versions enabled until re-encryption completes, then retire the old version.
+Every production read records the secret identifier, caller, purpose and
+version, never the secret value.

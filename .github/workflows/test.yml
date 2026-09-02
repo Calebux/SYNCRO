@@ -225,6 +225,12 @@ ${lines >= 80 && branches >= 75 && functions >= 85 && statements >= 80 ? '✅ Al
       - name: Install dependencies
         run: npm install
 
+      - name: Verify generated API contracts are current
+        run: npm run contracts:check
+
+      - name: Verify OpenAPI route and response coverage
+        run: npm test -- --runInBand openapi-contract-coverage.test.ts
+
       - name: Run tests with coverage
         run: npm test -- --coverage --ci
 

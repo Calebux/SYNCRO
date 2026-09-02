@@ -16,6 +16,7 @@ import { calculateBackoffDelay } from '../utils/retry';
 import { userPreferenceService } from './user-preference-service';
 import { notificationPreferenceService } from './notification-preference-service';
 import { telegramBotService } from './telegram-bot-service';
+import { nextOccurrence, ScheduleInterval } from './occurrence-scheduler';
 
 export interface ReminderEngineOptions {
   defaultDaysBefore?: number[];
@@ -163,8 +164,8 @@ export class ReminderEngine {
       throw preferencesError;
     }
 
-    const prefsByUser = new Map<string, { reminder_timing?: number[]; reminder_jitter_level?: string }>();
-    (preferences ?? []).forEach((pref: { user_id: string; reminder_timing?: number[]; reminder_jitter_level?: string }) => {
+    const prefsByUser = new Map<string, { reminder_timing?: number[]; reminder_jitter_level?: string; timezone?: string }>();
+    (preferences ?? []).forEach((pref: { user_id: string; reminder_timing?: number[]; reminder_jitter_level?: string; timezone?: string }) => {
       prefsByUser.set(pref.user_id, pref);
     });
 
@@ -183,7 +184,22 @@ export class ReminderEngine {
       const timing = userPref?.reminder_timing ?? daysBefore;
       const jitterLevel = userPref?.reminder_jitter_level ?? 'off';
       const maxJitter = jitterLevels[jitterLevel] || 0;
-      const renewalDate = new Date(subscription.active_until as string);
+      const intervalByCycle: Record<string, ScheduleInterval> = {
+        daily: 'daily', weekly: 'weekly', monthly: 'monthly',
+        quarterly: 'monthly', annual: 'yearly', yearly: 'yearly',
+      };
+      const persistedOccurrence = subscription.next_billing_date;
+      const renewalDate = persistedOccurrence
+        ? new Date(persistedOccurrence)
+        : nextOccurrence({
+            anchor: subscription.created_at || (subscription.active_until as string),
+            interval: intervalByCycle[subscription.billing_cycle] ?? 'monthly',
+            intervalCount: subscription.billing_cycle === 'quarterly' ? 3 : 1,
+            timezone: userPref?.timezone ?? 'UTC',
+          }, today);
+      if (!persistedOccurrence && subscription.created_at) {
+        await supabase.from('subscriptions').update({ next_billing_date: renewalDate.toISOString() }).eq('id', subscription.id);
+      }
 
       for (const day of timing) {
         // Calculate base reminder date

@@ -1,5 +1,6 @@
 import swaggerJSDoc from 'swagger-jsdoc';
 import type { OpenAPIV3_1 } from 'openapi-types';
+import authoredContract from './openapi/openapi.json';
 
 const options: swaggerJSDoc.Options = {
   definition: {
@@ -248,4 +249,24 @@ const options: swaggerJSDoc.Options = {
   ],
 };
 
-export const swaggerSpec = swaggerJSDoc(options) as unknown as OpenAPIV3_1.Document;
+const document = swaggerJSDoc(options) as unknown as OpenAPIV3_1.Document;
+  document.paths = authoredContract.paths as unknown as OpenAPIV3_1.PathsObject;
+
+// Pin authorization failures to the shared problem-details contract.
+for (const item of Object.values(document.paths ?? {})) {
+  for (const [method, value] of Object.entries(item ?? {})) {
+    if (!['get', 'post', 'put', 'patch', 'delete'].includes(method) || !value || typeof value !== 'object') continue;
+    const operation = value as OpenAPIV3_1.OperationObject;
+    operation.responses ??= {};
+    if (!operation.responses['200'] && !operation.responses['201'] && !operation.responses['204']) {
+      operation.responses['200'] = { description: 'Successful response' };
+    }
+    const secured = 'security' in operation && Array.isArray(operation.security) && operation.security.length > 0;
+    if (secured && !operation.responses['401']) operation.responses['401'] = {
+      description: 'Unauthorized',
+      content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } as OpenAPIV3_1.ReferenceObject } },
+    };
+  }
+}
+
+export const swaggerSpec = document;
