@@ -59,3 +59,6 @@ export * from './types/blockchain-flags';
 
 // Domain events
 export * from './domain-events';
+
+// Canonical domain glossary and layer mapping specifications
+export * from './types/domain-glossary';

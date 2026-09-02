@@ -131,17 +131,19 @@ export async function decryptSubscriptionMetadata(
  */
 export async function encryptMetadata(plaintext: string, keyHex: string): Promise<EncryptedData> {
   const keyBytes = hexToBytes(keyHex);
+  const keyBuffer = keyBytes.buffer.slice(keyBytes.byteOffset, keyBytes.byteOffset + keyBytes.byteLength) as ArrayBuffer;
   const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ivBuffer = iv.buffer.slice(iv.byteOffset, iv.byteOffset + iv.byteLength) as ArrayBuffer;
   const key = await crypto.subtle.importKey(
     'raw',
-    keyBytes.buffer as ArrayBuffer,
+    keyBuffer,
     { name: 'AES-GCM' },
     false,
     ['encrypt']
   );
   const plaintextBytes = new TextEncoder().encode(plaintext);
   const ciphertextBuffer = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
+    { name: 'AES-GCM', iv: ivBuffer },
     key,
     plaintextBytes
   );
@@ -175,15 +177,22 @@ export async function encryptMetadata(plaintext: string, keyHex: string): Promis
  */
 export async function decryptMetadata(encrypted: EncryptedData, keyHex: string): Promise<string> {
   const keyBytes = hexToBytes(keyHex);
+  const keyBuffer = keyBytes.buffer.slice(keyBytes.byteOffset, keyBytes.byteOffset + keyBytes.byteLength) as ArrayBuffer;
   const iv = hexToBytes(encrypted.iv);
+  const ivBuffer = iv.buffer.slice(iv.byteOffset, iv.byteOffset + iv.byteLength) as ArrayBuffer;
   const authTag = hexToBytes(encrypted.authTag);
   const ciphertext = hexToBytes(encrypted.ciphertext);
   const ciphertextWithTag = new Uint8Array(ciphertext.length + authTag.length);
   ciphertextWithTag.set(ciphertext);
   ciphertextWithTag.set(authTag, ciphertext.length);
+  const dataBuffer = ciphertextWithTag.buffer.slice(
+    ciphertextWithTag.byteOffset,
+    ciphertextWithTag.byteOffset + ciphertextWithTag.byteLength
+  ) as ArrayBuffer;
+
   const key = await crypto.subtle.importKey(
     'raw',
-    keyBytes.buffer as ArrayBuffer,
+    keyBuffer,
     { name: 'AES-GCM' },
     false,
     ['decrypt']
@@ -191,9 +200,9 @@ export async function decryptMetadata(encrypted: EncryptedData, keyHex: string):
 
   try {
     const plaintextBuffer = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: iv.buffer as ArrayBuffer },
+      { name: 'AES-GCM', iv: ivBuffer },
       key,
-      ciphertextWithTag.buffer as ArrayBuffer
+      dataBuffer
     );
     return new TextDecoder().decode(plaintextBuffer);
   } catch {

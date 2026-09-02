@@ -27,5 +27,6 @@ Closes #
 
 - [ ] Code builds successfully
 - [ ] Tests pass
+- [ ] Domain terms and field names verified against [docs/DOMAIN_GLOSSARY_AND_DATA_MODEL.md](docs/DOMAIN_GLOSSARY_AND_DATA_MODEL.md)
 - [ ] Follows project conventions
 - [ ] No sensitive data exposed

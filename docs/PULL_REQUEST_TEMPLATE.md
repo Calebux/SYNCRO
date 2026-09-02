@@ -271,6 +271,7 @@ Complete documentation available:
 ## ✔️ Checklist
 
 - [x] Code follows project style guidelines
+- [x] Naming of domain entities, tables, and API resources adheres to [docs/DOMAIN_GLOSSARY_AND_DATA_MODEL.md](docs/DOMAIN_GLOSSARY_AND_DATA_MODEL.md)
 - [x] Self-review completed
 - [x] Comments added for complex logic
 - [x] Documentation updated

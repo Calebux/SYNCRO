@@ -17,6 +17,7 @@ This index catalogs all documentation in the SYNCRO repository, organized by cat
 ## Documentation Directory
 
 ### Core Documentation
+- [DOMAIN_GLOSSARY_AND_DATA_MODEL.md](DOMAIN_GLOSSARY_AND_DATA_MODEL.md) - Canonical domain glossary, data model spec, and layer mappings
 - [introduction.mdx](introduction.mdx) - Project introduction
 - [environment-variables.md](environment-variables.md) - Environment configuration
 - [ENVIRONMENT.md](ENVIRONMENT.md) - Environment setup guide

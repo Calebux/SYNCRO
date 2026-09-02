@@ -298,6 +298,10 @@ test/short-description
 
 ## Code standards
 
+### Domain Naming & Architecture
+- **Domain Terms & Data Model**: All new database tables, contract functions, API DTOs, and UI components must comply with [docs/DOMAIN_GLOSSARY_AND_DATA_MODEL.md](./docs/DOMAIN_GLOSSARY_AND_DATA_MODEL.md).
+- **Cross-Layer Reconciliation**: Do not invent new terms for existing concepts (e.g. use `subscription`, `renewal`, `payment`, `charge`, `settlement`, `escrow`, `channel`, `card`, `gift_card`).
+
 ### TypeScript
 
 - No `any` types
@@ -322,6 +326,8 @@ Add or update tests for:
 - [ ] `npm run typecheck` passes
 - [ ] Package tests pass (`npm test -w backend`, `npm test -w client` as applicable)
 - [ ] `node scripts/check-env-docs.js` passes (if env files changed)
+- [ ] `node scripts/check-domain-naming.js` passes (if domain models or types changed)
+- [ ] Domain terminology checked against [docs/DOMAIN_GLOSSARY_AND_DATA_MODEL.md](./docs/DOMAIN_GLOSSARY_AND_DATA_MODEL.md)
 - [ ] Environment variables documented in manifests and `.env.example`
 - [ ] ADR created or updated under `docs/adr/` if altering system boundaries, data models, or trust assumptions
 - [ ] No secrets in committed files
