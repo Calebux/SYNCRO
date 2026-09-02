@@ -2,7 +2,6 @@
  * Re-export generated contract interfaces for existing import paths.
  * Source of truth: src/generated/soroban-abi.json
  */
-<<<<<<< HEAD:shared/src/logic/soroban-contract-interfaces.ts
 
 /** Soroban ScVal argument kinds (subset used by SYNCRO contracts). */
 export type SorobanArgKind =
@@ -123,6 +122,3 @@ export function allContractMethodNames(): Set<string> {
   }
   return names;
 }
-=======
-export * from './generated/contracts';
->>>>>>> refs/pr/1340:shared/src/soroban-contract-interfaces.ts

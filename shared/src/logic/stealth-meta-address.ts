@@ -1,4 +1,3 @@
-<<<<<<< HEAD:shared/src/logic/stealth-meta-address.ts
 import { cryptoPrimitives } from '../crypto/runtime/node';
 
 export interface StealthMetaAddress {
@@ -53,7 +52,3 @@ function randomHex(length: number): string {
   const bytes = cryptoPrimitives.randomBytes(length / 2);
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
-=======
-/** @deprecated Import from `@syncro/shared/domain` or `./domain/stealth`. */
-export * from '../domain/stealth';
->>>>>>> refs/pr/1340:shared/src/types/stealth.ts
