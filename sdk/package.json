@@ -31,10 +31,21 @@
       "import": "./dist/zk/index.js",
       "types": "./dist/zk/index.d.ts"
     },
+    "./crypto": {
+      "types": "./dist/crypto/node.d.ts",
+      "browser": "./dist/crypto/browser.js",
+      "node": "./dist/crypto/node.js",
+      "import": "./dist/crypto/node.js",
+      "default": "./dist/crypto/node.js"
+    },
     "./contracts": {
       "import": "./dist/generated/index.js",
       "types": "./dist/generated/index.d.ts"
     }
+  },
+  "browser": {
+    "./dist/crypto/node.js": "./dist/crypto/browser.js",
+    "./src/crypto/node.ts": "./src/crypto/browser.ts"
   },
   "files": [
     "dist",
@@ -49,6 +60,8 @@
     "build": "tsc",
     "test": "jest",
     "test:integration": "bash scripts/run-integration.sh",
+    "test:browser": "jest --config jest.browser.config.js",
+    "assert:no-node-crypto": "node scripts/assert-no-node-crypto.mjs",
     "prepublishOnly": "npm run lint && npm run typecheck && npm run check:api-surface && npm run build"
   },
   "keywords": [

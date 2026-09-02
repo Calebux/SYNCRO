@@ -64,6 +64,24 @@
       "import": "./src/logic/crypto/index.ts",
       "require": "./dist/logic/crypto/index.js"
     },
+    "./crypto/runtime": {
+      "types": "./src/crypto/runtime/types.ts",
+      "browser": "./src/crypto/runtime/browser.ts",
+      "node": "./src/crypto/runtime/node.ts",
+      "import": "./src/crypto/runtime/node.ts",
+      "require": "./dist/crypto/runtime/node.js",
+      "default": "./src/crypto/runtime/node.ts"
+    },
+    "./crypto/runtime/node": {
+      "types": "./src/crypto/runtime/types.ts",
+      "import": "./src/crypto/runtime/node.ts",
+      "require": "./dist/crypto/runtime/node.js"
+    },
+    "./crypto/runtime/browser": {
+      "types": "./src/crypto/runtime/types.ts",
+      "import": "./src/crypto/runtime/browser.ts",
+      "require": "./dist/crypto/runtime/browser.js"
+    },
     "./stellar/memo": {
       "types": "./src/logic/stellar/memo.ts",
       "import": "./src/logic/stellar/memo.ts",
@@ -95,11 +113,15 @@
       "require": "./dist/platform/sentry.js"
     }
   },
+  "browser": {
+    "./src/crypto/runtime/node.ts": "./src/crypto/runtime/browser.ts",
+    "./dist/crypto/runtime/node.js": "./dist/crypto/runtime/browser.js"
+  },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "watch": "tsc --watch",
-    "test": "jest",
+    "test": "jest && jest --config jest.browser.config.js",
     "check-imports": "depcruise src --config .dependency-cruiser.cjs"
   },
   "keywords": [

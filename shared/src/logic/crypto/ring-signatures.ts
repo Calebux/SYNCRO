@@ -7,7 +7,38 @@
  * - Aggregated team statistics can be computed without individual attribution
  */
 
-import crypto from 'crypto';
+import { cryptoPrimitives } from './runtime/node';
+
+function utf8(value: string): Uint8Array {
+  return new TextEncoder().encode(value);
+}
+
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function concat(parts: Uint8Array[]): Uint8Array {
+  const total = parts.reduce((sum, part) => sum + part.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.length;
+  }
+  return out;
+}
+
+function sha256(data: Uint8Array): Uint8Array {
+  return cryptoPrimitives.sha256(data);
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+  }
+  return bytes;
+}
 
 export interface RingSignatureParams {
   message: string;
@@ -33,10 +64,7 @@ export function generateRingSignature(params: RingSignatureParams): RingSignatur
     throw new Error('Signer index out of bounds');
   }
 
-  const messageHash = crypto
-    .createHash('sha256')
-    .update(message)
-    .digest();
+  const messageHash = sha256(utf8(message));
 
   // Initialize responses array
   const responses: string[] = new Array(memberPublicKeys.length);
@@ -44,46 +72,36 @@ export function generateRingSignature(params: RingSignatureParams): RingSignatur
   // Generate random challenge and responses for non-signer members
   for (let i = 0; i < memberPublicKeys.length; i++) {
     if (i !== signerIndex) {
-      responses[i] = crypto.randomBytes(32).toString('hex');
+      responses[i] = toHex(cryptoPrimitives.randomBytes(32));
     }
   }
 
   // Compute the ring to create the challenge
-  let ringHash = crypto.createHash('sha256');
-  ringHash.update(messageHash);
-  
-  // For each member, compute their contribution to the ring
+  const ringParts: Uint8Array[] = [messageHash];
   for (let i = 0; i < memberPublicKeys.length; i++) {
     if (i !== signerIndex) {
-      // Use random value for non-signer positions
-      ringHash.update(responses[i]);
+      ringParts.push(utf8(responses[i]));
     } else {
-      // Placeholder for signer position (will be computed)
-      ringHash.update(Buffer.alloc(32, 0));
+      ringParts.push(new Uint8Array(32));
     }
   }
-
-  const challengeHash = ringHash.digest();
+  const challengeHash = sha256(concat(ringParts));
   
-  // Compute signer's response to complete the ring
-  const signerResponse = crypto
-    .createHash('sha256')
-    .update(Buffer.concat([
-      Buffer.from(signerPrivateKey, 'hex'),
-      messageHash,
-      challengeHash,
-    ]))
-    .digest()
-    .toString('hex');
+  const signerResponse = toHex(
+    sha256(
+      concat([
+        hexToBytes(signerPrivateKey),
+        messageHash,
+        challengeHash,
+      ]),
+    ),
+  );
 
   responses[signerIndex] = signerResponse;
 
   return {
-    signature: crypto
-      .createHmac('sha256', signerPrivateKey)
-      .update(message)
-      .digest('hex'),
-    challengeHash: challengeHash.toString('hex'),
+    signature: toHex(cryptoPrimitives.hmacSha256(utf8(signerPrivateKey), utf8(message))),
+    challengeHash: toHex(challengeHash),
     responses,
   };
 }
@@ -100,20 +118,14 @@ export function verifyRingSignature(
     return false;
   }
 
-  const messageHash = crypto
-    .createHash('sha256')
-    .update(message)
-    .digest();
+  const messageHash = sha256(utf8(message));
 
-  // Reconstruct the ring to verify the challenge
-  let ringHash = crypto.createHash('sha256');
-  ringHash.update(messageHash);
-  
+  const ringParts: Uint8Array[] = [messageHash];
   for (let i = 0; i < memberPublicKeys.length; i++) {
-    ringHash.update(signature.responses[i]);
+    ringParts.push(utf8(signature.responses[i]));
   }
 
-  const reconstructedChallenge = ringHash.digest('hex');
+  const reconstructedChallenge = toHex(sha256(concat(ringParts)));
   
   return reconstructedChallenge === signature.challengeHash;
 }
@@ -173,19 +185,12 @@ export function generateAuditLogCommitment(
   data: Record<string, any>,
   blindingFactor: string
 ): { commitment: string; hash: string } {
-  const dataHash = crypto
-    .createHash('sha256')
-    .update(JSON.stringify(data))
-    .digest();
-
-  const commitment = crypto
-    .createHash('sha256')
-    .update(Buffer.concat([dataHash, Buffer.from(blindingFactor, 'hex')]))
-    .digest('hex');
+  const dataHash = sha256(utf8(JSON.stringify(data)));
+  const commitment = toHex(sha256(concat([dataHash, hexToBytes(blindingFactor)])));
 
   return {
     commitment,
-    hash: dataHash.toString('hex'),
+    hash: toHex(dataHash),
   };
 }
 

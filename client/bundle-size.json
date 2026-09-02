@@ -11,6 +11,7 @@
       "/settings/security": 250,
       "/settings/notifications": 250,
       "/settings/privacy": 200,
+      "/settings/wallet": 250,
       "/auth/2fa": 200,
       "/privacy": 150,
       "/terms": 150,
@@ -21,6 +22,10 @@
       "/oauth-error": 150,
       "/spend-chart-demo": 250
     },
-    "perChunk": 200
+    "perChunk": 200,
+    "forbiddenInRoutes": {
+      "/": ["recharts", "@tremor", "@react-pdf", "stellar-wallet", "stellar-sdk", "deriveSubscriptionEncryptionKey"],
+      "/auth/2fa": ["recharts", "@tremor", "@react-pdf", "stellar-wallet", "stellar-sdk", "deriveSubscriptionEncryptionKey"]
+    }
   }
 }

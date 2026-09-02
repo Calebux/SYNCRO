@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "./bundle-size.schema.json",
   "title": "Bundle Size Budget Configuration",
-  "description": "Defines bundle size budgets for the client application per route and per chunk.",
+  "description": "Defines bundle size budgets for the client application per route and per chunk. To raise a route budget, update perRoute and document the reason in the PR; see client/docs/BUNDLE_BUDGETS.md.",
   "type": "object",
   "required": ["budgets"],
   "properties": {
@@ -32,6 +32,14 @@
           "type": "number",
           "description": "Maximum size in KB for any individual JS chunk. Prevents any single file from growing too large.",
           "minimum": 50
+        },
+        "forbiddenInRoutes": {
+          "type": "object",
+          "description": "Needle strings that must not appear in the JS attributed to a route (e.g. charting on /auth).",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
         }
       }
     }

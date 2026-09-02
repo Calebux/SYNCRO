@@ -271,6 +271,10 @@ app.get('/api/docs.json', (_req, res) => {
   res.send(swaggerSpec);
 });
 
+// Versioned APIs. Unversioned `/api/*` below is the frozen v1 surface.
+app.use('/api/v1', v1Router);
+app.use('/api/v2', v2Router);
+
 // API Routes
 app.use('/api/keys', apiKeysRoutes);
 app.use('/api/subscriptions', subscriptionShareRoutes);

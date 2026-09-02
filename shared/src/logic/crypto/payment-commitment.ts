@@ -1,5 +1,6 @@
 import * as pedersen from './pedersen';
 import { sha256 } from '@noble/hashes/sha256';
+import { cryptoPrimitives } from './runtime/node';
 
 const DOMAIN_PREFIX = 'syncro:payment:v1';
 const COMMITMENT_VERSION = 1;
@@ -33,8 +34,7 @@ function hexToScalar(hex: string): bigint {
 }
 
 function generateBlindingFactor(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
+  const bytes = cryptoPrimitives.randomBytes(32);
   return bytesToHex(bytes);
 }
 

@@ -11,7 +11,7 @@ import {
   NotificationPayload,
   NotificationDelivery,
 } from '../types/reminder';
-import { subDays } from 'date-fns';
+import { reminderDateBefore } from '@syncro/shared/subscription-math';
 import { calculateBackoffDelay } from '../utils/retry';
 import { userPreferenceService } from './user-preference-service';
 import { notificationPreferenceService } from './notification-preference-service';
@@ -24,6 +24,10 @@ export interface ReminderEngineOptions {
 }
 
 type DeliveryStatus = 'sent' | 'failed' | 'retrying';
+
+export function computeReminderDate(renewalDate: Date, daysBefore: number): Date {
+  return reminderDateBefore(renewalDate, daysBefore);
+}
 
 export class ReminderEngine {
   private readonly defaultDaysBefore: number[];
@@ -203,8 +207,7 @@ export class ReminderEngine {
 
       for (const day of timing) {
         // Calculate base reminder date
-        let reminderDate = subDays(renewalDate, day);
-        reminderDate.setHours(0, 0, 0, 0);
+        let reminderDate = computeReminderDate(renewalDate, day);
 
         let jitterOffsetHours = 0;
         if (maxJitter > 0) {
@@ -216,7 +219,7 @@ export class ReminderEngine {
           if (reminderDate > renewalDate) {
             reminderDate = new Date(renewalDate);
             // Recalculate offset to be the maximum possible before renewal
-            jitterOffsetHours = (renewalDate.getTime() - subDays(renewalDate, day).setHours(0,0,0,0)) / (60*60*1000);
+            jitterOffsetHours = (renewalDate.getTime() - computeReminderDate(renewalDate, day).getTime()) / (60 * 60 * 1000);
           }
         }
 
@@ -282,8 +285,7 @@ export class ReminderEngine {
         : [7, 3, 1, 0];
 
       for (const day of reminderWindows) {
-        const reminderDate = subDays(trialEnd, day);
-        reminderDate.setHours(0, 0, 0, 0);
+        const reminderDate = computeReminderDate(trialEnd, day);
 
         if (reminderDate < today) {
           continue;
