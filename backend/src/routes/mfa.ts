@@ -1,17 +1,15 @@
 import { Router, Response } from 'express';
 import { supabase } from '../config/database';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { recoveryCodeService, totpService } from '../services/mfa-service';
 import { TotpRateLimiter } from '../lib/totp-rate-limiter';
-import { createMfaLimiter } from '../middleware/rate-limit-factory';
 import logger from '../config/logger';
 import { emitSecurityEvent } from '../services/audit-service';
 import { verifyRecoveryCodeSchema, mfaNotifySchema, requireTwoFaSchema } from '../schemas/mfa';
 
 const router: Router = Router();
 const totpRateLimiter = new TotpRateLimiter();
-router.use(authenticate);
 
 // ---------------------------------------------------------------------------
 // POST /api/2fa/totp/verify
@@ -20,7 +18,6 @@ router.use(authenticate);
 
 router.post(
   '/2fa/totp/verify',
-  createMfaLimiter(),
   async (req: AuthenticatedRequest, res: Response) => {
     const sessionId = req.user!.id;
 
@@ -127,7 +124,7 @@ router.post(
 // Generate a new TOTP secret for the authenticated user
 // ---------------------------------------------------------------------------
 
-router.post('/2fa/totp/generate', createMfaLimiter(), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/2fa/totp/generate', async (req: AuthenticatedRequest, res: Response) => {
   try {
     // Get user email from Supabase auth
     const { data: authData, error: authError } = await supabase.auth.admin.getUserById(req.user!.id);
@@ -172,7 +169,7 @@ router.post('/2fa/totp/generate', createMfaLimiter(), async (req: AuthenticatedR
 // Generate 10 recovery codes for the authenticated user
 // ---------------------------------------------------------------------------
 
-router.post('/2fa/recovery-codes/generate', createMfaLimiter(), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/2fa/recovery-codes/generate', async (req: AuthenticatedRequest, res: Response) => {
   const codes = await recoveryCodeService.generate(req.user!.id);
   res.status(201).json({ success: true, data: { codes } });
 });
@@ -184,7 +181,6 @@ router.post('/2fa/recovery-codes/generate', createMfaLimiter(), async (req: Auth
 
 router.post(
   '/2fa/recovery-codes/verify',
-  createMfaLimiter(),
   validate(verifyRecoveryCodeSchema),
   async (req: AuthenticatedRequest, res: Response) => {
     const sessionId = req.user!.id;

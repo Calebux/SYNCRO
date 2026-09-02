@@ -1,14 +1,12 @@
 import express, { Response } from 'express';
 import { z } from 'zod';
 import { riskDetectionService } from '../services/risk-detection/risk-detection-service';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest } from '../middleware/auth';
 import { adminAuth } from '../middleware/admin';
 import { validate } from '../middleware/validate';
 
 const router: express.Router = express.Router();
 
-// Apply authentication to all routes
-router.use(authenticate);
 
 const subscriptionParamSchema = z.object({
   subscriptionId: z.string().uuid(),

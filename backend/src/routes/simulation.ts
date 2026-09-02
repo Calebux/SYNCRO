@@ -1,19 +1,13 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { simulationService } from '../services/simulation-service';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
-import { createSimulationLimiter } from '../middleware/rate-limit-factory';
 import logger from '../config/logger';
 import { simulationQuerySchema } from '../schemas/simulation';
 
 const router: Router = Router();
 
-// All routes require authentication
-router.use(authenticate);
-
-// Rate limit: 5 simulations per hour per user
-router.use(createSimulationLimiter());
 
 type SimulationQuery = z.infer<typeof simulationQuerySchema>;
 

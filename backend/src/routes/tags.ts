@@ -10,7 +10,7 @@
  */
 
 import express, { Response } from 'express';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { supabase } from '../config/database';
 import logger from '../config/logger';
@@ -19,7 +19,6 @@ import { uuidParamSchema } from '../schemas/common';
 import { parseDbError } from '../utils/db-constraint-errors';
 
 const router: express.Router = express.Router();
-router.use(authenticate);
 
 // ─── Tag CRUD ────────────────────────────────────────────────────────────────
 

@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest } from '../middleware/auth';
 import { giftCardLedgerService } from '../services/gift-card-ledger-service';
 import { giftCardLedgerVerifier } from '../services/gift-card-ledger-verifier';
 import { validate } from '../middleware/validate';
@@ -9,7 +9,6 @@ import { parseDbError } from '../utils/db-constraint-errors';
 import { validateLimit } from '../utils/pagination';
 
 const router = Router();
-router.use(authenticate);
 
 const topUpSchema = z.object({
   amount: z.number().positive(),

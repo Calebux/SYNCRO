@@ -6,7 +6,7 @@ import { idempotencyService } from '../services/idempotency';
 import { idempotent } from '../middleware/idempotency';
 import { giftCardService } from '../services/gift-card-service';
 import { notificationPreferenceService } from '../services/notification-preference-service';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest } from '../middleware/auth';
 import { validateSubscriptionOwnership, validateBulkSubscriptionOwnership } from '../middleware/ownership';
 import { SUPPORTED_CURRENCIES } from '../constants/currencies';
 import logger from '../config/logger';
@@ -105,8 +105,6 @@ function extractWaitTime(message: string): number {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
-// All routes require authentication
-router.use(authenticate);
 
 /**
  * GET /api/subscriptions

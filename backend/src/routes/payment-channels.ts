@@ -1,11 +1,10 @@
 import { Router, Response } from 'express';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest } from '../middleware/auth';
 import { paymentChannelService } from '../services/payment-channel-service';
 import { channelStateService } from '../services/channel-state';
 import logger from '../config/logger';
 
 const router = Router();
-router.use(authenticate);
 
 router.get('/preferences', async (req: AuthenticatedRequest, res: Response) => {
   try {

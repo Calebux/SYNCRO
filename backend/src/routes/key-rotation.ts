@@ -1,13 +1,11 @@
 import { Router, Response } from 'express';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest } from '../middleware/auth';
 import { keyRotationService } from '../services/key-rotation-service';
 import { supabase } from '../config/database';
 import logger from '../config/logger';
 import { emitSecurityEvent } from '../services/audit-service';
 
 const router = Router();
-
-router.use(authenticate);
 
 /**
  * POST /api/key-rotation/initiate

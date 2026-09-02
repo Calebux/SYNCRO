@@ -1,12 +1,12 @@
 import { Router, Response } from 'express';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest } from '../middleware/auth';
 import { subscriptionDedupService } from '../services/subscription-dedup-service';
 import logger from '../config/logger';
 
 const router = Router();
 
 // GET /api/subscriptions/duplicates - find all duplicates for user
-router.get('/duplicates', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/duplicates', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user!.id;
     const candidates = await subscriptionDedupService.findDuplicates(userId);
@@ -18,7 +18,7 @@ router.get('/duplicates', authenticate, async (req: AuthenticatedRequest, res: R
 });
 
 // POST /api/subscriptions/duplicates/merge - merge two subscriptions
-router.post('/duplicates/merge', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+router.post('/duplicates/merge', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user!.id;
     const { keepId, mergeId } = req.body;
@@ -41,7 +41,7 @@ router.post('/duplicates/merge', authenticate, async (req: AuthenticatedRequest,
 
 // GET /api/subscriptions/duplicates/check - check if subscription is duplicate
 // Query params: name, amount, billingCycle
-router.get('/duplicates/check', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/duplicates/check', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user!.id;
     const { name, amount, billingCycle } = req.query;
@@ -70,7 +70,7 @@ router.get('/duplicates/check', authenticate, async (req: AuthenticatedRequest, 
 });
 
 // GET /api/subscriptions/dedup-thresholds - get user's thresholds
-router.get('/dedup-thresholds', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/dedup-thresholds', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user!.id;
     const thresholds = await subscriptionDedupService.getUserThresholds(userId);
@@ -82,7 +82,7 @@ router.get('/dedup-thresholds', authenticate, async (req: AuthenticatedRequest, 
 });
 
 // PUT /api/subscriptions/dedup-thresholds - update user's thresholds
-router.put('/dedup-thresholds', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+router.put('/dedup-thresholds', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user!.id;
     const { min_confidence, name_similarity_weight, amount_tolerance_pct } = req.body;

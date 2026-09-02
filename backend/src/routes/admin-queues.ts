@@ -3,8 +3,6 @@ import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { ExpressAdapter } from '@bull-board/express';
 import { Router } from 'express';
 import { notificationQueue } from '../jobs/notification-queue';
-import { adminAuth } from '../middleware/admin';
-import { createAdminLimiter } from '../middleware/rate-limit-factory';
 
 let boardInitialized = false;
 const serverAdapter = new ExpressAdapter();
@@ -21,8 +19,6 @@ function ensureBullBoard(): void {
 
 const router = Router();
 
-router.use(createAdminLimiter());
-router.use(adminAuth);
 router.use((req, res, next) => {
   ensureBullBoard();
   serverAdapter.getRouter()(req, res, next);

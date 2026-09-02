@@ -1,15 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { supabase } from '../config/database';
 import logger from '../config/logger';
-import { adminAuth } from '../middleware/admin';
-import { createAdminLimiter } from '../middleware/rate-limit-factory';
+
 import { complianceService } from '../services/compliance-service';
 import { executeGdprDeletionPipeline } from '../services/gdpr-deletion-pipeline';
 
 const router: Router = Router();
-
-router.use(createAdminLimiter());
-router.use(adminAuth);
 
 /**
  * GET /api/admin/deletions

@@ -6,12 +6,11 @@
  */
 
 import { Router, Response } from 'express';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest } from '../middleware/auth';
 import { sessionService } from '../services/session-service';
 import logger from '../config/logger';
 
 const router = Router();
-router.use(authenticate);
 
 /**
  * GET /api/sessions

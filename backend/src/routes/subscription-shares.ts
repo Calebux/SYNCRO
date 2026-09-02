@@ -22,13 +22,12 @@ router.get('/share/:token', async (req, res: Response) => {
   }
 });
 
-router.use(authenticate);
 
 /**
  * POST /api/subscriptions/:id/share
  * Create a secure share invite for a subscription.
  */
-router.post('/:id/share', validate(createShareInviteSchema), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/:id/share', authenticate, validate(createShareInviteSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const result = await subscriptionShareService.createInvite(
       req.user!.id,
@@ -59,7 +58,7 @@ router.post('/:id/share', validate(createShareInviteSchema), async (req: Authent
  * POST /api/subscriptions/share/:token/accept
  * Accept a share invite (authenticated).
  */
-router.post('/share/:token/accept', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/share/:token/accept', authenticate, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const result = await subscriptionShareService.acceptInvite(req.params.token, req.user!.id);
     res.json({ success: true, data: result });
@@ -76,7 +75,7 @@ router.post('/share/:token/accept', async (req: AuthenticatedRequest, res: Respo
  * GET /api/subscriptions/:id/share
  * List pending share invites for a subscription.
  */
-router.get('/:id/share', async (req: AuthenticatedRequest, res: Response) => {
+router.get('/:id/share', authenticate, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const invites = await subscriptionShareService.listPendingInvites(req.user!.id, req.params.id);
     res.json({ success: true, data: invites });
@@ -93,7 +92,7 @@ router.get('/:id/share', async (req: AuthenticatedRequest, res: Response) => {
  * DELETE /api/subscriptions/:id/share/:inviteId
  * Revoke a pending share invite.
  */
-router.delete('/:id/share/:inviteId', async (req: AuthenticatedRequest, res: Response) => {
+router.delete('/:id/share/:inviteId', authenticate, async (req: AuthenticatedRequest, res: Response) => {
   try {
     await subscriptionShareService.revokeInvite(req.user!.id, req.params.inviteId);
     res.json({ success: true, message: 'Invite revoked' });
@@ -110,7 +109,7 @@ router.delete('/:id/share/:inviteId', async (req: AuthenticatedRequest, res: Res
  * GET /api/subscriptions/:id/share/audit
  * Audit log of invite usage for a subscription.
  */
-router.get('/:id/share/audit', async (req: AuthenticatedRequest, res: Response) => {
+router.get('/:id/share/audit', authenticate, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const log = await subscriptionShareService.getAuditLog(req.user!.id, req.params.id);
     res.json({ success: true, data: log });

@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { adminAuth } from '../middleware/admin';
 import { digestService } from '../services/digest-service';
@@ -11,7 +11,6 @@ import { updateDigestPreferencesSchema } from '../schemas/digest';
 const router: Router = Router();
 
 // ─── User-facing routes (authenticated) ──────────────────────────────────────
-router.use(authenticate);
 
 const updateDigestPreferencesSchema = z.object({
   digestEnabled: z.boolean().optional(),

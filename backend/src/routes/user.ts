@@ -6,7 +6,7 @@
 
 import express, { Response } from 'express';
 import { supabase } from '../config/database';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest } from '../middleware/auth';
 import { validateRequest } from '../utils/validation';
 import { userProfileUpdateSchema } from '../schemas/user-profile';
 import logger from '../config/logger';
@@ -14,7 +14,6 @@ import { roleService } from '../services/role-service';
 import { createStealthAddressLimiter } from '../middleware/rate-limit-factory';
 
 const router = express.Router();
-router.use(authenticate);
 
 /**
  * GET /api/user/role

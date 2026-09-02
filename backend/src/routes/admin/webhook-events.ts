@@ -11,7 +11,7 @@
 import { Router, Response } from 'express';
 import { supabase } from '../../config/database';
 import logger from '../../config/logger';
-import { authenticate, AuthenticatedRequest } from '../../middleware/auth';
+import { AuthenticatedRequest } from '../../middleware/auth';
 import { requireRole } from '../../middleware/rbac';
 import { validate } from '../../middleware/validate';
 import { replayWebhookEvent, retryDueWebhookEvents } from '../../services/webhook-ingestion';
@@ -24,7 +24,6 @@ import {
 
 const router: Router = Router();
 
-router.use(authenticate);
 router.use(requireRole('owner', 'admin'));
 
 /**

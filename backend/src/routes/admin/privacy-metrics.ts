@@ -1,16 +1,9 @@
 import { Router, Response } from 'express';
-import { authenticate, AuthenticatedRequest } from '../../middleware/auth';
-import { createAdminLimiter } from '../../middleware/rate-limit-factory';
-import { requireRole } from '../../middleware/rbac';
+import { AuthenticatedRequest } from '../../middleware/auth';
 import logger from '../../config/logger';
 import { supabase } from '../../config/database';
 
 const router = Router();
-
-// Strict JWT + role gate (admin only)
-router.use(createAdminLimiter());
-router.use(authenticate);
-router.use(requireRole('admin'));
 
 type PrivacyMetrics = {
   privacy_mode_enabled_rate_percent: number | null;

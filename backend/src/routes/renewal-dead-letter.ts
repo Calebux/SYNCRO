@@ -1,12 +1,10 @@
 import { Router, Response } from 'express';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest } from '../middleware/auth';
 import { adminAuth } from '../middleware/admin';
 import { renewalDeadLetterService } from '../services/renewal-dead-letter-service';
 import logger from '../config/logger';
 
 const router: Router = Router();
-
-router.use(authenticate);
 
 /**
  * GET /api/renewals/dead-letter

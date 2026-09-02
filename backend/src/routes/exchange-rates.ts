@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest } from '../middleware/auth';
 import { requireAdmin } from '../middleware/admin';
 import { isSupportedCurrency } from '../constants/currencies';
 import { ExchangeRateService } from '../services/exchange-rate/exchange-rate-service';
@@ -8,7 +8,6 @@ import { supabase } from '../config/database';
 
 export function createExchangeRatesRouter(exchangeRateService: ExchangeRateService): Router {
   const router = Router();
-  router.use(authenticate);
 
   /**
    * GET /api/exchange-rates
