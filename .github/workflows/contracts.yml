@@ -178,6 +178,30 @@ jobs:
                     size=$(wc -c < "$wasm")
                     echo "$wasm: ${size} bytes"
 
+      - name: Verify deployment manifests match reproducible build
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Build hashes are from pass-1, which the determinism check confirmed matches pass-2.
+          declare -A built_hashes
+          while read -r hash name; do
+            [[ -z "$hash" ]] && continue
+            built_hashes["$hash"]=1
+          done < /tmp/wasm-hashes-pass1.txt
+
+          shopt -s nullglob
+          for manifest in deployments/*.json; do
+            echo "Checking $manifest..."
+            while IFS= read -r hash; do
+              [[ -z "$hash" ]] && continue
+              if [ -z "${built_hashes[$hash]:-}" ]; then
+                echo "ERROR: WASM hash $hash in $manifest is not produced by the reproducible build."
+                exit 1
+              fi
+            done < <(jq -r '.. | objects | .wasm_hash? // empty' "$manifest")
+          done
+          echo "All deployment manifest wasm hashes are verified against the reproducible build."
+
       - name: Upload hash file
         uses: actions/upload-artifact@v4
         with:

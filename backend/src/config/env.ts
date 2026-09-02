@@ -3,7 +3,11 @@ import logger from './logger';
 import { loadManifestIntoEnv } from '../utils/manifest';
 
 // Best-effort manifest load before any validation/parsing.
-loadManifestIntoEnv(process.env.STELLAR_NETWORK ?? 'testnet');
+try {
+  loadManifestIntoEnv(process.env.STELLAR_NETWORK ?? 'testnet');
+} catch (error) {
+  logger.warn(`Unable to load deployment manifest: ${error instanceof Error ? error.message : String(error)}`);
+}
 
 export const envSchema = z.object({
   // Server

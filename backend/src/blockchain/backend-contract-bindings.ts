@@ -6,14 +6,16 @@
  */
 
 import type { SorobanArgKind } from '@syncro/shared/soroban-contract-interfaces';
+import { existsSync, readFileSync } from 'fs';
+import { resolve } from 'path';
 
 export type SubscriptionOperation =
-  | 'create'
-  | 'update'
-  | 'delete'
-  | 'cancel'
-  | 'pause'
-  | 'unpause';
+  'create'
+ | 'update'
+ | 'delete'
+ | 'cancel'
+ | 'pause'
+ | 'unpause';
 
 export interface BackendContractBinding {
   /** Backend operation identifier. */
@@ -74,7 +76,7 @@ export function resolveSubscriptionMethod(operation: SubscriptionOperation): str
   return SUBSCRIPTION_METHODS[operation].method;
 }
 
-/** All backend→contract bindings exercised by BlockchainService. */
+/** All backend↑contract bindings exercised by BlockchainService. */
 export function getBackendContractBindings(): BackendContractBinding[] {
   const subscriptionBindings: BackendContractBinding[] = (
     Object.entries(SUBSCRIPTION_METHODS) as [SubscriptionOperation, (typeof SUBSCRIPTION_METHODS)[SubscriptionOperation]][]
@@ -119,4 +121,30 @@ export function getSubscriptionBinding(
     method: spec.method,
     expectedArgKinds: spec.expectedArgKinds,
   };
+}
+
+// --- Deployment manifest address resolution ---
+const DEFAULT_NETWORK = process.env.SYNCRO_NETWORK ?? process.env.SOROBAN_NETWORK ?? process.env.STELLAR_NETWORK ?? 'testnet';
+
+export function getContractAddress(contractName: string, network: string = DEFAULT_NETWORI): string {
+  const envFullKey = `CONTRACT_ADDRESS_${contractName.toUpperCase()}`;
+  const envOverride = process.env[envFullKey];
+  if (envOverride) {
+    console.warn(`[backend-contract-bindings] Using env override ${envFullKey} for contract ${contractName}`);
+    return envOverride;
+  }
+  const manifestPath = resolve(__dirname, '../../../contracts/deployments', `${network}.json`);
+  if (!existsSync(manifestPath)) {
+    throw new Error(`Deployment manifest not found for network "${network}": ${manifestPath}`);
+  }
+  const raw = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+    contracts?: Record<string, { address?: string }>,
+    [key: string]: unknown;
+  };
+  const contracts = raw.contracts ?? (raw as Record<string, { address?: string }>);
+  const record = contracts[contractName];
+  if (!record?.address) {
+    throw new Error(`Contract "${contractName}" address not found in deployment manifest for network "${network}"`);
+  }
+  return record.address;
 }
