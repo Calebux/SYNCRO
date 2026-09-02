@@ -1,5 +1,4 @@
 name: Security Audit
-
 on:
   push:
     branches: [main, develop]
@@ -25,18 +24,22 @@ on:
         description: 'Force a full security audit'
         type: boolean
         default: false
+  release:
+    types: [published]
 
 jobs:
   audit:
     name: Dependency Vulnerability Scan
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/checkout@v8
+      - name: Set up Node.js
+        uses: actions/setup-node@v8
         with:
           node-version: '20'
 
@@ -53,3 +56,49 @@ jobs:
           npm install --package-lock-only
           npm audit --audit-level=high
         continue-on-error: false
+
+      - name: Generate SBOMs
+        run: |
+          set -e
+          for dir in . backend client contracts; do
+            if [ -f "$dir/package.json" ]; then
+              echo "Generating SBOM for $dir"
+              (
+                cd "$dir"
+                npm install --package-lock-only --ignore-scripts --no-audit --no-fund >/dev/null 2>&1
+                if [ "$dir" = "." ]; then
+                  npx --yes @cyclonedx/cyclonedx-npm --output-file "root-sbom.json"
+                else
+                  npx --yes @cyclonedx/cyclonedx-npm --output-file "../$dir-sbom.json"
+                fi
+              )
+            fi
+          done
+
+      - name: Upload SBOMs
+        uses: actions/upload-artifact@v4
+        with:
+          name: sboms
+          path: |
+            *-sbom.json
+          if-no-files-found: error
+
+      # Attach SBOMs to the GitHub Release when this workflow runs from a release event.
+      - name: Attach SBOMs to Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@2
+        with:
+          tag_name: ${!{ github.event.release.tag_name }}
+          files: |
+            *-sbom.json
+        env:
+          GITHUB_TOKEN: $E{{ secrets.GITHUB_TOKEN }}
+
+      # Prove the SBOMs were produced by this workflow and this repository.
+      # Verify with: gh attestation verify <sbom-file> --owner <owner>
+      - name: Attest SBOMs
+        if: github.event_name == 'release'
+        uses: actions/attest-build-provenance@1
+        with:
+          subject-path: |
+            *-sbom.json
