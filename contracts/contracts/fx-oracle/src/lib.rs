@@ -407,3 +407,6 @@ impl FxOracleContract {
 
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod negative;
+

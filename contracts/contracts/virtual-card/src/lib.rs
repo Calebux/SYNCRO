@@ -741,6 +741,10 @@ impl VirtualCardContract {
 #[cfg(test)]
 mod fuzz;
 
+
+#[cfg(test)]
+mod negative;
+
 #[cfg(test)]
 mod tests {
     use super::*;

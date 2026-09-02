@@ -252,3 +252,6 @@ impl VoucherLedgerContract {
 
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod negative;
+

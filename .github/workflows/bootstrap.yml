@@ -1,0 +1,55 @@
+name: Bootstrap
+
+on:
+  pull_request:
+    paths:
+      - ".devcontainer/**"
+      - "scripts/bootstrap.mjs"
+      - "scripts/doctor.mjs"
+      - "package.json"
+      - "package-lock.json"
+      - "INSTALL.md"
+      - "CONTRIBUTING.md"
+      - ".github/workflows/bootstrap.yml"
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap-clean-image:
+    name: Fresh-clone bootstrap
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Pin Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+
+      - name: Pin Rust
+        uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Doctor (pre-bootstrap)
+        run: node scripts/doctor.mjs
+        continue-on-error: true
+
+      - name: Bootstrap on a clean tree
+        run: npm run bootstrap
+        env:
+          CI: true
+
+      - name: Doctor (post-bootstrap)
+        run: node scripts/doctor.mjs
+        continue-on-error: true
+
+      - name: Env templates exist
+        run: |
+          test -f backend/.env.example
+          test -f backend/.env

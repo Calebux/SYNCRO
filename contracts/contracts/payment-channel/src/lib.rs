@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, vec, Address, Env, Vec,
 };
 use syncro_common;
 
@@ -10,6 +10,10 @@ use syncro_common;
 ///
 /// 7 days — compile-time constant, not admin-settable.
 pub const ESCAPE_HATCH_GRACE_PERIOD_SECS: u64 = 7 * 24 * 60 * 60; // 604 800 s
+
+/// Maximum watchtower bounty that can be reserved from a channel, in token units.
+/// Caps the amount a watchtower can ever receive; channel principal cannot be redirected.
+pub const MAX_WATCHTOWER_BOUNTY: i128 = 10_000;
 
 #[contracttype]
 #[derive(Clone)]
@@ -20,6 +24,9 @@ enum DataKey {
     /// Unix timestamp at which the contract entered the paused state.
     /// Key absent ⟹ contract is not paused.
     PausedSince,
+    Watchtowers(u64),
+    WatchtowerBounty(u64),
+    BountyPaid(u64),
 }
 
 #[contracttype]
@@ -68,6 +75,11 @@ pub enum Error {
     DisputeWindowExpired = 1608,
     StaleState = 1609,
     CounterOverflow = 1610,
+    NotWatchtower = 1611,
+    WatchtowerAlreadyRegistered = 1612,
+    BountyExceedsCap = 1613,
+    InvalidBounty = 1614,
+    WatchtowerIsParty = 1615,
 }
 
 #[contract]
@@ -353,6 +365,26 @@ impl PaymentChannelContract {
             );
         }
 
+        // Unused bounty returns to the depositor; a watchtower never claims it
+        // unless they successfully submitted a newer state during the window.
+        let bounty: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::WatchtowerBounty(channel_id))
+            .unwrap_or(0);
+        let paid: bool = env
+            .storage()
+            .persistent()
+            .get(&DataKey::BountyPaid(channel_id))
+            .unwrap_or(false);
+        if bounty > 0 && !paid {
+            token_client.transfer(
+                &env.current_contract_address(),
+                &depositor,
+                &bounty,
+            );
+        }
+
         Ok(())
     }
 
@@ -411,6 +443,275 @@ impl PaymentChannelContract {
             .get(&DataKey::Channel(channel_id))
     }
 
+    /// Register `watchtower` to submit a newer signed state on `party`'s behalf.
+    ///
+    /// `bounty` is reserved from the depositor's on-chain balance and paid to
+    /// the watchtower on a successful `watchtower_submit`. It is capped by
+    /// `MAX_WATCHTOWER_BOUNTY` and can never exceed the remaining `balance_a`.
+    /// A watchtower cannot be a channel party, so they cannot redirect principal.
+    pub fn register_watchtower(
+        env: Env,
+        channel_id: u64,
+        party: Address,
+        watchtower: Address,
+        bounty: i128,
+    ) -> Result<(), Error> {
+        party.require_auth();
+
+        let mut channel: PaymentChannel = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Channel(channel_id))
+            .ok_or(Error::ChannelNotFound)?;
+
+        if channel.state != ChannelState::Open {
+            return Err(Error::InvalidState);
+        }
+        if party != channel.depositor && party != channel.counterparty {
+            return Err(Error::Unauthorized);
+        }
+        if watchtower == channel.depositor || watchtower == channel.counterparty {
+            return Err(Error::WatchtowerIsParty);
+        }
+
+        let mut towers: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Watchtowers(channel_id))
+            .unwrap_or(vec![&env]);
+        if towers.iter().any(|t| t == watchtower) {
+            return Err(Error::WatchtowerAlreadyRegistered);
+        }
+
+        let existing_bounty: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::WatchtowerBounty(channel_id))
+            .unwrap_or(0);
+
+        if bounty < 0 {
+            return Err(Error::InvalidBounty);
+        }
+        if bounty > MAX_WATCHTOWER_BOUNTY {
+            return Err(Error::BountyExceedsCap);
+        }
+
+        // Only the depositor may fund a new bounty, and only once per channel.
+        if bounty > 0 {
+            if party != channel.depositor {
+                return Err(Error::Unauthorized);
+            }
+            if existing_bounty > 0 {
+                return Err(Error::InvalidBounty);
+            }
+            if bounty > channel.balance_a {
+                return Err(Error::InsufficientBalance);
+            }
+            channel.balance_a -= bounty;
+            env.storage()
+                .persistent()
+                .set(&DataKey::WatchtowerBounty(channel_id), &bounty);
+            env.storage()
+                .persistent()
+                .set(&DataKey::BountyPaid(channel_id), &false);
+            env.storage()
+                .persistent()
+                .set(&DataKey::Channel(channel_id), &channel);
+        }
+
+        towers.push_back(watchtower.clone());
+        env.storage()
+            .persistent()
+            .set(&DataKey::Watchtowers(channel_id), &towers);
+
+        env.events().publish(
+            (symbol_short!("channel"), symbol_short!("wt_reg")),
+            (channel_id, party, watchtower, bounty),
+        );
+        Ok(())
+    }
+
+    /// Remove a previously registered watchtower. Unused bounty is restored to
+    /// the depositor when the last watchtower is removed.
+    pub fn deregister_watchtower(
+        env: Env,
+        channel_id: u64,
+        party: Address,
+        watchtower: Address,
+    ) -> Result<(), Error> {
+        party.require_auth();
+
+        let mut channel: PaymentChannel = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Channel(channel_id))
+            .ok_or(Error::ChannelNotFound)?;
+
+        if channel.state != ChannelState::Open {
+            return Err(Error::InvalidState);
+        }
+        if party != channel.depositor && party != channel.counterparty {
+            return Err(Error::Unauthorized);
+        }
+
+        let towers: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Watchtowers(channel_id))
+            .unwrap_or(vec![&env]);
+        if !towers.iter().any(|t| t == watchtower) {
+            return Err(Error::NotWatchtower);
+        }
+
+        let mut remaining: Vec<Address> = vec![&env];
+        for t in towers.iter() {
+            if t != watchtower {
+                remaining.push_back(t);
+            }
+        }
+        env.storage()
+            .persistent()
+            .set(&DataKey::Watchtowers(channel_id), &remaining);
+
+        let paid: bool = env
+            .storage()
+            .persistent()
+            .get(&DataKey::BountyPaid(channel_id))
+            .unwrap_or(false);
+        let bounty: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::WatchtowerBounty(channel_id))
+            .unwrap_or(0);
+        if remaining.is_empty() && bounty > 0 && !paid {
+            channel.balance_a += bounty;
+            env.storage()
+                .persistent()
+                .set(&DataKey::Channel(channel_id), &channel);
+            env.storage()
+                .persistent()
+                .set(&DataKey::WatchtowerBounty(channel_id), &0i128);
+        }
+
+        env.events().publish(
+            (symbol_short!("channel"), symbol_short!("wt_dereg")),
+            (channel_id, party, watchtower),
+        );
+        Ok(())
+    }
+
+    pub fn get_watchtowers(env: Env, channel_id: u64) -> Vec<Address> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Watchtowers(channel_id))
+            .unwrap_or(vec![&env])
+    }
+
+    pub fn get_watchtower_bounty(env: Env, channel_id: u64) -> i128 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::WatchtowerBounty(channel_id))
+            .unwrap_or(0)
+    }
+
+    /// Submit a newer dual-signed state during the dispute window.
+    ///
+    /// The caller must be a registered watchtower (not a channel party).
+    /// Principal still settles only to `depositor` / `counterparty` on
+    /// `finalize`; the watchtower may receive at most the reserved bounty.
+    pub fn watchtower_submit(
+        env: Env,
+        channel_id: u64,
+        watchtower: Address,
+        balance_a: i128,
+        balance_b: i128,
+        sequence_number: u64,
+        sig_a: Address,
+        sig_b: Address,
+    ) -> Result<(), Error> {
+        watchtower.require_auth();
+
+        let mut channel: PaymentChannel = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Channel(channel_id))
+            .ok_or(Error::ChannelNotFound)?;
+
+        if channel.state != ChannelState::Closing && channel.state != ChannelState::Dispute {
+            return Err(Error::InvalidState);
+        }
+        if env.ledger().timestamp() > channel.dispute_deadline {
+            return Err(Error::DisputeWindowExpired);
+        }
+        if sequence_number <= channel.sequence {
+            return Err(Error::StaleState);
+        }
+        if balance_a < 0 || balance_b < 0 {
+            return Err(Error::InvalidAmount);
+        }
+
+        let towers: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Watchtowers(channel_id))
+            .unwrap_or(vec![&env]);
+        if !towers.iter().any(|t| t == watchtower) {
+            return Err(Error::NotWatchtower);
+        }
+        if !((sig_a == channel.depositor && sig_b == channel.counterparty)
+            || (sig_a == channel.counterparty && sig_b == channel.depositor))
+        {
+            return Err(Error::Unauthorized);
+        }
+
+        sig_a.require_auth();
+        sig_b.require_auth();
+
+        let bounty: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::WatchtowerBounty(channel_id))
+            .unwrap_or(0);
+        let paid: bool = env
+            .storage()
+            .persistent()
+            .get(&DataKey::BountyPaid(channel_id))
+            .unwrap_or(false);
+
+        // EFFECTS — persist dispute state and mark bounty paid before transfer.
+        channel.balance_a = balance_a;
+        channel.balance_b = balance_b;
+        channel.sequence = sequence_number;
+        channel.state = ChannelState::Dispute;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Channel(channel_id), &channel);
+
+        if bounty > 0 && !paid {
+            env.storage()
+                .persistent()
+                .set(&DataKey::BountyPaid(channel_id), &true);
+        }
+
+        env.events().publish(
+            (symbol_short!("channel"), symbol_short!("wt_sub")),
+            (channel_id, watchtower.clone(), balance_a, balance_b, sequence_number),
+        );
+
+        // INTERACTIONS — watchtower is paid the capped bounty only.
+        if bounty > 0 && !paid {
+            let token_client = token::Client::new(&env, &channel.token);
+            token_client.transfer(
+                &env.current_contract_address(),
+                &watchtower,
+                &bounty,
+            );
+        }
+
+        Ok(())
+    }
+}
+
     /// Returns the contract version.
     /// Incremented when the implementation changes (used for deployments).
     pub fn version(_env: Env) -> u32 {
@@ -424,6 +725,9 @@ impl PaymentChannelContract {
         syncro_common::interface_version_call(&_env)
     }
 }
+
+#[cfg(test)]
+mod adversarial;
 
 #[cfg(test)]
 mod fuzz;

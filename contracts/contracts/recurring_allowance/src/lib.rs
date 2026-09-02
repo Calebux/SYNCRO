@@ -396,6 +396,10 @@ impl RecurringAllowanceContract {
     }
 }
 
+
+#[cfg(test)]
+mod negative;
+
 #[cfg(test)]
 mod test {
     use super::*;

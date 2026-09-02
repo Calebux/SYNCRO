@@ -23,12 +23,12 @@ Install these before cloning:
 
 | Tool | Version | Notes |
 |------|---------|-------|
-| **Node.js** | 20+ | Required for client, backend, and shared packages |
+| **Node.js** | 20 (see `.nvmrc`) | Required for client, backend, and shared packages |
 | **npm** | 10+ (bundled with Node) | Use npm only — do not use yarn or pnpm |
 | **Supabase CLI** | latest | Local Postgres, Auth, and Studio |
 | **Docker** | latest | Required by Supabase CLI for local stack |
 | **Redis** | optional | Enables persistent rate limiting and blockchain DLQ in backend |
-| **Rust + Stellar CLI** | optional | Only needed for [`contracts/`](./contracts/) work |
+| **Rust + Soroban CLI** | Rust 1.91, Soroban CLI 23.0.0 | Required for [`contracts/`](./contracts/) work; pinned in `rust-toolchain.toml` and `.devcontainer/` |
 
 Install the Supabase CLI:
 
@@ -46,7 +46,25 @@ npm install -g supabase
 
 ## Quick start (local development)
 
-Run these steps from a clean clone. They bring up Supabase, the API, and the web app.
+From a clean clone, one command brings up dependencies, env files, and (when Docker is available) the local database:
+
+```bash
+git clone https://github.com/Calebux/SYNCRO.git
+cd SYNCRO
+npm run bootstrap
+npm run doctor
+```
+
+Then start services:
+
+```bash
+npm run dev -w backend    # http://localhost:3001
+npm run dev -w client     # http://localhost:3000
+```
+
+`npm run doctor` prints the exact binary that is missing (Node 20, Rust 1.91, Soroban CLI, Docker, Supabase CLI) and how to install it. A Dev Container with those versions pinned is in [`.devcontainer/`](./.devcontainer/).
+
+Manual steps if you are not using bootstrap:
 
 ```bash
 # 1. Clone and install workspace dependencies

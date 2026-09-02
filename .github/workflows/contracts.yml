@@ -67,6 +67,14 @@ jobs:
 
       - name: Build contracts (pass 2)
         run: cargo build --target wasm32-unknown-unknown --release --locked
+      - name: Negative-path coverage
+        working-directory: ..
+        run: node contracts/scripts/check-negative-path-coverage.mjs
+
+      - name: Run contract fuzz tests
+        run: cargo test -p subscription_renewal -p escrow -p payment-channel -p virtual-card fuzz_
+        env:
+            PROPTEST_CASES: "8"
 
       - name: Compute WASM hashes (pass 2)
         shell: bash

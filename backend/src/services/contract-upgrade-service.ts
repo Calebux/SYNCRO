@@ -217,7 +217,7 @@ export class ContractUpgradeService {
     return false;
   }
 
-  async isRollbackAvailable(): Promise<boolean> {
+  async isRollbackAvailable(targetContract: string): Promise<boolean> {
     this.ensureEnabled();
     const rpc = new SorobanRpc.Server(this.rpcUrl);
     const contract = new Contract(this.contractAddress);
@@ -228,7 +228,7 @@ export class ContractUpgradeService {
       fee: '100',
       networkPassphrase: this.networkPassphrase,
     })
-      .addOperation(contract.call('is_rollback_available'))
+      .addOperation(contract.call('is_rollback_available', this.addressToScVal(targetContract)))
       .setTimeout(30)
       .build();
 
@@ -240,6 +240,33 @@ export class ContractUpgradeService {
       return sim.result.retval.bool() === true;
     }
     return false;
+  }
+
+  async getGovernedContracts(): Promise<string[]> {
+    this.ensureEnabled();
+    const rpc = new SorobanRpc.Server(this.rpcUrl);
+    const contract = new Contract(this.contractAddress);
+    const sourceKeypair = await this.getSigningKeypair();
+    const account = await rpc.getAccount(sourceKeypair.publicKey());
+
+    const tx = new TransactionBuilder(account, {
+      fee: '100',
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(contract.call('get_governed_contracts'))
+      .setTimeout(30)
+      .build();
+
+    const sim = await rpc.simulateTransaction(tx);
+    if (SorobanRpc.Api.isSimulationError(sim)) {
+      throw new Error(`Simulation failed: ${sim.error}`);
+    }
+    if (sim.result?.retval?.switch() === xdr.ScValType.scvVec()) {
+      return (sim.result.retval.vec() ?? [])
+        .map((v: xdr.ScVal) => v.address()?.toString() || '')
+        .filter(Boolean);
+    }
+    return [];
   }
   // --------------------------------------------------------------------------
   // TRANSACTION METHODS
@@ -262,7 +289,7 @@ export class ContractUpgradeService {
       .addOperation(contract.call(
         'propose_upgrade',
         this.addressToScVal(sk.publicKey()),
-        xdr.ScVal.scvString(targetContract),
+        this.addressToScVal(targetContract),
         this.hexToBytesN(newWasmHash),
         this.hexToBytesN(previousWasmHash),
         xdr.ScVal.scvString(description),
@@ -314,9 +341,14 @@ export class ContractUpgradeService {
     return { transactionHash: result.hash };
   }
 
-  async executeUpgrade(params: { executorSecret: string; proposalId: number; newWasmHash: string }): Promise<{ transactionHash: string }> {
+  async executeUpgrade(params: {
+    executorSecret: string;
+    proposalId: number;
+    targetContract: string;
+    newWasmHash: string;
+  }): Promise<{ transactionHash: string }> {
     this.ensureEnabled();
-    const { executorSecret, proposalId, newWasmHash } = params;
+    const { executorSecret, proposalId, targetContract, newWasmHash } = params;
     const rpc = new SorobanRpc.Server(this.rpcUrl);
     const contract = new Contract(this.contractAddress);
     const sk = Keypair.fromSecret(executorSecret);
@@ -329,6 +361,7 @@ export class ContractUpgradeService {
         'execute_upgrade',
         xdr.ScVal.scvU64(new xdr.Uint64(proposalId)),
         this.addressToScVal(sk.publicKey()),
+        this.addressToScVal(targetContract),
         this.hexToBytesN(newWasmHash),
       ))
       .setTimeout(30).build();
@@ -340,13 +373,137 @@ export class ContractUpgradeService {
     const result = await rpc.sendTransaction(signed);
     if (result.status === 'ERROR') throw new Error("Transaction failed");
 
-    await this.logEvent({ proposalId, eventType: 'executed', transactionHash: result.hash, data: { newWasmHash } });
+    await this.logEvent({
+      proposalId,
+      eventType: 'executed',
+      transactionHash: result.hash,
+      data: { newWasmHash, targetContract },
+    });
     return { transactionHash: result.hash };
   }
 
-  async rollbackUpgrade(params: { callerSecret: string; previousWasmHash: string }): Promise<{ transactionHash: string }> {
+  async executeBatchUpgrade(params: {
+    executorSecret: string;
+    proposalId: number;
+  }): Promise<{ transactionHash: string }> {
     this.ensureEnabled();
-    const { callerSecret, previousWasmHash } = params;
+    const { executorSecret, proposalId } = params;
+    const rpc = new SorobanRpc.Server(this.rpcUrl);
+    const contract = new Contract(this.contractAddress);
+    const sk = Keypair.fromSecret(executorSecret);
+    const account = await rpc.getAccount(sk.publicKey());
+
+    const tx = new TransactionBuilder(account, {
+      fee: '100', networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(contract.call(
+        'execute_batch_upgrade',
+        xdr.ScVal.scvU64(new xdr.Uint64(proposalId)),
+        this.addressToScVal(sk.publicKey()),
+      ))
+      .setTimeout(30).build();
+
+    const sim = await rpc.simulateTransaction(tx);
+    if (SorobanRpc.Api.isSimulationError(sim)) throw new Error("Simulation failed");
+    const prepared = SorobanRpc.assembleTransaction(tx, sim);
+    const signed = prepared.sign(sk);
+    const result = await rpc.sendTransaction(signed);
+    if (result.status === 'ERROR') throw new Error("Transaction failed");
+
+    await this.logEvent({
+      proposalId,
+      eventType: 'executed',
+      transactionHash: result.hash,
+      data: { batch: true },
+    });
+    return { transactionHash: result.hash };
+  }
+
+  async registerGovernedContract(params: {
+    adminSecret: string;
+    targetContract: string;
+    timelockSeconds?: number;
+  }): Promise<{ transactionHash: string }> {
+    this.ensureEnabled();
+    const { adminSecret, targetContract, timelockSeconds = 0 } = params;
+    const rpc = new SorobanRpc.Server(this.rpcUrl);
+    const contract = new Contract(this.contractAddress);
+    const sk = Keypair.fromSecret(adminSecret);
+    const account = await rpc.getAccount(sk.publicKey());
+
+    const tx = new TransactionBuilder(account, {
+      fee: '100', networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(contract.call(
+        'register_governed_contract',
+        this.addressToScVal(targetContract),
+        xdr.ScVal.scvU64(new xdr.Uint64(timelockSeconds)),
+      ))
+      .setTimeout(30).build();
+
+    const sim = await rpc.simulateTransaction(tx);
+    if (SorobanRpc.Api.isSimulationError(sim)) throw new Error("Simulation failed");
+    const prepared = SorobanRpc.assembleTransaction(tx, sim);
+    const signed = prepared.sign(sk);
+    const result = await rpc.sendTransaction(signed);
+    if (result.status === 'ERROR') throw new Error("Transaction failed");
+    return { transactionHash: result.hash };
+  }
+
+  async proposeBatchUpgrade(params: {
+    proposerSecret: string;
+    targets: string[];
+    newWasmHashes: string[];
+    previousWasmHashes: string[];
+    description: string;
+  }): Promise<{ proposalId: number; transactionHash: string }> {
+    this.ensureEnabled();
+    const { proposerSecret, targets, newWasmHashes, previousWasmHashes, description } = params;
+    const rpc = new SorobanRpc.Server(this.rpcUrl);
+    const contract = new Contract(this.contractAddress);
+    const sk = Keypair.fromSecret(proposerSecret);
+    const account = await rpc.getAccount(sk.publicKey());
+
+    const tx = new TransactionBuilder(account, {
+      fee: '100', networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(contract.call(
+        'propose_batch_upgrade',
+        this.addressToScVal(sk.publicKey()),
+        xdr.ScVal.scvVec(targets.map((t) => this.addressToScVal(t))),
+        xdr.ScVal.scvVec(newWasmHashes.map((h) => this.hexToBytesN(h))),
+        xdr.ScVal.scvVec(previousWasmHashes.map((h) => this.hexToBytesN(h))),
+        xdr.ScVal.scvString(description),
+      ))
+      .setTimeout(30).build();
+
+    const sim = await rpc.simulateTransaction(tx);
+    if (SorobanRpc.Api.isSimulationError(sim)) throw new Error("Simulation failed");
+    const prepared = SorobanRpc.assembleTransaction(tx, sim);
+    const signed = prepared.sign(sk);
+    const result = await rpc.sendTransaction(signed);
+    if (result.status === 'ERROR') throw new Error("Transaction failed");
+
+    let proposalId = 0;
+    if (sim.result?.retval) {
+      proposalId = Number(sim.result.retval.u64()?.toString() || '0');
+    }
+    await this.logEvent({
+      proposalId,
+      eventType: 'proposed',
+      transactionHash: result.hash,
+      data: { targets, description, batch: true },
+    });
+    return { proposalId, transactionHash: result.hash };
+  }
+
+  async rollbackUpgrade(params: {
+    callerSecret: string;
+    targetContract: string;
+    previousWasmHash: string;
+  }): Promise<{ transactionHash: string }> {
+    this.ensureEnabled();
+    const { callerSecret, targetContract, previousWasmHash } = params;
     const rpc = new SorobanRpc.Server(this.rpcUrl);
     const contract = new Contract(this.contractAddress);
     const sk = Keypair.fromSecret(callerSecret);
@@ -358,6 +515,7 @@ export class ContractUpgradeService {
       .addOperation(contract.call(
         'rollback_upgrade',
         this.addressToScVal(sk.publicKey()),
+        this.addressToScVal(targetContract),
         this.hexToBytesN(previousWasmHash),
       ))
       .setTimeout(30).build();
@@ -440,7 +598,7 @@ export class ContractUpgradeService {
         id: vec[0]?.u64()?.toString() || '0',
         proposalId: Number(vec[0]?.u64()?.toString() || '0'),
         description: vec[1]?.str()?.toString() || '',
-        targetContract: vec[2]?.str()?.toString() || '',
+        targetContract: vec[2]?.address()?.toString() || vec[2]?.str()?.toString() || '',
         newWasmHash: vec[3]?.bytes()?.toString('hex') || '',
         proposer: vec[4]?.address()?.toString() || '',
         state: this.parseProposalState(vec[5]),

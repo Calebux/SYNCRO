@@ -28,12 +28,19 @@ enum DataKey {
     Admin,
     ProposalCount,
     Proposal(u64),
-    RollbackWasmHash,
-    RollbackContractId,
-    RollbackConsumed,
+    BatchProposal(u64),
+    /// Per-target rollback WASM hash.
+    RollbackWasmHash(Address),
+    /// Per-target rollback consumption flag.
+    RollbackConsumed(Address),
     UpgradesPaused,
     TimelockOverride,
+    ContractTimelock(Address),
+    Governed(Address),
+    GovernedList,
     ApprovedBy(u64),
+    /// Currently executable (Pending/Approved) proposal for a target.
+    ActiveProposal(Address),
 }
 
 // ============================================================================
@@ -49,6 +56,7 @@ pub enum ProposalState {
     Executed,
     Cancelled,
     RolledBack,
+    Invalidated,
 }
 
 #[contracttype]
@@ -56,7 +64,7 @@ pub enum ProposalState {
 pub struct UpgradeProposal {
     pub id: u64,
     pub description: String,
-    pub target_contract: String,
+    pub target_contract: Address,
     pub new_wasm_hash: BytesN<32>,
     pub proposer: Address,
     pub state: ProposalState,
@@ -64,6 +72,21 @@ pub struct UpgradeProposal {
     pub approved_at: u64,
     pub executable_at: u64,
     pub previous_wasm_hash: BytesN<32>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BatchUpgradeProposal {
+    pub id: u64,
+    pub description: String,
+    pub targets: Vec<Address>,
+    pub new_wasm_hashes: Vec<BytesN<32>>,
+    pub previous_wasm_hashes: Vec<BytesN<32>>,
+    pub proposer: Address,
+    pub state: ProposalState,
+    pub created_at: u64,
+    pub approved_at: u64,
+    pub executable_at: u64,
 }
 
 // ============================================================================
@@ -88,6 +111,12 @@ pub enum UpgradeError {
     NoRollbackAvailable = 1711,
     RollbackAlreadyConsumed = 1712,
     InvalidArgument = 1713,
+    ContractNotGoverned = 1714,
+    TargetMismatch = 1715,
+    ProposalInvalidated = 1716,
+    BatchLengthMismatch = 1717,
+    EmptyBatch = 1718,
+    DuplicateTarget = 1719,
 }
 
 // ============================================================================
@@ -97,7 +126,7 @@ pub enum UpgradeError {
 #[contractevent]
 pub struct UpgradeProposed {
     pub proposal_id: u64,
-    pub target_contract: String,
+    pub target_contract: Address,
     pub new_wasm_hash: BytesN<32>,
     pub proposer: Address,
 }
@@ -118,6 +147,7 @@ pub struct UpgradeReady {
 #[contractevent]
 pub struct UpgradeExecuted {
     pub proposal_id: u64,
+    pub target_contract: Address,
     pub new_wasm_hash: BytesN<32>,
     pub previous_wasm_hash: BytesN<32>,
 }
@@ -125,6 +155,7 @@ pub struct UpgradeExecuted {
 #[contractevent]
 pub struct UpgradeRolledBack {
     pub proposal_id: u64,
+    pub target_contract: Address,
     pub restored_wasm_hash: BytesN<32>,
 }
 
@@ -142,6 +173,19 @@ pub struct GuardianSetChanged {
 #[contractevent]
 pub struct UpgradesPauseToggled {
     pub paused: bool,
+}
+
+#[contractevent]
+pub struct GovernedContractRegistered {
+    pub target: Address,
+    pub timelock_seconds: u64,
+}
+
+#[contractevent]
+pub struct BatchUpgradeProposed {
+    pub proposal_id: u64,
+    pub target_count: u32,
+    pub proposer: Address,
 }
 
 // ============================================================================
@@ -173,7 +217,8 @@ impl ContractUpgradeGovernance {
         env.storage().instance().set(&DataKey::GuardianCount, &(count as u32));
         env.storage().instance().set(&DataKey::UpgradesPaused, &false);
         env.storage().instance().set(&DataKey::ProposalCount, &0u64);
-        env.storage().instance().set(&DataKey::RollbackConsumed, &false);
+        let empty: Vec<Address> = vec![&env];
+        env.storage().instance().set(&DataKey::GovernedList, &empty);
     }
 
     fn require_admin(env: &Env) {
@@ -200,20 +245,78 @@ impl ContractUpgradeGovernance {
         guardians.iter().any(|g| g == *addr)
     }
 
-    fn timelock_duration(env: &Env) -> u64 {
+    fn require_governed(env: &Env, target: &Address) {
+        let governed: bool = env.storage().instance()
+            .get(&DataKey::Governed(target.clone())).unwrap_or(false);
+        if !governed {
+            panic_with_error!(env, UpgradeError::ContractNotGoverned);
+        }
+    }
+
+    fn timelock_duration(env: &Env, target: &Address) -> u64 {
+        if let Some(override_secs) = env.storage().instance()
+            .get::<DataKey, u64>(&DataKey::ContractTimelock(target.clone()))
+        {
+            return override_secs;
+        }
         env.storage().instance()
             .get(&DataKey::TimelockOverride)
             .unwrap_or(DEFAULT_TIMELOCK_SECONDS)
     }
 
-    fn save_rollback_slot(env: &Env, wasm_hash: BytesN<32>, contract_id: String) {
-        env.storage().persistent().set(&DataKey::RollbackWasmHash, &wasm_hash);
-        env.storage().persistent().set(&DataKey::RollbackContractId, &contract_id);
+    fn save_rollback_slot(env: &Env, target: &Address, wasm_hash: BytesN<32>) {
+        env.storage().persistent()
+            .set(&DataKey::RollbackWasmHash(target.clone()), &wasm_hash);
+        env.storage().persistent()
+            .set(&DataKey::RollbackConsumed(target.clone()), &false);
+    }
+
+    fn is_open_state(state: ProposalState) -> bool {
+        state == ProposalState::Pending || state == ProposalState::Approved
+    }
+
+    fn next_proposal_id(env: &Env) -> u64 {
+        let count: u64 = env.storage().instance()
+            .get(&DataKey::ProposalCount).unwrap_or(0);
+        count + 1
+    }
+
+    fn claim_or_invalidate(env: &Env, target: &Address, new_id: u64) -> ProposalState {
+        let active: Option<u64> = env.storage().persistent()
+            .get(&DataKey::ActiveProposal(target.clone()));
+        if let Some(existing_id) = active {
+            if let Some(existing) = env.storage().persistent()
+                .get::<DataKey, UpgradeProposal>(&DataKey::Proposal(existing_id))
+            {
+                if Self::is_open_state(existing.state) && existing_id != new_id {
+                    return ProposalState::Invalidated;
+                }
+            }
+            if let Some(existing) = env.storage().persistent()
+                .get::<DataKey, BatchUpgradeProposal>(&DataKey::BatchProposal(existing_id))
+            {
+                if Self::is_open_state(existing.state) && existing_id != new_id {
+                    return ProposalState::Invalidated;
+                }
+            }
+        }
+        env.storage().persistent()
+            .set(&DataKey::ActiveProposal(target.clone()), &new_id);
+        ProposalState::Pending
+    }
+
+    fn clear_active_if_matches(env: &Env, target: &Address, proposal_id: u64) {
+        let active: Option<u64> = env.storage().persistent()
+            .get(&DataKey::ActiveProposal(target.clone()));
+        if active == Some(proposal_id) {
+            env.storage().persistent()
+                .remove(&DataKey::ActiveProposal(target.clone()));
+        }
     }
 }
 
 // ============================================================================
-// CONTRACT — Guardian Management & Proposal
+// CONTRACT — Guardian Management, Registry & Proposal
 // ============================================================================
 
 #[contractimpl]
@@ -247,10 +350,72 @@ impl ContractUpgradeGovernance {
         GuardianSetChanged { guardians: new_guardians }.publish(&env);
     }
 
+    /// Register a contract that this governance instance is allowed to upgrade.
+    /// `timelock_seconds` of 0 uses the global default; otherwise it must be >= 3600.
+    pub fn register_governed_contract(env: Env, target: Address, timelock_seconds: u64) {
+        Self::require_admin(&env);
+        if timelock_seconds > 0 && timelock_seconds < 3600 {
+            panic_with_error!(&env, UpgradeError::InvalidArgument);
+        }
+        env.storage().instance().set(&DataKey::Governed(target.clone()), &true);
+        if timelock_seconds >= 3600 {
+            env.storage().instance()
+                .set(&DataKey::ContractTimelock(target.clone()), &timelock_seconds);
+        }
+        let mut list: Vec<Address> = env.storage().instance()
+            .get(&DataKey::GovernedList).unwrap_or(vec![&env]);
+        if !list.iter().any(|a| a == target) {
+            list.push_back(target.clone());
+            env.storage().instance().set(&DataKey::GovernedList, &list);
+        }
+        GovernedContractRegistered { target, timelock_seconds }.publish(&env);
+    }
+
+    pub fn unregister_governed_contract(env: Env, target: Address) {
+        Self::require_admin(&env);
+        env.storage().instance().set(&DataKey::Governed(target.clone()), &false);
+        let list: Vec<Address> = env.storage().instance()
+            .get(&DataKey::GovernedList).unwrap_or(vec![&env]);
+        let mut next: Vec<Address> = vec![&env];
+        for addr in list.iter() {
+            if addr != target {
+                next.push_back(addr);
+            }
+        }
+        env.storage().instance().set(&DataKey::GovernedList, &next);
+    }
+
+    pub fn get_governed_contracts(env: Env) -> Vec<Address> {
+        Self::require_initialized(&env);
+        env.storage().instance()
+            .get(&DataKey::GovernedList).unwrap_or(vec![&env])
+    }
+
+    pub fn is_governed(env: Env, target: Address) -> bool {
+        Self::require_initialized(&env);
+        env.storage().instance()
+            .get(&DataKey::Governed(target)).unwrap_or(false)
+    }
+
+    pub fn set_contract_timelock(env: Env, target: Address, duration_seconds: u64) {
+        Self::require_admin(&env);
+        Self::require_governed(&env, &target);
+        if duration_seconds < 3600 {
+            panic_with_error!(&env, UpgradeError::InvalidArgument);
+        }
+        env.storage().instance()
+            .set(&DataKey::ContractTimelock(target), &duration_seconds);
+    }
+
+    pub fn get_contract_timelock(env: Env, target: Address) -> u64 {
+        Self::require_initialized(&env);
+        Self::timelock_duration(&env, &target)
+    }
+
     pub fn propose_upgrade(
         env: Env,
         proposer: Address,
-        target_contract: String,
+        target_contract: Address,
         new_wasm_hash: BytesN<32>,
         previous_wasm_hash: BytesN<32>,
         description: String,
@@ -259,11 +424,11 @@ impl ContractUpgradeGovernance {
         Self::require_not_paused(&env);
         if !Self::is_guardian(&env, &proposer) { panic_with_error!(&env, UpgradeError::NotGuardian); }
         proposer.require_auth();
+        Self::require_governed(&env, &target_contract);
 
-        let count: u64 = env.storage().instance()
-            .get(&DataKey::ProposalCount).unwrap_or(0);
-        let proposal_id = count + 1;
+        let proposal_id = Self::next_proposal_id(&env);
         let now = env.ledger().timestamp();
+        let state = Self::claim_or_invalidate(&env, &target_contract, proposal_id);
 
         let proposal = UpgradeProposal {
             id: proposal_id,
@@ -271,11 +436,11 @@ impl ContractUpgradeGovernance {
             target_contract: target_contract.clone(),
             new_wasm_hash: new_wasm_hash.clone(),
             proposer: proposer.clone(),
-            state: ProposalState::Pending,
+            state,
             created_at: now,
             approved_at: 0,
             executable_at: 0,
-            previous_wasm_hash: previous_wasm_hash.clone(),
+            previous_wasm_hash,
         };
 
         env.storage().persistent().set(&DataKey::Proposal(proposal_id), &proposal);
@@ -285,8 +450,82 @@ impl ContractUpgradeGovernance {
 
         UpgradeProposed {
             proposal_id,
-            target_contract: proposal.target_contract.clone(),
+            target_contract,
             new_wasm_hash,
+            proposer,
+        }.publish(&env);
+
+        proposal_id
+    }
+
+    /// Propose an atomic multi-target upgrade. Execution is all-or-nothing.
+    pub fn propose_batch_upgrade(
+        env: Env,
+        proposer: Address,
+        targets: Vec<Address>,
+        new_wasm_hashes: Vec<BytesN<32>>,
+        previous_wasm_hashes: Vec<BytesN<32>>,
+        description: String,
+    ) -> u64 {
+        Self::require_initialized(&env);
+        Self::require_not_paused(&env);
+        if !Self::is_guardian(&env, &proposer) { panic_with_error!(&env, UpgradeError::NotGuardian); }
+        proposer.require_auth();
+
+        let n = targets.len();
+        if n == 0 {
+            panic_with_error!(&env, UpgradeError::EmptyBatch);
+        }
+        if n != new_wasm_hashes.len() || n != previous_wasm_hashes.len() {
+            panic_with_error!(&env, UpgradeError::BatchLengthMismatch);
+        }
+        for i in 0..n {
+            let t = targets.get_unchecked(i);
+            Self::require_governed(&env, &t);
+            for j in (i + 1)..n {
+                if t == targets.get_unchecked(j) {
+                    panic_with_error!(&env, UpgradeError::DuplicateTarget);
+                }
+            }
+        }
+
+        let proposal_id = Self::next_proposal_id(&env);
+        let now = env.ledger().timestamp();
+
+        let mut state = ProposalState::Pending;
+        for t in targets.iter() {
+            if Self::claim_or_invalidate(&env, &t, proposal_id) == ProposalState::Invalidated {
+                state = ProposalState::Invalidated;
+            }
+        }
+        // If any target already had an open proposal, do not claim the others.
+        if state == ProposalState::Invalidated {
+            for t in targets.iter() {
+                Self::clear_active_if_matches(&env, &t, proposal_id);
+            }
+        }
+
+        let proposal = BatchUpgradeProposal {
+            id: proposal_id,
+            description,
+            targets: targets.clone(),
+            new_wasm_hashes,
+            previous_wasm_hashes,
+            proposer: proposer.clone(),
+            state,
+            created_at: now,
+            approved_at: 0,
+            executable_at: 0,
+        };
+
+        env.storage().persistent().set(&DataKey::BatchProposal(proposal_id), &proposal);
+        env.storage().instance().set(&DataKey::ProposalCount, &proposal_id);
+        let empty: Vec<Address> = vec![&env];
+        env.storage().persistent().set(&DataKey::ApprovedBy(proposal_id), &empty);
+
+        BatchUpgradeProposed {
+            proposal_id,
+            target_count: n,
             proposer,
         }.publish(&env);
 
@@ -308,9 +547,20 @@ impl ContractUpgradeGovernance {
         if !Self::is_guardian(&env, &guardian) { panic_with_error!(&env, UpgradeError::NotGuardian); }
         guardian.require_auth();
 
-        let mut proposal: UpgradeProposal = env.storage().persistent()
-            .get(&DataKey::Proposal(proposal_id)).expect("proposal not found");
-        if proposal.state != ProposalState::Pending {
+        let single: Option<UpgradeProposal> = env.storage().persistent()
+            .get(&DataKey::Proposal(proposal_id));
+        let batch: Option<BatchUpgradeProposal> = env.storage().persistent()
+            .get(&DataKey::BatchProposal(proposal_id));
+
+        if single.is_none() && batch.is_none() {
+            panic_with_error!(&env, UpgradeError::ProposalNotFound);
+        }
+
+        let current_state = if let Some(ref p) = single { p.state } else { batch.as_ref().unwrap().state };
+        if current_state == ProposalState::Invalidated {
+            panic_with_error!(&env, UpgradeError::ProposalInvalidated);
+        }
+        if current_state != ProposalState::Pending {
             panic_with_error!(&env, UpgradeError::InvalidStateTransition);
         }
 
@@ -326,21 +576,40 @@ impl ContractUpgradeGovernance {
 
         if approvals_count >= REQUIRED_APPROVALS {
             let now = env.ledger().timestamp();
-            let timelock = Self::timelock_duration(&env);
-            let executable_at = now + timelock;
-            proposal.state = ProposalState::Approved;
-            proposal.approved_at = now;
-            proposal.executable_at = executable_at;
-            env.storage().persistent().set(&DataKey::Proposal(proposal_id), &proposal);
-            UpgradeReady { proposal_id, executable_at }.publish(&env);
+            if let Some(mut proposal) = single {
+                let timelock = Self::timelock_duration(&env, &proposal.target_contract);
+                proposal.state = ProposalState::Approved;
+                proposal.approved_at = now;
+                proposal.executable_at = now + timelock;
+                env.storage().persistent().set(&DataKey::Proposal(proposal_id), &proposal);
+                UpgradeReady { proposal_id, executable_at: proposal.executable_at }.publish(&env);
+            } else if let Some(mut proposal) = batch {
+                // Batch timelock is the max of the per-target timelocks.
+                let mut timelock = 0u64;
+                for t in proposal.targets.iter() {
+                    let d = Self::timelock_duration(&env, &t);
+                    if d > timelock { timelock = d; }
+                }
+                proposal.state = ProposalState::Approved;
+                proposal.approved_at = now;
+                proposal.executable_at = now + timelock;
+                env.storage().persistent().set(&DataKey::BatchProposal(proposal_id), &proposal);
+                UpgradeReady { proposal_id, executable_at: proposal.executable_at }.publish(&env);
+            }
         }
 
         UpgradeApproved { proposal_id, approved_by: guardian, approvals_count }.publish(&env);
     }
 
     /// Execute an approved upgrade after the timelock has expired.
-    /// Records the rollback slot for the old WASM hash.
-    pub fn execute_upgrade(env: Env, proposal_id: u64, executor: Address, new_wasm_hash: BytesN<32>) {
+    /// `target_contract` must match the proposal; rollback is stored per target.
+    pub fn execute_upgrade(
+        env: Env,
+        proposal_id: u64,
+        executor: Address,
+        target_contract: Address,
+        new_wasm_hash: BytesN<32>,
+    ) {
         Self::require_initialized(&env);
         Self::require_not_paused(&env);
         if !Self::is_guardian(&env, &executor) {
@@ -352,6 +621,54 @@ impl ContractUpgradeGovernance {
 
         let mut proposal: UpgradeProposal = env.storage().persistent()
             .get(&DataKey::Proposal(proposal_id)).expect("proposal not found");
+        if proposal.state == ProposalState::Invalidated {
+            panic_with_error!(&env, UpgradeError::ProposalInvalidated);
+        }
+        if proposal.state != ProposalState::Approved {
+            panic_with_error!(&env, UpgradeError::InvalidStateTransition);
+        }
+        if proposal.target_contract != target_contract {
+            panic_with_error!(&env, UpgradeError::TargetMismatch);
+        }
+        if proposal.new_wasm_hash != new_wasm_hash {
+            panic_with_error!(&env, UpgradeError::InvalidArgument);
+        }
+        let now = env.ledger().timestamp();
+        if now < proposal.executable_at {
+            panic_with_error!(&env, UpgradeError::TimelockNotExpired);
+        }
+
+        Self::save_rollback_slot(&env, &target_contract, proposal.previous_wasm_hash.clone());
+
+        proposal.state = ProposalState::Executed;
+        env.storage().persistent().set(&DataKey::Proposal(proposal_id), &proposal);
+        Self::clear_active_if_matches(&env, &target_contract, proposal_id);
+
+        UpgradeExecuted {
+            proposal_id,
+            target_contract,
+            new_wasm_hash,
+            previous_wasm_hash: proposal.previous_wasm_hash.clone(),
+        }.publish(&env);
+    }
+
+    /// Execute a batch proposal. Either every target is upgraded or none are.
+    /// All validation runs before any rollback slot is written.
+    pub fn execute_batch_upgrade(env: Env, proposal_id: u64, executor: Address) {
+        Self::require_initialized(&env);
+        Self::require_not_paused(&env);
+        if !Self::is_guardian(&env, &executor) {
+            let admin: Address = env.storage().instance()
+                .get(&DataKey::Admin).expect("not initialized");
+            if executor != admin { panic_with_error!(&env, UpgradeError::Unauthorized); }
+        }
+        executor.require_auth();
+
+        let mut proposal: BatchUpgradeProposal = env.storage().persistent()
+            .get(&DataKey::BatchProposal(proposal_id)).expect("proposal not found");
+        if proposal.state == ProposalState::Invalidated {
+            panic_with_error!(&env, UpgradeError::ProposalInvalidated);
+        }
         if proposal.state != ProposalState::Approved {
             panic_with_error!(&env, UpgradeError::InvalidStateTransition);
         }
@@ -360,22 +677,46 @@ impl ContractUpgradeGovernance {
             panic_with_error!(&env, UpgradeError::TimelockNotExpired);
         }
 
-        Self::save_rollback_slot(&env, proposal.previous_wasm_hash.clone(), proposal.target_contract.clone());
-        env.storage().persistent().set(&DataKey::RollbackConsumed, &false);
+        // VALIDATE ALL before mutating ANY — all-or-nothing.
+        let n = proposal.targets.len();
+        for i in 0..n {
+            let target = proposal.targets.get_unchecked(i);
+            Self::require_governed(&env, &target);
+            let active: Option<u64> = env.storage().persistent()
+                .get(&DataKey::ActiveProposal(target.clone()));
+            if let Some(aid) = active {
+                if aid != proposal_id {
+                    panic_with_error!(&env, UpgradeError::ProposalInvalidated);
+                }
+            }
+        }
+
+        // APPLY ALL
+        for i in 0..n {
+            let target = proposal.targets.get_unchecked(i);
+            let prev = proposal.previous_wasm_hashes.get_unchecked(i);
+            let new_hash = proposal.new_wasm_hashes.get_unchecked(i);
+            Self::save_rollback_slot(&env, &target, prev.clone());
+            Self::clear_active_if_matches(&env, &target, proposal_id);
+            UpgradeExecuted {
+                proposal_id,
+                target_contract: target.clone(),
+                new_wasm_hash: new_hash.clone(),
+                previous_wasm_hash: prev,
+            }.publish(&env);
+        }
 
         proposal.state = ProposalState::Executed;
-        env.storage().persistent().set(&DataKey::Proposal(proposal_id), &proposal);
-
-        UpgradeExecuted {
-            proposal_id,
-            new_wasm_hash,
-            previous_wasm_hash: proposal.previous_wasm_hash.clone(),
-        }.publish(&env);
+        env.storage().persistent().set(&DataKey::BatchProposal(proposal_id), &proposal);
     }
 
-    /// Rollback to the previous WASM version.
-    /// Admin can rollback directly (emergency). Guardians need rollback to be available.
-    pub fn rollback_upgrade(env: Env, caller: Address, previous_wasm_hash: BytesN<32>) {
+    /// Rollback a single target to its previous WASM version.
+    pub fn rollback_upgrade(
+        env: Env,
+        caller: Address,
+        target_contract: Address,
+        previous_wasm_hash: BytesN<32>,
+    ) {
         Self::require_initialized(&env);
         Self::require_not_paused(&env);
         let is_admin = {
@@ -389,40 +730,68 @@ impl ContractUpgradeGovernance {
         caller.require_auth();
 
         let consumed: bool = env.storage().persistent()
-            .get(&DataKey::RollbackConsumed).unwrap_or(true);
+            .get(&DataKey::RollbackConsumed(target_contract.clone())).unwrap_or(true);
         if consumed {
             panic_with_error!(&env, UpgradeError::RollbackAlreadyConsumed);
         }
 
-        let stored_hash: BytesN<32> = env.storage().persistent()
-            .get(&DataKey::RollbackWasmHash).expect("no rollback slot");
-        if stored_hash != previous_wasm_hash { panic_with_error!(&env, UpgradeError::InvalidArgument); }
+        let stored_hash: BytesN<32> = match env.storage().persistent()
+            .get(&DataKey::RollbackWasmHash(target_contract.clone()))
+        {
+            Some(h) => h,
+            None => panic_with_error!(&env, UpgradeError::NoRollbackAvailable),
+        };
+        if stored_hash != previous_wasm_hash {
+            panic_with_error!(&env, UpgradeError::InvalidArgument);
+        }
 
-        env.storage().persistent().set(&DataKey::RollbackConsumed, &true);
+        env.storage().persistent()
+            .set(&DataKey::RollbackConsumed(target_contract.clone()), &true);
 
-        UpgradeRolledBack { proposal_id: 0, restored_wasm_hash: previous_wasm_hash }.publish(&env);
+        UpgradeRolledBack {
+            proposal_id: 0,
+            target_contract,
+            restored_wasm_hash: previous_wasm_hash,
+        }.publish(&env);
     }
 
-    /// Cancel a proposal (admin only).
     pub fn cancel_proposal(env: Env, proposal_id: u64) {
         Self::require_admin(&env);
-        let mut proposal: UpgradeProposal = env.storage().persistent()
-            .get(&DataKey::Proposal(proposal_id)).expect("proposal not found");
-        if proposal.state == ProposalState::Executed
-            || proposal.state == ProposalState::Cancelled
-            || proposal.state == ProposalState::RolledBack {
-            panic_with_error!(&env, UpgradeError::InvalidStateTransition);
+        if let Some(mut proposal) = env.storage().persistent()
+            .get::<DataKey, UpgradeProposal>(&DataKey::Proposal(proposal_id))
+        {
+            if proposal.state == ProposalState::Executed
+                || proposal.state == ProposalState::Cancelled
+                || proposal.state == ProposalState::RolledBack {
+                panic_with_error!(&env, UpgradeError::InvalidStateTransition);
+            }
+            let target = proposal.target_contract.clone();
+            proposal.state = ProposalState::Cancelled;
+            env.storage().persistent().set(&DataKey::Proposal(proposal_id), &proposal);
+            Self::clear_active_if_matches(&env, &target, proposal_id);
+            UpgradeCancelled { proposal_id, cancelled_by: env.current_contract_address() }.publish(&env);
+            return;
         }
-        proposal.state = ProposalState::Cancelled;
-        env.storage().persistent().set(&DataKey::Proposal(proposal_id), &proposal);
-        UpgradeCancelled { proposal_id, cancelled_by: env.current_contract_address() }.publish(&env);
+        if let Some(mut proposal) = env.storage().persistent()
+            .get::<DataKey, BatchUpgradeProposal>(&DataKey::BatchProposal(proposal_id))
+        {
+            if proposal.state == ProposalState::Executed
+                || proposal.state == ProposalState::Cancelled
+                || proposal.state == ProposalState::RolledBack {
+                panic_with_error!(&env, UpgradeError::InvalidStateTransition);
+            }
+            let targets = proposal.targets.clone();
+            proposal.state = ProposalState::Cancelled;
+            env.storage().persistent().set(&DataKey::BatchProposal(proposal_id), &proposal);
+            for t in targets.iter() {
+                Self::clear_active_if_matches(&env, &t, proposal_id);
+            }
+            UpgradeCancelled { proposal_id, cancelled_by: env.current_contract_address() }.publish(&env);
+            return;
+        }
+        panic_with_error!(&env, UpgradeError::ProposalNotFound);
     }
 
-    /// Set a custom timelock duration (admin only).
-    ///
-    /// Security invariant: the override cannot drop below 3600 seconds. This
-    /// prevents governance from compressing the response window to a near-zero
-    /// delay that would defeat the purpose of the timelock.
     pub fn set_timelock(env: Env, duration_seconds: u64) {
         Self::require_admin(&env);
         if duration_seconds < 3600 { panic_with_error!(&env, UpgradeError::InvalidArgument); }
@@ -431,10 +800,11 @@ impl ContractUpgradeGovernance {
 
     pub fn get_timelock(env: Env) -> u64 {
         Self::require_initialized(&env);
-        Self::timelock_duration(&env)
+        env.storage().instance()
+            .get(&DataKey::TimelockOverride)
+            .unwrap_or(DEFAULT_TIMELOCK_SECONDS)
     }
 
-    /// Toggle the paused state of upgrades (admin only).
     pub fn toggle_pause(env: Env) {
         Self::require_admin(&env);
         let paused: bool = env.storage().instance()
@@ -454,6 +824,11 @@ impl ContractUpgradeGovernance {
             .get(&DataKey::Proposal(proposal_id)).expect("proposal not found")
     }
 
+    pub fn get_batch_proposal(env: Env, proposal_id: u64) -> BatchUpgradeProposal {
+        env.storage().persistent()
+            .get(&DataKey::BatchProposal(proposal_id)).expect("proposal not found")
+    }
+
     pub fn get_proposal_count(env: Env) -> u64 {
         env.storage().instance().get(&DataKey::ProposalCount).unwrap_or(0)
     }
@@ -469,15 +844,15 @@ impl ContractUpgradeGovernance {
         env.storage().instance().get(&DataKey::Admin).expect("not initialized")
     }
 
-    pub fn get_rollback_wasm_hash(env: Env) -> Option<BytesN<32>> {
-        env.storage().persistent().get(&DataKey::RollbackWasmHash)
+    pub fn get_rollback_wasm_hash(env: Env, target: Address) -> Option<BytesN<32>> {
+        env.storage().persistent().get(&DataKey::RollbackWasmHash(target))
     }
 
-    pub fn is_rollback_available(env: Env) -> bool {
+    pub fn is_rollback_available(env: Env, target: Address) -> bool {
         let consumed: bool = env.storage().persistent()
-            .get(&DataKey::RollbackConsumed).unwrap_or(true);
+            .get(&DataKey::RollbackConsumed(target.clone())).unwrap_or(true);
         let has_hash: bool = env.storage().persistent()
-            .has(&DataKey::RollbackWasmHash);
+            .has(&DataKey::RollbackWasmHash(target));
         !consumed && has_hash
     }
 

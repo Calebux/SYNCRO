@@ -3,11 +3,19 @@ import logger from '../config/logger';
 import { env } from '../config/env';
 import crypto from 'crypto';
 
+export interface WatchtowerRecord {
+  address: string;
+  bounty: number;
+  registeredAt: string;
+}
+
 export interface ChannelState {
   sequenceNumber: number;
   userBalance: number;
   executorBalance: number;
   totalDeposited: number;
+  watchtowers?: WatchtowerRecord[];
+  watchtowerBountyPaid?: number;
 }
 
 export interface PaymentChannelRecord {

@@ -266,3 +266,6 @@ impl AgentRegistry {
 }
 
 mod test;
+#[cfg(test)]
+mod negative;
+

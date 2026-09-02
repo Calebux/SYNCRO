@@ -13,6 +13,7 @@ jest.mock('../src/services/payment-channel-service', () => ({
     applyOffChainRenewal: jest.fn(),
     initiateClose: jest.fn(),
     finalizeClose: jest.fn(),
+    getChannel: jest.fn(),
   },
 }));
 
@@ -150,6 +151,100 @@ describe('ChannelStateService', () => {
 
       const schedule = await service.getSettlementSchedule('user-1');
       expect(schedule).toBe('quarterly');
+    });
+  });
+
+  describe('watchtowers', () => {
+    const openChannel = {
+      id: 'ch-1',
+      userId: 'user-1',
+      counterparty: 'SYNCRO',
+      balance: '100',
+      state: 'active' as const,
+      lastUpdated: new Date().toISOString(),
+      channelState: {
+        sequenceNumber: 1,
+        userBalance: 100,
+        executorBalance: 0,
+        totalDeposited: 100,
+      },
+    };
+
+    it('registers and lists watchtowers', async () => {
+      (paymentChannelService.getChannel as jest.Mock).mockResolvedValue(openChannel);
+      (supabase.from as jest.Mock).mockReturnValue({
+        update: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+      });
+      Object.defineProperty(
+        (supabase.from as jest.Mock).mock.results[0] || {},
+        'eq',
+        { value: jest.fn().mockReturnThis() },
+      );
+
+      const chain = {
+        update: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+      };
+      chain.eq.mockReturnValue(chain);
+      (supabase.from as jest.Mock).mockReturnValue(chain);
+
+      const towers = await service.registerWatchtower('user-1', 'ch-1', 'GWTCHTOWER', 10);
+      expect(towers).toHaveLength(1);
+      expect(towers[0].address).toBe('GWTCHTOWER');
+      expect(towers[0].bounty).toBe(10);
+    });
+
+    it('rejects bounty above the cap', async () => {
+      (paymentChannelService.getChannel as jest.Mock).mockResolvedValue(openChannel);
+      await expect(
+        service.registerWatchtower('user-1', 'ch-1', 'GWTCHTOWER', 10_001),
+      ).rejects.toMatchObject({ code: 'BOUNTY_EXCEEDS_CAP' });
+    });
+
+    it('rejects a channel party as watchtower', async () => {
+      (paymentChannelService.getChannel as jest.Mock).mockResolvedValue(openChannel);
+      await expect(
+        service.registerWatchtower('user-1', 'ch-1', 'user-1', 0),
+      ).rejects.toMatchObject({ code: 'WATCHTOWER_IS_PARTY' });
+    });
+
+    it('rejects stale watchtower submit', async () => {
+      (paymentChannelService.getChannel as jest.Mock).mockResolvedValue({
+        ...openChannel,
+        state: 'closing',
+        channelState: {
+          ...openChannel.channelState,
+          watchtowers: [{ address: 'GWTCHTOWER', bounty: 10, registeredAt: new Date().toISOString() }],
+        },
+      });
+      await expect(
+        service.submitWatchtowerState({
+          channelId: 'ch-1',
+          userId: 'user-1',
+          watchtower: 'GWTCHTOWER',
+          balanceA: 80,
+          balanceB: 20,
+          sequenceNumber: 1,
+        }),
+      ).rejects.toMatchObject({ code: 'STALE_STATE' });
+    });
+
+    it('rejects an unregistered watchtower', async () => {
+      (paymentChannelService.getChannel as jest.Mock).mockResolvedValue({
+        ...openChannel,
+        state: 'closing',
+      });
+      await expect(
+        service.submitWatchtowerState({
+          channelId: 'ch-1',
+          userId: 'user-1',
+          watchtower: 'GSTRANGER',
+          balanceA: 80,
+          balanceB: 20,
+          sequenceNumber: 2,
+        }),
+      ).rejects.toMatchObject({ code: 'NOT_WATCHTOWER' });
     });
   });
 });
