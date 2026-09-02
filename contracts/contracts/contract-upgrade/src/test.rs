@@ -56,6 +56,67 @@ fn test_double_init_fails() {
 }
 
 #[test]
+fn test_v1_proposal_survives_storage_migration() {
+    let (env, admin, guardian1, guardian2, _guardian3) = setup();
+    let contract_id = env.register(ContractUpgradeGovernance, ());
+    let client = ContractUpgradeGovernanceClient::new(&env, &contract_id);
+    let guardians = vec![&env, guardian1.clone(), guardian2];
+    client.init(&admin, &guardians);
+
+    let legacy = UpgradeProposalV1 {
+        id: 1,
+        description: String::from_str(&env, "Legacy upgrade"),
+        target_contract: String::from_str(&env, "CAFEBABE"),
+        new_wasm_hash: BytesN::from_array(&env, &[2u8; 32]),
+        proposer: guardian1,
+        state: ProposalState::Pending,
+        created_at: 100,
+        approved_at: 0,
+        executable_at: 0,
+        previous_wasm_hash: BytesN::from_array(&env, &[1u8; 32]),
+    };
+    env.as_contract(&contract_id, || {
+        env.storage().instance().set(&DataKey::StorageVersion, &1u32);
+        env.storage().instance().set(&DataKey::ProposalCount, &1u64);
+        env.storage().persistent().set(&DataKey::Proposal(1u64), &legacy);
+    });
+
+    client.migrate(&1u32, &admin);
+    let proposal = client.get_proposal(&1u64);
+    assert_eq!(proposal.schema_version, UPGRADE_PROPOSAL_SCHEMA_VERSION);
+    assert_eq!(proposal.description, String::from_str(&env, "Legacy upgrade"));
+    assert_eq!(proposal.previous_wasm_hash, BytesN::from_array(&env, &[1u8; 32]));
+    assert_eq!(client.get_storage_version(), STORAGE_VERSION);
+
+    // A normal write lazily re-persists the legacy record in its v2 layout.
+    client.cancel_proposal(&1u64);
+    assert_eq!(client.get_proposal(&1u64).state, ProposalState::Cancelled);
+}
+
+#[test]
+fn test_migrate_rejects_repeated_and_out_of_order_versions() {
+    let (env, admin, _guardian1, _guardian2, _guardian3) = setup();
+    let contract_id = env.register(ContractUpgradeGovernance, ());
+    let client = ContractUpgradeGovernanceClient::new(&env, &contract_id);
+    let guardian_a = Address::generate(&env);
+    let guardian_b = Address::generate(&env);
+    client.init(&admin, &vec![&env, guardian_a, guardian_b]);
+
+    env.as_contract(&contract_id, || {
+        env.storage().instance().set(&DataKey::StorageVersion, &1u32);
+    });
+    client.migrate(&1u32, &admin);
+    assert_eq!(client.get_storage_version(), STORAGE_VERSION);
+
+    assert!(client.try_migrate(&1u32, &admin).is_err());
+
+    env.as_contract(&contract_id, || {
+        env.storage().instance().set(&DataKey::StorageVersion, &1u32);
+    });
+    assert!(client.try_migrate(&2u32, &admin).is_err());
+}
+
+#[test]
 #[should_panic(expected = "Error(Contract, #14)")]
 fn test_init_fewer_than_2_guardians_fails() {
     let env = Env::default();

@@ -3,7 +3,9 @@
 use soroban_sdk::{testutils::{Address as _, Ledger as _}, Address, Env, Symbol};
 
 use super::{
-    ContractError, SubscriptionRenewalContract, SubscriptionRenewalContractClient, SubscriptionState,
+    ContractError, ContractKey, PersistentKey, SubscriptionDataV1, SubscriptionRenewalContract,
+    SubscriptionRenewalContractClient, SubscriptionState, SUBSCRIPTION_SCHEMA_VERSION,
+    STORAGE_VERSION,
 };
 
 fn setup() -> (Env, Address, Address) {
@@ -80,6 +82,42 @@ fn test_init_sub_counter_overflow_returns_typed_error() {
     let merchant = Address::generate(&env);
     let res = client.try_init_sub(&user, &merchant, &500, &86400, &1000);
     assert_eq!(res, Err(Ok(ContractError::CounterOverflow)));
+}
+
+#[test]
+fn test_v1_subscription_survives_storage_migration() {
+    let (env, id, _admin) = setup();
+    let client = SubscriptionRenewalContractClient::new(&env, &id);
+    let owner = Address::generate(&env);
+    let merchant = Address::generate(&env);
+    let legacy = SubscriptionDataV1 {
+        owner: owner.clone(),
+        merchant: merchant.clone(),
+        amount: 500,
+        frequency: 86_400,
+        spending_cap: 2_000,
+        integrity_hash: soroban_sdk::BytesN::from_array(&env, &[7; 32]),
+        state: SubscriptionState::Active,
+        failure_count: 1,
+        last_attempt_ledger: 42,
+    };
+
+    env.as_contract(&id, || {
+        env.storage().instance().set(&ContractKey::StorageVersion, &1u32);
+        env.storage()
+            .persistent()
+            .set(&PersistentKey::Subscription(1u64), &legacy);
+    });
+
+    client.migrate(&1u32);
+    let subscription = client.get_sub(&1u64);
+    assert_eq!(subscription.schema_version, SUBSCRIPTION_SCHEMA_VERSION);
+    assert_eq!(subscription.owner, owner);
+    assert_eq!(subscription.merchant, merchant);
+    assert_eq!(subscription.amount, 500);
+    assert_eq!(subscription.frequency, 86_400);
+    assert_eq!(subscription.failure_count, 1);
+    assert_eq!(client.get_storage_version(), STORAGE_VERSION);
 }
 
 // ── Renewal success / failure ─────────────────────────────────────
