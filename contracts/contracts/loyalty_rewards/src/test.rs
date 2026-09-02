@@ -142,12 +142,16 @@ fn test_accrue_streak_bonus_capped_at_max_level() {
     assert_eq!(ctx.client.streak(&owner), MAX_STREAK_BONUS_LEVEL);
 
     // The 21st renewal should still cap at level 20 for the bonus.
-    let awarded = ctx.client.accrue(&owner, &1u64, &(100 + MAX_STREAK_BONUS_LEVEL));
+    let awarded = ctx
+        .client
+        .accrue(&owner, &1u64, &(100 + MAX_STREAK_BONUS_LEVEL));
     let expected = BASE_POINTS + STREAK_BONUS * (MAX_STREAK_BONUS_LEVEL as i128);
     assert_eq!(awarded, expected);
 
     // The 22nd renewal: streak is now 21, but capped at 20 for bonus calc.
-    let awarded2 = ctx.client.accrue(&owner, &1u64, &(101 + MAX_STREAK_BONUS_LEVEL));
+    let awarded2 = ctx
+        .client
+        .accrue(&owner, &1u64, &(101 + MAX_STREAK_BONUS_LEVEL));
     assert_eq!(awarded2, expected); // same cap
 }
 
@@ -361,7 +365,10 @@ fn test_multiple_owners_independent_balances() {
     ctx.client.accrue(&bob, &2u64, &100u32);
 
     // Alice has two renewals, Bob has one.
-    assert_eq!(ctx.client.balance(&alice), BASE_POINTS + (BASE_POINTS + STREAK_BONUS));
+    assert_eq!(
+        ctx.client.balance(&alice),
+        BASE_POINTS + (BASE_POINTS + STREAK_BONUS)
+    );
     assert_eq!(ctx.client.balance(&bob), BASE_POINTS);
     assert_eq!(ctx.client.streak(&alice), 2);
     assert_eq!(ctx.client.streak(&bob), 1);

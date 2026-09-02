@@ -7,7 +7,8 @@ mod negative;
 
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, Symbol,
+    Vec,
 };
 use syncro_common;
 
@@ -77,10 +78,18 @@ impl FeeCollector {
         }
 
         env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::Guardians, &guardians);
-        env.storage().instance().set(&DataKey::GuardianCount, &(count as u32));
-        env.storage().instance().set(&DataKey::TreasuryBalance, &0i128);
-        env.storage().instance().set(&DataKey::WithdrawalCounter, &0u64);
+        env.storage()
+            .instance()
+            .set(&DataKey::Guardians, &guardians);
+        env.storage()
+            .instance()
+            .set(&DataKey::GuardianCount, &(count as u32));
+        env.storage()
+            .instance()
+            .set(&DataKey::TreasuryBalance, &0i128);
+        env.storage()
+            .instance()
+            .set(&DataKey::WithdrawalCounter, &0u64);
     }
 
     pub fn deposit(env: Env, from: Address, amount: i128) {
@@ -90,9 +99,18 @@ impl FeeCollector {
         }
         from.require_auth();
 
-        let current = env.storage().instance().get(&DataKey::TreasuryBalance).unwrap_or(0i128);
-        env.storage().instance().set(&DataKey::TreasuryBalance, &(current + amount));
-        env.events().publish((Symbol::new(&env, "deposit"), from), (amount, current + amount));
+        let current = env
+            .storage()
+            .instance()
+            .get(&DataKey::TreasuryBalance)
+            .unwrap_or(0i128);
+        env.storage()
+            .instance()
+            .set(&DataKey::TreasuryBalance, &(current + amount));
+        env.events().publish(
+            (Symbol::new(&env, "deposit"), from),
+            (amount, current + amount),
+        );
     }
 
     pub fn accrue(env: Env, from: Address, amount: i128) {
@@ -102,12 +120,26 @@ impl FeeCollector {
         }
         from.require_auth();
 
-        let current = env.storage().instance().get(&DataKey::TreasuryBalance).unwrap_or(0i128);
-        env.storage().instance().set(&DataKey::TreasuryBalance, &(current + amount));
-        env.events().publish((Symbol::new(&env, "accrue"), from), (amount, current + amount));
+        let current = env
+            .storage()
+            .instance()
+            .get(&DataKey::TreasuryBalance)
+            .unwrap_or(0i128);
+        env.storage()
+            .instance()
+            .set(&DataKey::TreasuryBalance, &(current + amount));
+        env.events().publish(
+            (Symbol::new(&env, "accrue"), from),
+            (amount, current + amount),
+        );
     }
 
-    pub fn request_withdrawal(env: Env, guardian: Address, recipient: Address, amount: i128) -> u64 {
+    pub fn request_withdrawal(
+        env: Env,
+        guardian: Address,
+        recipient: Address,
+        amount: i128,
+    ) -> u64 {
         Self::require_initialized(&env);
         if amount <= 0 {
             panic_with_error!(&env, TreasuryError::InvalidArgument);
@@ -117,13 +149,24 @@ impl FeeCollector {
         }
         guardian.require_auth();
 
-        let balance = env.storage().instance().get(&DataKey::TreasuryBalance).unwrap_or(0i128);
+        let balance = env
+            .storage()
+            .instance()
+            .get(&DataKey::TreasuryBalance)
+            .unwrap_or(0i128);
         if amount > balance {
             panic_with_error!(&env, TreasuryError::InsufficientBalance);
         }
 
-        let counter = env.storage().instance().get(&DataKey::WithdrawalCounter).unwrap_or(0u64) + 1;
-        env.storage().instance().set(&DataKey::WithdrawalCounter, &counter);
+        let counter = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawalCounter)
+            .unwrap_or(0u64)
+            + 1;
+        env.storage()
+            .instance()
+            .set(&DataKey::WithdrawalCounter, &counter);
         let timelock = Self::timelock_duration(&env);
         let request = WithdrawalRequest {
             id: counter,
@@ -133,8 +176,13 @@ impl FeeCollector {
             executable_at: env.ledger().timestamp() + timelock,
             executed: false,
         };
-        env.storage().persistent().set(&DataKey::WithdrawalPending(counter), &request);
-        env.events().publish((Symbol::new(&env, "withdrawal_requested"), guardian), (counter, recipient, amount, request.executable_at));
+        env.storage()
+            .persistent()
+            .set(&DataKey::WithdrawalPending(counter), &request);
+        env.events().publish(
+            (Symbol::new(&env, "withdrawal_requested"), guardian),
+            (counter, recipient, amount, request.executable_at),
+        );
 
         counter
     }
@@ -146,7 +194,12 @@ impl FeeCollector {
         }
         guardian.require_auth();
 
-        let mut request: WithdrawalRequest = env.storage().persistent().get(&DataKey::WithdrawalPending(withdrawal_id)).ok_or(TreasuryError::WithdrawalNotFound).unwrap();
+        let mut request: WithdrawalRequest = env
+            .storage()
+            .persistent()
+            .get(&DataKey::WithdrawalPending(withdrawal_id))
+            .ok_or(TreasuryError::WithdrawalNotFound)
+            .unwrap();
         if request.executed {
             panic_with_error!(&env, TreasuryError::WithdrawalAlreadyExecuted);
         }
@@ -154,41 +207,72 @@ impl FeeCollector {
             panic_with_error!(&env, TreasuryError::TimelockNotExpired);
         }
 
-        let balance = env.storage().instance().get(&DataKey::TreasuryBalance).unwrap_or(0i128);
+        let balance = env
+            .storage()
+            .instance()
+            .get(&DataKey::TreasuryBalance)
+            .unwrap_or(0i128);
         if request.amount > balance {
             panic_with_error!(&env, TreasuryError::InsufficientBalance);
         }
 
         let new_balance = balance - request.amount;
-        env.storage().instance().set(&DataKey::TreasuryBalance, &new_balance);
+        env.storage()
+            .instance()
+            .set(&DataKey::TreasuryBalance, &new_balance);
         request.executed = true;
-        env.storage().persistent().set(&DataKey::WithdrawalPending(withdrawal_id), &request);
-        env.events().publish((Symbol::new(&env, "withdrawal_executed"), guardian), (withdrawal_id, request.recipient, request.amount, new_balance));
+        env.storage()
+            .persistent()
+            .set(&DataKey::WithdrawalPending(withdrawal_id), &request);
+        env.events().publish(
+            (Symbol::new(&env, "withdrawal_executed"), guardian),
+            (
+                withdrawal_id,
+                request.recipient,
+                request.amount,
+                new_balance,
+            ),
+        );
     }
 
     pub fn get_balance(env: Env) -> i128 {
         Self::require_initialized(&env);
-        env.storage().instance().get(&DataKey::TreasuryBalance).unwrap_or(0i128)
+        env.storage()
+            .instance()
+            .get(&DataKey::TreasuryBalance)
+            .unwrap_or(0i128)
     }
 
     pub fn get_withdrawal(env: Env, withdrawal_id: u64) -> Option<WithdrawalRequest> {
         Self::require_initialized(&env);
-        env.storage().persistent().get(&DataKey::WithdrawalPending(withdrawal_id))
+        env.storage()
+            .persistent()
+            .get(&DataKey::WithdrawalPending(withdrawal_id))
     }
 
     pub fn get_guardians(env: Env) -> Vec<Address> {
         Self::require_initialized(&env);
-        env.storage().instance().get(&DataKey::Guardians).expect("not initialized")
+        env.storage()
+            .instance()
+            .get(&DataKey::Guardians)
+            .expect("not initialized")
     }
 
     pub fn get_guardian_count(env: Env) -> u32 {
         Self::require_initialized(&env);
-        env.storage().instance().get(&DataKey::GuardianCount).unwrap_or(0)
+        env.storage()
+            .instance()
+            .get(&DataKey::GuardianCount)
+            .unwrap_or(0)
     }
 
     pub fn set_guardians(env: Env, admin: Address, new_guardians: Vec<Address>) {
         Self::require_initialized(&env);
-        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("not initialized");
         if stored_admin != admin {
             panic_with_error!(&env, TreasuryError::Unauthorized);
         }
@@ -204,13 +288,21 @@ impl FeeCollector {
                 }
             }
         }
-        env.storage().instance().set(&DataKey::Guardians, &new_guardians);
-        env.storage().instance().set(&DataKey::GuardianCount, &(count as u32));
+        env.storage()
+            .instance()
+            .set(&DataKey::Guardians, &new_guardians);
+        env.storage()
+            .instance()
+            .set(&DataKey::GuardianCount, &(count as u32));
     }
 
     pub fn set_timelock(env: Env, admin: Address, duration_seconds: u64) {
         Self::require_initialized(&env);
-        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("not initialized");
         if stored_admin != admin {
             panic_with_error!(&env, TreasuryError::Unauthorized);
         }
@@ -218,7 +310,9 @@ impl FeeCollector {
         if duration_seconds < 3600 {
             panic_with_error!(&env, TreasuryError::InvalidArgument);
         }
-        env.storage().instance().set(&DataKey::TimelockOverride, &duration_seconds);
+        env.storage()
+            .instance()
+            .set(&DataKey::TimelockOverride, &duration_seconds);
     }
 
     pub fn get_timelock(env: Env) -> u64 {
@@ -233,11 +327,18 @@ impl FeeCollector {
     }
 
     fn is_guardian(env: &Env, addr: &Address) -> bool {
-        let guardians: Vec<Address> = env.storage().instance().get(&DataKey::Guardians).expect("not initialized");
+        let guardians: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Guardians)
+            .expect("not initialized");
         guardians.iter().any(|g| g == *addr)
     }
 
     fn timelock_duration(env: &Env) -> u64 {
-        env.storage().instance().get(&DataKey::TimelockOverride).unwrap_or(DEFAULT_TIMELOCK_SECONDS)
+        env.storage()
+            .instance()
+            .get(&DataKey::TimelockOverride)
+            .unwrap_or(DEFAULT_TIMELOCK_SECONDS)
     }
 }

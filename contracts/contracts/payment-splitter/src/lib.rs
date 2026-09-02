@@ -171,9 +171,7 @@ impl PaymentSplitterContract {
             panic_with_error!(&env, SplitterError::AlreadyInitialized);
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage()
-            .instance()
-            .set(&DataKey::SplitCount, &0u64);
+        env.storage().instance().set(&DataKey::SplitCount, &0u64);
     }
 
     // ── Helpers ───────────────────────────────────────────────────
@@ -381,12 +379,7 @@ impl PaymentSplitterContract {
             let ps = split.payers.get(i).unwrap();
             let amount = amounts.get(i).unwrap();
 
-            token_client.transfer_from(
-                &contract_addr,
-                &ps.payer,
-                &split.merchant,
-                &amount,
-            );
+            token_client.transfer_from(&contract_addr, &ps.payer, &split.merchant, &amount);
 
             SplitTransferExecuted {
                 split_id,

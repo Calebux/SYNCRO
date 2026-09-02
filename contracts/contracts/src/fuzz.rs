@@ -8,7 +8,7 @@ use soroban_sdk::{
     Address, Env,
 };
 
-use super::{SubscriptionRegistry, SubscriptionRegistryClient, RENEWAL_WINDOW, MIN_INTERVAL};
+use super::{SubscriptionRegistry, SubscriptionRegistryClient, MIN_INTERVAL, RENEWAL_WINDOW};
 
 fn fuzz_env() -> Env {
     Env::new_with_config(EnvTestConfig {
@@ -47,12 +47,12 @@ proptest! {
 
         let interval = MIN_INTERVAL;
         let amount = 1_000i128;
-        
+
         let initial_ledger_time = 100_000_000u64;
         env.ledger().set_timestamp(initial_ledger_time);
 
         let sub_id = client.register_subscription(&user, &merchant, &token, &amount, &interval);
-        
+
         let sub = client.get_core_subscription(&sub_id).unwrap();
         let next_renewal = sub.next_renewal_date;
 

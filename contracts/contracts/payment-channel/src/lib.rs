@@ -153,22 +153,22 @@ impl PaymentChannelContract {
         env.storage()
             .persistent()
             .set(&DataKey::Channel(id), &channel);
-        env.storage()
-            .instance()
-            .set(&DataKey::ChannelCount, &id);
+        env.storage().instance().set(&DataKey::ChannelCount, &id);
 
         env.events().publish(
             (symbol_short!("channel"), symbol_short!("opened")),
-            (id, depositor.clone(), counterparty, deposit_amount, dispute_window),
+            (
+                id,
+                depositor.clone(),
+                counterparty,
+                deposit_amount,
+                dispute_window,
+            ),
         );
 
         // ── INTERACTIONS — pull funds from depositor ─────────────────────────
         let token_client = token::Client::new(&env, &token);
-        token_client.transfer(
-            &depositor,
-            &env.current_contract_address(),
-            &deposit_amount,
-        );
+        token_client.transfer(&depositor, &env.current_contract_address(), &deposit_amount);
 
         Ok(id)
     }
@@ -350,19 +350,11 @@ impl PaymentChannelContract {
         let token_client = token::Client::new(&env, &token_addr);
 
         if balance_a > 0 {
-            token_client.transfer(
-                &env.current_contract_address(),
-                &depositor,
-                &balance_a,
-            );
+            token_client.transfer(&env.current_contract_address(), &depositor, &balance_a);
         }
 
         if balance_b > 0 {
-            token_client.transfer(
-                &env.current_contract_address(),
-                &counterparty,
-                &balance_b,
-            );
+            token_client.transfer(&env.current_contract_address(), &counterparty, &balance_b);
         }
 
         // Unused bounty returns to the depositor; a watchtower never claims it
@@ -428,11 +420,7 @@ impl PaymentChannelContract {
 
         // ── INTERACTIONS ─────────────────────────────────────────────────────
         let token_client = token::Client::new(&env, &token_addr);
-        token_client.transfer(
-            &depositor,
-            &env.current_contract_address(),
-            &amount,
-        );
+        token_client.transfer(&depositor, &env.current_contract_address(), &amount);
 
         Ok(())
     }

@@ -336,8 +336,10 @@ impl SubscriptionRefundContract {
             panic_with_error!(&env, RefundError::AlreadyRefunded);
         }
 
-        let mut dispute_opt: Option<DisputeRecord> =
-            env.storage().persistent().get(&DataKey::Dispute(payment_ref));
+        let mut dispute_opt: Option<DisputeRecord> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Dispute(payment_ref));
 
         let refunded_by: Address;
 
@@ -420,7 +422,9 @@ impl SubscriptionRefundContract {
         Self::require_not_paused(&env);
         let admin = Self::get_admin(&env);
         admin.require_auth();
-        env.storage().instance().set(&ContractKey::Admin, &new_admin);
+        env.storage()
+            .instance()
+            .set(&ContractKey::Admin, &new_admin);
         env.events().publish(
             (&admin, &new_admin),
             AdminUpdated {

@@ -28,8 +28,8 @@ enum StorageKey {
 pub struct FxRateData {
     pub base_currency: String,
     pub quote_currency: String,
-    pub rate: i128,          // Rate with 8 decimal places (e.g., 0.92 EUR/USD = 92000000)
-    pub timestamp: u64,      // Unix timestamp when rate was signed
+    pub rate: i128,     // Rate with 8 decimal places (e.g., 0.92 EUR/USD = 92000000)
+    pub timestamp: u64, // Unix timestamp when rate was signed
     pub updated_ledger: u32, // Ledger sequence when rate was stored on-chain
     pub signer: Address,
 }
@@ -92,7 +92,7 @@ impl FxOracleContract {
 
         env.storage().instance().set(&StorageKey::Admin, &admin);
         env.storage().instance().set(&StorageKey::Paused, &false);
-        
+
         // Default staleness bound: 1 hour (3600 seconds)
         env.storage()
             .instance()
@@ -100,7 +100,9 @@ impl FxOracleContract {
 
         // Initialize empty signer set
         let signers: Vec<Address> = Vec::new(&env);
-        env.storage().instance().set(&StorageKey::SignerSet, &signers);
+        env.storage()
+            .instance()
+            .set(&StorageKey::SignerSet, &signers);
     }
 
     /// Get admin address
@@ -333,11 +335,7 @@ impl FxOracleContract {
 
     /// Validate rate is fresh and return it (used by renewal contract)
     /// Panics with descriptive message if validation fails
-    pub fn validate_rate(
-        env: Env,
-        base_currency: String,
-        quote_currency: String,
-    ) -> FxRateData {
+    pub fn validate_rate(env: Env, base_currency: String, quote_currency: String) -> FxRateData {
         if Self::is_paused(env.clone()) {
             panic!("Oracle is paused");
         }
@@ -346,10 +344,8 @@ impl FxOracleContract {
             base: base_currency.clone(),
             quote: quote_currency.clone(),
         };
-        let rate_opt: Option<FxRateData> = env
-            .storage()
-            .persistent()
-            .get(&StorageKey::RateData(key));
+        let rate_opt: Option<FxRateData> =
+            env.storage().persistent().get(&StorageKey::RateData(key));
 
         if rate_opt.is_none() {
             RateValidationFailed {
@@ -392,14 +388,9 @@ impl FxOracleContract {
     }
 
     /// Convert amount from base to quote currency using latest rate
-    pub fn convert(
-        env: Env,
-        amount: i128,
-        base_currency: String,
-        quote_currency: String,
-    ) -> i128 {
+    pub fn convert(env: Env, amount: i128, base_currency: String, quote_currency: String) -> i128 {
         let rate_data = Self::validate_rate(env, base_currency, quote_currency);
-        
+
         // Rate has 8 decimal places, so divide by 100_000_000
         (amount * rate_data.rate) / 100_000_000
     }

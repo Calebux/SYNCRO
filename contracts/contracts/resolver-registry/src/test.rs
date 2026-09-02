@@ -2,11 +2,7 @@
 
 use super::*;
 use escrow::{EscrowContract, EscrowContractClient, EscrowState};
-use soroban_sdk::{
-    testutils::Address as _,
-    token::StellarAssetClient,
-    Address, Env, String,
-};
+use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, Address, Env, String};
 
 const AMOUNT: i128 = 1_000_000_000;
 
@@ -138,12 +134,17 @@ fn test_set_quorum() {
 fn test_quorum_release_resolves_escrow_to_payee() {
     let ctx = setup(2);
     let escrow_id = disputed_escrow(&ctx);
-    let case = ctx.registry.open_case(&ctx.arbiters[0], &ctx.escrow.address, &escrow_id);
+    let case = ctx
+        .registry
+        .open_case(&ctx.arbiters[0], &ctx.escrow.address, &escrow_id);
 
     // First vote: no quorum yet, escrow still disputed.
     ctx.registry.vote(&ctx.arbiters[0], &case, &1);
     assert_eq!(ctx.registry.get_case(&case).status, CaseStatus::Open);
-    assert_eq!(ctx.escrow.get_escrow(&escrow_id).state, EscrowState::Disputed);
+    assert_eq!(
+        ctx.escrow.get_escrow(&escrow_id).state,
+        EscrowState::Disputed
+    );
 
     // Second matching vote reaches quorum → binding release callback.
     ctx.registry.vote(&ctx.arbiters[1], &case, &1);
@@ -166,12 +167,17 @@ fn test_quorum_refund_resolves_escrow_to_payer() {
     let token = soroban_sdk::token::TokenClient::new(&ctx.env, &ctx.token);
     let payer_before = token.balance(&ctx.payer);
 
-    let case = ctx.registry.open_case(&ctx.admin, &ctx.escrow.address, &escrow_id);
+    let case = ctx
+        .registry
+        .open_case(&ctx.admin, &ctx.escrow.address, &escrow_id);
     ctx.registry.vote(&ctx.arbiters[0], &case, &2);
     ctx.registry.vote(&ctx.arbiters[2], &case, &2);
 
     assert_eq!(ctx.registry.get_case(&case).outcome, 2);
-    assert_eq!(ctx.escrow.get_escrow(&escrow_id).state, EscrowState::Refunded);
+    assert_eq!(
+        ctx.escrow.get_escrow(&escrow_id).state,
+        EscrowState::Refunded
+    );
     // Payer is made whole again (deposit returned).
     assert_eq!(token.balance(&ctx.payer), payer_before + AMOUNT);
 }
@@ -180,7 +186,9 @@ fn test_quorum_refund_resolves_escrow_to_payer() {
 fn test_split_votes_do_not_resolve() {
     let ctx = setup(2);
     let escrow_id = disputed_escrow(&ctx);
-    let case = ctx.registry.open_case(&ctx.arbiters[0], &ctx.escrow.address, &escrow_id);
+    let case = ctx
+        .registry
+        .open_case(&ctx.arbiters[0], &ctx.escrow.address, &escrow_id);
 
     ctx.registry.vote(&ctx.arbiters[0], &case, &1);
     ctx.registry.vote(&ctx.arbiters[1], &case, &2);
@@ -189,14 +197,19 @@ fn test_split_votes_do_not_resolve() {
     assert_eq!(c.status, CaseStatus::Open);
     assert_eq!(c.votes_release, 1);
     assert_eq!(c.votes_refund, 1);
-    assert_eq!(ctx.escrow.get_escrow(&escrow_id).state, EscrowState::Disputed);
+    assert_eq!(
+        ctx.escrow.get_escrow(&escrow_id).state,
+        EscrowState::Disputed
+    );
 }
 
 #[test]
 fn test_vote_records_are_queryable() {
     let ctx = setup(3);
     let escrow_id = disputed_escrow(&ctx);
-    let case = ctx.registry.open_case(&ctx.arbiters[0], &ctx.escrow.address, &escrow_id);
+    let case = ctx
+        .registry
+        .open_case(&ctx.arbiters[0], &ctx.escrow.address, &escrow_id);
     ctx.registry.vote(&ctx.arbiters[0], &case, &1);
     assert_eq!(ctx.registry.get_vote(&case, &ctx.arbiters[0]), 1);
     assert_eq!(ctx.registry.get_vote(&case, &ctx.arbiters[1]), 0);
@@ -207,7 +220,9 @@ fn test_vote_records_are_queryable() {
 fn test_arbiter_cannot_vote_twice() {
     let ctx = setup(3);
     let escrow_id = disputed_escrow(&ctx);
-    let case = ctx.registry.open_case(&ctx.arbiters[0], &ctx.escrow.address, &escrow_id);
+    let case = ctx
+        .registry
+        .open_case(&ctx.arbiters[0], &ctx.escrow.address, &escrow_id);
     ctx.registry.vote(&ctx.arbiters[0], &case, &1);
     ctx.registry.vote(&ctx.arbiters[0], &case, &1);
 }
@@ -217,7 +232,9 @@ fn test_arbiter_cannot_vote_twice() {
 fn test_non_arbiter_cannot_vote() {
     let ctx = setup(2);
     let escrow_id = disputed_escrow(&ctx);
-    let case = ctx.registry.open_case(&ctx.arbiters[0], &ctx.escrow.address, &escrow_id);
+    let case = ctx
+        .registry
+        .open_case(&ctx.arbiters[0], &ctx.escrow.address, &escrow_id);
     let stranger = Address::generate(&ctx.env);
     ctx.registry.vote(&stranger, &case, &1);
 }
@@ -227,7 +244,9 @@ fn test_non_arbiter_cannot_vote() {
 fn test_invalid_outcome_rejected() {
     let ctx = setup(2);
     let escrow_id = disputed_escrow(&ctx);
-    let case = ctx.registry.open_case(&ctx.arbiters[0], &ctx.escrow.address, &escrow_id);
+    let case = ctx
+        .registry
+        .open_case(&ctx.arbiters[0], &ctx.escrow.address, &escrow_id);
     ctx.registry.vote(&ctx.arbiters[0], &case, &3);
 }
 
@@ -236,7 +255,9 @@ fn test_invalid_outcome_rejected() {
 fn test_cannot_vote_on_resolved_case() {
     let ctx = setup(2);
     let escrow_id = disputed_escrow(&ctx);
-    let case = ctx.registry.open_case(&ctx.arbiters[0], &ctx.escrow.address, &escrow_id);
+    let case = ctx
+        .registry
+        .open_case(&ctx.arbiters[0], &ctx.escrow.address, &escrow_id);
     ctx.registry.vote(&ctx.arbiters[0], &case, &1);
     ctx.registry.vote(&ctx.arbiters[1], &case, &1); // resolves
     ctx.registry.vote(&ctx.arbiters[2], &case, &1); // case now closed
@@ -248,7 +269,8 @@ fn test_non_arbiter_cannot_open_case() {
     let ctx = setup(2);
     let escrow_id = disputed_escrow(&ctx);
     let stranger = Address::generate(&ctx.env);
-    ctx.registry.open_case(&stranger, &ctx.escrow.address, &escrow_id);
+    ctx.registry
+        .open_case(&stranger, &ctx.escrow.address, &escrow_id);
 }
 
 #[test]
@@ -269,7 +291,12 @@ fn test_cannot_init_twice() {
 fn test_quorum_of_one_resolves_immediately() {
     let ctx = setup(1);
     let escrow_id = disputed_escrow(&ctx);
-    let case = ctx.registry.open_case(&ctx.arbiters[0], &ctx.escrow.address, &escrow_id);
+    let case = ctx
+        .registry
+        .open_case(&ctx.arbiters[0], &ctx.escrow.address, &escrow_id);
     ctx.registry.vote(&ctx.arbiters[0], &case, &1);
-    assert_eq!(ctx.escrow.get_escrow(&escrow_id).state, EscrowState::Released);
+    assert_eq!(
+        ctx.escrow.get_escrow(&escrow_id).state,
+        EscrowState::Released
+    );
 }

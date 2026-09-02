@@ -1887,6 +1887,7 @@ dependencies = [
 name = "subscription_renewal"
 version = "0.0.1"
 dependencies = [
+ "agent-registry",
  "proptest",
  "soroban-sdk",
  "subscription_logging",

@@ -57,7 +57,15 @@ fn setup(quorum: u32, num_arbiters: usize) -> Ctx {
 
     let expiry = env.ledger().timestamp() + 86_400;
     let desc = String::from_str(&env, "fuzz");
-    let id = escrow.create_escrow(&payer, &payee, &registry_id, &token, &AMOUNT, &expiry, &desc);
+    let id = escrow.create_escrow(
+        &payer,
+        &payee,
+        &registry_id,
+        &token,
+        &AMOUNT,
+        &expiry,
+        &desc,
+    );
     escrow.deposit(&id);
     escrow.raise_dispute(&id, &payer);
 

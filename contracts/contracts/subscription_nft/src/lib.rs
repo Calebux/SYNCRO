@@ -234,23 +234,13 @@ impl SubscriptionNftContract {
     /// one live token at a time.
     ///
     /// Returns the new `token_id`.
-    pub fn mint(
-        env: Env,
-        owner: Address,
-        sub_id: u64,
-        merchant: Address,
-        expires_at: u64,
-    ) -> u64 {
+    pub fn mint(env: Env, owner: Address, sub_id: u64, merchant: Address, expires_at: u64) -> u64 {
         Self::require_not_paused(&env);
         let authority = Self::load_mint_authority(&env);
         authority.require_auth();
 
         // Prevent duplicate tokens for the same subscription.
-        if env
-            .storage()
-            .instance()
-            .has(&TokenKey::SubToken(sub_id))
-        {
+        if env.storage().instance().has(&TokenKey::SubToken(sub_id)) {
             panic_with_error!(&env, NftError::TokenAlreadyExists);
         }
 
@@ -434,12 +424,8 @@ impl SubscriptionNftContract {
         Self::set_owner_balance(&env, &owner, bal.saturating_sub(1));
 
         // Remove token and its indices.
-        env.storage()
-            .instance()
-            .remove(&TokenKey::Token(token_id));
-        env.storage()
-            .instance()
-            .remove(&TokenKey::SubToken(sub_id));
+        env.storage().instance().remove(&TokenKey::Token(token_id));
+        env.storage().instance().remove(&TokenKey::SubToken(sub_id));
         env.storage()
             .instance()
             .remove(&TokenKey::Approval(token_id));

@@ -1,8 +1,8 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype,
-    panic_with_error, token, Address, Env,
+    contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,
+    Address, Env,
 };
 use syncro_common;
 
@@ -171,11 +171,10 @@ impl RecurringAllowanceContract {
 
         let key = DataKey::Allowance(user.clone(), merchant.clone(), token.clone());
 
-        let mut allowance: RecurringAllowance = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| panic_with_error!(&env, RecurringAllowanceError::AllowanceNotFound));
+        let mut allowance: RecurringAllowance =
+            env.storage().persistent().get(&key).unwrap_or_else(|| {
+                panic_with_error!(&env, RecurringAllowanceError::AllowanceNotFound)
+            });
 
         if !allowance.is_active {
             panic_with_error!(&env, RecurringAllowanceError::AllowanceInactive);
@@ -209,11 +208,10 @@ impl RecurringAllowanceContract {
 
         let key = DataKey::Allowance(user.clone(), merchant.clone(), token.clone());
 
-        let mut allowance: RecurringAllowance = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| panic_with_error!(&env, RecurringAllowanceError::AllowanceNotFound));
+        let mut allowance: RecurringAllowance =
+            env.storage().persistent().get(&key).unwrap_or_else(|| {
+                panic_with_error!(&env, RecurringAllowanceError::AllowanceNotFound)
+            });
 
         if !allowance.is_active {
             panic_with_error!(&env, RecurringAllowanceError::AllowanceInactive);
@@ -282,8 +280,7 @@ impl RecurringAllowanceContract {
         if new_period_duration == 0 {
             panic_with_error!(&env, RecurringAllowanceError::InvalidPeriod);
         }
-        if new_absolute_cap < 0 || (new_absolute_cap > 0 && new_absolute_cap < new_per_period_cap)
-        {
+        if new_absolute_cap < 0 || (new_absolute_cap > 0 && new_absolute_cap < new_per_period_cap) {
             panic_with_error!(&env, RecurringAllowanceError::InvalidCap);
         }
 
@@ -294,11 +291,10 @@ impl RecurringAllowanceContract {
 
         let key = DataKey::Allowance(user.clone(), merchant.clone(), token.clone());
 
-        let mut allowance: RecurringAllowance = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| panic_with_error!(&env, RecurringAllowanceError::AllowanceNotFound));
+        let mut allowance: RecurringAllowance =
+            env.storage().persistent().get(&key).unwrap_or_else(|| {
+                panic_with_error!(&env, RecurringAllowanceError::AllowanceNotFound)
+            });
 
         if !allowance.is_active {
             panic_with_error!(&env, RecurringAllowanceError::AllowanceInactive);
@@ -492,7 +488,10 @@ use syncro_common;
 
         // Consume full period cap
         client.consume_allowance(&merchant, &user, &token_addr, &500i128);
-        assert_eq!(client.get_remaining_period_allowance(&user, &merchant, &token_addr), 0);
+        assert_eq!(
+            client.get_remaining_period_allowance(&user, &merchant, &token_addr),
+            0
+        );
 
         // Try consuming more in current period - should fail
         let err = client.try_consume_allowance(&merchant, &user, &token_addr, &100i128);
@@ -502,11 +501,17 @@ use syncro_common;
         env.ledger().set_timestamp(env.ledger().timestamp() + 1001);
 
         // Cap should reset for new period
-        assert_eq!(client.get_remaining_period_allowance(&user, &merchant, &token_addr), 500);
+        assert_eq!(
+            client.get_remaining_period_allowance(&user, &merchant, &token_addr),
+            500
+        );
 
         // Merchant can consume again
         client.consume_allowance(&merchant, &user, &token_addr, &300i128);
-        assert_eq!(client.get_remaining_period_allowance(&user, &merchant, &token_addr), 200);
+        assert_eq!(
+            client.get_remaining_period_allowance(&user, &merchant, &token_addr),
+            200
+        );
     }
 
     #[test]
@@ -542,7 +547,10 @@ use syncro_common;
 
         // Consume 300 - should succeed (total becomes 800)
         client.consume_allowance(&merchant, &user, &token_addr, &300i128);
-        assert_eq!(client.get_remaining_absolute_allowance(&user, &merchant, &token_addr), 0);
+        assert_eq!(
+            client.get_remaining_absolute_allowance(&user, &merchant, &token_addr),
+            0
+        );
     }
 
     #[test]
