@@ -34,7 +34,19 @@ export type SecurityEventType =
   | 'api_key.auth_failed'
   | 'api_key.suspicious_usage'
   | 'session.invalidated_all'
-  | 'session.revoked';
+  | 'session.revoked'
+  | 'admin.mfa_failed'
+  | 'admin.confirm_token_invalid'
+  | 'admin.confirm_token_expired'
+  | 'admin.settlement_flush_forced'
+  | 'admin.settlement_flush_prechecked'
+  | 'admin.channel_closed_forced'
+  | 'admin.channel_close_prechecked'
+  | 'admin.reservation_inspected'
+  | 'admin.dead_letter_settlement_replayed'
+  | 'admin.dead_letter_replay_prechecked'
+  | 'admin.provider_degraded_mode_toggled'
+  | 'admin.provider_degraded_mode_prechecked';
 
 export interface SecurityEventMeta {
   severity: SecurityEventSeverity;

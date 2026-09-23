@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
 import { supabase } from '../config/database';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
@@ -7,15 +8,6 @@ import { pushSubscribeSchema } from '../schemas/push-notification';
 import { enqueueNotification } from '../jobs/notification-queue';
 
 const router: Router = Router();
-
-const subscribeSchema = z.object({
-  endpoint: z.string().url(),
-  keys: z.object({
-    p256dh: z.string().min(1),
-    auth: z.string().min(1),
-  }),
-  userAgent: z.string().optional(),
-});
 
 /**
  * POST /api/notifications/push/subscribe

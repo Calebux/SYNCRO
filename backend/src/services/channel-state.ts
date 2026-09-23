@@ -5,6 +5,7 @@ import {
   type PaymentChannelRecord,
   type WatchtowerRecord,
 } from './payment-channel-service';
+import { v3NotificationDispatch } from './v3-notification-dispatch';
 
 export type { WatchtowerRecord } from './payment-channel-service';
 
@@ -417,6 +418,27 @@ export class ChannelStateService {
       sequenceNumber: input.sequenceNumber,
       bounty: tower.bounty,
     });
+
+    // Operator-facing dispute alert (watchtower challenge / state_mismatch)
+    v3NotificationDispatch.dispatch({
+      eventType: 'dispute_detected',
+      payload: {
+        channelId: input.channelId,
+        userId: input.userId,
+        sequenceNumber: input.sequenceNumber,
+        cause: nextState.sequenceNumber > (channel.channelState?.sequenceNumber ?? 0) + 1
+          ? 'state_mismatch'
+          : 'watchtower_challenge',
+        currentBalance: Number(data.balance ?? 0),
+        currency: 'USD',
+      },
+    }).catch((err) => {
+      logger.error('dispute_detected (watchtower) v3 dispatch failed', {
+        channelId: input.channelId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+
     return {
       id: data.id as string,
       userId: data.user_id as string,
