@@ -3,159 +3,109 @@
 
 ![Tests](https://github.com/Calebux/SYNCRO/actions/workflows/test.yml/badge.svg)
 
-## Synchro — Self-Custodial Subscription Manager (MVP)
+## SYNCRO — Metered Payment Rails for Autonomous Agents
 
-Synchro is a decentralized, self-custodial subscription management platform that empowers users to take full control of their recurring payments while using crypto. This MVP focuses on gift card–compatible subscriptions and optional email-based subscription detection, pending future automation with non-custodial card issuance on Stellar.
+SYNCRO is a **pay-per-call settlement layer on Stellar**. An agent, a script, or an
+application calls a paid API; SYNCRO meters the call off-chain, settles it over a
+Soroban payment channel, and returns a signed receipt the payer can verify
+independently. No subscription, no invoice, no seat count — the unit of billing is
+the request.
 
-## Key Goals
-- **Prevent unwanted recurring charges**: Users only pay when they choose.
-- **Non-custodial design**: Synchro does not hold or control funds. Users manage payments directly via gift cards or local accounts.
-- **Subscription awareness**: Synchro sends reminders and provides direct cancel links.
-- **Scalable roadmap**: MVP will later evolve into fully automated payments once non-custodial Stellar card issuance is available.
+> **Direction change.** SYNCRO was previously a self-custodial subscription manager.
+> That product is being retired. The settlement primitives it produced — payment
+> channels, scoped agent authority, on-chain spend caps, and an escrow dispute path
+> — are the foundation of the current direction. See
+> [`docs/architecture/v3-metered-rails.md`](./docs/architecture/v3-metered-rails.md)
+> for the target architecture and the migration plan.
 
-## Current Project Status (April 2026)
-- **Frontend**: Fully functional Next.js application integrated with Supabase and real-time analytics.
-- **Backend**: Robust Express.js server with 20+ routes, advanced risk detection, and automated reminder engine.
-- **Smart Contracts**: Functional Soroban contracts for subscription renewal, escrow, and virtual card interaction on Stellar Testnet.
-- **Overall**: Core MVP functionality is **90% complete** and undergoing final production hardening.
+## Why metering instead of subscriptions
 
-For detailed status, see [docs/archive/CurrentState.md](./docs/archive/CurrentState.md).
+Recurring billing assumes a human who subscribes once and pays monthly. Autonomous
+software does not behave that way. It makes a thousand calls in a minute and none for
+a week; it spins up, spends, and is destroyed; it has no card and no billing address.
+Charging it a monthly fee is the wrong shape.
 
-## Phase 1 (MVP) Workflow
-Supported Payment Method
+SYNCRO bills what actually happened:
 
-Crypto → Atomic Wallet → Gift Card (Visa, Amazon, Google Play, Steam)
+- **Per-call, not per-month** — the meter is the source of truth, settled continuously.
+- **No custody** — funds sit in a payment channel the payer can unilaterally close.
+- **No per-call gas** — calls accumulate off-chain as signed channel states; the chain
+  is touched on open, top-up, and close.
+- **Scoped authority** — an agent spends only within the scope and cap its principal
+  granted it, enforced on-chain rather than by the gateway alone.
+- **Verifiable** — every settled call produces a receipt binding the request hash, the
+  meter reading, the channel state, and the provider's signature.
 
-# Users can pay subscriptions that accept gift cards.
+## Architecture
 
-1. User Registers Subscriptions
+```
+  Consumer agent                    SYNCRO                        Provider API
+  ─────────────                     ──────                        ────────────
+                                                                               
+  1. request  ──────────────►  Gateway                                         
+                               ├─ resolve API key → agent identity             
+                               ├─ check Registry scope + cap                   
+  2. ◄── 402 + challenge ──────┤  (no open channel / cap exceeded)             
+                                                                               
+  3. signed channel state ──►  Gateway ──► Meter ──► proxy ──► 4. upstream call
+                                            │                                  
+  5. ◄── response + receipt ───────────────┘                                   
+                                                                               
+                               Settlement engine                               
+                               ├─ batches channel states                       
+                               ├─ submits on close / threshold                 
+                               └─ Soroban: channel, registry, caps, escrow     
+```
 
-Adds subscription details (Netflix, Spotify, Amazon Prime, etc.)
+### Components
 
-Optionally allows Synchro to fetch subscription-related emails.
+| Component | Source | Role |
+|---|---|---|
+| **Gateway** | `backend/src/routes` | 402 challenge, key → identity, scope + cap admission |
+| **Meter** | `quota_guard/` | usage counting, aggregation windows, idempotency, degraded mode |
+| **Settlement engine** | `backend/src/services` | channel lifecycle, state signing, batching, reconciliation |
+| **Registry** | `contracts/agent-registry` | agent identity and scoped delegated authority |
+| **Channels** | `contracts/payment-channel` | open, submit_state, initiate_close, dispute, finalize, top_up |
+| **Caps** | `contracts/virtual-card` | on-chain spend limits per agent, `can_transact` admission |
+| **Disputes** | `contracts/escrow` | contested usage: deposit, approve_release, raise_dispute, resolve |
+| **Receipts** | `shared/`, `sdk/` | signed usage receipts and independent verification |
 
-2. Synchro Sends Reminders
+### What was retired
 
-Notifications are sent 3 days before each subscription renewal (daily until payment).
+`subscription_renewal`, `subscription_logging`, `subscription-math`, the reminder and
+renewal engines, gift-card ledgering, and email rescanning are removed. The migration
+path for existing records is tracked in the v3 epic.
 
-# Each reminder shows:
+## Status
 
-Subscription name
+The settlement contracts — channels, registry, caps, and escrow — are written and tested
+on Stellar testnet. The gateway, meter, and settlement engine are being rebuilt around
+them. Nothing here is on mainnet yet. See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for
+development setup.
 
-Renewal date
+## v3 Rewrite
 
-Amount due
-
-Link to purchase gift card via Atomic Wallet (if applicable)
-
-Embedded cancel link to merchant’s subscription management page
-
-3. User Action — Purchase & Redeem Gift Card
-
-Users purchase gift cards using crypto through Atomic Wallet or other approved providers.
-
-Gift card is delivered to the user’s email.
-
-Users manually redeem the gift card on the subscription service.
-
-4. Dashboard Tracking
-
-Manual marking: Users mark the subscription as “Paid.”
-
-Optional email fetching: If enabled, Synchro can detect gift card emails and automatically track subscription payments without storing sensitive codes.
-
-5. Cancelation
-
-Each subscription entry includes a direct cancel link, so users can stop recurring payments anytime.
-
-Supported Subscriptions (Phase 1)
-
-Netflix
-
-Spotify
-
-Amazon Prime / Audible
-
-YouTube Premium (via Google Play gift cards)
-
-Steam subscriptions / in-app purchases
-
-Only subscriptions compatible with gift cards are included in MVP.
-
-## Future Roadmap
-
-Phase 1 MVP is designed as a manual + semi-automated solution:
-
-Pending: Non-custodial Stellar wallet that issues virtual cards.
-
-Future Phase: Once Stellar supports non-custodial card issuance:
-
-Synchro will automatically fund subscription payments from user crypto
-
-Fully automated recurring payment control
-
-Still retains non-custodial principles — users own their funds at all times
-
-## Design Principles
-
-Non-Custodial: Users remain in full control of their crypto and payments.
-
-User-Centric: Synchro enables users to make intentional subscription payments.
-
-Low-Risk MVP: Gift card–based workflow avoids complex integration while demonstrating core value.
-
-Scalable: Phase 1 is a foundation for automated Stellar card integration.
-
-## MVP Benefits
-
-Users avoid accidental charges or unwanted recurring payments
-
-Simple, non-custodial workflow for crypto users
-
-Tracks subscriptions, sends reminders, and provides cancelation support
-
-Works globally where gift cards are supported
-
-Prepares the ecosystem for fully automated crypto-to-fiat subscription payments in future versions
-
-## Disclaimer
-
-Synchro MVP does not execute payments on behalf of users.
-Users are responsible for:
-
-Purchasing gift cards
-
-Redeeming gift cards
-
-Ensuring the subscription is covered
-
-Maintaining card balance
-
-Synchro only tracks subscriptions, sends reminders, and provides guidance to make subscription management easier and safer.
+SYNCRO is mid-rewrite from the subscription product to metered agent payment rails,
+tracked in [#1404](https://github.com/Calebux/SYNCRO/issues/1404). The work surface is
+the open [`v3-rewrite`](https://github.com/Calebux/SYNCRO/labels/v3-rewrite) issues.
+The earlier v2 rewrite ([#1323](https://github.com/Calebux/SYNCRO/issues/1323)) is
+superseded; its infrastructure and quality work carries over, its product work does not.
 
 ## Project Structure & Ownership
 
-For detailed information about directory ownership, responsibilities, and triage guidance, see:
-
-- [Directory Ownership Matrix](./docs/archive/DIRECTORY_OWNERSHIP_MATRIX.md) - Complete ownership information
-- [Ownership Quick Reference](./docs/archive/OWNERSHIP_QUICK_REFERENCE.md) - Quick lookup guide
-- [CODEOWNERS](./.github/CODEOWNERS) - GitHub enforcement
-- [Code Review Process](./docs/code-review-process.md) - Review procedures
-
-## v2 Rewrite
-
-SYNCRO is undergoing a staged v2 rewrite tracked in [#1323](https://github.com/Calebux/SYNCRO/issues/1323).
-See [docs/v2-rewrite-plan.md](./docs/v2-rewrite-plan.md) for the wave sequencing, prerequisites,
-exit criteria, and a live status summary across all v2 issues.
+- [Directory Ownership Matrix](./docs/archive/DIRECTORY_OWNERSHIP_MATRIX.md) — complete ownership information
+- [Ownership Quick Reference](./docs/archive/OWNERSHIP_QUICK_REFERENCE.md) — quick lookup guide
+- [CODEOWNERS](./.github/CODEOWNERS) — GitHub enforcement
+- [Code Review Process](./docs/code-review-process.md) — review procedures
 
 ## Environment Variables
 
-Each package declares its environment variables in a manifest that drives both
-the `.env.example` files and CI validation. See
-[docs/ENVIRONMENT.md](./docs/ENVIRONMENT.md) for the canonical strategy:
-per-package required/optional variables, naming conventions, the CI enforcement
-model, and how to add a new variable.
+Each package declares its environment variables in a manifest that drives both the
+`.env.example` files and CI validation. See [docs/ENVIRONMENT.md](./docs/ENVIRONMENT.md)
+for the canonical strategy: per-package required/optional variables, naming conventions,
+the CI enforcement model, and how to add a new variable.
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution guidelines and development setup instructions.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution guidelines and development
+setup instructions.
