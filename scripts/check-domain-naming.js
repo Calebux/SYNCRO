@@ -27,6 +27,7 @@ const REQUIRED_REFERENCES = [
   { file: '.github/pull_request_template.md', pattern: /DOMAIN_GLOSSARY_AND_DATA_MODEL\.md/ },
   { file: 'docs/INDEX.md', pattern: /DOMAIN_GLOSSARY_AND_DATA_MODEL\.md/ },
   { file: 'docs/adr/ADR_TEMPLATE.md', pattern: /DOMAIN_GLOSSARY_AND_DATA_MODEL\.md/ },
+  { file: 'docs/adr/template.md', pattern: /DOMAIN_GLOSSARY_AND_DATA_MODEL\.md/ },
 ];
 
 function runValidation() {

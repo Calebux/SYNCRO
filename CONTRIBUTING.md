@@ -344,7 +344,7 @@ Add or update tests for:
 - [ ] `npm run typecheck` passes
 - [ ] Package tests pass (`npm test -w backend`, `npm test -w client` as applicable)
 - [ ] `node scripts/check-env-docs.js` passes (if env files changed)
-- [ ] `node scripts/check-domain-naming.js` passes (if domain models or types changed)
+- [ ] `npm run check:domain-naming` passes (if domain models or types changed)
 - [ ] Domain terminology checked against [docs/DOMAIN_GLOSSARY_AND_DATA_MODEL.md](./docs/DOMAIN_GLOSSARY_AND_DATA_MODEL.md)
 - [ ] Environment variables documented in manifests and `.env.example`
 - [ ] ADR created or updated under `docs/adr/` if altering system boundaries, data models, or trust assumptions
