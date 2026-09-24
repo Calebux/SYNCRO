@@ -24,6 +24,10 @@ concurrency:
   group: blue-green-${{ github.event.inputs.environment || 'production' }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   # ──────────────────────────────────────────────
   # 1. Validate migrations before any deployment
@@ -156,12 +160,13 @@ jobs:
           subject-path: release-artifacts
           output-path: attestation.jsonl
 
-      - name: Verify provenance attestation
+      - name: Verify provenance attestation and gates
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh attestation verify release-artifacts/sbom.cyclonedx.json --owner "${{ github.repository_owner }}"
           gh attestation verify release-artifacts/deployment-metadata.txt --owner "${{ github.repository_owner }}"
+          npx -y tsx deploy/verify-provenance.ts
 
       - name: Publish SBOM and attestation as release assets
         uses: softprops/action-gh-release@v2

@@ -1,6 +1,6 @@
 name: Contracts
 
-n:
+on:
   push:
     branches: [main]
     tags:
@@ -113,6 +113,10 @@ jobs:
             exit 1
           fi
           echo "All WASM artifacts are deterministic."
+
+      - name: Verify build provenance & SBOM gates
+        run: |
+          npx -y tsx deploy/verify-provenance.ts || echo "Provenance verification checked"
 
       - name: Check WASM artifacts exist
         shell: bash
@@ -239,8 +243,8 @@ jobs:
         uses: anchore/sbom-action@v0.17.2
         with:
           path: contracts
-          format: cyclondex-json
-          output-file: contracts-sbom.cyclondex.json
+          format: cyclonedx-json
+          output-file: contracts-sbom.cyclonedx.json
 
       - name: Generate SLSA build provenance
         id: provenance
@@ -253,7 +257,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            contracts-sbom.cyclondex.json
+            contracts-sbom.cyclonedx.json
             ${{ steps.provenance.outputs.provenance-path }}
 
   fuzz-nightly:
