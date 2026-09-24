@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { PaymentChannel, topUpChannel, closeChannel } from '@/lib/payment-channel';
+import { ChannelStateHistory } from '@/components/channels/ChannelStateHistory';
 import { Button } from "@syncro/ui";
 import { Input } from "@syncro/ui";
 import { Label } from "@syncro/ui";
@@ -112,27 +113,7 @@ export function ChannelDetail({ channel, onBack, onUpdate }: ChannelDetailProps)
         </div>
       )}
 
-      {channel.history && channel.history.length > 0 && (
-        <div className="mb-8">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">History</h2>
-          <div className="space-y-3">
-            {channel.history.map((item) => (
-              <div key={item.id} className="p-4 border border-gray-200 rounded-xl flex justify-between items-center">
-                <div>
-                  <p className="text-sm font-medium text-gray-900 capitalize">{item.type}</p>
-                  {item.description && <p className="text-xs text-gray-500">{item.description}</p>}
-                </div>
-                <div className="text-right">
-                  {item.amount && (
-                    <p className="text-sm font-semibold text-gray-900">${item.amount}</p>
-                  )}
-                  <p className="text-xs text-gray-500">{new Date(item.timestamp).toLocaleString()}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <ChannelStateHistory channelId={channel.id} refreshKey={channel.lastUpdated} />
 
       {channel.state === 'active' && (
         <div className="p-6 border border-red-200 rounded-xl">

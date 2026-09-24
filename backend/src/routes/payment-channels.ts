@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { paymentChannelService } from '../services/payment-channel-service';
 import { channelStateService } from '../services/channel-state';
+import { channelHistoryService } from '../services/channel-history';
 import logger from '../config/logger';
 
 const router = Router();
@@ -52,6 +53,23 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
   } catch (error) {
     logger.error('Failed to get payment channel', error);
     return res.status(500).json({ error: 'Failed to get payment channel' });
+  }
+});
+
+/**
+ * GET /api/payment-channels/:id/history
+ * Full operator-grade channel history: open, top-ups, metered payments,
+ * submitted states (with nonces), close initiation, disputes, and finalize —
+ * plus the unsettled exposure and challenge window status.
+ */
+router.get('/:id/history', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const history = await channelHistoryService.getHistory(req.user!.id, req.params.id);
+    if (!history) return res.status(404).json({ error: 'Channel not found' });
+    return res.json(history);
+  } catch (error) {
+    logger.error('Failed to get payment channel history', error);
+    return res.status(500).json({ error: 'Failed to get payment channel history' });
   }
 });
 
