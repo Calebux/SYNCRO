@@ -1,9 +1,9 @@
 /**
  * Risk Weight Configuration
- * Centralized configuration for risk factor weights
+ * Centralized configuration for risk factor weights and high-score action policies
  */
 
-import { RiskWeightConfig } from '../types/risk-detection';
+import { RiskWeightConfig, DEFAULT_RISK_WEIGHTS, RiskActionType } from '../types/risk-detection';
 import logger from './logger';
 import { env } from './env';
 
@@ -11,7 +11,39 @@ import { env } from './env';
  * Load risk weight configuration from environment or use defaults
  */
 export function loadRiskWeightConfig(): RiskWeightConfig {
+  const highAction = (process.env.RISK_ACTION_HIGH as RiskActionType) || 'warn';
+  const mediumAction = (process.env.RISK_ACTION_MEDIUM as RiskActionType) || 'warn';
+
   const config: RiskWeightConfig = {
+    callRateVsBaseline: {
+      none: parseInt(process.env.RISK_WEIGHT_CALL_RATE_NONE || '0', 10),
+      medium: parseInt(process.env.RISK_WEIGHT_CALL_RATE_MEDIUM || '5', 10),
+      high: parseInt(process.env.RISK_WEIGHT_CALL_RATE_HIGH || '10', 10),
+    },
+    spendVelocityVsCap: {
+      none: parseInt(process.env.RISK_WEIGHT_SPEND_VELOCITY_NONE || '0', 10),
+      medium: parseInt(process.env.RISK_WEIGHT_SPEND_VELOCITY_MEDIUM || '5', 10),
+      high: parseInt(process.env.RISK_WEIGHT_SPEND_VELOCITY_HIGH || '10', 10),
+    },
+    routeMixShift: {
+      none: parseInt(process.env.RISK_WEIGHT_ROUTE_MIX_NONE || '0', 10),
+      medium: parseInt(process.env.RISK_WEIGHT_ROUTE_MIX_MEDIUM || '5', 10),
+      high: parseInt(process.env.RISK_WEIGHT_ROUTE_MIX_HIGH || '10', 10),
+    },
+    firstTimeProvider: {
+      none: parseInt(process.env.RISK_WEIGHT_FIRST_TIME_PROVIDER_NONE || '0', 10),
+      high: parseInt(process.env.RISK_WEIGHT_FIRST_TIME_PROVIDER_HIGH || '10', 10),
+    },
+    dormantKeyActivity: {
+      none: parseInt(process.env.RISK_WEIGHT_DORMANT_KEY_NONE || '0', 10),
+      medium: parseInt(process.env.RISK_WEIGHT_DORMANT_KEY_MEDIUM || '5', 10),
+      high: parseInt(process.env.RISK_WEIGHT_DORMANT_KEY_HIGH || '10', 10),
+    },
+    actionPolicy: {
+      highRiskAction: isValidAction(highAction) ? highAction : 'warn',
+      mediumRiskAction: isValidAction(mediumAction) ? mediumAction : 'warn',
+      notifyPrincipal: process.env.RISK_NOTIFY_PRINCIPAL !== 'false',
+    },
     consecutiveFailures: {
       none: parseInt(env.RISK_WEIGHT_CONSECUTIVE_NONE || '0', 10),
       medium: parseInt(env.RISK_WEIGHT_CONSECUTIVE_MEDIUM || '5', 10),
@@ -28,7 +60,6 @@ export function loadRiskWeightConfig(): RiskWeightConfig {
     },
   };
 
-  // Validate configuration
   if (!validateRiskWeightConfig(config)) {
     logger.warn('Invalid risk weight configuration, using defaults');
     return getDefaultRiskWeightConfig();
@@ -38,42 +69,36 @@ export function loadRiskWeightConfig(): RiskWeightConfig {
   return config;
 }
 
+function isValidAction(action: string): action is RiskActionType {
+  return action === 'warn' || action === 'throttle' || action === 'require_reauthorization' || action === 'none';
+}
+
 /**
  * Get default risk weight configuration
  */
 export function getDefaultRiskWeightConfig(): RiskWeightConfig {
-  return {
-    consecutiveFailures: {
-      none: 0,
-      medium: 5,
-      high: 10,
-    },
-    balanceProjection: {
-      sufficient: 0,
-      low: 5,
-      insufficient: 10,
-    },
-    approvalExpiration: {
-      valid: 0,
-      expired: 10,
-    },
-  };
+  return { ...DEFAULT_RISK_WEIGHTS };
 }
 
 /**
  * Validate risk weight configuration
  */
 function validateRiskWeightConfig(config: RiskWeightConfig): boolean {
-  // Check that all weights are non-negative numbers
   const allWeights = [
-    config.consecutiveFailures.none,
-    config.consecutiveFailures.medium,
-    config.consecutiveFailures.high,
-    config.balanceProjection.sufficient,
-    config.balanceProjection.low,
-    config.balanceProjection.insufficient,
-    config.approvalExpiration.valid,
-    config.approvalExpiration.expired,
+    config.callRateVsBaseline.none,
+    config.callRateVsBaseline.medium,
+    config.callRateVsBaseline.high,
+    config.spendVelocityVsCap.none,
+    config.spendVelocityVsCap.medium,
+    config.spendVelocityVsCap.high,
+    config.routeMixShift.none,
+    config.routeMixShift.medium,
+    config.routeMixShift.high,
+    config.firstTimeProvider.none,
+    config.firstTimeProvider.high,
+    config.dormantKeyActivity.none,
+    config.dormantKeyActivity.medium,
+    config.dormantKeyActivity.high,
   ];
 
   for (const weight of allWeights) {
@@ -83,24 +108,6 @@ function validateRiskWeightConfig(config: RiskWeightConfig): boolean {
     }
   }
 
-  // Check that weights follow logical ordering
-  if (config.consecutiveFailures.none > config.consecutiveFailures.medium ||
-      config.consecutiveFailures.medium > config.consecutiveFailures.high) {
-    logger.error('Consecutive failures weights must be in ascending order');
-    return false;
-  }
-
-  if (config.balanceProjection.sufficient > config.balanceProjection.low ||
-      config.balanceProjection.low > config.balanceProjection.insufficient) {
-    logger.error('Balance projection weights must be in ascending order');
-    return false;
-  }
-
-  if (config.approvalExpiration.valid > config.approvalExpiration.expired) {
-    logger.error('Approval expiration weights must be in ascending order');
-    return false;
-  }
-
   return true;
 }
 
@@ -108,3 +115,4 @@ function validateRiskWeightConfig(config: RiskWeightConfig): boolean {
  * Export configured instance
  */
 export const riskWeightConfig = loadRiskWeightConfig();
+
