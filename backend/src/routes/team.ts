@@ -9,6 +9,7 @@ import { createTeamInviteLimiter } from '../middleware/rate-limit-factory';
 import logger from '../config/logger';
 import { inviteTeamSchema, updateRoleSchema } from '../schemas/team';
 import { NotFoundError } from '../errors';
+import { attachTeamAuth, requireTeamRole, requireOwnerMfa, requireMfaReauth, canTeamRolePerformAction } from '../middleware/team-auth';
 
 const router: Router = Router();
 
@@ -44,16 +45,13 @@ async function resolveUserTeam(
   return null;
 }
 
-function canManageTeam(ctx: { isOwner: boolean; memberRole: string | null }): boolean {
-  return ctx.isOwner || ctx.memberRole === 'admin';
-}
-
 // ---------------------------------------------------------------------------
-// GET /api/team  — list team members
+// GET /api/team — list team members (owner, operator, viewer can view team)
 // ---------------------------------------------------------------------------
 
-router.get('/', async (req: AuthenticatedRequest, res: Response) => {
+router.get('/', requireTeamRole('owner', 'operator', 'viewer'), async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const teamAuth = (req as AuthenticatedRequest & { teamAuth?: any }).teamAuth;
     const ctx = await resolveUserTeam(req.user!.id);
 
     if (!ctx) {
@@ -89,39 +87,16 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
       error: error instanceof Error ? error.message : 'Failed to list team members',
     });
   }
-
-  const { data: members, error } = await supabase
-    .from('team_members')
-    .select('id, user_id, role, joined_at')
-    .eq('team_id', ctx.teamId)
-    .order('joined_at', { ascending: true });
-
-  if (error) throw error;
-
-  const enriched = await Promise.all(
-    (members ?? []).map(async (m) => {
-      const { data: userData } = await supabase.auth.admin.getUserById(m.user_id);
-      return {
-        id: m.id,
-        userId: m.user_id,
-        email: userData?.user?.email ?? null,
-        role: m.role,
-        joinedAt: m.joined_at,
-      };
-    })
-  );
-
-  res.json({ success: true, data: enriched });
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/team/invite  — invite a new member
+// POST /api/team/invite — invite a new member (Owner / Operator can invite)
 // ---------------------------------------------------------------------------
 
 router.post(
   '/invite',
   createTeamInviteLimiter(),
-  requireRole('owner', 'admin'),
+  requireTeamRole('owner', 'operator'),
   validate(inviteTeamSchema),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
@@ -140,8 +115,8 @@ router.post(
         ctx = { teamId: newTeam.id, isOwner: true, memberRole: null };
       }
 
-      if (!canManageTeam(ctx)) {
-        return res.status(403).json({ success: false, error: 'Only team owners and admins can invite members' });
+      if (!canTeamRolePerformAction(ctx.memberRole as any, 'invite_members')) {
+        return res.status(403).json({ success: false, error: 'Only team owners and operators can invite members' });
       }
 
       const { data: existing } = await supabase
@@ -236,10 +211,10 @@ router.post(
 );
 
 // ---------------------------------------------------------------------------
-// GET /api/team/pending  — list pending invitations
+// GET /api/team/pending — list pending invitations (Owner / Operator)
 // ---------------------------------------------------------------------------
 
-router.get('/pending', requireRole('owner', 'admin'), async (req: AuthenticatedRequest, res: Response) => {
+router.get('/pending', requireTeamRole('owner', 'operator'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const ctx = await resolveUserTeam(req.user!.id);
 
@@ -247,8 +222,8 @@ router.get('/pending', requireRole('owner', 'admin'), async (req: AuthenticatedR
       return res.json({ success: true, data: [] });
     }
 
-    if (!canManageTeam(ctx)) {
-      return res.status(403).json({ success: false, error: 'Only team owners and admins can view pending invitations' });
+    if (!canTeamRolePerformAction(ctx.memberRole as any, 'invite_members')) {
+      return res.status(403).json({ success: false, error: 'Only team owners and operators can view pending invitations' });
     }
 
     const { data: invitations, error } = await supabase
@@ -269,22 +244,10 @@ router.get('/pending', requireRole('owner', 'admin'), async (req: AuthenticatedR
       error: error instanceof Error ? error.message : 'Failed to list pending invitations',
     });
   }
-
-  const { data: invitations, error } = await supabase
-    .from('team_invitations')
-    .select('id, email, role, expires_at, created_at, invited_by')
-    .eq('team_id', ctx.teamId)
-    .is('accepted_at', null)
-    .gt('expires_at', new Date().toISOString())
-    .order('created_at', { ascending: false });
-
-  if (error) throw error;
-
-  res.json({ success: true, data: invitations ?? [] });
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/team/accept/:token  — accept an invitation
+// POST /api/team/accept/:token — accept an invitation
 // ---------------------------------------------------------------------------
 
 router.post('/accept/:token', async (req: AuthenticatedRequest, res: Response) => {
@@ -302,37 +265,22 @@ router.post('/accept/:token', async (req: AuthenticatedRequest, res: Response) =
   }
 
   if (new Date(invitation.expires_at) < new Date()) {
-    throw new BadRequestError('Invitation has expired'); // Or perhaps a custom 410 if desired, but 400/404 is cleaner
+    throw new Error('Invitation has expired');
   }
 
-    if (req.user!.email !== invitation.email) {
-      return res.status(403).json({
-        success: false,
-        error: 'This invitation was sent to a different email address',
-      });
-    }
+  if (req.user!.email !== invitation.email) {
+    return res.status(403).json({
+      success: false,
+      error: 'This invitation was sent to a different email address',
+    });
+  }
 
-    const { data: existing } = await supabase
-      .from('team_members')
-      .select('id')
-      .eq('team_id', invitation.team_id)
-      .eq('user_id', req.user!.id)
-      .single();
-
-    if (existing) {
-      await supabase
-        .from('team_invitations')
-        .update({ accepted_at: new Date().toISOString() })
-        .eq('id', invitation.id);
-
-      return res.json({ success: true, message: 'You are already a member of this team' });
-    }
-
-    const { error: memberErr } = await supabase
-      .from('team_members')
-      .insert({ team_id: invitation.team_id, user_id: req.user!.id, role: invitation.role });
-
-    if (memberErr) throw memberErr;
+  const { data: existing } = await supabase
+    .from('team_members')
+    .select('id')
+    .eq('team_id', invitation.team_id)
+    .eq('user_id', req.user!.id)
+    .single();
 
   if (existing) {
     await supabase
@@ -358,12 +306,14 @@ router.post('/accept/:token', async (req: AuthenticatedRequest, res: Response) =
 });
 
 // ---------------------------------------------------------------------------
-// PUT /api/team/:memberId/role  — update a member's role (owner only)
+// PUT /api/team/:memberId/role — update a member's role (Owner only + MFA re-auth)
 // ---------------------------------------------------------------------------
 
 router.put(
   '/:memberId/role',
-  requireRole('owner'),
+  requireTeamRole('owner'),
+  requireMfaReauth,
+  requireOwnerMfa(),
   validate(updateRoleSchema),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
@@ -408,21 +358,24 @@ router.put(
 );
 
 // ---------------------------------------------------------------------------
-// DELETE /api/team/:memberId  — remove a team member (owner or admin)
+// DELETE /api/team/:memberId — remove a team member (Owner / Operator)
 // ---------------------------------------------------------------------------
 
-router.delete('/:memberId', requireRole('owner', 'admin'), async (req: AuthenticatedRequest, res: Response) => {
+router.delete('/:memberId', requireTeamRole('owner', 'operator'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { memberId } = req.params;
+
+    const teamAuth = (req as AuthenticatedRequest & { teamAuth?: any }).teamAuth;
+    const role = teamAuth?.teamRole;
+
+    if (!canTeamRolePerformAction(role, 'remove_members')) {
+      return res.status(403).json({ success: false, error: 'Only team owners and operators can remove members' });
+    }
 
     const ctx = await resolveUserTeam(req.user!.id);
 
     if (!ctx) {
       return res.status(403).json({ success: false, error: 'You are not part of a team' });
-    }
-
-    if (!canManageTeam(ctx)) {
-      return res.status(403).json({ success: false, error: 'Only team owners and admins can remove members' });
     }
 
     const { data: member, error: fetchErr } = await supabase
@@ -461,43 +414,13 @@ router.delete('/:memberId', requireRole('owner', 'admin'), async (req: Authentic
       error: error instanceof Error ? error.message : 'Failed to remove team member',
     });
   }
-
-  const { data: member, error: fetchErr } = await supabase
-    .from('team_members')
-    .select('id, user_id')
-    .eq('id', req.params.memberId)
-    .eq('team_id', ctx.teamId)
-    .maybeSingle();
-
-  if (fetchErr || !member) {
-    throw new NotFoundError('Team member not found');
-  }
-
-  const { data: team } = await supabase
-    .from('teams')
-    .select('owner_id')
-    .eq('id', ctx.teamId)
-    .single();
-
-  if (team?.owner_id === member.user_id) {
-    throw new BadRequestError('Cannot remove the team owner');
-  }
-
-  const { error: deleteErr } = await supabase
-    .from('team_members')
-    .delete()
-    .eq('id', req.params.memberId);
-
-  if (deleteErr) throw deleteErr;
-
-  res.json({ success: true, message: 'Team member removed' });
 });
 
 // ---------------------------------------------------------------------------
-// PATCH /api/team/slack-webhook  — save Slack webhook URL (admin/owner only)
+// PATCH /api/team/slack-webhook — save Slack webhook URL (Owner / Operator)
 // ---------------------------------------------------------------------------
 
-router.patch('/slack-webhook', requireRole('owner', 'admin'), async (req: AuthenticatedRequest, res: Response) => {
+router.patch('/slack-webhook', requireTeamRole('owner', 'operator'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { slack_webhook_url } = req.body as { slack_webhook_url: string | null };
 
@@ -505,8 +428,9 @@ router.patch('/slack-webhook', requireRole('owner', 'admin'), async (req: Authen
     if (!ctx) {
       return res.status(404).json({ success: false, error: 'No team found' });
     }
-    if (!canManageTeam(ctx)) {
-      return res.status(403).json({ success: false, error: 'Only admins can update the Slack webhook' });
+
+    if (!canTeamRolePerformAction(ctx.memberRole as any, 'manage_webhooks')) {
+      return res.status(403).json({ success: false, error: 'Only team owners and operators can update the Slack webhook' });
     }
 
     // Basic URL validation

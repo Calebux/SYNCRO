@@ -3,7 +3,7 @@ import logger from '../config/logger';
 import { auditService } from './audit-service';
 import { AuthenticatedRequest, UserRole } from '../middleware/auth';
 
-const VALID_ROLES: UserRole[] = ['owner', 'admin', 'member', 'viewer'];
+const VALID_ROLES: UserRole[] = ['owner', 'operator', 'admin', 'member', 'viewer'];
 const ROLE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 interface RoleCacheEntry {
