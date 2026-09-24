@@ -114,7 +114,7 @@ import { swaggerSpec } from './swagger';
 import privacyMetricsAdminRoutes from './routes/admin/privacy-metrics';
 import metricsRoutes from './routes/metrics';
 import analyticsV3Routes from './routes/analytics-v3';
-import v3GatewayRoutes from './routes/v3-gateway';
+import v3GatewayRoutes from './routes/v3/gateway';
 
 
 const app = express();
@@ -279,6 +279,7 @@ app.get('/api/docs.json', (_req, res) => {
 // Versioned APIs. Unversioned `/api/*` below is the frozen v1 surface.
 app.use('/api/v1', v1Router);
 app.use('/api/v2', v2Router);
+app.use('/api/v3/gateway', v3GatewayRoutes);
 
 // API Routes
 app.use('/api/keys', apiKeysRoutes);
@@ -323,7 +324,6 @@ app.use('/api/telegram', telegramWebhookRoutes);
 app.use('/api/calendar', calendarRouter);
 app.use('/api/user-preferences', authenticate, userPreferencesRoutes);
 app.use('/api/reminder-settings', authenticate, reminderSettingsRoutes);
-app.use('/api/v3', v3GatewayRoutes);
 
 app.get('/api/reminders/status', (req, res) => {
   const status = schedulerService.getStatus();

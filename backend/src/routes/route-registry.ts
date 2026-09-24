@@ -42,6 +42,7 @@ import tagsRoutes from '../routes/tags';
 import userRoutes from '../routes/user';
 import sessionRoutes from '../routes/sessions';
 import apiKeysRoutes from '../routes/api-keys';
+import digestRoutes from '../routes/digest';
 import mfaRoutes from '../routes/mfa';
 import pushNotificationRoutes from '../routes/push-notifications';
 import walletRoutes from '../routes/wallet';
@@ -53,6 +54,7 @@ import giftCardLedgerRoutes from '../routes/gift-card-ledger';
 import notificationDeadLetterRoutes from '../routes/notification-dead-letter';
 import renewalDeadLetterRoutes from '../routes/renewal-dead-letter';
 import telegramWebhookRoutes from '../routes/telegram-webhook';
+import calendarRouter from '../routes/calendar';
 import userPreferencesRoutes from '../routes/user-preferences';
 import reminderSettingsRoutes from '../routes/reminder-settings';
 import paymentsRoutes from '../routes/payments';
@@ -72,6 +74,7 @@ import analyticsV3Routes from '../routes/analytics-v3';
 import referralRoutes from '../routes/referrals';
 import suggestionRoutes from '../routes/suggestions';
 import { getQueueHealthMetrics } from '../routes/admin-queues';
+import v3GatewayRoutes from '../routes/v3/gateway';
 
 // ── Exchange rate service (factory pattern) ───────────────────────────────────
 import { createExchangeRatesRouter } from '../routes/exchange-rates';
@@ -264,6 +267,15 @@ const ALL_ROUTES: RouteDescriptor[] = [
   },
   {
     method: 'ALL',
+    path: '/digest',
+    version: 'v1',
+    auth: 'user',
+    tags: ['Digest'],
+    summary: 'Email digest preferences',
+    handler: digestRoutes,
+  },
+  {
+    method: 'ALL',
     path: '/mfa',
     version: 'v1',
     auth: 'user',
@@ -361,6 +373,15 @@ const ALL_ROUTES: RouteDescriptor[] = [
     tags: ['Telegram'],
     summary: 'Telegram webhook (verified inline)',
     handler: telegramWebhookRoutes,
+  },
+  {
+    method: 'ALL',
+    path: '/calendar',
+    version: 'v1',
+    auth: 'public',
+    tags: ['Calendar'],
+    summary: 'Calendar feed & preferences (mixed auth)',
+    handler: calendarRouter,
   },
   {
     method: 'ALL',
@@ -554,6 +575,17 @@ const ALL_ROUTES: RouteDescriptor[] = [
     tags: ['Suggestions'],
     summary: 'Money-saving suggestions',
     handler: suggestionRoutes,
+  },
+
+  // ── v3 Gateway ─────────────────────────────────────────────────────────────
+  {
+    method: 'ALL',
+    path: '/v3/gateway',
+    version: 'v3',
+    auth: 'public',
+    tags: ['Gateway'],
+    summary: 'v3 Paid-request gateway, 402 challenge, cap admission & unit economics',
+    handler: v3GatewayRoutes,
   },
 ];
 
