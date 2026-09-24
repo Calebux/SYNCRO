@@ -88,7 +88,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@cyclonedx/cyclonedx-npm": "^1.0.0",
+    "@cyclonedx/cyclonedx-npm": "^6.0.1",
     "@sigstore/cli": "^0.10.3",
     "@stellar/stellar-sdk": "^14.5.0",
     "@types/archiver": "^7.0.0",
