@@ -113,6 +113,7 @@ import { errorHandler } from './middleware/errorHandler';
 import { swaggerSpec } from './swagger';
 import privacyMetricsAdminRoutes from './routes/admin/privacy-metrics';
 import metricsRoutes from './routes/metrics';
+import v3GatewayRoutes from './routes/v3-gateway';
 
 
 const app = express();
@@ -318,6 +319,7 @@ app.use('/api/telegram', telegramWebhookRoutes);
 app.use('/api/calendar', calendarRouter);
 app.use('/api/user-preferences', authenticate, userPreferencesRoutes);
 app.use('/api/reminder-settings', authenticate, reminderSettingsRoutes);
+app.use('/api/v3', v3GatewayRoutes);
 
 app.get('/api/reminders/status', (req, res) => {
   const status = schedulerService.getStatus();

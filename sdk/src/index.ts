@@ -36,6 +36,7 @@ import {
   createWebhookHandler,
   SYNCRO_WEBHOOK_HEADERS,
 } from "./webhooks.js";
+import { decodeReceiptHeader, verifyReceipt } from "./receipts.js";
 
 export interface Subscription {
   id: string;
@@ -885,6 +886,9 @@ export type {
   Webhook,
   // Notification types
   AppNotification,
+  // Receipt types
+  PaidReceipt,
+  PaidReceiptPayload,
 } from "./types.js";
 // ── Error taxonomy (v2 — #1303) ──────────────────────────────────────────────
 export {
@@ -909,6 +913,8 @@ export {
 } from "./errors.js";
 export type { RetryPolicy, ProblemDetails } from "./errors.js";
 export {
+  decodeReceiptHeader,
+  verifyReceipt,
   verifyWebhookSignature,
   parseWebhookHeaders,
   parseVerifiedWebhookEvent,
