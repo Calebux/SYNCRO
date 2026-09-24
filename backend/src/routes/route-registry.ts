@@ -73,6 +73,7 @@ import analyticsRoutes from '../routes/analytics';
 import referralRoutes from '../routes/referrals';
 import suggestionRoutes from '../routes/suggestions';
 import { getQueueHealthMetrics } from '../routes/admin-queues';
+import v3GatewayRoutes from '../routes/v3/gateway';
 
 // ── Exchange rate service (factory pattern) ───────────────────────────────────
 import { createExchangeRatesRouter } from '../routes/exchange-rates';
@@ -555,6 +556,17 @@ const ALL_ROUTES: RouteDescriptor[] = [
     tags: ['Suggestions'],
     summary: 'Money-saving suggestions',
     handler: suggestionRoutes,
+  },
+
+  // ── v3 Gateway ─────────────────────────────────────────────────────────────
+  {
+    method: 'ALL',
+    path: '/v3/gateway',
+    version: 'v3',
+    auth: 'public',
+    tags: ['Gateway'],
+    summary: 'v3 Paid-request gateway, 402 challenge, cap admission & unit economics',
+    handler: v3GatewayRoutes,
   },
 ];
 

@@ -113,6 +113,7 @@ import { errorHandler } from './middleware/errorHandler';
 import { swaggerSpec } from './swagger';
 import privacyMetricsAdminRoutes from './routes/admin/privacy-metrics';
 import metricsRoutes from './routes/metrics';
+import v3GatewayRoutes from './routes/v3/gateway';
 
 
 const app = express();
@@ -274,6 +275,7 @@ app.get('/api/docs.json', (_req, res) => {
 // Versioned APIs. Unversioned `/api/*` below is the frozen v1 surface.
 app.use('/api/v1', v1Router);
 app.use('/api/v2', v2Router);
+app.use('/api/v3/gateway', v3GatewayRoutes);
 
 // API Routes
 app.use('/api/keys', apiKeysRoutes);
