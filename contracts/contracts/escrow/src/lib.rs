@@ -4,7 +4,7 @@ use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype,
     panic_with_error, token, vec, Address, Env, String, Symbol, Vec,
 };
-use syncro_common;
+use syncro_contract_common as syncro_common;
 
 // ── Escape-hatch constant ─────────────────────────────────────────────────────
 

@@ -4,7 +4,7 @@
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, vec, Address, Env, String, Vec,
 };
-use syncro_common;
+use syncro_contract_common as syncro_common;
 
 // ============================================================================
 // Constants

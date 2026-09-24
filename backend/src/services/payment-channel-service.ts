@@ -8,6 +8,11 @@ import {
   auditChannelDisputed,
   auditChannelFinalized,
 } from './audit-service';
+import {
+  paymentProofVerifier,
+  computeRequestHash,
+  type PaymentProof,
+} from './payment-proof-verifier';
 
 export interface WatchtowerRecord {
   address: string;
@@ -114,11 +119,44 @@ export class PaymentChannelService {
     return this.toRecord(data);
   }
 
+  /**
+   * Apply an off-chain renewal (debit) to the channel.
+   *
+   * The caller **must** supply a `proof` produced by the SYNCRO gateway and
+   * the raw `requestHash` computed from the live request bytes.  The proof is
+   * verified before any state mutation:
+   *
+   *  - `proof.requestHash` must match `requestHash` — the proof cannot be
+   *    transplanted to a different request.
+   *  - `proof.timestamp` must be within ±PROOF_FRESHNESS_WINDOW_MS.
+   *  - `proof.nonce` must not have been consumed previously (replay guard).
+   *  - `proof.signature` must be valid.
+   *
+   * If any check fails, the function throws with the error code from the
+   * verifier so the gateway can surface a typed 402 / 409 response.
+   */
   async applyOffChainRenewal(
     channelId: string,
     userId: string,
     amount: number,
+    proof: PaymentProof,
+    requestHash: string,
   ): Promise<PaymentChannelRecord> {
+    // ── Payment proof gate ────────────────────────────────────────────────────
+    const proofResult = paymentProofVerifier.verify(proof, channelId, requestHash);
+    if (!proofResult.ok) {
+      logger.warn('applyOffChainRenewal: proof rejected', {
+        channelId,
+        userId,
+        code: proofResult.code,
+        message: proofResult.message,
+      });
+      const err = new Error(proofResult.message) as Error & { code: string };
+      err.code = proofResult.code;
+      throw err;
+    }
+
+    // ── Channel state mutation ────────────────────────────────────────────────
     const channel = await this.getChannel(userId, channelId);
     if (!channel || channel.state !== 'active') {
       throw new Error('Channel not found or not active');

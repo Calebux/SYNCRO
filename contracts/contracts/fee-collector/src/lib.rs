@@ -10,7 +10,7 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, Symbol,
     Vec,
 };
-use syncro_common;
+use syncro_contract_common as syncro_common;
 
 pub const DEFAULT_TIMELOCK_SECONDS: u64 = 172_800;
 

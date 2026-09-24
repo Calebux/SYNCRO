@@ -24,28 +24,24 @@ use soroban_sdk::{Env, Symbol};
 ///
 /// At build time, this should be set from Cargo.toml version:
 /// export SYNCRO_CONTRACT_VERSION=$(grep '^version' Cargo.toml | cut -d'"' -f2 | tr '.' '\0' | sed 's/\x00/,/g')
-pub const fn contract_version() -> u32 {
-    // Format: 0xMMmmPPPP (Major.minor.patch)
-    // This is set at build time by the CI/CD pipeline
-    // For development: use 0x00010000 (v1.0.0)
-    env!("SYNCRO_CONTRACT_VERSION", "0x00010000")
-        .parse::<u32>()
-        .unwrap_or(0x00010000)
+pub fn contract_version() -> u32 {
+    if let Some(val) = option_env!("SYNCRO_CONTRACT_VERSION") {
+        val.parse::<u32>().unwrap_or(0x00010000)
+    } else {
+        0x00010000
+    }
 }
 
 /// Interface version for cross-contract calls.
 /// 
 /// Incremented when public contract method signatures or error handling change.
 /// Allows the backend to detect API mismatches at runtime.
-pub const fn interface_version() -> u32 {
-    // This tracks the contract's public interface version independently from
-    // the implementation version. Increment when:
-    // - Adding/removing public functions
-    // - Changing function parameter types
-    // - Changing error enums
-    env!("SYNCRO_INTERFACE_VERSION", "1")
-        .parse::<u32>()
-        .unwrap_or(1)
+pub fn interface_version() -> u32 {
+    if let Some(val) = option_env!("SYNCRO_INTERFACE_VERSION") {
+        val.parse::<u32>().unwrap_or(1)
+    } else {
+        1
+    }
 }
 
 /// Helper to expose version metadata on-chain.

@@ -7,6 +7,7 @@ name = "agent-registry"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "syncro-contract-common",
 ]
 
 [[package]]
@@ -33,6 +34,7 @@ version = "0.0.1"
 dependencies = [
  "proptest",
  "soroban-sdk",
+ "syncro-contract-common",
 ]
 
 [[package]]
@@ -200,6 +202,7 @@ name = "attestation"
 version = "0.0.0"
 dependencies = [
  "soroban-sdk",
+ "syncro-contract-common",
 ]
 
 [[package]]
@@ -330,6 +333,7 @@ name = "contract-upgrade"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "syncro-contract-common",
 ]
 
 [[package]]
@@ -702,7 +706,7 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "soroban-sdk",
- "syncro-common",
+ "syncro-contract-common",
 ]
 
 [[package]]
@@ -722,6 +726,7 @@ name = "fee-collector"
 version = "0.0.0"
 dependencies = [
  "soroban-sdk",
+ "syncro-contract-common",
 ]
 
 [[package]]
@@ -822,6 +827,7 @@ name = "guardian"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "syncro-contract-common",
 ]
 
 [[package]]
@@ -1028,6 +1034,7 @@ name = "loyalty_rewards"
 version = "0.0.1"
 dependencies = [
  "soroban-sdk",
+ "syncro-contract-common",
 ]
 
 [[package]]
@@ -1121,6 +1128,7 @@ name = "payment-adapter"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "syncro-contract-common",
 ]
 
 [[package]]
@@ -1129,6 +1137,7 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "soroban-sdk",
+ "syncro-contract-common",
 ]
 
 [[package]]
@@ -1136,6 +1145,7 @@ name = "payment-splitter"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "syncro-contract-common",
 ]
 
 [[package]]
@@ -1310,6 +1320,7 @@ name = "recurring_allowance"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "syncro-contract-common",
 ]
 
 [[package]]
@@ -1345,6 +1356,7 @@ dependencies = [
  "escrow",
  "proptest",
  "soroban-sdk",
+ "syncro-contract-common",
 ]
 
 [[package]]
@@ -1795,6 +1807,7 @@ name = "stealth-announcement"
 version = "0.0.0"
 dependencies = [
  "soroban-sdk",
+ "syncro-contract-common",
 ]
 
 [[package]]
@@ -1873,6 +1886,7 @@ name = "subscription_nft"
 version = "0.0.1"
 dependencies = [
  "soroban-sdk",
+ "syncro-contract-common",
 ]
 
 [[package]]
@@ -1881,13 +1895,13 @@ version = "0.0.1"
 dependencies = [
  "proptest",
  "soroban-sdk",
+ "syncro-contract-common",
 ]
 
 [[package]]
 name = "subscription_renewal"
 version = "0.0.1"
 dependencies = [
- "agent-registry",
  "proptest",
  "soroban-sdk",
  "subscription_logging",
@@ -1913,6 +1927,13 @@ dependencies = [
 
 [[package]]
 name = "syncro-common"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
+name = "syncro-contract-common"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
@@ -2012,7 +2033,7 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "soroban-sdk",
- "syncro-common",
+ "syncro-contract-common",
 ]
 
 [[package]]
@@ -2031,6 +2052,7 @@ name = "voucher-ledger"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "syncro-contract-common",
 ]
 
 [[package]]
