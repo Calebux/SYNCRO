@@ -1,0 +1,51 @@
+name: "Install Dependencies"
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: "Working directory containing package.json"
+        type: string
+        default: "."
+      node-version:
+        description: "Node.js version"
+        type: string
+        default: "20"
+      use-ci:
+        description: "Use 'npm ci' instead of 'npm install'"
+        type: boolean
+        default: true
+      ignore-scripts:
+        description: "Pass --ignore-scripts to npm install"
+        type: boolean
+        default: false
+      legacy-peer-deps:
+        description: "Pass --legacy-peer-deps to npm install"
+        type: boolean
+        default: false
+
+jobs:
+  install-deps:
+    name: Install Dependencies
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: "npm"
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          if ${{ inputs.use-ci }}; then
+            npm ci${{ inputs.ignore-scripts && ' --ignore-scripts' || '' }}${{ inputs.legacy-peer-deps && ' --legacy-peer-deps' || '' }}
+          else
+            npm install${{ inputs.ignore-scripts && ' --ignore-scripts' || '' }}${{ inputs.legacy-peer-deps && ' --legacy-peer-deps' || '' }}
+          fi

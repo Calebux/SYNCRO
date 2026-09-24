@@ -1,0 +1,49 @@
+name: "Setup Rust Toolchain"
+
+on:
+  workflow_call:
+    inputs:
+      toolchain:
+        description: "Rust toolchain version (e.g., 'stable', '1.81.0')"
+        type: string
+        default: "stable"
+      targets:
+        description: "Comma-separated list of targets to install (e.g., 'wasm32-unknown-unknown')"
+        type: string
+        default: "wasm32-unknown-unknown"
+      components:
+        description: "Comma-separated list of components to install (e.g., 'llvm-tools-preview')"
+        type: string
+        default: ""
+      cache-workspaces:
+        description: "Comma-separated list of Cargo workspaces to cache"
+        type: string
+        default: "contracts"
+
+jobs:
+  setup-rust:
+    name: Setup Rust Toolchain
+    runs-on: ubuntu-latest
+    outputs:
+      toolchain: ${{ steps.setup-rust.outputs.toolchain }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        id: setup-rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ inputs.toolchain }}
+          targets: ${{ inputs.targets }}
+          components: ${{ inputs.components }}
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ inputs.cache-workspaces }}
+
+      - name: Verify Rust installation
+        run: |
+          rustc --version
+          cargo --version

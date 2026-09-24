@@ -81,3 +81,71 @@ export {
   hasActiveFilters,
 } from "./components/advanced-filter-bar";
 export type { FilterState } from "./components/advanced-filter-bar";
+
+// Data-dense primitives for v3 console
+export {
+  DataTable,
+  type Column,
+  type DataTableProps,
+  type SortDirection,
+} from "./components/data-table";
+export {
+  Sparkline,
+  SparklineWithValue,
+  sparklineVariants,
+} from "./components/sparkline";
+export { DeltaIndicator, deltaVariants } from "./components/delta-indicator";
+export {
+  StatusTreatment,
+  StatusDot,
+  StatusBadge,
+  StatusBanner,
+  statusTreatmentVariants,
+  type StatusLevel,
+} from "./components/status-treatment";
+export {
+  DataStates,
+  useDataState,
+  DataComponent,
+  dataStatePresets,
+  type DataState,
+  type DataStateConfig,
+} from "./components/data-states";
+export {
+  Amount,
+  StroopsAmount,
+  Balance,
+  CompactNumber,
+  Nonce,
+  Rate,
+  Delta,
+  MetricCard,
+  MetricGrid,
+  type AmountProps,
+  type StroopsAmountProps,
+  type BalanceProps,
+  type CompactNumberProps,
+  type NonceProps,
+  type RateProps,
+  type DeltaProps,
+  type MetricCardProps,
+  type MetricGridProps,
+  SETTLEMENT_ASSET,
+  STELLAR_NATIVE,
+} from "./components/numeric-display";
+export {
+  formatSettlementAmount,
+  formatStroopsAsXlm,
+  formatBaseUnits,
+  formatBalance,
+  formatCompactNumber,
+  formatNonce,
+  formatRate,
+  formatDelta,
+  formatPercentDelta,
+  type AssetConfig,
+  type DeltaFormatOptions,
+  type BalanceFormatOptions,
+  SETTLEMENT_ASSET,
+  STELLAR_NATIVE,
+} from "./lib/numeric-formatting";

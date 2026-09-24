@@ -1,0 +1,64 @@
+name: "Detect Changed Packages"
+
+on:
+  workflow_call:
+    inputs:
+      filter-patterns:
+        description: "YAML string of path filters for each package"
+        type: string
+        required: true
+      force-full-run:
+        description: "Force full run input from workflow_dispatch"
+        type: boolean
+        default: false
+
+    outputs:
+      backend:
+        description: "Backend package changed"
+        value: ${{ jobs.detect-changes.outputs.backend }}
+      client:
+        description: "Client package changed"
+        value: ${{ jobs.detect-changes.outputs.client }}
+      sdk:
+        description: "SDK package changed"
+        value: ${{ jobs.detect-changes.outputs.sdk }}
+      shared:
+        description: "Shared package changed"
+        value: ${{ jobs.detect-changes.outputs.shared }}
+      contracts:
+        description: "Contracts package changed"
+        value: ${{ jobs.detect-changes.outputs.contracts }}
+      docs:
+        description: "Docs changed"
+        value: ${{ jobs.detect-changes.outputs.docs }}
+      root:
+        description: "Root config files changed"
+        value: ${{ jobs.detect-changes.outputs.root }}
+      force_full_run:
+        description: "Force full run was requested"
+        value: ${{ jobs.detect-changes.outputs.force_full_run }}
+
+jobs:
+  detect-changes:
+    name: Detect Changed Packages
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      client: ${{ steps.filter.outputs.client }}
+      sdk: ${{ steps.filter.outputs.sdk }}
+      shared: ${{ steps.filter.outputs.shared }}
+      contracts: ${{ steps.filter.outputs.contracts }}
+      docs: ${{ steps.filter.outputs.docs }}
+      root: ${{ steps.filter.outputs.root }}
+      force_full_run: ${{ inputs.force-full-run || github.event.inputs.force_full_run || 'false' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@v4
+        with:
+          filters: ${{ inputs.filter-patterns }}

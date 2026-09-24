@@ -28,6 +28,7 @@
     "generate:openapi": "cd backend && npm run swagger:export",
     "lint:todos": "node scripts/check-todos.mjs",
     "lint:conflicts": "node scripts/check-conflict-markers.mjs",
+    "check:domain-naming": "node scripts/check-domain-naming.js",
     "precommit:check": "bash scripts/pre-commit-checks.sh",
     "check:migrations": "node scripts/check-migration-drift.js",
     "check:migrations:verify-db": "node scripts/check-migration-drift.js --verify-db --strict",
