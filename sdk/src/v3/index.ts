@@ -30,3 +30,10 @@ export {
   type GatewayErrorCode,
   type GeneratedGatewayError,
 } from "../generated/gateway-errors.js";
+
+export {
+  createPaidFetch,
+  type PaidFetchConfig,
+  type PaidResponse,
+  type PaymentReceipt,
+} from "./paid-fetch.js";
