@@ -64,6 +64,9 @@ buildSubscriptionRegistryUpdateSubscription(contractId: string, sourceAccount: s
 buildSubscriptionRegistryCancelSubscription(contractId: string, sourceAccount: string, args: ...): BuiltTransaction
 buildSubscriptionLoggingRecordLog(contractId: string, sourceAccount: string, args: ...): BuiltTransaction
 buildSubscriptionRenewalRenew(contractId: string, sourceAccount: string, args: ...): BuiltTransaction
+pricing
+metered
+hostedGateway
 
 ### CONSTANTS
 
@@ -110,6 +113,15 @@ SubscriptionLoggingContract
 SubscriptionRenewalContract
 BuiltTransaction
 ContractInvokeParams<TArgs>
+RoutePricingRule
+PricingDeclarationInput
+PricingDeclaration
+RoutePricing
+SyncroReceipt
+FailureMode
+FailureHandler
+MeteredOptions
+HostedGatewayConfig
 
 ### EXPERIMENTAL (namespaced — intentionally unstable)
 ## These exports are grouped under sdk/experimental and may change in any release.

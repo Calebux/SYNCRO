@@ -956,3 +956,20 @@ export type {
   BuiltTransaction,
   ContractInvokeParams,
 } from "./generated/index.js";
+export {
+  pricing,
+  metered,
+  hostedGateway,
+} from "./provider/index.js";
+export type {
+  RoutePricingRule,
+  PricingDeclarationInput,
+  PricingDeclaration,
+  RoutePricing,
+  SyncroReceipt,
+  FailureMode,
+  FailureHandler,
+  MeteredOptions,
+  HostedGatewayConfig,
+} from "./provider/index.js";
+} from "./generated/index.js";
