@@ -14,10 +14,6 @@ const taxonomyPath = path.resolve(
 );
 const outputPath = path.resolve(__dirname, "..", "src", "generated", "gateway-errors.ts");
 
-function pascalToConst(input) {
-  return input.replace(/[A-Z]/g, (c) => `_${c}`).toUpperCase().replace(/^_/, "");
-}
-
 function renderFile(taxonomyRaw) {
   const hash = crypto.createHash("sha256").update(taxonomyRaw).digest("hex");
   const taxonomy = JSON.parse(taxonomyRaw);
@@ -28,10 +24,13 @@ function renderFile(taxonomyRaw) {
     .map((entry) => {
       const supportsRetry = entry.supportsRetryAfterHeader ? "true" : "false";
       const retryable = entry.retryable ? "true" : "false";
+      const retryAfterSeconds = entry.retryAfterSeconds ?? "undefined";
       return `export class ${entry.className} extends GatewaySdkError {
   static readonly gatewayCode = '${entry.code}' as const;
   static readonly defaultHttpStatus = ${entry.httpStatus} as const;
   static readonly retryableByDefault = ${retryable} as const;
+  static readonly action = '${entry.action}' as const;
+  static readonly retryAfterSeconds = ${retryAfterSeconds} as const;
   static readonly supportsRetryAfterHeader = ${supportsRetry} as const;
 
   constructor(details: GatewayErrorDetails = {}) {
@@ -42,7 +41,8 @@ function renderFile(taxonomyRaw) {
       status: details.status ?? ${entry.className}.defaultHttpStatus,
       retryable: ${entry.className}.retryableByDefault,
       retryAfterMs:
-        details.retryAfterMs ?? (details.retryAfterSeconds !== undefined ? details.retryAfterSeconds * 1000 : undefined),
+        details.retryAfterMs ?? (details.retryAfterSeconds !== undefined ? details.retryAfterSeconds * 1000 : ${entry.className}.retryAfterSeconds !== undefined ? ${entry.className}.retryAfterSeconds * 1000 : undefined),
+      action: ${entry.className}.action,
     });
   }
 }
@@ -54,8 +54,12 @@ function renderFile(taxonomyRaw) {
     .map((entry) => `  ${entry.code}: ${entry.className},`)
     .join("\n");
 
-  const statusMapLines = errors
-    .map((entry) => `  ${entry.httpStatus}: ${entry.className},`)
+  const statusEntries = new Map();
+  for (const entry of errors) {
+    if (!statusEntries.has(entry.httpStatus)) statusEntries.set(entry.httpStatus, entry.className);
+  }
+  const statusMapLines = [...statusEntries]
+    .map(([status, className]) => `  ${status}: ${className},`)
     .join("\n");
 
   const retryDefaults = errors
@@ -89,6 +93,7 @@ export class GatewaySdkError extends Error {
   readonly status: number;
   readonly retryable: boolean;
   readonly retryAfterMs?: number;
+  readonly action: string;
 
   constructor(input: {
     code: GatewayErrorCode;
@@ -96,6 +101,7 @@ export class GatewaySdkError extends Error {
     status: number;
     retryable: boolean;
     retryAfterMs?: number;
+    action: string;
     cause?: unknown;
   }) {
     super(input.message);
@@ -104,6 +110,7 @@ export class GatewaySdkError extends Error {
     this.status = input.status;
     this.retryable = input.retryable;
     this.retryAfterMs = input.retryAfterMs;
+    this.action = input.action;
     if (input.cause !== undefined) {
       (this as Error & { cause?: unknown }).cause = input.cause;
     }
@@ -132,6 +139,10 @@ export function createGatewayErrorFromCode(
 ): GeneratedGatewayError {
   const Cls = ERROR_BY_CODE[code];
   return new Cls(details);
+}
+
+export function isGatewayErrorCode(code: string): code is GatewayErrorCode {
+  return Object.prototype.hasOwnProperty.call(ERROR_BY_CODE, code);
 }
 
 export function createGatewayErrorFromHttpStatus(
