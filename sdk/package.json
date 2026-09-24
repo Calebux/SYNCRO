@@ -86,7 +86,20 @@
         "default": "./dist/generated/index.cjs"
       }
     },
+    "./v3": {
+      "import": {
+        "types": "./dist/v3/index.d.ts",
+        "default": "./dist/v3/index.js"
+      },
+      "require": {
+        "types": "./dist/v3/index.d.cts",
+        "default": "./dist/v3/index.cjs"
+      }
+    },
     "./package.json": "./package.json"
+  },
+  "bin": {
+    "syncro-verify-receipt": "./dist/cli/verify-receipt.js"
   },
   "engines": {
     "node": ">=18"
@@ -107,20 +120,21 @@
     "lint": "eslint \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit",
     "generate:contracts": "node scripts/generate-contract-bindings.cjs",
+    "generate:gateway-errors": "node scripts/generate-gateway-errors.cjs",
     "check:api-surface": "node scripts/check-api-surface.cjs",
-    "generate": "npm run generate:contracts",
-    "prebuild": "npm run generate:contracts",
+    "check:gateway-taxonomy": "node scripts/check-gateway-taxonomy.cjs",
+    "generate": "npm run generate:contracts && npm run generate:gateway-errors",
+    "prebuild": "npm run generate:contracts && npm run generate:gateway-errors",
     "build": "tsup",
     "test": "jest",
     "test:integration": "bash scripts/run-integration.sh",
     "test:browser": "jest --config jest.browser.config.js",
     "assert:no-node-crypto": "node scripts/assert-no-node-crypto.mjs",
-    "prepublishOnly": "npm run lint && npm run typecheck && npm run check:api-surface && npm run build",
     "check:layout": "node scripts/check-package-layout.mjs",
     "check:tree-shake": "node scripts/check-tree-shake.mjs",
     "check:size": "node scripts/check-package-size.mjs",
     "check:package": "npm run check:layout && npm run check:tree-shake && npm run check:size",
-    "prepublishOnly": "node ../scripts/assert-ci-publish.mjs && npm run lint && npm run typecheck && npm run build && npm run check:package"
+    "prepublishOnly": "node ../scripts/assert-ci-publish.mjs && npm run lint && npm run typecheck && npm run check:gateway-taxonomy && npm run build && npm run check:package"
   },
   "keywords": [
     "syncro",
