@@ -34,15 +34,13 @@ module.exports = {
         '!src/types/**',
         '!src/**/*.example.ts',
     ],
-    // Ratchet, not a target — see coverage-thresholds.json. Set at the measured
-    // floor (issue #1090) so the gate is green and meaningful; the previous 80%
-    // was aspirational and failed every run, which made the gate meaningless.
+    // Ratchet, not a target — see DEBT.md
     coverageThreshold: {
         global: {
-            branches: 44,
+            statements: 62,
+            branches: 55,
             functions: 55,
-            lines: 55,
-            statements: 55,
+            lines: 62,
         },
     },
 };

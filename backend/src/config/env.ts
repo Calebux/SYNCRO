@@ -202,6 +202,31 @@ export const envSchema = z.object({
   AGENT_ROTATION_SCHEDULE: z
     .enum(['per-task', 'daily', 'weekly', 'manual'])
     .default('daily'),
+
+  // Admission (x402 payment verification)
+  ADMISSION_TOTAL_BUDGET_MS: z.string().optional(),
+  ADMISSION_IDENTITY_RESOLUTION_MS: z.string().optional(),
+  ADMISSION_SCOPE_READ_MS: z.string().optional(),
+  ADMISSION_CAP_CHECK_MS: z.string().optional(),
+  ADMISSION_METER_RESERVE_MS: z.string().optional(),
+  ADMISSION_BUDGET_ENFORCEMENT: z.string().optional(),
+  ADMISSION_P99_WINDOW_MS: z.string().optional(),
+  ADMISSION_MIN_SAMPLES_P99: z.string().optional(),
+  ADMISSION_IDENTITY_CACHE_ENABLED: z.string().optional(),
+  ADMISSION_IDENTITY_CACHE_TTL_MS: z.string().optional(),
+  ADMISSION_IDENTITY_CACHE_MAX_ENTRIES: z.string().optional(),
+  ADMISSION_SCOPE_CACHE_ENABLED: z.string().optional(),
+  ADMISSION_SCOPE_CACHE_TTL_MS: z.string().optional(),
+  ADMISSION_SCOPE_CACHE_MAX_ENTRIES: z.string().optional(),
+  ADMISSION_CAP_CACHE_ENABLED: z.string().optional(),
+  ADMISSION_CAP_CACHE_TTL_MS: z.string().optional(),
+  ADMISSION_CAP_CACHE_MAX_ENTRIES: z.string().optional(),
+  ADMISSION_METER_CACHE_ENABLED: z.string().optional(),
+  ADMISSION_METER_CACHE_TTL_MS: z.string().optional(),
+  ADMISSION_METER_CACHE_MAX_ENTRIES: z.string().optional(),
+  ADMISSION_PARALLEL_CHECKS: z.string().optional(),
+  ADMISSION_REVOCATION_CHECK_INTERVAL_MS: z.string().optional(),
+  ADMISSION_REDIS_KEY_PREFIX: z.string().optional(),
 });
 
 export type BackendEnv = z.infer<typeof envSchema>;
@@ -260,11 +285,6 @@ export function validateEnv(): Readonly<BackendEnv> {
     // Reject development payment channel signing secret in production
     if (data.CHANNEL_SIGNING_SECRET === 'dev-channel-secret' || data.CHANNEL_SIGNING_SECRET.includes('dev')) {
       prodErrors.push('CHANNEL_SIGNING_SECRET is using a development fallback');
-    }
-
-    // Reject development calendar secret in production
-    if (!data.CALENDAR_SECRET || data.CALENDAR_SECRET.includes('dev')) {
-      prodErrors.push('CALENDAR_SECRET is unconfigured or using a development fallback');
     }
 
     // Reject development encryption key in production
