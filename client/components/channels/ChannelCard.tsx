@@ -1,6 +1,7 @@
 'use client';
 
 import { PaymentChannel } from '@/lib/payment-channel';
+import { AlertTriangle, CheckCircle2, Clock3, ShieldAlert } from 'lucide-react';
 
 interface ChannelCardProps {
   channel: PaymentChannel;
@@ -8,35 +9,60 @@ interface ChannelCardProps {
 }
 
 export function ChannelCard({ channel, onSelect }: ChannelCardProps) {
-  const getStateColor = (state: string) => {
+  const getStateMeta = (state: string) => {
     switch (state) {
       case 'active':
-        return 'bg-green-100 text-green-800';
+        return {
+          className: 'bg-green-100 text-green-800',
+          label: 'Healthy: Active',
+          icon: CheckCircle2,
+        };
       case 'closing':
-        return 'bg-yellow-100 text-yellow-800';
+        return {
+          className: 'bg-yellow-100 text-yellow-800',
+          label: 'Degraded: Challenge Period',
+          icon: Clock3,
+        };
       case 'closed':
-        return 'bg-gray-100 text-gray-800';
+        return {
+          className: 'bg-gray-100 text-gray-800',
+          label: 'Closed',
+          icon: ShieldAlert,
+        };
       case 'dispute':
-        return 'bg-red-100 text-red-800';
+        return {
+          className: 'bg-red-100 text-red-800',
+          label: 'Failing: In Dispute',
+          icon: AlertTriangle,
+        };
       default:
-        return 'bg-gray-100 text-gray-800';
+        return {
+          className: 'bg-gray-100 text-gray-800',
+          label: state,
+          icon: ShieldAlert,
+        };
     }
   };
 
   const isLowBalance = parseFloat(channel.balance) < 10;
+  const stateMeta = getStateMeta(channel.state);
+  const StateIcon = stateMeta.icon;
 
   return (
-    <div
+    <button
+      type="button"
       onClick={() => onSelect(channel)}
-      className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 hover:shadow-md transition-shadow cursor-pointer"
+      className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 hover:shadow-md transition-shadow cursor-pointer text-left w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+      aria-label={`Open channel ${channel.counterparty}, status ${stateMeta.label}, balance ${channel.balance} dollars`}
     >
       <div className="flex justify-between items-start mb-4">
         <div>
           <h3 className="text-lg font-semibold text-gray-900">{channel.counterparty}</h3>
           <p className="text-sm text-gray-500">ID: {channel.id.slice(0, 8)}...</p>
         </div>
-        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStateColor(channel.state)}`}>
-          {channel.state}
+        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${stateMeta.className}`}>
+          <StateIcon className="h-3.5 w-3.5" aria-hidden="true" />
+          <span>{stateMeta.label}</span>
         </span>
       </div>
       <div className="mb-4">
@@ -62,6 +88,6 @@ export function ChannelCard({ channel, onSelect }: ChannelCardProps) {
           Expires: {new Date(channel.expiry).toLocaleString()}
         </div>
       )}
-    </div>
+    </button>
   );
 }

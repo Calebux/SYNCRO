@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { openChannel, PaymentChannel } from '@/lib/payment-channel';
 import { Button } from "@syncro/ui";
 import { Input } from "@syncro/ui";
@@ -16,8 +16,46 @@ export function OpenChannelModal({ isOpen, onClose, onChannelOpened }: OpenChann
   const [depositAmount, setDepositAmount] = useState('');
   const [counterparty, setCounterparty] = useState('SYNCRO Executor');
   const [isLoading, setIsLoading] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (!isOpen) return;
+    previouslyFocusedRef.current = document.activeElement as HTMLElement;
+    const focusTimer = window.setTimeout(() => {
+      dialogRef.current?.querySelector<HTMLElement>('input, button, [tabindex]:not([tabindex="-1"])')?.focus();
+    }, 0);
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+      }
+      if (event.key !== 'Tab' || !dialogRef.current) return;
+      const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      clearTimeout(focusTimer);
+      document.removeEventListener('keydown', onKeyDown);
+      previouslyFocusedRef.current?.focus();
+    };
+  }, [isOpen, onClose]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,16 +75,22 @@ export function OpenChannelModal({ isOpen, onClose, onChannelOpened }: OpenChann
     }
   };
 
+  if (!isOpen) return null;
+
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="open-channel-title"
+      aria-describedby="open-channel-description"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+      <div ref={dialogRef} className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
         <h3 id="open-channel-title" className="text-lg font-semibold text-gray-900 mb-4">Open Payment Channel</h3>
+        <p id="open-channel-description" className="text-sm text-gray-600 mb-4">
+          Provide the counterparty and initial deposit to open a new channel.
+        </p>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <Label htmlFor="counterparty">Counterparty</Label>

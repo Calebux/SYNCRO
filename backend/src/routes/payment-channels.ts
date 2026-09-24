@@ -2,14 +2,56 @@ import { Router, Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { attachTeamAuth, requireTeamRole, requireOwnerMfa, requireMfaReauth } from '../middleware/team-auth';
 import { paymentChannelService } from '../services/payment-channel-service';
-import { channelStateService } from '../services/channel-state';
+import { channelStateService, WatchtowerError } from '../services/channel-state';
 import { channelHistoryService } from '../services/channel-history';
+import { redisStoreInstance } from '../lib/redis-store';
 import logger from '../config/logger';
 
 const router = Router();
 
 // All payment channel routes require team context (authenticate is applied at app level)
 router.use(attachTeamAuth);
+
+// Real-time stream endpoint (this PR)
+router.get('/stream', async (req: AuthenticatedRequest, res: Response) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  const sendSnapshot = async (): Promise<void> => {
+    try {
+      const channels = await paymentChannelService.listChannels(req.user!.id);
+      res.write(
+        `data: ${JSON.stringify({
+          type: 'snapshot',
+          channels,
+          degradedMode: redisStoreInstance.isDegraded(),
+          serverTime: new Date().toISOString(),
+        })}\n\n`,
+      );
+    } catch (error) {
+      logger.error('Failed to stream payment channel snapshot', error);
+      res.write(
+        `data: ${JSON.stringify({
+          type: 'error',
+          message: 'Failed to refresh channel stream snapshot',
+          serverTime: new Date().toISOString(),
+        })}\n\n`,
+      );
+    }
+  };
+
+  await sendSnapshot();
+  const interval = setInterval(() => {
+    void sendSnapshot();
+  }, 3000);
+
+  req.on('close', () => {
+    clearInterval(interval);
+    res.end();
+  });
+});
 
 router.get('/preferences', async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -194,6 +236,56 @@ router.post('/agents', requireTeamRole('operator', 'owner'), async (req: Authent
   } catch (error) {
     logger.error('Failed to register agent', error);
     return res.status(500).json({ error: 'Failed to register agent' });
+  }
+});
+
+router.get('/:id/watchtowers', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const watchtowers = await channelStateService.listWatchtowers(req.user!.id, req.params.id);
+    return res.json({ watchtowers });
+  } catch (error) {
+    logger.error('Failed to list watchtowers', error);
+    return res.status(400).json({ error: error instanceof Error ? error.message : 'Failed to list watchtowers' });
+  }
+});
+
+router.post('/:id/watchtowers', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { watchtower, bounty } = req.body as { watchtower?: string; bounty?: number };
+    if (!watchtower || typeof watchtower !== 'string') {
+      return res.status(400).json({ error: 'watchtower is required' });
+    }
+
+    const watchtowers = await channelStateService.registerWatchtower(
+      req.user!.id,
+      req.params.id,
+      watchtower,
+      Number(bounty ?? 0),
+    );
+    return res.status(201).json({ watchtowers });
+  } catch (error) {
+    if (error instanceof WatchtowerError) {
+      return res.status(400).json({ error: error.message, code: error.code });
+    }
+    logger.error('Failed to register watchtower', error);
+    return res.status(400).json({ error: error instanceof Error ? error.message : 'Failed to register watchtower' });
+  }
+});
+
+router.delete('/:id/watchtowers/:watchtower', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const watchtowers = await channelStateService.deregisterWatchtower(
+      req.user!.id,
+      req.params.id,
+      req.params.watchtower,
+    );
+    return res.json({ watchtowers });
+  } catch (error) {
+    if (error instanceof WatchtowerError) {
+      return res.status(400).json({ error: error.message, code: error.code });
+    }
+    logger.error('Failed to deregister watchtower', error);
+    return res.status(400).json({ error: error instanceof Error ? error.message : 'Failed to deregister watchtower' });
   }
 });
 
