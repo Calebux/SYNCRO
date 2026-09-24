@@ -25,7 +25,7 @@ use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,
     Address, Env,
 };
-use syncro_common;
+use syncro_contract_common as syncro_common;
 
 // ── Storage keys ────────────────────────────────────────────────────────────────
 

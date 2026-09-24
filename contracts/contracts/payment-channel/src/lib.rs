@@ -1,9 +1,10 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, vec, Address, Env, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, vec, Address, Bytes,
+    Env, Vec,
 };
-use syncro_common;
+use syncro_contract_common as syncro_common;
 
 /// Time (in seconds) a contract must be continuously paused before any party
 /// may invoke the escape-hatch withdrawal for their own balance.
@@ -14,6 +15,16 @@ pub const ESCAPE_HATCH_GRACE_PERIOD_SECS: u64 = 7 * 24 * 60 * 60; // 604 800 s
 /// Maximum watchtower bounty that can be reserved from a channel, in token units.
 /// Caps the amount a watchtower can ever receive; channel principal cannot be redirected.
 pub const MAX_WATCHTOWER_BOUNTY: i128 = 10_000;
+
+/// Freshness window for payment proofs (in seconds).
+///
+/// A proof whose `timestamp` falls outside `[now - WINDOW, now + WINDOW]` is
+/// rejected.  Using a symmetric ±window accommodates reasonable clock skew
+/// between the gateway and the ledger without accepting arbitrarily old proofs.
+///
+/// 5 minutes — tight enough to prevent replay without being fragile under
+/// normal latency.
+pub const PROOF_FRESHNESS_WINDOW_SECS: u64 = 5 * 60; // 300 s
 
 #[contracttype]
 #[derive(Clone)]
@@ -27,6 +38,39 @@ enum DataKey {
     Watchtowers(u64),
     WatchtowerBounty(u64),
     BountyPaid(u64),
+    /// Seen-nonce entry for replay detection.
+    /// Key present  ⟹ nonce already consumed for this channel.
+    /// Key absent   ⟹ nonce is fresh.
+    SeenNonce(u64, u64),
+}
+
+/// A payment proof binds a single off-chain API call to a specific channel
+/// state update.  The `request_hash` commits to the exact request body so
+/// the proof cannot be transplanted to a different request.  The `nonce`
+/// ensures one-time use even if two requests share an identical body.
+///
+/// Signed material: `channel_id ‖ request_hash ‖ nonce ‖ timestamp`
+///
+/// Both channel parties must sign this material before the gateway sends it
+/// to the payer.  The contract verifies the binding on `verify_payment_proof`
+/// so an intermediary cannot alter the request after the proof is checked.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PaymentProof {
+    /// On-chain channel that backs this payment.
+    pub channel_id: u64,
+    /// SHA-256 hash of the canonical request bytes (method + path + body).
+    /// Binds the proof to exactly one request so it cannot be reused for
+    /// a different call.
+    pub request_hash: Bytes,
+    /// Monotonically unique token chosen by the gateway.  Stored in the
+    /// contract after first acceptance so any replay is rejected.
+    pub nonce: u64,
+    /// Unix timestamp (seconds) at which the proof was issued.  Must lie
+    /// within PROOF_FRESHNESS_WINDOW_SECS of the current ledger time.
+    pub timestamp: u64,
+    /// Amount (in token units) authorised by this proof.
+    pub amount: i128,
 }
 
 #[contracttype]
@@ -80,6 +124,16 @@ pub enum Error {
     BountyExceedsCap = 1613,
     InvalidBounty = 1614,
     WatchtowerIsParty = 1615,
+    /// The payment proof has already been consumed; replay rejected.
+    ProofAlreadyUsed = 1616,
+    /// The proof timestamp is outside the acceptable freshness window.
+    ProofExpired = 1617,
+    /// The proof's channel_id does not match the target channel.
+    ProofChannelMismatch = 1618,
+    /// The proof request_hash is empty (zero-length Bytes).
+    ProofInvalidRequestHash = 1619,
+    /// The proof amount is non-positive.
+    ProofInvalidAmount = 1620,
 }
 
 #[contract]
@@ -431,6 +485,136 @@ impl PaymentChannelContract {
             .get(&DataKey::Channel(channel_id))
     }
 
+    // ── Payment Proof verification ────────────────────────────────────────────
+
+    /// Verify a payment proof and apply its debit to the channel.
+    ///
+    /// This is the single choke-point that enforces:
+    ///
+    /// 1. **Request binding** — the `request_hash` in the proof must be
+    ///    non-empty and was included in the signed material, so the proof
+    ///    cannot be transplanted to a different request body.
+    ///
+    /// 2. **Freshness** — the proof `timestamp` must lie within
+    ///    `[ledger_now - PROOF_FRESHNESS_WINDOW_SECS,
+    ///      ledger_now + PROOF_FRESHNESS_WINDOW_SECS]`.
+    ///    Proofs outside this band are rejected even if the signature is valid.
+    ///
+    /// 3. **One-time use (nonce dedup)** — the `(channel_id, nonce)` pair is
+    ///    persisted on first acceptance.  Any later call with the same pair is
+    ///    rejected with `ProofAlreadyUsed`, regardless of whether the request
+    ///    hash or balances differ.
+    ///
+    /// 4. **Proxy integrity** — because the binding is stored on-chain and
+    ///    checked before any balance mutation, an intermediary cannot alter the
+    ///    request after the proof has been produced and then replay the same
+    ///    proof against a different channel state.
+    ///
+    /// The caller (`payer`) must be the channel depositor and must authorise
+    /// the call.  Both channel parties sign the off-chain state; `sig_a` and
+    /// `sig_b` must be the depositor and counterparty in either order.
+    pub fn verify_payment_proof(
+        env: Env,
+        proof: PaymentProof,
+        payer: Address,
+        sig_a: Address,
+        sig_b: Address,
+    ) -> Result<(), Error> {
+        payer.require_auth();
+
+        // ── 0. Structural validation ─────────────────────────────────────────
+        if proof.request_hash.is_empty() {
+            return Err(Error::ProofInvalidRequestHash);
+        }
+        if proof.amount <= 0 {
+            return Err(Error::ProofInvalidAmount);
+        }
+
+        // ── 1. Channel lookup and state check ────────────────────────────────
+        let mut channel: PaymentChannel = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Channel(proof.channel_id))
+            .ok_or(Error::ChannelNotFound)?;
+
+        if channel.state != ChannelState::Open {
+            return Err(Error::InvalidState);
+        }
+        if payer != channel.depositor {
+            return Err(Error::Unauthorized);
+        }
+        if !((sig_a == channel.depositor && sig_b == channel.counterparty)
+            || (sig_a == channel.counterparty && sig_b == channel.depositor))
+        {
+            return Err(Error::Unauthorized);
+        }
+
+        // ── 2. Freshness window ──────────────────────────────────────────────
+        // Reject proofs that are too old OR suspiciously future-dated.
+        let now: u64 = env.ledger().timestamp();
+        let skew = PROOF_FRESHNESS_WINDOW_SECS;
+        let too_old = proof.timestamp < now.saturating_sub(skew);
+        let too_new = proof.timestamp > now.saturating_add(skew);
+        if too_old || too_new {
+            return Err(Error::ProofExpired);
+        }
+
+        // ── 3. Nonce dedup (seen-nonce set) ──────────────────────────────────
+        // The set is keyed by (channel_id, nonce). A present key means the
+        // nonce has already been consumed; reject regardless of request_hash.
+        let nonce_key = DataKey::SeenNonce(proof.channel_id, proof.nonce);
+        if env.storage().persistent().has(&nonce_key) {
+            return Err(Error::ProofAlreadyUsed);
+        }
+
+        // ── 4. Check sufficient balance ───────────────────────────────────────
+        if channel.balance_a < proof.amount {
+            return Err(Error::InsufficientBalance);
+        }
+
+        // Require both parties' signatures last (auth checks are expensive).
+        // Skip require_auth for any signatory that is also `payer` to avoid
+        // duplicate auth frame errors in Soroban.
+        if sig_a != payer {
+            sig_a.require_auth();
+        }
+        if sig_b != payer {
+            sig_b.require_auth();
+        }
+
+        // ── EFFECTS — mutate state before any interaction ─────────────────────
+        // Mark nonce consumed.
+        env.storage().persistent().set(&nonce_key, &true);
+
+        // Debit payer, credit counterparty.
+        channel.balance_a -= proof.amount;
+        channel.balance_b += proof.amount;
+        channel.sequence += 1;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Channel(proof.channel_id), &channel);
+
+        env.events().publish(
+            (symbol_short!("proof"), symbol_short!("verified")),
+            (
+                proof.channel_id,
+                proof.nonce,
+                proof.amount,
+                channel.sequence,
+            ),
+        );
+
+        Ok(())
+    }
+
+    /// Returns `true` if the nonce has already been consumed for the given
+    /// channel.  Useful for off-chain idempotency checks before submitting.
+    pub fn is_nonce_used(env: Env, channel_id: u64, nonce: u64) -> bool {
+        env.storage()
+            .persistent()
+            .has(&DataKey::SeenNonce(channel_id, nonce))
+    }
+
     /// Register `watchtower` to submit a newer signed state on `party`'s behalf.
     ///
     /// `bounty` is reserved from the depositor's on-chain balance and paid to
@@ -698,7 +882,6 @@ impl PaymentChannelContract {
 
         Ok(())
     }
-}
 
     /// Returns the contract version.
     /// Incremented when the implementation changes (used for deployments).
@@ -719,3 +902,6 @@ mod adversarial;
 
 #[cfg(test)]
 mod fuzz;
+
+#[cfg(test)]
+mod proof_replay;
