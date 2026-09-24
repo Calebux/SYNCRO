@@ -34,6 +34,7 @@ import {
   resolveMemoOperationFromMethod,
   verifyTransactionMemo,
 } from "@syncro/shared/stellar/memo";
+import { ChainSubmissionClient } from "../blockchain/chain-submission-client";
 
 export type PayloadVersion = '1.0';
 
@@ -196,6 +197,7 @@ export class BlockchainService {
   private networkPassphrase: string;
   private redisClient: RedisClientType | null = null;
   private readonly policy = EXTERNAL_SERVICE_POLICIES.stellar_rpc;
+  public chainSubmissionClient: ChainSubmissionClient;
 
   constructor() {
     const flags = getBlockchainFlags();
@@ -227,6 +229,16 @@ export class BlockchainService {
         : network === "futurenet"
           ? Networks.FUTURENET
           : Networks.TESTNET);
+
+    this.chainSubmissionClient = new ChainSubmissionClient({
+      rpcUrl: this.rpcUrl,
+      networkPassphrase: this.networkPassphrase,
+      initialFeeStroops: 100,
+      maxAcceptableFeeStroops: 100000,
+      feeMultiplier: 1.5,
+      timeoutMs: this.policy.timeoutMs,
+      maxRetries: this.policy.retryPolicy.maxAttempts,
+    });
 
     if (!this.contractAddress) {
       logger.warn(
@@ -762,19 +774,11 @@ export class BlockchainService {
       contractAddress: this.contractAddress 
     });
 
-    const rpc = new SorobanRpc.Server(this.rpcUrl);
-    
-    // Use rotated agent wallet keypair instead of a single static secret key.
-    // The "executor" agent is used for contract invocations; its address rotates
-    // on a configurable schedule (per-task, daily, weekly) to prevent address
-    // clustering.
     let sourceKeypair: Keypair;
     try {
       const derived = await agentWalletRotationService.getActiveKeypair('executor');
       sourceKeypair = derived.keypair;
     } catch {
-      // Fallback to the legacy STELLAR_SECRET_KEY if the rotation service
-      // is not configured (e.g., AGENT_MASTER_SEED not set).
       const secret = await secretProvider.getSecret("STELLAR_SECRET_KEY");
       if (!secret) {
         throw new Error(
@@ -784,10 +788,6 @@ export class BlockchainService {
       }
       sourceKeypair = Keypair.fromSecret(secret);
     }
-    const contract = new Contract(this.contractAddress);
-
-    let lastErr: unknown = null;
-    const { maxAttempts = 5, initialDelay = 1000, multiplier = 2, maxDelay = 16000, jitter = true } = this.policy.retryPolicy;
 
     const memoOperation = subscriptionId ? resolveMemoOperationFromMethod(method) : null;
     const expectedMemo =
@@ -795,113 +795,54 @@ export class BlockchainService {
         ? buildSyncroMemo(memoOperation, subscriptionId)
         : null;
 
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      try {
-        const account = await rpc.getAccount(sourceKeypair.publicKey());
-        let builder = new TransactionBuilder(account, {
-          fee: "100",
-          networkPassphrase: this.networkPassphrase,
-        })
-          .addOperation(contract.call(method, ...args))
-          .setTimeout(Math.floor(this.policy.timeoutMs / 1000));
+    const idempotencyKey = subscriptionId
+      ? `${subscriptionId}:${method}`
+      : undefined;
 
-        if (expectedMemo) {
-          builder = builder.addMemo(Memo.text(expectedMemo));
-        }
+    try {
+      const result = await this.chainSubmissionClient.submit({
+        sourceKeypair,
+        contractAddress: this.contractAddress,
+        method,
+        args,
+        memo: expectedMemo || undefined,
+        idempotencyKey,
+      });
 
-        const tx = builder.build();
+      logger.info('Contract transaction submitted successfully via ChainSubmissionClient', {
+        method,
+        transactionHash: result.transactionHash,
+        correlationId,
+        subscriptionId,
+      });
 
-        const sim = await rpc.simulateTransaction(tx);
-        if (SorobanRpc.Api.isSimulationError(sim)) {
-          throw new Error(`Simulation failed: ${sim.error}`);
-        }
+      return { transactionHash: result.transactionHash };
+    } catch (err) {
+      const lastErr = err;
+      logger.error('Contract transaction failed in ChainSubmissionClient', { 
+        method, 
+        subscriptionId, 
+        correlationId,
+        error: lastErr instanceof Error ? lastErr.message : String(lastErr) 
+      });
+      
+      await this.enqueueDeadLetter({
+        version: '1.0',
+        eventType: method,
+        payload: this.previewArgs(args),
+        failedAt: new Date().toISOString(),
+        errorReason: lastErr instanceof Error ? lastErr.message : String(lastErr),
+        retryCount: this.policy.retryPolicy.maxAttempts,
+        contractAddress: this.contractAddress,
+        rpcUrl: this.rpcUrl,
+      });
 
-        const assembled = SorobanRpc.assembleTransaction(tx, sim).build();
-        assembled.sign(sourceKeypair);
-
-        const send = await rpc.sendTransaction(assembled);
-        if (send.status === "ERROR") {
-          throw new Error(`Send failed: ${send.errorResult}`);
-        }
-
-        logger.info('Contract transaction submitted', { 
-          method, 
-          transactionHash: send.hash, 
-          correlationId,
-          subscriptionId,
-          attempt: attempt + 1 
-        });
-
-        // Wait for confirmation
-        const getTx = await rpc.getTransaction(send.hash);
-        if (getTx.status === "NOT_FOUND") {
-          // brief wait+retry fetch
-          await this.sleep(initialDelay);
-        } else if (
-          expectedMemo &&
-          subscriptionId &&
-          memoOperation &&
-          getTx.status === "SUCCESS" &&
-          !verifyTransactionMemo(
-            { memo: expectedMemo, successful: true, hash: send.hash },
-            memoOperation,
-            subscriptionId,
-          )
-        ) {
-          throw new Error(`Transaction memo verification failed for method ${method}`);
-        }
-
-        logger.info('Contract transaction confirmed', { 
-          method, 
-          transactionHash: send.hash, 
-          correlationId,
-          subscriptionId,
-          status: getTx.status 
-        });
-
-        return { transactionHash: send.hash };
-      } catch (err) {
-        lastErr = err;
-        const reason = err instanceof Error ? err.message : String(err);
-        const delay = calculateBackoffDelay(attempt + 1, { initialDelay, maxDelay, multiplier, jitter });
-        logger.warn('Soroban tx attempt failed', {
-          method,
-          subscriptionId,
-          attempt: attempt + 1,
-          maxAttempts,
-          reason,
-          retryInMs: delay,
-          correlationId,
-        });
-        await this.sleep(delay);
-      }
+      throw new Error(
+        `Soroban transaction failed: ${
+          lastErr instanceof Error ? lastErr.message : String(lastErr)
+        }`,
+      );
     }
-
-    // After all retries failed, enqueue to DLQ if available
-    logger.error('Contract transaction failed after all retries', { 
-      method, 
-      subscriptionId, 
-      maxAttempts, 
-      correlationId,
-      error: lastErr instanceof Error ? lastErr.message : String(lastErr) 
-    });
-    
-    await this.enqueueDeadLetter({
-      version: '1.0',
-      eventType: method,
-      payload: this.previewArgs(args),
-      failedAt: new Date().toISOString(),
-      errorReason: lastErr instanceof Error ? lastErr.message : String(lastErr),
-      retryCount: maxAttempts,
-      contractAddress: this.contractAddress,
-      rpcUrl: this.rpcUrl,
-    });
-
-    throw new Error(
-      `Soroban transaction failed after ${maxAttempts} attempts: ${
-        lastErr instanceof Error ? lastErr.message : String(lastErr)
-      }`,
-    );
   }
 
   async recordCommitment(
