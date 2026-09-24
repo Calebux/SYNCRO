@@ -22,16 +22,11 @@ function safeDivide(n: number, d: number): number | null {
   return (n / d) * 100;
 }
 
-async function getPrivacyMetricsAggregates(): Promise<Omit<PrivacyMetrics, 'generated_at'>> {
-  // NOTE: These queries are placeholders until we confirm exact table/column names.
+async function getPrivacyMetricsAggregates(): Promise<PrivacyMetrics> {
+  // NOTE: Aggregations use exact counts with head: true.
   // We intentionally avoid returning user-level rows.
 
   // 1) Privacy mode enabled rate
-  const { data: privacyEnabledAgg } = await supabase
-    .from('profiles')
-    .select('privacy_mode_enabled')
-    .eq('privacy_mode_enabled', true);
-
   const { count: privacyEnabledCount } = await supabase
     .from('profiles')
     .select('*', { count: 'exact', head: true })
@@ -78,11 +73,7 @@ async function getPrivacyMetricsAggregates(): Promise<Omit<PrivacyMetrics, 'gene
     .select('*', { count: 'exact', head: true })
     .not('stealth_meta_address', 'is', null);
 
-  const { count: totalProfilesCount2 } = await supabase
-    .from('profiles')
-    .select('*', { count: 'exact', head: true });
-
-  const stealthAdoptionRate = safeDivide(Number(stealthConfiguredCount ?? 0), Number(totalProfilesCount2 ?? 0));
+  const stealthAdoptionRate = safeDivide(Number(stealthConfiguredCount ?? 0), Number(totalProfilesCount ?? 0));
 
   // 6) GDPR export/deletion requests counts
   const { count: gdprExportCount } = await supabase
@@ -104,16 +95,13 @@ async function getPrivacyMetricsAggregates(): Promise<Omit<PrivacyMetrics, 'gene
     stealth_address_adoption_rate_percent: stealthAdoptionRate,
     gdpr_export_requests_count: Number(gdprExportCount ?? 0),
     gdpr_deletion_requests_count: Number(gdprDeletionCount ?? 0),
+    generated_at: new Date().toISOString(),
   };
 }
 
 router.get('/privacy-metrics', async (_req: AuthenticatedRequest, res: Response) => {
   try {
-    const metricsBase = await getPrivacyMetricsAggregates();
-    const payload: PrivacyMetrics = {
-      ...metricsBase,
-      generated_at: new Date().toISOString(),
-    };
+    const payload = await getPrivacyMetricsAggregates();
 
     res.json({
       success: true,
@@ -153,11 +141,7 @@ function sanitizeCSVCell(value: unknown): string {
 
 router.get('/privacy-metrics.csv', async (_req: AuthenticatedRequest, res: Response) => {
   try {
-    const metricsBase = await getPrivacyMetricsAggregates();
-    const payload: PrivacyMetrics = {
-      ...metricsBase,
-      generated_at: new Date().toISOString(),
-    };
+    const payload = await getPrivacyMetricsAggregates();
 
     const headers = [
       'privacy_mode_enabled_rate_percent',

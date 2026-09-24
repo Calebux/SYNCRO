@@ -256,7 +256,7 @@ const options: swaggerJSDoc.Options = {
 };
 
 const document = swaggerJSDoc(options) as unknown as OpenAPIV3_1.Document;
-  document.paths = authoredContract.paths as unknown as OpenAPIV3_1.PathsObject;
+document.paths = { ...document.paths, ...authoredContract.paths } as unknown as OpenAPIV3_1.PathsObject;
 
 // Pin authorization failures to the shared problem-details contract.
 for (const item of Object.values(document.paths ?? {})) {

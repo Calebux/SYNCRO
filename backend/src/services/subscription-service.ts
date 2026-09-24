@@ -745,13 +745,6 @@ export class SubscriptionService {
         blockchainResult,
         syncStatus,
       };
-      }
-
-      return {
-        subscription: updatedSubscription,
-        blockchainResult,
-        syncStatus,
-      };
     });
   }
 
