@@ -1,0 +1,391 @@
+name: Governance
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'scripts/**'
+      - '.github/workflows/governance.yml'
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      force_full_run:
+        description: 'Force a full governance check'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: governance-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ──────────────────────────────────────────────
+  # Detect changes
+  # ──────────────────────────────────────────────
+  detect-changes:
+    name: Detect Changed Packages
+    uses: ./.github/workflows/_composite/detect-changes.yml
+    with:
+      filter-patterns: |
+        backend:
+          - 'backend/**'
+          - 'shared/**'
+        client:
+          - 'client/**'
+          - 'shared/**'
+        sdk:
+          - 'sdk/**'
+          - 'shared/**'
+        shared:
+          - 'shared/**'
+        docs:
+          - 'docs/**'
+          - 'README.md'
+          - '*.md'
+        root:
+          - 'package.json'
+          - 'package-lock.json'
+          - 'tsconfig.json'
+          - '.github/**'
+          - 'scripts/**'
+          - 'app/**'
+      force-full-run: ${{ github.event.inputs.force_full_run }}
+
+  # ──────────────────────────────────────────────
+  # Branch Protection Check
+  # ──────────────────────────────────────────────
+  branch-protection:
+    name: Branch Protection Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject direct push to main
+        if: github.event_name == 'push'
+        run: |
+          echo "::error::Direct pushes to main are not allowed. Open a pull request."
+          exit 1
+      - name: PR policy satisfied
+        if: github.event_name == 'pull_request'
+        run: echo "✅ Change is arriving via pull request — policy satisfied."
+
+  # ──────────────────────────────────────────────
+  # Changeset Validation
+  # ──────────────────────────────────────────────
+  changeset:
+    name: Changeset Validation
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --ignore-scripts || npm install --legacy-peer-deps --ignore-scripts
+
+      - name: Fail when a publishable package changes without a changeset
+        env:
+          CHANGESET_BASE: origin/${{ github.base_ref }}
+        run: npm run check:changeset
+
+  # ──────────────────────────────────────────────
+  # Bootstrap Validation
+  # ──────────────────────────────────────────────
+  bootstrap:
+    name: Bootstrap Validation
+    if: github.event.inputs.force_full_run == 'true' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Pin Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+
+      - name: Pin Rust
+        uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Doctor (pre-bootstrap)
+        run: node scripts/doctor.mjs
+        continue-on-error: true
+
+      - name: Bootstrap on a clean tree
+        run: npm run bootstrap
+        env:
+          CI: true
+
+      - name: Doctor (post-bootstrap)
+        run: node scripts/doctor.mjs
+        continue-on-error: true
+
+      - name: Env templates exist
+        run: |
+          test -f backend/.env.example
+          test -f backend/.env
+
+  # ──────────────────────────────────────────────
+  # Database Migration Validation
+  # ──────────────────────────────────────────────
+  database-migrations:
+    name: Database Migration Validation
+    if: |
+      github.event.inputs.force_full_run == 'true' ||
+      github.event_name == 'schedule' ||
+      contains(github.event.pull_request.labels.*.name, 'run-migrations')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v3
+        with:
+          version: latest
+
+      - name: Start Supabase local stack
+        run: supabase start
+
+      - name: Apply all migrations
+        run: supabase db push
+
+      - name: Lint SQL migrations
+        run: supabase db lint
+
+      - name: Setup Node.js for RLS audit
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies for RLS audit
+        working-directory: backend
+        run: npm install
+
+      - name: Dump live schema for snapshot comparison
+        run: supabase db dump --local --schema-only -f /tmp/live-schema.sql
+
+      - name: Run migration drift check against local database
+        id: local-drift-check
+        env:
+          SUPABASE_URL: http://127.0.0.1:54321
+          SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: |
+          echo "🔍 Verifying migration history and schema against local database..."
+          node scripts/check-migration-drift.js \
+            --verify-db \
+            --verify-schema \
+            --compare-schema supabase/schema.snapshot.sql \
+            --live-schema /tmp/live-schema.sql \
+            --env local \
+            --strict \
+            --json > local-drift-result.json
+          cat local-drift-result.json
+
+      - name: Run RLS Policy Audit
+        env:
+          SUPABASE_URL: http://localhost:54321
+          SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+        run: |
+          echo "🔍 Auditing RLS policies after migration..."
+          node scripts/check-rls-compliance.js
+
+      - name: Stop Supabase local stack
+        if: always()
+        run: if command -v supabase &> /dev/null; then supabase stop; fi
+
+  # ──────────────────────────────────────────────
+  # Migration Drift Check (file-level)
+  # ──────────────────────────────────────────────
+  migration-drift-check:
+    name: Migration Drift Check
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run migration drift check
+        run: |
+          node scripts/check-migration-drift.js --json --strict > drift-file-result.json
+          cat drift-file-result.json
+
+      - name: Upload file drift report
+        uses: actions/upload-artifact@v7
+        with:
+          name: drift-file-result
+          path: drift-file-result.json
+
+      - name: Comment drift report on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = require('fs');
+            try {
+              const result = JSON.parse(fs.readFileSync('drift-file-result.json', 'utf8'));
+              if (!result.success) {
+                const body = '## 🔍 Migration Drift Report\n**Result**: ❌ Drift detected — merge blocked\n\n**Errors (must fix before merging):**\n' + (result.issues || []).filter(i => i.severity === 'error').map(i => `- \`[${i.type}]\` ${i.message}`).join('\n');
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body
+                });
+                core.setFailed('Migration drift detected');
+              }
+            } catch (e) {
+              console.log('No drift report found');
+            }
+
+  # ──────────────────────────────────────────────
+  # Tech Debt Policy (TODO/FIXME)
+  # ──────────────────────────────────────────────
+  debt-policy:
+    name: Tech Debt Policy
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          node-version: "22"
+          working-directory: .
+
+      - name: Enforce TODO/FIXME issue references in critical paths
+        run: node scripts/check-todos.mjs
+
+  # ──────────────────────────────────────────────
+  # Validate Generated Types
+  # ──────────────────────────────────────────────
+  validate-generated-types:
+    name: Validate Generated Types
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs.force_full_run == 'true' ||
+      needs.detect-changes.outputs.backend == 'true' ||
+      needs.detect-changes.outputs.sdk == 'true' ||
+      needs.detect-changes.outputs.shared == 'true' ||
+      needs.detect-changes.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          working-directory: .
+
+      - name: Install dependencies
+        uses: ./.github/workflows/_composite/install-deps.yml
+        with:
+          working-directory: .
+          legacy-peer-deps: true
+          ignore-scripts: true
+
+      - name: Fail if generated types are stale
+        run: npm run check:generated
+
+  # ──────────────────────────────────────────────
+  # Migration Source Audit
+  # ──────────────────────────────────────────────
+  migration-audit:
+    name: Migration Source Audit
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs.force_full_run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          working-directory: .
+
+      - name: Verify no active migrations in backend/migrations/
+        run: ./scripts/check-no-backend-migrations.sh
+
+  # ──────────────────────────────────────────────
+  # RLS Policy Audit
+  # ──────────────────────────────────────────────
+  rls-audit:
+    name: RLS Policy Audit
+    if: |
+      github.event_name == 'pull_request' ||
+      github.event_name == 'push' ||
+      github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm install
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v3
+        with:
+          version: latest
+
+      - name: Start Supabase local stack
+        run: |
+          supabase start
+          echo "Waiting for database to be ready..."
+          sleep 10
+
+      - name: Apply all migrations
+        run: supabase db push
+
+      - name: Run RLS Policy Audit
+        env:
+          SUPABASE_URL: http://localhost:54321
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU' }}
+        run: |
+          echo "🔍 Running RLS Policy Audit..."
+          node scripts/check-rls-compliance.js
+
+      - name: Stop Supabase local stack
+        if: always()
+        run: if command -v supabase &> /dev/null; then supabase stop; fi
+
+      - name: Comment PR with RLS Status
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ **RLS Policy Audit Passed**\n\nAll tables in the database have Row Level Security enabled with appropriate policies. Your changes maintain data security compliance.'
+            });

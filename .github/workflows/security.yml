@@ -1,0 +1,236 @@
+name: Security
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'backend/package.json'
+      - 'backend/package-lock.json'
+      - 'client/package.json'
+      - 'client/package-lock.json'
+      - 'sdk/package.json'
+      - 'sdk/package-lock.json'
+      - 'shared/package.json'
+      - 'shared/package-lock.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/security.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'backend/package.json'
+      - 'backend/package-lock.json'
+      - 'client/package.json'
+      - 'client/package-lock.json'
+      - 'sdk/package.json'
+      - 'sdk/package-lock.json'
+      - 'shared/package.json'
+      - 'shared/package-lock.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/security.yml'
+  schedule:
+    # Weekly full-history sweep for secrets
+    - cron: '0 5 * * 1'
+    # Weekly dependency audit
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      force_full_run:
+        description: 'Force a full security audit'
+        type: boolean
+        default: false
+      scan_secrets:
+        description: 'Run secret scanning (gitleaks + fallback)'
+        type: boolean
+        default: true
+      audit_deps:
+        description: 'Run dependency vulnerability audit'
+        type: boolean
+        default: true
+      generate_sbom:
+        description: 'Generate SBOMs'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ──────────────────────────────────────────────
+  # Gitleaks Secret Scanning
+  # ──────────────────────────────────────────────
+  gitleaks:
+    name: Gitleaks Secret Scan
+    if: github.event.inputs.scan_secrets != 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'true'
+          GITLEAKS_ENABLE_SUMMARY: 'true'
+
+  # ──────────────────────────────────────────────
+  # Fallback Secret Scanner (bundled)
+  # ──────────────────────────────────────────────
+  fallback-secret-scan:
+    name: Repository Scan (bundled scanner)
+    if: github.event.inputs.scan_secrets != 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+
+      - name: Scan tracked files
+        run: node scripts/scan-secrets.js --all
+
+      - name: Verify example env files hold no real values
+        run: |
+          set -e
+          found=0
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            if grep -nEi '=(eyJ[A-Za-z0-9_-]{10,}\.|sk_live_|sk_test_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,})' "$file"; then
+              echo "::error file=$file::Example env file appears to contain a real credential"
+              found=1
+            fi
+          done < <(git ls-files '*.env.example' '*.env.sample' '*.env.template')
+          if [ "$found" -eq 1 ]; then exit 1; fi
+          echo "✅ Example env files contain no real credentials"
+
+  # ──────────────────────────────────────────────
+  # Dependency Vulnerability Audit
+  # ──────────────────────────────────────────────
+  dependency-audit:
+    name: Dependency Audit (${{ matrix.workspace }})
+    if: github.event.inputs.audit_deps != 'false'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace: [backend, client, sdk, shared]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: "npm"
+          cache-dependency-path: ${{ matrix.workspace }}/package-lock.json
+
+      - name: Audit ${{ matrix.workspace }} dependencies
+        working-directory: ${{ matrix.workspace }}
+        run: |
+          npm install --package-lock-only
+          npm audit --audit-level=high
+        continue-on-error: false
+
+  # ──────────────────────────────────────────────
+  # Security Audit Gate (allowlist-based)
+  # ──────────────────────────────────────────────
+  security-audit-gate:
+    name: Security Audit Gate (${{ matrix.workspace }})
+    if: github.event.inputs.audit_deps != 'false'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace: [backend, client, sdk, shared]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: ${{ matrix.workspace }}/package-lock.json
+
+      - name: Install ${{ matrix.workspace }} dependencies
+        working-directory: ${{ matrix.workspace }}
+        run: npm ci --ignore-scripts
+
+      - name: Run dependency audit gate
+        working-directory: ${{ matrix.workspace }}
+        run: node ../scripts/security-audit-gate.js ${{ matrix.workspace }} ${{ matrix.workspace }}
+
+  # ──────────────────────────────────────────────
+  # Generate SBOMs
+  # ──────────────────────────────────────────────
+  generate-sboms:
+    name: Generate SBOMs
+    if: github.event.inputs.generate_sbom == 'true' || github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+
+      - name: Generate SBOMs
+        run: |
+          set -e
+          for dir in . backend client contracts; do
+            if [ -f "$dir/package.json" ]; then
+              echo "Generating SBOM for $dir"
+              (
+                cd "$dir"
+                npm install --package-lock-only --ignore-scripts --no-audit --no-fund >/dev/null 2>&1
+                if [ "$dir" = "." ]; then
+                  npx --yes @cyclonedx/cyclonedx-npm --output-file "root-sbom.json"
+                else
+                  npx --yes @cyclonedx/cyclonedx-npm --output-file "../$dir-sbom.json"
+                fi
+              )
+            fi
+          done
+
+      - name: Upload SBOMs
+        uses: actions/upload-artifact@v7
+        with:
+          name: sboms
+          path: |
+            *-sbom.json
+          if-no-files-found: error
+
+      - name: Attach SBOMs to Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: |
+            *-sbom.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attest SBOMs
+        if: github.event_name == 'release'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            *-sbom.json

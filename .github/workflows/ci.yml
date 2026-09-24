@@ -8,82 +8,410 @@ on:
   workflow_dispatch:
     inputs:
       force_full_run:
-        description: 'Force a full CI run'
+        description: 'Force a full CI run (ignore change detection)'
         type: boolean
         default: false
-  release:
-    types: [published]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
 
 jobs:
   # ──────────────────────────────────────────────
-  # Job 0: Detect changes
+  # Detect changes to enable affected-package targeting
   # ──────────────────────────────────────────────
-  changes:
-    runs-on: ubuntu-latest
-    outputs:
-      backend: ${{ steps.filter.outputs.backend }}
-      client: ${{ steps.filter.outputs.client }}
-      sdk: ${{ steps.filter.outputs.sdk }}
-      shared: ${{ steps.filter.outputs.shared }}
-      force_full_run: ${{ github.event.inputs.force_full_run || 'false' }}
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v4
-        id: filter
-        with:
-          filters: |
-            backend:
-              - 'backend/**'
-              - 'shared/**'
-              - 'package.json'
-              - 'package-lock.json'
-            client:
-              - 'client/**'
-              - 'shared/**'
-              - 'package.json'
-              - 'package-lock.json'
-            sdk:
-              - 'sdk/**'
-              - 'shared/**'
-              - 'package.json'
-              - 'package-lock.json'
-            shared:
-              - 'shared/**'
-              - 'package.json'
-              - 'package-lock.json'
+  detect-changes:
+    name: Detect Changed Packages
+    uses: ./.github/workflows/_composite/detect-changes.yml
+    with:
+      filter-patterns: |
+        backend:
+          - 'backend/**'
+          - 'shared/**'
+        client:
+          - 'client/**'
+          - 'shared/**'
+        sdk:
+          - 'sdk/**'
+          - 'shared/**'
+        shared:
+          - 'shared/**'
+        contracts:
+          - 'contracts/**'
+        docs:
+          - 'docs/**'
+          - 'README.md'
+          - '*.md'
+        root:
+          - 'package.json'
+          - 'package-lock.json'
+          - 'tsconfig.json'
+          - '.github/**'
+          - 'scripts/**'
+          - 'app/**'
+      force-full-run: ${{ github.event.inputs.force_full_run }}
 
   # ──────────────────────────────────────────────
-  # Job 1: Validate environment variables
-  # Must pass before the build job starts.
+  # Typecheck — runs per package matrix
+  # ──────────────────────────────────────────────
+  typecheck:
+    name: Typecheck (${{ matrix.package }})
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs.force_full_run == 'true' ||
+      (matrix.package == 'backend' && needs.detect-changes.outputs.backend == 'true') ||
+      (matrix.package == 'client' && needs.detect-changes.outputs.client == 'true') ||
+      (matrix.package == 'sdk' && needs.detect-changes.outputs.sdk == 'true') ||
+      (matrix.package == 'shared' && needs.detect-changes.outputs.shared == 'true') ||
+      (matrix.package == 'root' && (needs.detect-changes.outputs.backend == 'true' || needs.detect-changes.outputs.client == 'true' || needs.detect-changes.outputs.sdk == 'true' || needs.detect-changes.outputs.shared == 'true' || needs.detect-changes.outputs.root == 'true'))
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [backend, client, sdk, shared, root]
+    steps:
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          working-directory: ${{ matrix.package == 'root' && '.' || matrix.package }}
+          cache-dependency-path: ${{ matrix.package == 'root' && 'package-lock.json' || matrix.package + '/package-lock.json' }}
+
+      - name: Install dependencies
+        uses: ./.github/workflows/_composite/install-deps.yml
+        with:
+          working-directory: ${{ matrix.package == 'root' && '.' || matrix.package }}
+
+      - name: Run Typecheck
+        run: |
+          if [ "${{ matrix.package }}" = "root" ]; then
+            npm run typecheck:root
+          else
+            npm run typecheck -w ${{ matrix.package }}
+          fi
+
+  # ──────────────────────────────────────────────
+  # Lint — runs per package matrix
+  # ──────────────────────────────────────────────
+  lint:
+    name: Lint (${{ matrix.package }})
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs.force_full_run == 'true' ||
+      (matrix.package == 'backend' && needs.detect-changes.outputs.backend == 'true') ||
+      (matrix.package == 'client' && needs.detect-changes.outputs.client == 'true') ||
+      (matrix.package == 'sdk' && needs.detect-changes.outputs.sdk == 'true') ||
+      (matrix.package == 'shared' && needs.detect-changes.outputs.shared == 'true') ||
+      (matrix.package == 'root' && (needs.detect-changes.outputs.backend == 'true' || needs.detect-changes.outputs.client == 'true' || needs.detect-changes.outputs.sdk == 'true' || needs.detect-changes.outputs.shared == 'true' || needs.detect-changes.outputs.root == 'true'))
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: root
+            command: |
+              # Root lint checks
+              ALLOWED="README.md CONTRIBUTING.md INSTALL.md AGENTS.md CLAUDE.md DEBT.md TODO.md LICENSE LICENSE.md requirements.txt PULL_REQUEST_TEMPLATE.md"
+              for file in *.md *.txt; do
+                if [ -f "$file" ]; then
+                  if ! echo "$ALLOWED" | grep -w -q "$file"; then
+                    echo "❌ Error: $file found in root. Move implementation artifacts to docs/."
+                    exit 1
+                  fi
+                fi
+              done
+              echo "✅ Root directory is clean"
+          - package: backend
+            command: npx eslint src --ext .ts --max-warnings 0
+          - package: client
+            command: npx next lint
+          - package: sdk
+            command: npx eslint "src/**/*.ts" --max-warnings 0
+          - package: shared
+            command: npm run check-imports
+    defaults:
+      run:
+        working-directory: ${{ matrix.package == 'root' && '.' || matrix.package }}
+    steps:
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          working-directory: ${{ matrix.package == 'root' && '.' || matrix.package }}
+          cache-dependency-path: ${{ matrix.package == 'root' && 'package-lock.json' || matrix.package + '/package-lock.json' }}
+
+      - name: Install dependencies
+        uses: ./.github/workflows/_composite/install-deps.yml
+        with:
+          working-directory: ${{ matrix.package == 'root' && '.' || matrix.package }}
+
+      - name: Run Lint
+        run: ${{ matrix.command }}
+
+  # ──────────────────────────────────────────────
+  # Unit Tests — runs per package matrix with coverage
+  # ──────────────────────────────────────────────
+  unit-tests:
+    name: Unit Tests (${{ matrix.package }})
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs.force_full_run == 'true' ||
+      (matrix.package == 'backend' && needs.detect-changes.outputs.backend == 'true') ||
+      (matrix.package == 'client' && needs.detect-changes.outputs.client == 'true') ||
+      (matrix.package == 'sdk' && needs.detect-changes.outputs.sdk == 'true') ||
+      (matrix.package == 'shared' && needs.detect-changes.outputs.shared == 'true')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: backend
+            node-version: "20"
+            test-command: npm test -- --coverage --ci
+            coverage-path: backend/coverage/coverage-summary.json
+            env:
+              NODE_ENV: test
+              JWT_SECRET: test-secret
+              ADMIN_API_KEY: test-admin-key
+          - package: client
+            node-version: "20"
+            test-command: npm test -- --coverage --run
+            coverage-path: client/coverage/coverage-summary.json
+            env: {}
+          - package: sdk
+            node-version: "23.4.0"
+            test-command: npm test -- --ci --coverage
+            coverage-path: sdk/coverage/coverage-summary.json
+            env:
+              NODE_OPTIONS: --experimental-vm-modules
+          - package: shared
+            node-version: "20"
+            test-command: npx jest --coverage --ci
+            coverage-path: shared/coverage/coverage-summary.json
+            env: {}
+    env:
+      ${{ matrix.env }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.package }}
+    steps:
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          node-version: ${{ matrix.node-version }}
+          working-directory: ${{ matrix.package }}
+          cache-dependency-path: ${{ matrix.package }}/package-lock.json
+
+      - name: Install dependencies
+        uses: ./.github/workflows/_composite/install-deps.yml
+        with:
+          working-directory: ${{ matrix.package }}
+          node-version: ${{ matrix.node-version }}
+
+      - name: Run unit tests with coverage
+        run: ${{ matrix.test-command }}
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: coverage-${{ matrix.package }}
+          path: ${{ matrix.coverage-path }}
+          if-no-files-found: warn
+          retention-days: 7
+
+  # ──────────────────────────────────────────────
+  # Security Audit — dependency vulnerability scan per workspace
+  # ──────────────────────────────────────────────
+  security-audit:
+    name: Security Audit (${{ matrix.workspace }})
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs.force_full_run == 'true' ||
+      (matrix.workspace == 'backend' && needs.detect-changes.outputs.backend == 'true') ||
+      (matrix.workspace == 'client' && needs.detect-changes.outputs.client == 'true') ||
+      (matrix.workspace == 'sdk' && needs.detect-changes.outputs.sdk == 'true') ||
+      (matrix.workspace == 'shared' && needs.detect-changes.outputs.shared == 'true')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace: [backend, client, sdk, shared]
+    steps:
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          working-directory: ${{ matrix.workspace }}
+          cache-dependency-path: ${{ matrix.workspace }}/package-lock.json
+
+      - name: Install dependencies
+        uses: ./.github/workflows/_composite/install-deps.yml
+        with:
+          working-directory: ${{ matrix.workspace }}
+          ignore-scripts: true
+
+      - name: Run dependency audit gate
+        working-directory: ${{ matrix.workspace }}
+        run: node ../scripts/security-audit-gate.js ${{ matrix.workspace }} ${{ matrix.workspace }}
+
+  # ──────────────────────────────────────────────
+  # Build Client — only if client changed
+  # ──────────────────────────────────────────────
+  build-client:
+    name: Build Client
+    needs: [detect-changes, typecheck, lint, security-audit]
+    if: ${{ needs.detect-changes.outputs.force_full_run == 'true' || needs.detect-changes.outputs.client == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          working-directory: client
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install dependencies
+        uses: ./.github/workflows/_composite/install-deps.yml
+        with:
+          working-directory: client
+
+      - name: Build client
+        working-directory: client
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+        run: npm run build
+
+  # ──────────────────────────────────────────────
+  # SDK — Build, Test, and Validation (typecheck, lint, build, test)
+  # ──────────────────────────────────────────────
+  sdk-validation:
+    name: SDK Validation
+    needs: [detect-changes, typecheck, lint, security-audit]
+    if: ${{ needs.detect-changes.outputs.force_full_run == 'true' || needs.detect-changes.outputs.sdk == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk
+    steps:
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          node-version: "23.4.0"
+          working-directory: sdk
+          cache-dependency-path: sdk/package-lock.json
+
+      - name: Install dependencies
+        uses: ./.github/workflows/_composite/install-deps.yml
+        with:
+          working-directory: sdk
+          node-version: "23.4.0"
+
+      - name: Build SDK
+        run: npm run build
+
+      - name: Run SDK tests
+        env:
+          NODE_OPTIONS: --experimental-vm-modules
+        run: npm test -- --ci
+
+      - name: Run browser crypto tests
+        env:
+          NODE_OPTIONS: --experimental-vm-modules
+        run: npm run test:browser -- --ci
+
+      - name: Assert no Node crypto in browser entry
+        run: npm run assert:no-node-crypto
+
+      - name: Upload test artifacts on failure
+        uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: sdk-test-results
+          path: sdk/coverage/
+          retention-days: 7
+
+  # ──────────────────────────────────────────────
+  # Backend Tests (integration-style with real deps)
+  # ──────────────────────────────────────────────
+  test-backend:
+    name: Test Backend (Integration)
+    needs: [detect-changes, validate-env, security-audit]
+    if: ${{ needs.detect-changes.outputs.force_full_run == 'true' || needs.detect-changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      JWT_SECRET: test-secret
+      ADMIN_API_KEY: test-admin-key
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASS: ${{ secrets.SMTP_PASS }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      SOROBAN_CONTRACT_ADDRESS: ${{ secrets.SOROBAN_CONTRACT_ADDRESS }}
+      STELLAR_NETWORK_URL: ${{ secrets.STELLAR_NETWORK_URL }}
+      ADMISSION_TOTAL_BUDGET_MS: ${{ secrets.ADMISSION_TOTAL_BUDGET_MS }}
+      ADMISSION_PARALLEL_CHECKS: ${{ secrets.ADMISSION_PARALLEL_CHECKS }}
+    steps:
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          working-directory: backend
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        uses: ./.github/workflows/_composite/install-deps.yml
+        with:
+          working-directory: backend
+          use-ci: false
+
+      - name: Verify generated API contracts are current
+        run: npm run contracts:check
+
+      - name: Verify OpenAPI route and response coverage
+        run: npm test -- --runInBand openapi-contract-coverage.test.ts
+
+      - name: Run backend tests with coverage
+        run: npm test -- --coverage --ci
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: coverage-backend
+          path: backend/coverage/coverage-summary.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  # ──────────────────────────────────────────────
+  # Validate Environment Variables
   # ──────────────────────────────────────────────
   validate-env:
     name: Validate Environment Variables
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs.force_full_run == 'true' ||
+      needs.detect-changes.outputs.backend == 'true' ||
+      needs.detect-changes.outputs.client == 'true' ||
+      needs.detect-changes.outputs.sdk == 'true'
     runs-on: ubuntu-latest
-    needs: changes
-    if: ${{ needs.changes.outputs.force_full_run == 'true' || needs.changes.outputs.backend == 'true' || needs.changes.outputs.client == 'true' || needs.changes.outputs.sdk == 'true' }}
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
+      - uses: ./.github/workflows/_composite/setup-node.yml
         with:
-          node-version: "20"
+          working-directory: .
 
-      # ── Structural check (always — PRs + pushes) ──────────────────────────
-      # Secret-free: asserts manifests and .env.example files are in sync.
-      # Fails fast on config drift without needing real secrets, so forked /
-      # contributor PRs are not broken by absent secrets.
       - name: Structural env check (manifests ↔ .env.example)
         run: |
           node scripts/check-env-docs.js
           node backend/scripts/validate-env.js --structural
           node client/scripts/validate-env.js --structural
 
-      # ── Strict presence check (pushes to protected branches only) ─────────
-      # Real secrets are injected here; the validators hard-fail if any
-      # REQUIRED var is missing (issue #601 — CI fails fast).
       - name: Validate client environment variables (strict)
         if: github.event_name == 'push'
         env:
@@ -111,155 +439,74 @@ jobs:
         run: node backend/scripts/validate-env.js
 
   # ──────────────────────────────────────────────
-  # Job 2: Validate dependencies
-  # Ensures no 'latest' versions and lockfiles are up to date
+  # Validate Dependencies & Governance
   # ──────────────────────────────────────────────
-  validate-dependencies:
-    name: Validate Dependencies
+  validate-deps:
+    name: Validate Dependencies & Governance
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs.force_full_run == 'true' ||
+      needs.detect-changes.outputs.backend == 'true' ||
+      needs.detect-changes.outputs.client == 'true' ||
+      needs.detect-changes.outputs.sdk == 'true' ||
+      needs.detect-changes.outputs.shared == 'true'
     runs-on: ubuntu-latest
-    needs: [changes, validate-env]
-    if: ${{ needs.changes.outputs.force_full_run == 'true' || needs.changes.outputs.backend == 'true' || needs.changes.outputs.client == 'true' || needs.changes.outputs.sdk == 'true' }}
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          working-directory: .
 
-      - name: Reject non-npm lockfiles (pnpm-lock.yaml, yarn.lock)
-        # This repo standardises on npm. Committing pnpm or yarn lockfiles
-        # causes non-reproducible installs (issue #557).
+      - name: Reject non-npm lockfiles
         run: |
           bad_files=$(find . -not -path './.git/*' \( -name 'pnpm-lock.yaml' -o -name 'yarn.lock' \))
           if [ -n "$bad_files" ]; then
             echo "❌ Non-npm lockfile(s) found — only package-lock.json is permitted:"
             echo "$bad_files"
-            echo ""
-            echo "Remove the file(s) and add them to .gitignore. See issue #557."
             exit 1
           fi
           echo "✅ No pnpm or yarn lockfiles found"
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: "20"
-
       - name: Validate intentional package names
         run: node scripts/check-package-names.js
 
-      - name: Check for 'latest' in client package.json
-        if: ${{ needs.changes.outputs.force_full_run == 'true' || needs.changes.outputs.client == 'true' }}
+      - name: Check for 'latest' in package.json files
         run: |
-          if grep -q '"latest"' client/package.json; then
-            echo "❌ Error: 'latest' version found in client/package.json"
-            echo "Please specify an exact version or semver range."
-            exit 1
-          fi
-          echo "✅ No 'latest' versions found in client/package.json"
+          for pkg in client backend sdk shared; do
+            if [ -f "$pkg/package.json" ] && grep -q '"latest"' "$pkg/package.json"; then
+              echo "❌ Error: 'latest' version found in $pkg/package.json"
+              exit 1
+            fi
+          done
+          echo "✅ No 'latest' versions found"
 
-      - name: Check for 'latest' in backend package.json
-        if: ${{ needs.changes.outputs.force_full_run == 'true' || needs.changes.outputs.backend == 'true' }}
+      - name: Verify lockfiles are committed
         run: |
-          if grep -q '"latest"' backend/package.json; then
-            echo "❌ Error: 'latest' version found in backend/package.json"
-            echo "Please specify an exact version or semver range."
-            exit 1
-          fi
-          echo "✅ No 'latest' versions found in backend/package.json"
+          for pkg in client backend sdk shared; do
+            if [ -f "$pkg/package.json" ] && [ ! -f "$pkg/package-lock.json" ]; then
+              echo "❌ Error: $pkg/package-lock.json not found"
+              exit 1
+            fi
+          done
+          echo "✅ All lockfiles are committed"
 
-      - name: Validate client dependencies
-        if: ${{ needs.changes.outputs.force_full_run == 'true' || needs.changes.outputs.client == 'true' }}
-        working-directory: client
-        run: node scripts/validate-deps.js
-
-      - name: Verify client lockfile is committed
-        if: ${{ needs.changes.outputs.force_full_run == 'true' || needs.changes.outputs.client == 'true' }}
+      - name: Install and verify lockfiles are up to date
         run: |
-          if [ ! -f "client/package-lock.json" ]; then
-            echo "❌ Error: client/package-lock.json not found"
-            echo "Please commit the lockfile to ensure reproducible builds."
-            exit 1
-          fi
-          echo "✅ Client lockfile is committed"
+          for pkg in client backend; do
+            if [ -d "$pkg" ]; then
+              (cd "$pkg" && npm ci && git diff --exit-code package-lock.json) || {
+                echo "❌ Error: $pkg/package-lock.json is out of sync"
+                exit 1
+              }
+            fi
+          done
+          echo "✅ All lockfiles are up to date"
 
-      - name: Verify backend lockfile is committed
-        if: ${{ needs.changes.outputs.force_full_run == 'true' || needs.changes.outputs.backend == 'true' }}
+      - name: Validate issue governance
         run: |
-          if [ ! -f "backend/package-lock.json" ]; then
-            echo "❌ Error: backend/package-lock.json not found"
-            echo "Please commit the lockfile to ensure reproducible builds."
-            exit 1
-          fi
-          echo "✅ Backend lockfile is committed"
-
-      - name: Verify exactly one Next.js config exists (client/next.config.mjs)
-        run: |
-          count=$(find . -maxdepth 1 -name "next.config.*" | wc -l)
-          if [ "$count" -ne 0 ]; then
-            echo "❌ Stale root-level next.config.* file(s) detected:"
-            find . -maxdepth 1 -name "next.config.*"
-            echo "Only client/next.config.mjs should exist."
-            exit 1
-          fi
-          if [ ! -f "client/next.config.mjs" ]; then
-            echo "❌ client/next.config.mjs is missing."
-            exit 1
-          fi
-          client_count=$(find client -maxdepth 1 -name "next.config.*" | wc -l)
-          if [ "$client_count" -ne 1 ]; then
-            echo "❌ Expected exactly 1 Next.js config under client/, found $client_count:"
-            find client -maxdepth 1 -name "next.config.*"
-            exit 1
-          fi
-          echo "✅ Exactly one Next.js config found: client/next.config.mjs"
-
-      - name: Install client dependencies and verify lockfile
-        if: ${{ needs.changes.outputs.force_full_run == 'true' || needs.changes.outputs.client == 'true' }}
-        working-directory: client
-        run: |
-          npm ci
-          if ! git diff --exit-code package-lock.json; then
-            echo "❌ Error: package-lock.json is out of sync"
-            echo "Please run 'npm install' and commit the updated lockfile."
-            exit 1
-          fi
-          echo "✅ Client lockfile is up to date"
-
-      - name: Install backend dependencies and verify lockfile
-        if: ${{ needs.changes.outputs.force_full_run == 'true' || needs.changes.outputs.backend == 'true' }}
-        working-directory: backend
-        run: |
-          npm ci
-          if ! git diff --exit-code package-lock.json; then
-            echo "❌ Error: package-lock.json is out of sync"
-            echo "Please run 'npm install' and commit the updated lockfile."
-            exit 1
-          fi
-          echo "✅ Backend lockfile is up to date"
-
-  # ──────────────────────────────────────────────
-  # Job 2b: Validate issue governance (labels, triage policy, templates)
-  # Runs unconditionally — governance files must always be consistent.
-  # Refs: #114, docs/issue-triage-policy.md, .github/labels.yml
-  # ──────────────────────────────────────────────
-  validate-governance:
-    name: Validate Issue Governance
-    runs-on: ubuntu-latest
-    needs: changes
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: "20"
-
-      - name: Validate labels taxonomy, triage policy, and issue templates
-        run: node scripts/check-issue-governance.js
-
-      - name: Run governance unit tests
-        run: node --test scripts/check-issue-governance.test.js
+          node scripts/check-issue-governance.js
+          node --test scripts/check-issue-governance.test.js
+          node scripts/check-contributing.js
+          node --test scripts/check-contributing.test.js
 
       - name: Check label drift against GitHub
         env:
@@ -267,32 +514,337 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: node scripts/check-label-drift.js
 
-      - name: Validate CONTRIBUTING.md onboarding guide
-        run: node scripts/check-contributing.js
+  # ──────────────────────────────────────────────
+  # Admission Budget Gate
+  # ──────────────────────────────────────────────
+  admission-budget-gate:
+    name: Admission Budget Gate
+    needs: [detect-changes, test-backend]
+    if: ${{ needs.detect-changes.outputs.force_full_run == 'true' || needs.detect-changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      ADMISSION_TOTAL_BUDGET_MS: ${{ secrets.ADMISSION_TOTAL_BUDGET_MS }}
+      ADMISSION_PARALLEL_CHECKS: ${{ secrets.ADMISSION_PARALLEL_CHECKS }}
+      ADMISSION_IDENTITY_CACHE_ENABLED: ${{ secrets.ADMISSION_IDENTITY_CACHE_ENABLED }}
+      ADMISSION_SCOPE_CACHE_ENABLED: ${{ secrets.ADMISSION_SCOPE_CACHE_ENABLED }}
+      ADMISSION_CAP_CACHE_ENABLED: ${{ secrets.ADMISSION_CAP_CACHE_ENABLED }}
+      ADMISSION_METER_CACHE_ENABLED: ${{ secrets.ADMISSION_METER_CACHE_ENABLED }}
+      ADMISSION_BUDGET_ENFORCEMENT: ${{ secrets.ADMISSION_BUDGET_ENFORCEMENT }}
+      ADMISSION_MIN_SAMPLES_P99: ${{ secrets.ADMISSION_MIN_SAMPLES_P99 }}
+      ADMISSION_P99_WINDOW_MS: ${{ secrets.ADMISSION_P99_WINDOW_MS }}
+    steps:
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          working-directory: backend
+          cache-dependency-path: backend/package-lock.json
 
-      - name: Run CONTRIBUTING guide unit tests
-        run: node --test scripts/check-contributing.test.js
+      - name: Install dependencies
+        uses: ./.github/workflows/_composite/install-deps.yml
+        with:
+          working-directory: backend
+
+      - name: Run admission tests to collect p99 samples
+        run: npm test -- --testPathPattern="admission-service" --coverage --ci
+
+      - name: Check admission budget compliance
+        run: npx ts-node scripts/check-admission-budget.ts
+
+      - name: Upload admission metrics on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: admission-metrics
+          path: backend/coverage/
+          retention-days: 7
 
   # ──────────────────────────────────────────────
-  # Job 4: SBOM generation and provenance attestation
-  # Runs on published releases to create and attach CycloneDX SBOM
-  # and SLSA provenance attestation to the release assets.
+  # Coverage Report Aggregation
+  # ──────────────────────────────────────────────
+  coverage-report:
+    name: Coverage Report
+    needs: [unit-tests, test-backend]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+
+      - name: Download coverage artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: coverage-*
+          path: artifacts
+
+      - name: Place summaries where aggregator expects them
+        run: |
+          set -e
+          for pkg in backend client sdk; do
+            if [ -f "artifacts/coverage-$pkg/coverage-summary.json" ]; then
+              mkdir -p "$pkg/coverage"
+              cp "artifacts/coverage-$pkg/coverage-summary.json" "$pkg/coverage/"
+            fi
+          done
+          if [ -f "artifacts/coverage-shared/coverage-summary.json" ]; then
+            mkdir -p shared/coverage
+            cp artifacts/coverage-shared/coverage-summary.json shared/coverage/
+          fi
+
+      - name: Restore baseline coverage
+        if: github.event_name == 'pull_request'
+        uses: actions/cache/restore@v4
+        with:
+          path: coverage-baseline.json
+          key: coverage-baseline-${{ github.base_ref }}-${{ github.sha }}
+          restore-keys: |
+            coverage-baseline-${{ github.base_ref }}-
+
+      - name: Build coverage report
+        run: |
+          node scripts/coverage-report.js \
+            --baseline coverage-baseline.json \
+            --out coverage-report.md \
+            --json coverage-current.json
+          cat coverage-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment on PR with coverage
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('coverage-report.md', 'utf8')
+              + '\n<!-- syncro-coverage-report -->';
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner, repo, issue_number });
+            const existing = comments.find((c) =>
+              c.user.type === 'Bot' && c.body.includes('<!-- syncro-coverage-report -->'));
+
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+      - name: Save baseline coverage
+        if: github.event_name == 'push'
+        run: cp coverage-current.json coverage-baseline.json
+
+      - name: Cache baseline coverage
+        if: github.event_name == 'push'
+        uses: actions/cache/save@v4
+        with:
+          path: coverage-baseline.json
+          key: coverage-baseline-${{ github.ref_name }}-${{ github.sha }}
+
+      - name: Enforce minimum coverage
+        run: node scripts/coverage-report.js --check
+
+  # ──────────────────────────────────────────────
+  # Email Parser Accuracy Gate
+  # ──────────────────────────────────────────────
+  email-parser-accuracy:
+    name: Email Parser Accuracy
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs.force_full_run == 'true' ||
+      needs.detect-changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      NODE_ENV: test
+    steps:
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          working-directory: backend
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        uses: ./.github/workflows/_composite/install-deps.yml
+        with:
+          working-directory: backend
+
+      - name: Verify corpus contains no personal data
+        run: npx jest tests/email-corpus-redaction.test.ts --ci
+
+      - name: Score parser against golden corpus
+        run: npx jest tests/email-parser-corpus.test.ts --ci
+
+      - name: Explain regression on failure
+        if: failure()
+        run: |
+          {
+            echo "### Accuracy gate failed"
+            echo
+            echo "Parsing accuracy dropped below the committed baseline in"
+            echo '`backend/tests/fixtures/email-corpus/baseline.json`.'
+            echo
+            echo "The baseline is a measured floor, not a target. Fix the parser."
+            echo "Only regenerate the baseline when accuracy genuinely improves:"
+            echo
+            echo '```'
+            echo 'npx ts-node backend/scripts/update-email-corpus-baseline.ts'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ──────────────────────────────────────────────
+  # Validate Documentation
+  # ──────────────────────────────────────────────
+  validate-docs:
+    name: Validate Documentation
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs.force_full_run == 'true' ||
+      needs.detect-changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          working-directory: .
+
+      - name: Install dependencies
+        uses: ./.github/workflows/_composite/install-deps.yml
+        with:
+          working-directory: .
+
+      - name: Reject absolute file:// documentation links
+        run: node --test scripts/validate-docs.test.js
+
+      - name: Run doc validation
+        run: node scripts/validate-docs.js
+
+      - name: Comment on PR if validation fails
+        if: failure()
+        uses: actions/github-script@v9
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '❌ Documentation code sample validation failed. Please fix the code examples in your markdown files.'
+            })
+
+  # ──────────────────────────────────────────────
+  # Generate OpenAPI Spec
+  # ──────────────────────────────────────────────
+  generate-openapi:
+    name: Generate OpenAPI
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs.force_full_run == 'true' ||
+      needs.detect-changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          working-directory: backend
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        uses: ./.github/workflows/_composite/install-deps.yml
+        with:
+          working-directory: backend
+
+      - name: Generate OpenAPI JSON
+        working-directory: backend
+        run: npm run swagger:export
+
+      - name: Upload OpenAPI artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: openapi-spec
+          path: docs/api-reference/openapi.json
+
+  # ──────────────────────────────────────────────
+  # Validate Generated Types
+  # ──────────────────────────────────────────────
+  validate-generated-types:
+    name: Validate Generated Types
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs.force_full_run == 'true' ||
+      needs.detect-changes.outputs.backend == 'true' ||
+      needs.detect-changes.outputs.sdk == 'true' ||
+      needs.detect-changes.outputs.shared == 'true' ||
+      needs.detect-changes.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          working-directory: .
+
+      - name: Install dependencies
+        uses: ./.github/workflows/_composite/install-deps.yml
+        with:
+          working-directory: .
+          legacy-peer-deps: true
+          ignore-scripts: true
+
+      - name: Fail if generated types are stale
+        run: npm run check:generated
+
+  # ──────────────────────────────────────────────
+  # Check migration source of truth
+  # ──────────────────────────────────────────────
+  migration-audit:
+    name: Migration Source Audit
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs.force_full_run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          working-directory: .
+
+      - name: Verify no active migrations in backend/migrations/
+        run: ./scripts/check-no-backend-migrations.sh
+
+  # ──────────────────────────────────────────────
+  # Tech Debt Policy (TODO/FIXME)
+  # ──────────────────────────────────────────────
+  debt-policy:
+    name: Tech Debt Policy
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          node-version: "22"
+          working-directory: .
+
+      - name: Enforce TODO/FIXME issue references in critical paths
+        run: node scripts/check-todos.mjs
+
+  # ──────────────────────────────────────────────
+  # Release Supply Chain (SBOM & Provenance on release)
   # ──────────────────────────────────────────────
   release-supply-chain:
     name: SBOM & Provenance
-    runs-on: ubuntu-latest
     if: github.event_name == 'release' && github.event.action == 'published'
+    runs-on: ubuntu-latest
     permissions:
       contents: write
       id-token: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
+      - uses: ./.github/workflows/_composite/setup-node.yml
         with:
-          node-version: "20"
+          working-directory: .
 
       - name: Generate CycloneDX SBOM
         run: |
@@ -307,284 +859,3 @@ jobs:
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: sbom.json
-
-  # ──────────────────────────────────────────────
-  # Job 3: Dependency vulnerability scan (issue #1079)
-  # Re-establishes the audit gate that pr-728 removed. Runs once per
-  # npm workspace and gates on scripts/security-audit-gate.js, which
-  # reads .github/dependency-audit-allowlist.json and docs/security/
-  # dependency-triage.md. Drops --omit=dev so that dev-time CVEs
-  # (e.g. compromised eslint plugins) are surfaced.
-  #
-  # Skip-propagation: when no workspace files change, every matrix entry
-  # is skipped, so the aggregate `security-audit` is `skipped`. Downstream
-  # `build-client`, `test-client`, `test-backend`, `test-sdk` each declare
-  # `needs: security-audit`, so they will also be skipped. This is NOT a
-  # regression: each downstream already has its own workspace-gated `if:`
-  # and would skip in that scenario anyway. Do NOT remove the element-level
-  # `if:` on this matrix, that creates a real regression where downstream
-  # tests run without their own workspace being touched.
-  # ──────────────────────────────────────────────
-  security-audit:
-    name: Security Audit (${{ matrix.workspace }})
-    runs-on: ubuntu-latest
-    needs: changes
-    if: ${{ needs.changes.outputs.force_full_run == 'true' || needs.changes.outputs[matrix.workspace] == 'true' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        workspace: [backend, client, sdk, shared]
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: ${{ matrix.workspace }}/package-lock.json
-
-      - name: Install ${{ matrix.workspace }} dependencies
-        working-directory: ${{ matrix.workspace }}
-        run: npm ci --ignore-scripts
-
-      - name: Run dependency audit gate
-        working-directory: ${{ matrix.workspace }}
-        run: node ../scripts/security-audit-gate.js ${{ matrix.workspace }} ${{ matrix.workspace }}
-
-  # ──────────────────────────────────────────────
-  # Job 4: Build the client
-  # Only runs if validate-env passes.
-  # ──────────────────────────────────────────────
-  build-client:
-    name: Build Client
-    runs-on: ubuntu-latest
-    needs: [changes, validate-dependencies, security-audit]
-    if: ${{ needs.changes.outputs.force_full_run == 'true' || needs.changes.outputs.client == 'true' }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: client/package-lock.json
-
-      - name: Install client dependencies
-        working-directory: client
-        run: npm ci
-
-      - name: Build client
-        working-directory: client
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
-          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
-          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
-        run: npm run build
-
-  # ──────────────────────────────────────────────
-  # Job 4: SDK — install, build, test
-  # Runs in parallel with build-client and test-backend.
-  # Blocks merges on any SDK regression.
-  # ──────────────────────────────────────────────
-  test-sdk:
-    name: SDK — Build & Test
-    runs-on: ubuntu-latest
-    needs: [changes, validate-env, security-audit]
-    if: ${{ needs.changes.outputs.force_full_run == 'true' || needs.changes.outputs.sdk == 'true' }}
-
-    defaults:
-      run:
-        working-directory: sdk
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          # Matches sdk/.tool-versions (nodejs 23.4.0)
-          node-version: "23.4.0"
-          cache: "npm"
-          cache-dependency-path: sdk/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run typecheck
-        run: npm run typecheck
-
-      - name: Run lint
-        run: npm run lint
-
-      - name: Build
-        run: npm run build
-
-      - name: Run tests
-        env:
-          NODE_OPTIONS: --experimental-vm-modules
-        run: npm test -- --ci --coverage
-
-      - name: Run crypto tests in a browser-like environment
-        env:
-          NODE_OPTIONS: --experimental-vm-modules
-        run: npm run test:browser -- --ci
-
-      - name: Assert browser crypto entry has no Node builtin
-        run: npm run assert:no-node-crypto
-
-      - name: Upload test artifacts on failure
-        uses: actions/upload-artifact@v7
-        if: failure()
-        with:
-          name: sdk-test-results
-          path: |
-            sdk/coverage/
-          retention-days: 7
-
-  # ──────────────────────────────────────────────
-  # Job 5: Run backend tests
-  # Only runs if validate-env passes.
-  # ──────────────────────────────────────────────
-  test-client:
-    name: Test Client
-    runs-on: ubuntu-latest
-    needs: [changes, validate-env, security-audit]
-    if: ${{ needs.changes.outputs.force_full_run == 'true' || needs.changes.outputs.client == 'true' }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: client/package-lock.json
-
-      - name: Install client dependencies
-        working-directory: client
-        run: npm ci
-
-      - name: Run client unit tests
-        working-directory: client
-        run: npm test
-
-  test-backend:
-    name: Test Backend
-    runs-on: ubuntu-latest
-    needs: [changes, validate-dependencies, security-audit]
-    if: ${{ needs.changes.outputs.force_full_run == 'true' || needs.changes.outputs.backend == 'true' }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: backend/package-lock.json
-
-      - name: Install backend dependencies
-        working-directory: backend
-        run: npm install
-
-      - name: Run backend tests
-        working-directory: backend
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          PORT: ${{ secrets.PORT }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          SMTP_USER: ${{ secrets.SMTP_USER }}
-          SMTP_PASS: ${{ secrets.SMTP_PASS }}
-          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
-          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-          SOROBAN_CONTRACT_ADDRESS: ${{ secrets.SOROBAN_CONTRACT_ADDRESS }}
-          STELLAR_NETWORK_URL: ${{ secrets.STELLAR_NETWORK_URL }}
-          ADMISSION_TOTAL_BUDGET_MS: ${{ secrets.ADMISSION_TOTAL_BUDGET_MS }}
-          ADMISSION_IDENTITY_RESOLUTION_MS: ${{ secrets.ADMISSION_IDENTITY_RESOLUTION_MS }}
-          ADMISSION_SCOPE_READ_MS: ${{ secrets.ADMISSION_SCOPE_READ_MS }}
-          ADMISSION_CAP_CHECK_MS: ${{ secrets.ADMISSION_CAP_CHECK_MS }}
-          ADMISSION_METER_RESERVE_MS: ${{ secrets.ADMISSION_METER_RESERVE_MS }}
-          ADMISSION_BUDGET_ENFORCEMENT: ${{ secrets.ADMISSION_BUDGET_ENFORCEMENT }}
-          ADMISSION_PARALLEL_CHECKS: ${{ secrets.ADMISSION_PARALLEL_CHECKS }}
-          ADMISSION_IDENTITY_CACHE_ENABLED: ${{ secrets.ADMISSION_IDENTITY_CACHE_ENABLED }}
-          ADMISSION_SCOPE_CACHE_ENABLED: ${{ secrets.ADMISSION_SCOPE_CACHE_ENABLED }}
-          ADMISSION_CAP_CACHE_ENABLED: ${{ secrets.ADMISSION_CAP_CACHE_ENABLED }}
-          ADMISSION_METER_CACHE_ENABLED: ${{ secrets.ADMISSION_METER_CACHE_ENABLED }}
-        run: npm test -- --coverage --ci
-
-  # ──────────────────────────────────────────────
-  # Job 6: Admission budget gate
-  # Gates CI on the admission p99 latency budget.
-  # Prevents new checks from silently being added
-  # to the hot path without a budget allocation.
-  # ──────────────────────────────────────────────
-  admission-budget-gate:
-    name: Admission Budget Gate
-    runs-on: ubuntu-latest
-    needs: [changes, test-backend]
-    if: ${{ needs.changes.outputs.force_full_run == 'true' || needs.changes.outputs.backend == 'true' }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: backend/package-lock.json
-
-      - name: Install backend dependencies
-        working-directory: backend
-        run: npm ci
-
-      - name: Run admission tests to collect p99 samples
-        working-directory: backend
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          ADMISSION_TOTAL_BUDGET_MS: ${{ secrets.ADMISSION_TOTAL_BUDGET_MS }}
-          ADMISSION_PARALLEL_CHECKS: ${{ secrets.ADMISSION_PARALLEL_CHECKS }}
-          ADMISSION_IDENTITY_CACHE_ENABLED: ${{ secrets.ADMISSION_IDENTITY_CACHE_ENABLED }}
-          ADMISSION_SCOPE_CACHE_ENABLED: ${{ secrets.ADMISSION_SCOPE_CACHE_ENABLED }}
-          ADMISSION_CAP_CACHE_ENABLED: ${{ secrets.ADMISSION_CAP_CACHE_ENABLED }}
-          ADMISSION_METER_CACHE_ENABLED: ${{ secrets.ADMISSION_METER_CACHE_ENABLED }}
-        run: npm test -- --testPathPattern="admission-service" --coverage --ci
-
-      - name: Check admission budget compliance
-        working-directory: backend
-        env:
-          ADMISSION_TOTAL_BUDGET_MS: ${{ secrets.ADMISSION_TOTAL_BUDGET_MS }}
-          ADMISSION_BUDGET_ENFORCEMENT: ${{ secrets.ADMISSION_BUDGET_ENFORCEMENT }}
-          ADMISSION_MIN_SAMPLES_P99: ${{ secrets.ADMISSION_MIN_SAMPLES_P99 }}
-          ADMISSION_P99_WINDOW_MS: ${{ secrets.ADMISSION_P99_WINDOW_MS }}
-        run: npx ts-node scripts/check-admission-budget.ts
-
-      - name: Upload admission metrics on failure
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: admission-metrics
-          path: |
-            backend/coverage/
-          retention-days: 7

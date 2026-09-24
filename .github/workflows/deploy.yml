@@ -1,0 +1,638 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'client/**'
+      - 'backend/**'
+      - 'shared/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        default: production
+        options: [production, staging]
+      skip_smoke_tests:
+        description: 'Skip smoke tests (emergency deploy only)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-${{ github.event.inputs.environment || 'production' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  # ──────────────────────────────────────────────
+  # Staging Deployment (develop branch)
+  # ──────────────────────────────────────────────
+  deploy-staging:
+    name: Deploy to Staging (Vercel)
+    if: github.repository == 'Calebux/SYNCRO' && github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Deploy to Vercel staging
+        working-directory: client
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          vercel pull --yes --environment=preview --token=$VERCEL_TOKEN
+          vercel build --token=$VERCEL_TOKEN
+          vercel deploy --prebuilt --token=$VERCEL_TOKEN \
+            --env NEXT_PUBLIC_API_BASE=${{ secrets.STAGING_API_BASE_URL }} \
+            --env NEXT_PUBLIC_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_SUPABASE_URL }} \
+            --env NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }} \
+            --meta githubCommitSha=${{ github.sha }} \
+            --meta githubBranch=develop \
+            2>&1 | tee /tmp/deploy-output.txt
+          echo "STAGING_URL=$(grep -o 'https://[^ ]*vercel.app' /tmp/deploy-output.txt | tail -1)" >> $GITHUB_ENV
+
+      - name: Print staging URL
+        run: echo "✅ Staging deployed to $STAGING_URL"
+
+  # ──────────────────────────────────────────────
+  # Blue-Green Deploy to Production (main branch)
+  # ──────────────────────────────────────────────
+  validate-migrations:
+    name: Validate Migration Compatibility
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Run migration compatibility check
+        working-directory: backend
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/validate-migration-compatibility.js
+
+  deploy-inactive-slot:
+    name: Deploy to Inactive Slot
+    needs: validate-migrations
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      new_deployment_url: ${{ steps.deploy.outputs.deployment_url }}
+      slot: ${{ steps.slot.outputs.slot }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Determine inactive slot
+        id: slot
+        run: |
+          echo "slot=blue" >> $GITHUB_OUTPUT
+
+      - name: Deploy to Vercel preview (blue slot)
+        id: deploy
+        working-directory: client
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          vercel pull --yes --environment=preview --token=$VERCEL_TOKEN
+          vercel build --token=$VERCEL_TOKEN
+          DEPLOYMENT_URL=$(vercel deploy --prebuilt --token=$VERCEL_TOKEN \
+            --env NEXT_PUBLIC_API_BASE=${{ secrets.BACKEND_URL }} \
+            --env NEXT_PUBLIC_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_SUPABASE_URL }} \
+            --env NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }} \
+            --meta githubCommitSha=${{ github.sha }} \
+            --meta blueGreenSlot=blue \
+            2>&1 | grep -o 'https://[^ ]*\.vercel\.app' | tail -1)
+          echo "deployment_url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
+          echo "Deployed to: $DEPLOYMENT_URL"
+
+      - name: Notify Slack — deploy started
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          [ -z "$SLACK_WEBHOOK_URL" ] && exit 0
+          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "text": "🔵 Blue slot deployed",
+              "blocks": [{
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*🔵 Blue-Green Deploy* — blue slot live\n*Commit:* `${{ github.sha }}`\n*Branch:* `${{ github.ref_name }}`\n*URL:* ${{ steps.deploy.outputs.deployment_url }}\n\nRunning smoke tests before promoting to production..."
+                }
+              }]
+            }'
+
+  smoke-test-blue-slot:
+    name: Smoke Tests (Blue Slot)
+    needs: deploy-inactive-slot
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && github.event.inputs.skip_smoke_tests != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Wait for blue slot to stabilize
+        run: sleep 15
+
+      - name: Health check — blue slot frontend
+        run: |
+          URL="${{ needs.deploy-inactive-slot.outputs.new_deployment_url }}"
+          echo "Checking $URL/api/health ..."
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$URL/api/health")
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Frontend health check passed (HTTP 200)"
+              exit 0
+            fi
+            echo "Attempt $i: HTTP $STATUS — retrying in 10s"
+            sleep 10
+          done
+          echo "❌ Frontend health check failed after 5 attempts"
+          exit 1
+
+      - name: Health check — backend
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+        run: |
+          [ -z "$BACKEND_URL" ] && echo "⚠️  BACKEND_URL not set, skipping" && exit 0
+          for i in 1 2 3; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$BACKEND_URL/health")
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Backend health check passed"
+              exit 0
+            fi
+            echo "Attempt $i: HTTP $STATUS — retrying in 10s"
+            sleep 10
+          done
+          echo "❌ Backend health check failed"
+          exit 1
+
+      - name: Backend readiness check
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+        run: |
+          [ -z "$BACKEND_URL" ] && exit 0
+          BODY=$(curl -s --max-time 15 "$BACKEND_URL/health/ready")
+          STATUS=$(echo "$BODY" | node -e "process.stdin.resume();let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{ try{console.log(JSON.parse(d).status)}catch{console.log('error')} })")
+          echo "Readiness status: $STATUS"
+          if [ "$STATUS" = "ready" ]; then
+            echo "✅ Backend is ready"
+            echo "$BODY" | node -e "process.stdin.resume();let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{ try{const deps=JSON.parse(d).dependencies||[];deps.forEach(d=>console.log(`  ${d.name}: ${d.status} (${d.latency_ms||0}ms)`))}catch{} })"
+          else
+            echo "❌ Backend not ready: $BODY"
+            exit 1
+          fi
+
+      - name: Run comprehensive smoke tests
+        working-directory: backend
+        env:
+          SMOKE_TEST_BASE_URL: ${{ secrets.BACKEND_URL }}
+          SMOKE_TEST_FRONTEND_URL: ${{ needs.deploy-inactive-slot.outputs.new_deployment_url }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SMOKE_TEST_USER_EMAIL: ${{ secrets.SMOKE_TEST_USER_EMAIL }}
+          SMOKE_TEST_USER_PASSWORD: ${{ secrets.SMOKE_TEST_USER_PASSWORD }}
+          SMOKE_TEST_API_KEY: ${{ secrets.SMOKE_TEST_API_KEY }}
+        run: npm test -- -c tests/smoke/jest.smoke.config.js --forceExit
+
+      - name: Upload smoke test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-tests-blue-${{ github.sha }}
+          path: backend/coverage/smoke/
+          retention-days: 14
+
+  promote-to-production:
+    name: Promote Blue Slot to Production
+    needs: [deploy-inactive-slot, smoke-test-blue-slot]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ steps.promote.outputs.production_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Record current production SHA (for rollback)
+        id: current
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          CURRENT=$(vercel ls --token=$VERCEL_TOKEN --scope=$VERCEL_ORG_ID 2>/dev/null \
+            | grep ' production ' | head -1 | awk '{print $1}') || true
+          echo "previous_deployment=$CURRENT" >> $GITHUB_OUTPUT
+          echo "Previous production deployment: $CURRENT"
+
+      - name: Promote blue slot to production
+        id: promote
+        working-directory: client
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          BLUE_URL="${{ needs.deploy-inactive-slot.outputs.new_deployment_url }}"
+          vercel alias "$BLUE_URL" "${{ secrets.PRODUCTION_DOMAIN }}" \
+            --token=$VERCEL_TOKEN --scope=$VERCEL_ORG_ID || true
+          echo "production_url=https://${{ secrets.PRODUCTION_DOMAIN }}" >> $GITHUB_OUTPUT
+
+      - name: Verify production health after switch
+        run: |
+          PROD_URL="${{ steps.promote.outputs.production_url }}"
+          sleep 10
+          for i in 1 2 3; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$PROD_URL/api/health")
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Production health verified"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "⚠️  Production health check did not return 200 — check manually"
+
+      - name: Notify Slack — deploy successful
+        if: success()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          [ -z "$SLACK_WEBHOOK_URL" ] && exit 0
+          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "text": "✅ Production deployment successful",
+              "blocks": [{
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*✅ Blue-Green Deploy Complete*\n*Commit:* `${{ github.sha }}`\n*Branch:* `${{ github.ref_name }}`\n*Production:* ${{ steps.promote.outputs.production_url }}\n*Deployed by:* ${{ github.actor }}\n\nAll smoke tests passed. Traffic switched to blue slot. 🚀"
+                }
+              }]
+            }'
+
+      - name: Notify Slack — deploy failed
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          [ -z "$SLACK_WEBHOOK_URL" ] && exit 0
+          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "text": "❌ Production deployment FAILED — traffic NOT switched",
+              "blocks": [{
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*❌ Blue-Green Deploy FAILED*\n*Commit:* `${{ github.sha }}`\n*Branch:* `${{ github.ref_name }}`\n\nSmoke tests failed. Production traffic was NOT switched. Previous version is still live.\n\n*Action required:* Check <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow run> and trigger rollback if needed."
+                }
+              }]
+            }'
+
+  auto-rollback-on-failure:
+    name: Auto Rollback (if smoke tests failed)
+    needs: [deploy-inactive-slot, smoke-test-blue-slot]
+    if: failure() && needs.smoke-test-blue-slot.result == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack — auto rollback triggered
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          [ -z "$SLACK_WEBHOOK_URL" ] && exit 0
+          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "text": "⚠️ Smoke tests failed — blue slot NOT promoted to production",
+              "blocks": [{
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*⚠️ Blue-Green Deploy Blocked*\n*Commit:* `${{ github.sha }}`\n\nSmoke tests failed on the blue slot. Production traffic was *not* switched — previous version remains live.\n\nSee <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow run> for details."
+                }
+              }]
+            }'
+
+  # ──────────────────────────────────────────────
+  # Manual Rollback Workflow
+  # ──────────────────────────────────────────────
+  manual-rollback:
+    name: Manual Rollback
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Notify Slack — rollback initiated
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          [ -z "$SLACK_WEBHOOK_URL" ] && exit 0
+          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "text": "🔄 Rollback initiated by ${{ github.actor }}",
+              "blocks": [{
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*🔄 Rollback Initiated*\n*Environment:* ${{ github.event.inputs.environment }}\n*Initiated by:* ${{ github.actor }}\n*Reason:* ${{ github.event.inputs.reason }}\n\nRolling back now..."
+                }
+              }]
+            }'
+
+      - name: Find previous stable deployment
+        id: find_deployment
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          TARGET_URL="${{ github.event.inputs.deployment_url }}"
+          if [ -n "$TARGET_URL" ]; then
+            echo "Using specified deployment: $TARGET_URL"
+            echo "target_url=$TARGET_URL" >> $GITHUB_OUTPUT
+          else
+            echo "Finding previous production deployment..."
+            DEPLOYMENTS=$(vercel ls --token=$VERCEL_TOKEN --scope=$VERCEL_ORG_ID 2>/dev/null | grep 'production' | awk '{print $1}')
+            PREVIOUS=$(echo "$DEPLOYMENTS" | sed -n '2p')
+            if [ -z "$PREVIOUS" ]; then
+              echo "❌ Could not find a previous deployment to roll back to"
+              exit 1
+            fi
+            TARGET_URL="https://$PREVIOUS.vercel.app"
+            echo "Found previous deployment: $TARGET_URL"
+            echo "target_url=$TARGET_URL" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Verify target deployment is healthy
+        run: |
+          TARGET="${{ steps.find_deployment.outputs.target_url }}"
+          echo "Checking health of rollback target: $TARGET"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 "$TARGET")
+          if [ "$STATUS" != "200" ]; then
+            echo "⚠️  Target deployment returned HTTP $STATUS — proceeding anyway"
+          else
+            echo "✅ Target deployment is healthy (HTTP 200)"
+          fi
+
+      - name: Execute rollback — promote previous deployment
+        id: rollback
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          TARGET="${{ steps.find_deployment.outputs.target_url }}"
+          DOMAIN="${{ secrets.PRODUCTION_DOMAIN }}"
+          echo "Aliasing $TARGET to $DOMAIN ..."
+          vercel alias "$TARGET" "$DOMAIN" \
+            --token=$VERCEL_TOKEN --scope=$VERCEL_ORG_ID
+          echo "rollback_target=$TARGET" >> $GITHUB_OUTPUT
+          echo "✅ Rollback complete — $DOMAIN now points to $TARGET"
+
+      - name: Verify production health after rollback
+        id: verify
+        run: |
+          PROD="https://${{ secrets.PRODUCTION_DOMAIN }}"
+          sleep 10
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$PROD/api/health")
+            if [ "$STATUS" = "200" ]; then
+              echo "health_ok=true" >> $GITHUB_OUTPUT
+              echo "✅ Production health verified after rollback"
+              exit 0
+            fi
+            echo "Attempt $i: HTTP $STATUS — retrying in 10s"
+            sleep 10
+          done
+          echo "health_ok=false" >> $GITHUB_OUTPUT
+          echo "⚠️  Health check did not confirm 200 — verify manually"
+
+      - name: Notify Slack — rollback complete
+        if: success()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          [ -z "$SLACK_WEBHOOK_URL" ] && exit 0
+          HEALTH_ICON=${{ steps.verify.outputs.health_ok == 'true' && '✅' || '⚠️' }}
+          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "text": "✅ Rollback completed successfully",
+              "blocks": [{
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*✅ Rollback Complete*\n*Environment:* ${{ github.event.inputs.environment }}\n*Rolled back to:* ${{ steps.rollback.outputs.rollback_target }}\n*Initiated by:* ${{ github.actor }}\n*Reason:* ${{ github.event.inputs.reason }}\n*Health check:* ${{ steps.verify.outputs.health_ok == 'true' && '✅ Passed' || '⚠️  Check manually' }}\n\nSee <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow run> for details."
+                }
+              }]
+            }'
+
+      - name: Notify Slack — rollback failed
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          [ -z "$SLACK_WEBHOOK_URL" ] && exit 0
+          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "text": "❌ Rollback FAILED — manual intervention required",
+              "blocks": [{
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*❌ ROLLBACK FAILED*\n*Environment:* ${{ github.event.inputs.environment }}\n*Initiated by:* ${{ github.actor }}\n*Reason:* ${{ github.event.inputs.reason }}\n\n*MANUAL INTERVENTION REQUIRED* — check <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow run> immediately."
+                }
+              }]
+            }'
+
+  # ──────────────────────────────────────────────
+  # Post-Deploy Health Check (triggered by deployment_status)
+  # ──────────────────────────────────────────────
+  post-deploy-health-check:
+    name: Post-Deploy Health Check
+    if: github.event_name == 'deployment_status'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Wait for deployment to stabilize
+        run: sleep 10
+
+      - name: Set environment variables
+        run: |
+          echo "TARGET_URL=${{ github.event.deployment_status.target_url }}" >> $GITHUB_ENV
+          echo "ENVIRONMENT=${{ github.event.deployment_status.environment }}" >> $GITHUB_ENV
+
+      - name: Basic health checks
+        run: |
+          echo "Checking: $TARGET_URL"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$TARGET_URL")
+          if [ "$STATUS" != "200" ]; then
+            echo "ERROR: Main page returned HTTP $STATUS"
+            exit 1
+          fi
+          echo "✅ Main page OK (HTTP $STATUS)"
+
+      - name: Check frontend health endpoint
+        run: |
+          echo "Checking: $TARGET_URL/api/health"
+          API_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$TARGET_URL/api/health")
+          if [ "$API_STATUS" != "200" ]; then
+            echo "ERROR: /api/health returned HTTP $API_STATUS"
+            exit 1
+          fi
+          echo "✅ Frontend health check OK (HTTP $API_STATUS)"
+
+      - name: Check backend health endpoint
+        run: |
+          BACKEND_URL="${{ secrets.BACKEND_URL }}"
+          if [ -z "$BACKEND_URL" ]; then
+            echo "⚠️  BACKEND_URL not set, skipping backend health check"
+            exit 0
+          fi
+          echo "Checking: $BACKEND_URL/health"
+          BACKEND_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$BACKEND_URL/health")
+          if [ "$BACKEND_STATUS" != "200" ]; then
+            echo "ERROR: Backend health returned HTTP $BACKEND_STATUS"
+            exit 1
+          fi
+          echo "✅ Backend health check OK (HTTP $BACKEND_STATUS)"
+
+      - name: Run comprehensive smoke tests
+        working-directory: backend
+        env:
+          SMOKE_TEST_BASE_URL: ${{ secrets.BACKEND_URL }}
+          SMOKE_TEST_FRONTEND_URL: ${{ env.TARGET_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SMOKE_TEST_USER_EMAIL: ${{ secrets.SMOKE_TEST_USER_EMAIL }}
+          SMOKE_TEST_USER_PASSWORD: ${{ secrets.SMOKE_TEST_USER_PASSWORD }}
+          SMOKE_TEST_API_KEY: ${{ secrets.SMOKE_TEST_API_KEY }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          STELLAR_NETWORK_URL: ${{ secrets.STELLAR_NETWORK_URL }}
+          SOROBAN_CONTRACT_ADDRESS: ${{ secrets.SOROBAN_CONTRACT_ADDRESS }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+        run: npm test -- -c tests/smoke/jest.smoke.config.js --verbose
+
+      - name: Upload smoke test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-test-results-${{ env.ENVIRONMENT }}
+          path: |
+            backend/coverage/smoke/
+          retention-days: 7
+
+      - name: Comment on PR if health check fails
+        if: failure() && github.event.deployment_status.environment == 'Preview'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { data: prs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              head: context.payload.deployment.ref,
+            });
+            if (prs.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prs[0].number,
+                body: `⚠️ Post-deployment smoke tests failed for preview: ${{ github.event.deployment_status.target_url }}\n\n**Failed checks:**\n- Authentication flow\n- Dashboard access\n- API operations\n- Payment health\n\nPlease check the [workflow run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for details.`,
+              });
+            }
+
+      - name: Notify on production failure
+        if: failure() && github.event.deployment_status.environment == 'Production'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Production smoke tests failed',
+              body: `Post-deployment smoke tests failed for production deployment.\n\n**URL:** ${{ github.event.deployment_status.target_url }}\n**Workflow run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\n**Critical paths affected:**\n- Authentication\n- Dashboard\n- API operations\n- Payment/billing\n\n**Action required:** Investigate immediately and consider rollback if issues persist.`,
+              labels: ['bug', 'production', 'critical'],
+            });

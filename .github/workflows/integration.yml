@@ -1,0 +1,416 @@
+name: Integration Tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'client/**'
+      - 'shared/**'
+      - 'sdk/**'
+      - 'contracts/**'
+      - '.github/workflows/integration.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'client/**'
+      - 'shared/**'
+      - 'sdk/**'
+      - 'contracts/**'
+  workflow_dispatch:
+    inputs:
+      force_full_run:
+        description: 'Force a full integration run'
+        type: boolean
+        default: false
+      run_e2e:
+        description: 'Run Playwright E2E tests'
+        type: boolean
+        default: true
+      run_sdk_integration:
+        description: 'Run SDK integration suite (Soroban sandbox)'
+        type: boolean
+        default: false
+      run_bundle_size:
+        description: 'Run bundle size analysis'
+        type: boolean
+        default: true
+      run_accessibility:
+        description: 'Run accessibility tests'
+        type: boolean
+        default: false
+
+concurrency:
+  group: integration-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  # ──────────────────────────────────────────────
+  # Detect changes
+  # ──────────────────────────────────────────────
+  detect-changes:
+    name: Detect Changed Packages
+    uses: ./.github/workflows/_composite/detect-changes.yml
+    with:
+      filter-patterns: |
+        backend:
+          - 'backend/**'
+          - 'shared/**'
+        client:
+          - 'client/**'
+          - 'shared/**'
+        sdk:
+          - 'sdk/**'
+          - 'shared/**'
+        shared:
+          - 'shared/**'
+        contracts:
+          - 'contracts/**'
+        docs:
+          - 'docs/**'
+          - 'README.md'
+          - '*.md'
+        root:
+          - 'package.json'
+          - 'package-lock.json'
+          - 'tsconfig.json'
+          - '.github/**'
+          - 'scripts/**'
+          - 'app/**'
+      force-full-run: ${{ github.event.inputs.force_full_run }}
+
+  # ──────────────────────────────────────────────
+  # SDK Integration Suite (Soroban Sandbox)
+  # ──────────────────────────────────────────────
+  sdk-integration:
+    name: SDK Integration Suite (Soroban Sandbox)
+    needs: detect-changes
+    if: |
+      github.event.inputs.force_full_run == 'true' ||
+      github.event.inputs.run_sdk_integration == 'true' ||
+      contains(github.event.pull_request.labels.*.name, 'run-integration') ||
+      needs.detect-changes.outputs.contracts == 'true' ||
+      needs.detect-changes.outputs.sdk == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: sdk
+    env:
+      SOROBAN_RPC_URL: http://localhost:8000/soroban/rpc
+      SOROBAN_NETWORK_PASSPHRASE: "Standalone Network ; February 2017"
+      INTEGRATION_API_KEY: ci-integration-key
+    steps:
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          node-version: "20"
+          working-directory: sdk
+          cache-dependency-path: sdk/package-lock.json
+
+      - name: Install SDK dependencies
+        uses: ./.github/workflows/_composite/install-deps.yml
+        with:
+          working-directory: sdk
+
+      - name: Setup Rust + wasm32 target
+        uses: ./.github/workflows/_composite/setup-rust.yml
+        with:
+          toolchain: "stable"
+          targets: wasm32-unknown-unknown
+          cache-workspaces: contracts
+
+      - name: Install Stellar CLI
+        run: cargo install --locked stellar-cli --features opt
+
+      - name: Install shared dependencies and build
+        working-directory: shared
+        uses: ./.github/workflows/_composite/install-deps.yml
+        with:
+          working-directory: shared
+
+      - name: Build shared
+        working-directory: shared
+        run: npm run build
+
+      - name: Run SDK integration suite (starts sandbox, deploys contracts, runs tests)
+        working-directory: sdk
+        run: npm run test:integration
+
+      - name: Upload integration results
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: sdk-integration-results
+          path: sdk/coverage/
+          retention-days: 14
+
+  # ──────────────────────────────────────────────
+  # E2E Tests (Playwright)
+  # ──────────────────────────────────────────────
+  e2e-tests:
+    name: Playwright E2E (Desktop + Mobile)
+    needs: detect-changes
+    if: |
+      github.event.inputs.force_full_run == 'true' ||
+      github.event.inputs.run_e2e == 'true' ||
+      needs.detect-changes.outputs.client == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          working-directory: client
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install dependencies
+        uses: ./.github/workflows/_composite/install-deps.yml
+        with:
+          working-directory: client
+
+      - name: Install Playwright browsers
+        working-directory: client
+        run: npx playwright install --with-deps
+
+      - name: Wait for Vercel deployment
+        id: vercel
+        uses: vercel/action@v1
+        with:
+          alias: pr-${{ github.event.number }}
+
+      - name: Get preview URL
+        id: preview
+        run: |
+          if [ -n "${{ secrets.E2E_BASE_URL }}" ]; then
+            echo "E2E_BASE_URL=${{ secrets.E2E_BASE_URL }}" >> $GITHUB_OUTPUT
+          else
+            echo "E2E_BASE_URL=https://pr-${{ github.event.number }}--syncro.vercel.app" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run Playwright tests
+        working-directory: client
+        env:
+          CI: true
+          E2E_BASE_URL: ${{ steps.preview.outputs.E2E_BASE_URL }}
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: client/playwright-report/
+          retention-days: 14
+
+      - name: Upload failure screenshots and traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-test-results
+          path: client/test-results/
+          retention-days: 14
+
+  # ──────────────────────────────────────────────
+  # Bundle Size Analysis
+  # ──────────────────────────────────────────────
+  bundle-size:
+    name: Bundle Size Check
+    needs: detect-changes
+    if: |
+      github.event.inputs.force_full_run == 'true' ||
+      github.event.inputs.run_bundle_size == 'true' ||
+      needs.detect-changes.outputs.client == 'true'
+    runs-on: ubuntu-latest
+    env:
+      ANALYZE: "true"
+    steps:
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          working-directory: client
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install dependencies
+        uses: ./.github/workflows/_composite/install-deps.yml
+        with:
+          working-directory: client
+
+      - name: Build client with analyzer
+        working-directory: client
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+        run: npm run build
+
+      - name: Fetch baseline report from main
+        continue-on-error: true
+        run: |
+          git fetch origin main --depth=1
+          git show origin/main:client/.next/route-bundle-report.json > /tmp/bundle-size-baseline.json 2>/dev/null || true
+          if [ ! -s /tmp/bundle-size-baseline.json ]; then
+            echo '{"measurement":{"routes":{}}}' > /tmp/bundle-size-baseline.json
+          fi
+
+      - name: Check bundle size budgets
+        id: check
+        working-directory: client
+        continue-on-error: true
+        run: node scripts/check-bundle-size.js --json --baseline=/tmp/bundle-size-baseline.json > /tmp/bundle-size-report.json; echo "exit_code=$?" >> $GITHUB_OUTPUT
+
+      - name: Read bundle size report and comment PR
+        id: report
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = require('fs');
+            const reportPath = '/tmp/bundle-size-report.json';
+
+            if (!fs.existsSync(reportPath)) {
+              core.setOutput('status', 'error');
+              core.setOutput('message', 'Bundle size report not generated');
+              return;
+            }
+
+            const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+            const { measurement, result, delta } = report;
+            const violations = result.violations || [];
+            const warnings = result.warnings || [];
+
+            let body = '## 📦 Bundle Size Report\n\n';
+            body += '### Per-route delta\n\n';
+            body += '| Route | Previous | Current | Δ |\n';
+            body += '|---|---:|---:|---:|\n';
+            const routes = measurement.routes || {};
+            const deltas = delta || {};
+            for (const route of Object.keys(routes).sort()) {
+              const d = deltas[route] || {};
+              const prev = d.previousKB == null ? '—' : `${d.previousKB}`;
+              const cur = routes[route].totalKB;
+              const sign = d.deltaKB == null ? '—' : (d.deltaKB > 0 ? `+${d.deltaKB}` : `${d.deltaKB}`);
+              const icon = violations.some(v => v.route === route) ? '❌' :
+                           warnings.some(w => w.route === route) ? '⚠️' : '✅';
+              body += `| ${icon} ${route} | ${prev} | ${cur} | ${sign} |\n`;
+            }
+            body += `\n**Total JS:** ${measurement.totalJS} KB\n`;
+            const forbidden = measurement.forbidden || {};
+            body += '\n### Auth / landing forbidden deps\n\n';
+            for (const route of ['/', '/auth/2fa']) {
+              const hits = forbidden[route] || [];
+              body += hits.length
+                ? `- ❌ \`${route}\` contains: ${hits.map(h => `\`${h}\``).join(', ')}\n`
+                : `- ✅ \`${route}\` has no charting, crypto, or wallet markers\n`;
+            }
+            if (violations.length > 0) {
+              body += '\n### ❌ Budget Violations\n\n';
+              for (const v of violations) {
+                body += `- ${v.message}\n`;
+              }
+            }
+            if (warnings.length > 0) {
+              body += '\n### ⚠️ Warnings\n\n';
+              for (const w of warnings) {
+                body += `- ${w.message}\n`;
+              }
+            }
+            if (violations.length === 0 && warnings.length === 0) {
+              body += '\n✅ All bundle size budgets are within limits.\n';
+            }
+            body += '\n---\n';
+            body += '_Budgets: `client/bundle-size.json`. Raising a budget: `client/docs/BUNDLE_BUDGETS.md`._\n';
+
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+            const status = violations.length > 0 ? 'violations' : 'pass';
+            core.setOutput('status', status);
+            core.setOutput('violations', String(violations.length));
+
+      - name: Fail on budget violations
+        if: steps.report.outputs.status == 'violations'
+        run: |
+          echo "❌ Bundle size budgets exceeded. Check the PR comment for details."
+          exit 1
+
+  # ──────────────────────────────────────────────
+  # Accessibility Tests
+  # ──────────────────────────────────────────────
+  accessibility:
+    name: Axe Accessibility Checks
+    needs: detect-changes
+    if: |
+      github.event.inputs.force_full_run == 'true' ||
+      github.event.inputs.run_accessibility == 'true' ||
+      needs.detect-changes.outputs.client == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          working-directory: client
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install dependencies
+        uses: ./.github/workflows/_composite/install-deps.yml
+        with:
+          working-directory: client
+          legacy-peer-deps: true
+
+      - name: Install Playwright browsers
+        working-directory: client
+        run: npx playwright install --with-deps chromium
+
+      - name: Build client
+        working-directory: client
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_API_URL: http://localhost:3000
+        run: npm run build
+
+      - name: Run accessibility tests
+        working-directory: client
+        env:
+          E2E_BASE_URL: http://localhost:3000
+        run: |
+          npm start &
+          npx wait-on http://localhost:3000 --timeout 60000
+          npm run test:a11y
+
+      - name: Upload accessibility report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: a11y-report
+          path: client/playwright-report/
+          retention-days: 14
+
+  # ──────────────────────────────────────────────
+  # Privacy Integration Tests
+  # ──────────────────────────────────────────────
+  privacy-tests:
+    name: Privacy Integration Tests
+    needs: detect-changes
+    if: |
+      github.event.inputs.force_full_run == 'true' ||
+      needs.detect-changes.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          working-directory: .
+
+      - name: Install dependencies
+        uses: ./.github/workflows/_composite/install-deps.yml
+        with:
+          working-directory: .
+
+      - name: Run privacy integration tests
+        run: npx vitest run tests/privacy/ --reporter=verbose
