@@ -1,0 +1,53 @@
+{
+  "version": "2026-09-24",
+  "errors": [
+    {
+      "code": "GATEWAY_RATE_LIMITED",
+      "className": "GatewayRateLimitedError",
+      "httpStatus": 429,
+      "retryable": true,
+      "supportsRetryAfterHeader": true,
+      "defaultMessage": "Gateway rate limit exceeded."
+    },
+    {
+      "code": "GATEWAY_CHANNEL_EXHAUSTED",
+      "className": "GatewayChannelExhaustedError",
+      "httpStatus": 402,
+      "retryable": false,
+      "supportsRetryAfterHeader": false,
+      "defaultMessage": "Payment channel balance is exhausted."
+    },
+    {
+      "code": "GATEWAY_KEY_REVOKED",
+      "className": "GatewayKeyRevokedError",
+      "httpStatus": 403,
+      "retryable": false,
+      "supportsRetryAfterHeader": false,
+      "defaultMessage": "Provider key has been revoked."
+    },
+    {
+      "code": "GATEWAY_BAD_REQUEST",
+      "className": "GatewayBadRequestError",
+      "httpStatus": 400,
+      "retryable": false,
+      "supportsRetryAfterHeader": false,
+      "defaultMessage": "Gateway request is invalid."
+    },
+    {
+      "code": "GATEWAY_UNAUTHORIZED",
+      "className": "GatewayUnauthorizedError",
+      "httpStatus": 401,
+      "retryable": false,
+      "supportsRetryAfterHeader": false,
+      "defaultMessage": "Gateway credentials are invalid."
+    },
+    {
+      "code": "GATEWAY_INTERNAL",
+      "className": "GatewayInternalError",
+      "httpStatus": 500,
+      "retryable": true,
+      "supportsRetryAfterHeader": true,
+      "defaultMessage": "Gateway internal error."
+    }
+  ]
+}

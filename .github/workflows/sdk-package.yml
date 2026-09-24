@@ -32,6 +32,7 @@ jobs:
         run: |
           npm run generate -w shared
           npm run build -w shared
+          npm run check:gateway-taxonomy -w sdk
           npm run build -w sdk
 
       - name: Package layout (publint + ESM/CJS/bundler/node16)
