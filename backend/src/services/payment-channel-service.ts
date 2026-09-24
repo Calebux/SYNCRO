@@ -13,6 +13,7 @@ import {
   computeRequestHash,
   type PaymentProof,
 } from './payment-proof-verifier';
+import { v3NotificationDispatch } from './v3-notification-dispatch';
 
 export interface WatchtowerRecord {
   address: string;
@@ -233,6 +234,8 @@ export class PaymentChannelService {
     }
 
     const beforeState = channel.state;
+    const balance = Number(channel.balance ?? 0);
+    const disputeWindowDays = 7;
 
     const { data, error } = await supabase
       .from('payment_channels')
@@ -260,6 +263,39 @@ export class PaymentChannelService {
         unilateral: false,
         before: { state: beforeState },
         after: { state: 'closing' },
+      });
+    }
+
+    // Principal-facing: channel close initiated
+    v3NotificationDispatch.dispatch({
+      eventType: 'channel_close_initiated',
+      targetUserId: userId,
+      payload: {
+        userId,
+        channelId,
+        unilateral,
+        disputeWindowDays,
+        remainingBalance: balance,
+        currency: 'USD',
+      },
+    }).catch((err) => {
+      logger.error('channel_close_initiated v3 dispatch failed', { userId, channelId, error: err instanceof Error ? err.message : String(err) });
+    });
+
+    // Operator-facing: unilateral close is a dispute_detected critical
+    if (unilateral) {
+      v3NotificationDispatch.dispatch({
+        eventType: 'dispute_detected',
+        payload: {
+          channelId,
+          userId,
+          sequenceNumber: channel.channelState?.sequenceNumber ?? 0,
+          cause: 'unilateral_close',
+          currentBalance: balance,
+          currency: 'USD',
+        },
+      }).catch((err) => {
+        logger.error('dispute_detected (unilateral) v3 dispatch failed', { channelId, error: err instanceof Error ? err.message : String(err) });
       });
     }
 

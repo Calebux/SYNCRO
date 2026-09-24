@@ -1,12 +1,16 @@
 import nodemailer from 'nodemailer';
 import logger from '../config/logger';
 import { env } from '../config/env';
-import { NotificationPayload, DeliveryResult } from '../types/reminder';
+import { DeliveryResult } from '../types/reminder';
 import { withRetry, RetryableError, NonRetryableError } from '../utils/retry';
-import { sanitizeUrl } from '../utils/sanitize-url';
 import { complianceService } from './compliance-service';
 import { secretProvider } from './secret-provider';
 import { EXTERNAL_SERVICE_POLICIES } from '../config/external-services';
+import {
+  V3NotificationEventType,
+  V3EventPayload,
+} from '../types/v3-notifications';
+import { renderV3Notification } from './v3-notification-templates';
 
 export interface EmailConfig {
   host?: string;
@@ -22,12 +26,11 @@ export interface EmailConfig {
 export class EmailService {
   private transporter: nodemailer.Transporter | null = null;
   private fromEmail: string;
-  private policy = EXTERNAL_SERVICE_POLICIES.gmail; // Default to gmail policy for email service
+  private policy = EXTERNAL_SERVICE_POLICIES.gmail;
 
   constructor(config?: EmailConfig) {
     this.fromEmail = config?.from || env.EMAIL_FROM || 'noreply@synchro.app';
 
-    // Initialize transporter based on config if provided synchronously
     if (config?.host) {
       this.transporter = nodemailer.createTransport({
         host: config.host,
@@ -45,7 +48,7 @@ export class EmailService {
 
     if (env.SMTP_HOST) {
       const password = await secretProvider.getSecret('SMTP_PASSWORD') || await secretProvider.getSecret('SMTP_PASS') || '';
-      
+
       this.transporter = nodemailer.createTransport({
         host: env.SMTP_HOST,
         port: parseInt(env.SMTP_PORT || '587'),
@@ -68,9 +71,6 @@ export class EmailService {
     return this.transporter;
   }
 
-  /**
-   * Verify email service connection
-   */
   async verifyConnection(): Promise<boolean> {
     const transporter = await this.getTransporter();
     if (!transporter) {
@@ -87,80 +87,6 @@ export class EmailService {
     }
   }
 
-  /**
-   * Send renewal reminder email with retry logic
-   */
-  async sendReminderEmail(
-    recipientEmail: string,
-    payload: NotificationPayload,
-    options: { maxAttempts?: number } = {}
-  ): Promise<DeliveryResult> {
-    const maxAttempts = options.maxAttempts || this.policy.retryPolicy.maxAttempts;
-
-    try {
-      return await withRetry(
-        async () => {
-          const subject = this.getEmailSubject(payload);
-          const html = this.getEmailTemplate(payload);
-
-          const transporter = await this.getTransporter();
-          if (!transporter) {
-            throw new NonRetryableError('Email transporter not configured');
-          }
-
-          const userId = (payload as any).userId || '';
-          const unsubscribeFooter = userId ? this.getUnsubscribeFooter(userId, 'reminders') : '';
-          const unsubscribeHeaders = userId ? this.getUnsubscribeHeaders(userId, 'reminders') : {};
-
-          const info = await transporter.sendMail({
-            from: this.fromEmail,
-            to: recipientEmail,
-            subject,
-            html: html + unsubscribeFooter,
-            text: this.getEmailText(payload),
-            headers: unsubscribeHeaders,
-          });
-
-          logger.info('Email sent successfully', {
-            messageId: info.messageId,
-          });
-
-          return {
-            success: true,
-            metadata: {
-              messageId: info.messageId,
-              accepted: info.accepted,
-              rejected: info.rejected,
-            },
-          };
-        },
-        {
-          ...this.policy.retryPolicy,
-          maxAttempts,
-        }
-      );
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      
-      // Determine if error is retryable
-      const isRetryable = this.isRetryableError(error);
-
-      logger.error('Failed to send email', { errorMessage });
-
-      return {
-        success: false,
-        error: errorMessage,
-        metadata: {
-          retryable: isRetryable,
-        },
-      };
-    }
-  }
-
-  /**
-   * Generate unsubscribe footer HTML for emails
-   */
   private getUnsubscribeFooter(userId: string, emailType: string): string {
     const appUrl = env.FRONTEND_URL;
     const apiUrl = env.BACKEND_URL;
@@ -180,9 +106,6 @@ export class EmailService {
   `;
   }
 
-  /**
-   * Generate List-Unsubscribe headers for emails
-   */
   private getUnsubscribeHeaders(userId: string, emailType: string): Record<string, string> {
     const apiUrl = env.BACKEND_URL;
     const token = complianceService.generateUnsubscribeToken(userId, emailType);
@@ -194,9 +117,6 @@ export class EmailService {
     };
   }
 
-  /**
-   * Determine if an error is retryable
-   */
   private isRetryableError(error: unknown): boolean {
     if (error instanceof NonRetryableError) {
       return false;
@@ -206,7 +126,6 @@ export class EmailService {
       return true;
     }
 
-    // Network errors and timeouts are retryable
     const errorMessage = error instanceof Error ? error.message : String(error);
     const retryablePatterns = [
       /timeout/i,
@@ -224,144 +143,84 @@ export class EmailService {
     return retryablePatterns.some((pattern) => pattern.test(errorMessage));
   }
 
-  /**
-   * Generate email subject
-   */
-  private getEmailSubject(payload: NotificationPayload): string {
-    const { subscription, daysBefore, reminderType } = payload;
+  async sendV3Notification(
+    recipientEmail: string,
+    eventType: V3NotificationEventType,
+    payload: V3EventPayload,
+    options: { userId?: string; maxAttempts?: number } = {},
+  ): Promise<DeliveryResult> {
+    const maxAttempts = options.maxAttempts ?? this.policy.retryPolicy.maxAttempts;
+    const { userId = '' } = options;
 
-    if (reminderType === 'trial_expiry') {
-      if (daysBefore === 0) {
-        return `⚠️ Your ${subscription.name} trial ends TODAY — don't get charged!`;
-      }
-      return `⚠️ Your ${subscription.name} trial ends in ${daysBefore} day${daysBefore > 1 ? 's' : ''} — don't get charged!`;
+    try {
+      return await withRetry(
+        async () => {
+          const rendered = renderV3Notification(eventType, payload);
+          const transporter = await this.getTransporter();
+          if (!transporter) {
+            throw new NonRetryableError('Email transporter not configured');
+          }
+
+          const emailType = 'notifications';
+          const unsubscribeFooter = userId ? this.getUnsubscribeFooter(userId, emailType) : '';
+          const unsubscribeHeaders = userId ? this.getUnsubscribeHeaders(userId, emailType) : {};
+
+          const info = await transporter.sendMail({
+            from: this.fromEmail,
+            to: recipientEmail,
+            subject: rendered.title,
+            html: (rendered.html ?? `<p>${rendered.body}</p>`) + unsubscribeFooter,
+            text: rendered.body,
+            headers: unsubscribeHeaders,
+          });
+
+          logger.info('[EmailService] V3 notification email sent', {
+            eventType,
+            messageId: info.messageId,
+          });
+
+          return {
+            success: true,
+            metadata: {
+              eventType,
+              messageId: info.messageId,
+              accepted: info.accepted,
+              rejected: info.rejected,
+            },
+          };
+        },
+        {
+          ...this.policy.retryPolicy,
+          maxAttempts,
+        },
+      );
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      const isRetryable = this.isRetryableError(error);
+      logger.error('[EmailService] Failed to send V3 notification email', { eventType, errorMessage });
+      return {
+        success: false,
+        error: errorMessage,
+        metadata: { retryable: isRetryable },
+      };
     }
-
-    if (reminderType === 'renewal') {
-      if (daysBefore === 0) {
-        return `⚠️ ${subscription.name} renews today`;
-      }
-      return `📅 ${subscription.name} renews in ${daysBefore} day${daysBefore > 1 ? 's' : ''}`;
-    }
-
-    return `🔔 ${subscription.name} reminder`;
   }
 
-  /**
-   * Generate email HTML template
-   */
-  private getEmailTemplate(payload: NotificationPayload): string {
-      if (payload.reminderType === 'trial_expiry') {
-        return this.getTrialEmailTemplate(payload);
-      }
-      return this.getRenewalEmailTemplate(payload);
-    }
-
-    private getTrialEmailTemplate(payload: NotificationPayload): string {
-      const { subscription, daysBefore, renewalDate } = payload;
-      const expiryFormatted = new Date(renewalDate).toLocaleDateString('en-US', {
-        year: 'numeric', month: 'long', day: 'numeric',
-      });
-      const chargeDate = new Date(renewalDate);
-      chargeDate.setDate(chargeDate.getDate() + 1);
-      const chargeDateFormatted = chargeDate.toLocaleDateString('en-US', {
-        year: 'numeric', month: 'long', day: 'numeric',
-      });
-      const convertPrice = subscription.trial_converts_to_price ?? subscription.price;
-      const urgencyColor = daysBefore <= 1 ? '#E86A33' : daysBefore <= 3 ? '#FFD166' : '#667eea';
-      const cancelUrl = subscription.renewal_url ? sanitizeUrl(subscription.renewal_url) : '#';
-      const dayLabel = daysBefore === 0 ? 'TODAY at midnight' : `in ${daysBefore} day${daysBefore > 1 ? 's' : ''}`;
-
-      return `<!DOCTYPE html>
-  <html>
-  <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Trial Ending Soon</title></head>
-  <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:0 auto;padding:20px;">
-    <div style="background:linear-gradient(135deg,${urgencyColor} 0%,#764ba2 100%);padding:30px;border-radius:10px 10px 0 0;text-align:center;">
-      <h1 style="color:white;margin:0;font-size:24px;">⚠️ Your ${subscription.name} trial ends ${dayLabel}</h1>
-    </div>
-    <div style="background:#f9f9f9;padding:30px;border-radius:0 0 10px 10px;">
-      <div style="background:white;padding:20px;border-radius:8px;margin:0 0 20px 0;border-left:4px solid ${urgencyColor};">
-        <p style="margin:0 0 8px 0;"><strong>Service:</strong> ${subscription.name}</p>
-        <p style="margin:0 0 8px 0;"><strong>FREE trial expires:</strong> ${expiryFormatted}</p>
-        ${subscription.credit_card_required
-          ? `<p style="margin:0;color:#E86A33;"><strong>If you don't cancel:</strong> You'll be charged <strong>$${convertPrice.toFixed(2)}/${subscription.billing_cycle}</strong> starting ${chargeDateFormatted}.</p>`
-          : `<p style="margin:0;color:#007A5C;"><strong>No credit card on file</strong> — your access will simply end if you don't upgrade.</p>`}
-      </div>
-      <div style="text-align:center;margin:24px 0;">
-        <a href="${cancelUrl}" style="background:#E86A33;color:white;padding:14px 28px;text-decoration:none;border-radius:6px;font-weight:700;font-size:15px;display:inline-block;margin:4px;">Cancel Trial Now →</a>
-        <a href="${cancelUrl}" style="background:#007A5C;color:white;padding:14px 28px;text-decoration:none;border-radius:6px;font-weight:700;font-size:15px;display:inline-block;margin:4px;">Keep My Subscription →</a>
-      </div>
-      <p style="color:#666;font-size:13px;margin-top:20px;text-align:center;">This reminder is from SYNCRO — your subscription manager. We're helping you avoid unexpected charges.</p>
-    </div>
-  </body>
-  </html>`.trim();
-    }
-
-    private getRenewalEmailTemplate(payload: NotificationPayload): string {
-      const { subscription, daysBefore, renewalDate } = payload;
-      const renewalDateFormatted = new Date(renewalDate).toLocaleDateString('en-US', {
-        year: 'numeric', month: 'long', day: 'numeric',
-      });
-
-      return `<!DOCTYPE html>
-  <html>
-  <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Subscription Reminder</title></head>
-  <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:0 auto;padding:20px;">
-    <div style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:30px;border-radius:10px 10px 0 0;text-align:center;">
-      <h1 style="color:white;margin:0;font-size:28px;">Subscription Reminder</h1>
-    </div>
-    <div style="background:#f9f9f9;padding:30px;border-radius:0 0 10px 10px;">
-      <div style="background:white;padding:20px;border-radius:8px;margin:20px 0;border-left:4px solid #667eea;">
-        <p style="margin:0 0 10px 0;"><strong>Service:</strong> ${subscription.name}</p>
-        <p style="margin:0 0 10px 0;"><strong>Category:</strong> ${subscription.category}</p>
-        <p style="margin:0 0 10px 0;"><strong>Price:</strong> $${subscription.price.toFixed(2)}/${subscription.billing_cycle}</p>
-        <p style="margin:0 0 10px 0;"><strong>Renewal Date:</strong> ${renewalDateFormatted}</p>
-        ${daysBefore > 0 ? `<p style="margin:0;"><strong>Days Remaining:</strong> ${daysBefore}</p>` : ''}
-      </div>
-      ${subscription.renewal_url ? `<div style="text-align:center;margin:30px 0;"><a href="${sanitizeUrl(subscription.renewal_url)}" style="background:#667eea;color:white;padding:12px 30px;text-decoration:none;border-radius:6px;display:inline-block;font-weight:600;">Manage Subscription</a></div>` : ''}
-      <p style="color:#666;font-size:14px;margin-top:30px;">This is an automated reminder from Synchro.</p>
-    </div>
-  </body>
-  </html>`.trim();
-    }
-
-
-  /**
-   * Generate plain text email
-   */
-  private getEmailText(payload: NotificationPayload): string {
-    const { subscription, daysBefore, renewalDate } = payload;
-    const renewalDateFormatted = new Date(renewalDate).toLocaleDateString(
-      'en-US',
-      { year: 'numeric', month: 'long', day: 'numeric' }
-    );
-
-    return `
-Subscription Reminder
-
-${subscription.name} renews in ${daysBefore} day${daysBefore > 1 ? 's' : ''}
-
-Service: ${subscription.name}
-Category: ${subscription.category}
-Price: $${subscription.price.toFixed(2)}/${subscription.billing_cycle}
-Renewal Date: ${renewalDateFormatted}
-${daysBefore > 0 ? `Days Remaining: ${daysBefore}` : ''}
-
-${subscription.renewal_url ? `Manage Subscription: ${sanitizeUrl(subscription.renewal_url)}` : ''}
-
-This is an automated reminder from Synchro.
-    `.trim();
+  async sendReminderEmail(): Promise<DeliveryResult> {
+    logger.warn('[EmailService] sendReminderEmail deprecated — subscription reminders removed in v3. Use sendV3Notification.');
+    return {
+      success: false,
+      error: 'Subscription reminder templates have been removed in v3. Use V3 notification dispatch.',
+      metadata: { retryable: false, deprecated: true },
+    };
   }
 
-  /**
-   * Send a simple plain-text / HTML email.
-   * Returns a resolved promise on success; rejects on failure.
-   */
   async sendSimpleEmail(
     to: string,
     subject: string,
     text: string,
-    options?: { userId?: string; emailType?: string }
+    options?: { userId?: string; emailType?: string; html?: string },
   ): Promise<void> {
     const transporter = await this.getTransporter();
     if (!transporter) {
@@ -377,18 +236,15 @@ This is an automated reminder from Synchro.
       to,
       subject,
       text,
-      html: `<p>${text}</p>` + unsubscribeFooter,
+      html: (options?.html ?? `<p>${text}</p>`) + unsubscribeFooter,
       headers: unsubscribeHeaders,
     });
     logger.info('Simple email sent', { subject });
   }
 
-  /**
-   * Send a team invitation email
-   */
   async sendInvitationEmail(
     recipientEmail: string,
-    payload: { inviterEmail: string; teamName: string; role: string; acceptUrl: string; expiresAt: Date }
+    payload: { inviterEmail: string; teamName: string; role: string; acceptUrl: string; expiresAt: Date },
   ): Promise<DeliveryResult> {
     try {
       return await withRetry(async () => {
@@ -444,7 +300,6 @@ This is an automated reminder from Synchro.
         });
 
         logger.info('Invitation email sent', { messageId: info.messageId });
-
         return {
           success: true,
           metadata: { messageId: info.messageId, accepted: info.accepted, rejected: info.rejected },
@@ -456,9 +311,7 @@ This is an automated reminder from Synchro.
       return { success: false, error: errorMessage, metadata: { retryable: this.isRetryableError(error) } };
     }
   }
-  /**
-   * Send risk alert email
-   */
+
   async sendRiskAlert(payload: {
     to: string;
     subscriptionName: string;
@@ -475,7 +328,7 @@ This is an automated reminder from Synchro.
 
         const subject = `⚠️ ${payload.subscriptionName} renewal at risk`;
         const factorsText = payload.riskFactors.map(f => `- ${this.getFactorDescription(f)}`).join('\n');
-        
+
         const html = `
 <!DOCTYPE html>
 <html>
@@ -491,7 +344,6 @@ This is an automated reminder from Synchro.
   <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px;">
     <h2 style="color: #c53030;">${payload.subscriptionName} renewal at risk</h2>
     <p>We've detected that your subscription for <strong>${payload.subscriptionName}</strong> may fail to renew soon.</p>
-    
     <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #e53e3e;">
       <p><strong>Risk Factors:</strong></p>
       <ul>
@@ -499,7 +351,6 @@ This is an automated reminder from Synchro.
       </ul>
       <p><strong>Recommendation:</strong> ${payload.recommendedAction}</p>
     </div>
-
     <div style="text-align: center; margin: 30px 0;">
       <a href="${env.FRONTEND_URL}/dashboard" style="background: #e53e3e; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">
         Review Subscription
@@ -508,7 +359,6 @@ This is an automated reminder from Synchro.
   </div>
 </body>
 </html>`.trim();
-
 
         const text = `Risk Alert: ${payload.subscriptionName} renewal at risk\n\nFactors:\n${factorsText}\n\nRecommendation: ${payload.recommendedAction}`;
 
@@ -521,7 +371,6 @@ This is an automated reminder from Synchro.
         });
 
         logger.info('Risk alert email sent', { messageId: info.messageId });
-
         return {
           success: true,
           metadata: { messageId: info.messageId },
@@ -529,14 +378,11 @@ This is an automated reminder from Synchro.
       }, { maxAttempts: 3 });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-        logger.error('Failed to send risk alert email', { errorMessage });
+      logger.error('Failed to send risk alert email', { errorMessage });
       return { success: false, error: errorMessage, metadata: { retryable: this.isRetryableError(error) } };
     }
   }
 
-  /**
-   * Helper to get human-readable factor description
-   */
   private getFactorDescription(factor: any): string {
     switch (factor.factor_type) {
       case 'consecutive_failures':
@@ -552,4 +398,3 @@ This is an automated reminder from Synchro.
 }
 
 export const emailService = new EmailService();
-

@@ -3,6 +3,7 @@ import logger from '../config/logger';
 import { redis } from '../config/redis';
 import { env } from '../config/env';
 import { schedulerService } from './scheduler';
+import { v3NotificationDispatch } from './v3-notification-dispatch';
 
 export interface DependencyStatus {
   name: string;
@@ -22,6 +23,93 @@ export interface LivenessStatus {
   status: 'alive' | 'dead';
   timestamp: string;
   uptime_ms: number;
+}
+
+const LAST_HEALTH_STATE_KEY = 'syncro:health:last_degraded_state' as const;
+const FORCED_STATES_KEY = 'syncro:health:forced_states' as const;
+
+export interface ForcedOverride {
+  forcedStatus: 'healthy' | 'degraded' | 'unhealthy';
+  forcedByOperatorId: string;
+  forcedAt: string;
+  expiresAt: string;
+}
+
+export async function getForcedOverrides(): Promise<Map<string, ForcedOverride>> {
+  const map = new Map<string, ForcedOverride>();
+  if (!redis) return map;
+  try {
+    const raw = await redis.hGetAll(FORCED_STATES_KEY);
+    const now = Date.now();
+    for (const [name, json] of Object.entries(raw)) {
+      try {
+        const parsed = JSON.parse(json) as ForcedOverride;
+        if (new Date(parsed.expiresAt).getTime() > now) {
+          map.set(name, parsed);
+        } else {
+          await redis.hDel(FORCED_STATES_KEY, name);
+        }
+      } catch {
+        await redis.hDel(FORCED_STATES_KEY, name);
+      }
+    }
+  } catch (error) {
+    logger.warn('[DependencyHealth] Failed to read forced overrides', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return map;
+}
+
+export async function setForcedOverride(
+  provider: string,
+  forcedStatus: ForcedOverride['forcedStatus'],
+  operatorId: string,
+  ttlHours: number
+): Promise<ForcedOverride> {
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + ttlHours * 60 * 60 * 1000);
+  const override: ForcedOverride = {
+    forcedStatus,
+    forcedByOperatorId: operatorId,
+    forcedAt: now.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+  };
+  if (redis) {
+    try {
+      await redis.hSet(FORCED_STATES_KEY, provider, JSON.stringify(override));
+      await redis.expire(
+        FORCED_STATES_KEY,
+        Math.max(ttlHours * 60 * 60, 7 * 24 * 60 * 60)
+      );
+    } catch (error) {
+      logger.warn('[DependencyHealth] Failed to persist forced override', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return override;
+}
+
+function applyOverrides(
+  statuses: DependencyStatus[],
+  overrides: Map<string, ForcedOverride>
+): DependencyStatus[] {
+  return statuses.map((s) => {
+    const ov = overrides.get(s.name);
+    if (!ov) return s;
+    return {
+      name: s.name,
+      status: ov.forcedStatus,
+      latency_ms: s.latency_ms,
+      error: `FORCED_OVERRIDE_BY_OPERATOR ${ov.forcedByOperatorId} until ${ov.expiresAt}`,
+    };
+  });
+}
+
+function systemStateFor(dependencies: DependencyStatus[]): 'healthy' | 'degraded' {
+  const anyNotHealthy = dependencies.some((d) => d.status !== 'healthy');
+  return anyNotHealthy ? 'degraded' : 'healthy';
 }
 
 export class DependencyHealthService {
@@ -333,16 +421,19 @@ export class DependencyHealthService {
    * Check all dependencies
    */
   async checkAllDependencies(): Promise<DependencyStatus[]> {
-    const checks = await Promise.all([
-      this.checkDatabase(),
-      this.checkRedis(),
-      this.checkQueue(),
-      this.checkProviders(),
-      this.checkRpcHorizon(),
-      this.checkFxProvider(),
+    const [checks, overrides] = await Promise.all([
+      Promise.all([
+        this.checkDatabase(),
+        this.checkRedis(),
+        this.checkQueue(),
+        this.checkProviders(),
+        this.checkRpcHorizon(),
+        this.checkFxProvider(),
+      ]),
+      getForcedOverrides(),
     ]);
 
-    return [...checks, this.checkScheduler()];
+    return applyOverrides([...checks, this.checkScheduler()], overrides);
   }
 
   /**
@@ -358,10 +449,52 @@ export class DependencyHealthService {
   async getReadiness(): Promise<ReadinessStatus> {
     const dependencies = await this.checkAllDependencies();
     const { status, message } = computeReadiness(dependencies);
+    const timestamp = new Date().toISOString();
+    const newState = systemStateFor(dependencies);
+
+    try {
+      let previousState: 'healthy' | 'degraded' = 'healthy';
+      try {
+        const last = redis ? await redis.get(LAST_HEALTH_STATE_KEY) : null;
+        previousState = (last === 'degraded' || last === 'healthy') ? last : 'healthy';
+      } catch {
+        // If Redis is unavailable, fall back to assuming healthy prior state
+        previousState = 'healthy';
+      }
+
+      if (previousState !== newState) {
+        // Fire v3 operator alerts on state transitions only.
+        const eventType = newState === 'degraded' ? 'degraded_mode_entered' : 'degraded_mode_exited';
+        v3NotificationDispatch.dispatch({
+          eventType,
+          payload: {
+            timestamp,
+            dependencies: dependencies.map(({ name, status, error }) => ({ name, status, error })),
+            previousState,
+            newState,
+          },
+        }).catch((err) => {
+          logger.error(`${eventType} v3 dispatch failed`, { error: err instanceof Error ? err.message : String(err) });
+        });
+
+        if (redis) {
+          try {
+            await redis.set(LAST_HEALTH_STATE_KEY, newState);
+          } catch {
+            // no-op: state persistence failure shouldn't take down readiness probe
+          }
+        }
+      }
+    } catch (err) {
+      // v3 dispatch is side-channel; never fail readiness probe because of it.
+      logger.warn('[DependencyHealth] v3 degraded transition dispatch skipped', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
 
     return {
       status,
-      timestamp: new Date().toISOString(),
+      timestamp,
       dependencies,
       message,
     };

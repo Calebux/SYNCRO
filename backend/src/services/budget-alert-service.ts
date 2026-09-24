@@ -3,6 +3,7 @@ import logger from '../config/logger';
 import { sendSlackAlert } from './slack-service';
 import { calculateMonthlySpend } from '@syncro/shared/subscription-math';
 import { groupBy, uniqueIds } from '../utils/db-query-metrics';
+import { v3NotificationDispatch } from './v3-notification-dispatch';
 
 type AlertType = 'budget_warning' | 'budget_exceeded';
 
@@ -168,23 +169,32 @@ export async function checkBudgetAlertsForUsers(userIds?: readonly string[]): Pr
 
     if (pending.length === 0) return;
 
-    // Insert in-app notifications
-    await supabase.from('notifications').insert(
-      pending.map((alert) => ({
-        user_id: alert.userId,
-        type: alert.alertType,
-        message: alert.message,
-        metadata: {
-          month,
-          percentage: alert.percentage,
-          limit: alert.budget,
-          current: alert.monthlyTotal,
-        },
-        read: false,
-      })),
-    );
+    // Route each alert through v3 dispatch (respects per-event prefs + multi-transport)
+    const dispatchSends: Promise<unknown>[] = [];
+    for (const alert of pending) {
+      dispatchSends.push(
+        v3NotificationDispatch.dispatch({
+          eventType: 'cap_threshold_warning',
+          targetUserId: alert.userId,
+          payload: {
+            userId: alert.userId,
+            currentSpend: alert.monthlyTotal,
+            budgetAmount: alert.budget,
+            percentageUsed: alert.percentage,
+            currency: 'USD',
+            threshold: 80,
+            exceeded: alert.alertType === 'budget_exceeded',
+          },
+        }).catch((err) => {
+          logger.error('Budget alert v3 dispatch failed', { userId: alert.userId, error: err instanceof Error ? err.message : String(err) });
+        }),
+      );
+    }
+    await Promise.allSettled(dispatchSends);
 
-    // Send Slack alerts to any team that has a webhook configured
+    // Keep the legacy Slack path as-is for teams that have it configured.
+    // (The v3 dispatch Slack channel already covers this path, but existing
+    // team webhook configs are preserved.)
     const webhooks = await getTeamSlackWebhooks(pending.map((alert) => alert.userId));
     const slackSends: Promise<unknown>[] = [];
     for (const alert of pending) {

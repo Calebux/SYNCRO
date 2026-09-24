@@ -1,9 +1,10 @@
 import logger from '../config/logger';
 import { env } from '../config/env';
-import { NotificationPayload, DeliveryResult } from '../types/reminder';
+import { DeliveryResult } from '../types/reminder';
+import { V3NotificationEventType, V3EventPayload } from '../types/v3-notifications';
+import { renderV3Telegram } from './v3-notification-templates';
 import { ExternalServiceClient } from '../utils/external-service-client';
 import { withRetry, NonRetryableError } from '../utils/retry';
-import { sanitizeUrl } from '../utils/sanitize-url';
 
 export interface TelegramConfig {
   botToken: string;
@@ -184,156 +185,86 @@ export class TelegramBotService {
   }
 
   /**
-   * Send renewal reminder via Telegram with retry logic
+   * Deprecated stub — subscription reminders removed in v3.
    */
-  async sendRenewalReminder(
+  async sendRenewalReminder(): Promise<DeliveryResult> {
+    logger.warn('[TelegramBotService] sendRenewalReminder deprecated — subscription reminders removed in v3. Use sendV3Notification.');
+    return {
+      success: false,
+      error: 'Subscription reminder templates have been removed in v3. Use V3 notification dispatch.',
+      metadata: { retryable: false, deprecated: true },
+    };
+  }
+
+  /**
+   * Send a V3 notification via Telegram using renderV3Telegram template.
+   */
+  async sendV3Notification(
     userId: string,
-    payload: NotificationPayload,
+    eventType: V3NotificationEventType,
+    payload: V3EventPayload,
     chatId?: string,
-    options: { maxAttempts?: number } = {}
+    options: { maxAttempts?: number } = {},
   ): Promise<DeliveryResult> {
+    const { maxAttempts = 3 } = options;
+
     if (!this.isConfigured()) {
-      logger.warn('[TelegramBotService] Telegram not configured, skipping notification');
       return {
         success: false,
         error: 'Telegram bot token not configured',
-        metadata: {
-          retryable: false,
-        },
+        metadata: { retryable: false },
       };
     }
 
     try {
-      const maxAttempts = options.maxAttempts || 3;
+      const targetChatId = chatId || await this.getChatIdForUser(userId);
+
+      if (!targetChatId) {
+        return {
+          success: false,
+          error: 'User has not connected Telegram account',
+          metadata: { retryable: false },
+        };
+      }
 
       return await withRetry(
         async () => {
-          // Get chat ID if not provided
-          const targetChatId = chatId || await this.getChatIdForUser(userId);
-
-          if (!targetChatId) {
-            logger.warn(`[TelegramBotService] No Telegram chat ID found for user ${userId}`);
-            throw new NonRetryableError('User has not connected Telegram account');
-          }
-
-          const message = this.formatReminderMessage(payload);
-          const buttons = this.getReminderButtons(payload);
-
+          const message = renderV3Telegram(eventType, payload);
           const result = await this.sendMessage(targetChatId, message, {
             parseMode: 'HTML',
-            disableWebPagePreview: false,
-            replyMarkup: buttons,
             maxAttempts: 1,
           });
 
-          logger.info(`[TelegramBotService] Reminder sent successfully to user ${userId}`, {
+          logger.info('[TelegramBotService] V3 notification sent', {
+            userId,
+            eventType,
             messageId: result.message_id,
-            chatId: targetChatId,
           });
 
           return {
             success: true,
             metadata: {
+              eventType,
               messageId: result.message_id,
               chatId: targetChatId,
             },
           };
         },
-        { maxAttempts }
+        { maxAttempts },
       );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-
-      logger.error(`[TelegramBotService] Failed to send reminder to user ${userId}:`, {
+      logger.error('[TelegramBotService] Failed to send V3 notification', {
+        userId,
+        eventType,
         error: errorMessage,
       });
-
       return {
         success: false,
         error: errorMessage,
-        metadata: {
-          retryable: this.isRetryableError(error),
-        },
+        metadata: { retryable: this.isRetryableError(error) },
       };
     }
-  }
-
-  /**
-   * Format reminder message for Telegram
-   */
-  private formatReminderMessage(payload: NotificationPayload): string {
-    const { subscription, daysBefore, renewalDate, reminderType } = payload;
-
-    const renewalDateFormatted = new Date(renewalDate).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-
-    if (reminderType === 'trial_expiry') {
-      const emoji = daysBefore === 0 ? '🚨' : daysBefore <= 1 ? '⚠️' : '📅';
-      const urgency = daysBefore === 0 ? 'TODAY' : `in ${daysBefore} day${daysBefore > 1 ? 's' : ''}`;
-      const convertPrice = subscription.trial_converts_to_price ?? subscription.price ?? 0;
-
-      let message = `${emoji} <b>Trial Ending ${urgency}</b>\n\n`;
-      message += `<b>${subscription.name || 'Subscription'}</b>\n`;
-      message += `📦 Category: ${subscription.category || 'N/A'}\n`;
-      message += `📅 Trial ends: ${renewalDateFormatted}\n\n`;
-
-      if (subscription.credit_card_required) {
-        message += `⚠️ <b>Action Required:</b> You'll be charged <b>$${Number(convertPrice).toFixed(2)}/${subscription.billing_cycle || 'period'}</b> if you don't cancel.\n`;
-      } else {
-        message += `ℹ️ No credit card on file. Your access will end if you don't upgrade.\n`;
-      }
-
-      return message;
-    }
-
-    // Regular renewal reminder
-    const emoji = daysBefore === 0 ? '🔔' : daysBefore <= 3 ? '⚠️' : '📅';
-    const timeframe = daysBefore === 0 ? 'TODAY' : `in ${daysBefore} day${daysBefore > 1 ? 's' : ''}`;
-
-    let message = `${emoji} <b>Subscription Renewal ${timeframe}</b>\n\n`;
-    message += `<b>${subscription.name || 'Subscription'}</b>\n`;
-    message += `📦 Category: ${subscription.category || 'N/A'}\n`;
-    message += `💰 Price: $${Number(subscription.price || 0).toFixed(2)}/${subscription.billing_cycle || 'period'}\n`;
-    message += `📅 Renewal: ${renewalDateFormatted}\n`;
-
-    if (daysBefore > 0) {
-      message += `⏰ Days remaining: ${daysBefore}\n`;
-    }
-
-    return message;
-  }
-
-  /**
-   * Get inline keyboard buttons for reminder
-   */
-  private getReminderButtons(payload: NotificationPayload): any {
-    const { subscription } = payload;
-    const buttons: any[][] = [];
-
-    // Add manage subscription button if URL is available
-    if (subscription.renewal_url) {
-      const safeUrl = sanitizeUrl(subscription.renewal_url);
-      buttons.push([
-        {
-          text: '🔗 Manage Subscription',
-          url: safeUrl,
-        },
-      ]);
-    }
-
-    // Add view in app button
-    const appUrl = env.FRONTEND_URL;
-    buttons.push([
-      {
-        text: '📱 View in SYNCRO',
-        url: `${appUrl}/dashboard`,
-      },
-    ]);
-
-    return buttons.length > 0 ? { inline_keyboard: buttons } : undefined;
   }
 
   /**
