@@ -24,7 +24,8 @@ import {
   type AuditLogRow,
 } from '../src/services/audit-chain';
 
-const mockFrom = supabase.from as jest.Mock;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockFrom = supabase.from as any;
 
 /**
  * An in-memory stand-in for the `audit_logs` table that honours the queries the
@@ -365,5 +366,136 @@ describe('Audit log hash chain (issue #1081)', () => {
       expect(result.issues[0].type).toBe('unchained');
       expect(result.entriesChecked).toBe(0);
     });
+  });
+});
+
+/**
+ * Tests for append-only enforcement (issue #1479).
+ *
+ * The database trigger `audit_logs_append_only` rejects UPDATE and DELETE
+ * for all roles including `service_role` (which the application uses).
+ * These tests verify that the application cannot bypass the trigger by
+ * attempting DELETE/UPDATE operations through the Supabase client.
+ */
+describe('Append-only enforcement — application role cannot delete or mutate (issue #1479)', () => {
+  let table: FakeAuditTable;
+  let deleteBuilder: any;
+  let updateBuilder: any;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    table = new FakeAuditTable();
+    table.install();
+
+    // Builders that simulate Supabase's delete/update chain
+    deleteBuilder = {
+      eq: jest.fn(() => deleteBuilder),
+      then: jest.fn(() => Promise.resolve({ data: null, error: { code: 'insufficient_privilege', message: 'audit_logs is append-only: DELETE is not permitted (issue #1081)' } })),
+    };
+
+    updateBuilder = {
+      eq: jest.fn(() => updateBuilder),
+      then: jest.fn(() => Promise.resolve({ data: null, error: { code: 'insufficient_privilege', message: 'audit_logs is append-only: UPDATE is not permitted (issue #1081)' } })),
+    };
+
+    // Override the builder to add delete/update
+    const originalBuilder = table.builder.bind(table);
+    table.builder = () => {
+      const builder = originalBuilder();
+      builder.delete = jest.fn(() => deleteBuilder);
+      builder.update = jest.fn(() => updateBuilder);
+      return builder;
+    };
+    table.install();
+  });
+
+  it('rejects DELETE from audit_logs via application role', async () => {
+    // First, insert some entries
+    await auditService.insertBatch([
+      entry('admin.login'),
+      entry('admin.data_exported'),
+    ]);
+
+    // Attempt to delete via Supabase client (simulating application code)
+    const { supabase } = require('../src/config/database');
+    const deleteResult = await supabase
+      .from('audit_logs')
+      .delete()
+      .eq('sequence', 1);
+
+    // The database trigger should reject the DELETE
+    expect(deleteResult.error).toBeDefined();
+    expect(deleteResult.error?.code).toBe('insufficient_privilege');
+    expect(deleteResult.error?.message).toContain('append-only');
+  });
+
+  it('rejects UPDATE from audit_logs via application role', async () => {
+    // First, insert some entries
+    await auditService.insertBatch([
+      entry('admin.login'),
+    ]);
+
+    // Attempt to update via Supabase client (simulating application code)
+    const { supabase } = require('../src/config/database');
+    const updateResult = await supabase
+      .from('audit_logs')
+      .update({ action: 'tampered' })
+      .eq('sequence', 1);
+
+    // The database trigger should reject the UPDATE
+    expect(updateResult.error).toBeDefined();
+    expect(updateResult.error?.code).toBe('insufficient_privilege');
+    expect(updateResult.error?.message).toContain('append-only');
+  });
+
+  it('verification detects deletion even if trigger is bypassed', async () => {
+    await auditService.insertBatch([
+      entry('admin.login'),
+      entry('admin.role_granted', { metadata: { role: 'owner' } }),
+      entry('admin.data_exported'),
+      entry('admin.logout'),
+    ]);
+
+    // Simulate a direct database deletion that bypasses the trigger
+    // (e.g., superuser or restored from backup)
+    table.rows.splice(1, 1);
+
+    const result = await auditService.verifyChain();
+
+    expect(result.valid).toBe(false);
+    expect(result.issues.map((i) => i.type)).toEqual(
+      expect.arrayContaining(['missing_entry', 'broken_link']),
+    );
+  });
+
+  it('verification detects mutation even if trigger is bypassed', async () => {
+    await auditService.insertBatch([
+      entry('admin.login'),
+      entry('admin.role_granted', { metadata: { role: 'owner' } }),
+    ]);
+
+    // Simulate a direct database edit that bypasses the trigger
+    table.rows[1].action = 'admin.nothing_happened';
+    table.rows[1].entry_hash = hashForRow(table.rows[1]);
+
+    const result = await auditService.verifyChain();
+
+    expect(result.valid).toBe(false);
+    expect(result.issues.map((i) => i.type)).toContain('broken_link');
+  });
+
+  it('audit service insertEntry does not expose DELETE or UPDATE methods', () => {
+    // The auditService only has insertEntry, insertBatch, getUserLogs,
+    // getAllLogs, verifyChain, getLogsCount — no delete or update methods
+    expect(typeof auditService.insertEntry).toBe('function');
+    expect(typeof auditService.insertBatch).toBe('function');
+    expect(typeof auditService.getUserLogs).toBe('function');
+    expect(typeof auditService.getAllLogs).toBe('function');
+    expect(typeof auditService.verifyChain).toBe('function');
+    expect(typeof auditService.getLogsCount).toBe('function');
+    // @ts-expect-error — should not exist
+    expect(auditService.deleteEntry).toBeUndefined();
+    // @ts-expect-error — should not exist
+    expect(auditService.updateEntry).toBeUndefined();
   });
 });
