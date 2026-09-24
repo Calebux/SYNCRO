@@ -2,6 +2,12 @@ import { supabase } from '../config/database';
 import logger from '../config/logger';
 import { env } from '../config/env';
 import crypto from 'crypto';
+import {
+  auditChannelOpened,
+  auditChannelCloseInitiated,
+  auditChannelDisputed,
+  auditChannelFinalized,
+} from './audit-service';
 
 export interface WatchtowerRecord {
   address: string;
@@ -96,6 +102,15 @@ export class PaymentChannelService {
 
     if (error) throw error;
     logger.info('Payment channel opened', { userId, channelId: data.id, depositAmount });
+
+    // Audit log channel open
+    await auditChannelOpened(userId, {
+      channelId: data.id,
+      counterparty,
+      depositAmount,
+      after: { state: 'active', depositAmount, counterparty },
+    });
+
     return this.toRecord(data);
   }
 
@@ -179,6 +194,8 @@ export class PaymentChannelService {
       throw new Error('Channel not found or not active');
     }
 
+    const beforeState = channel.state;
+
     const { data, error } = await supabase
       .from('payment_channels')
       .update({
@@ -191,10 +208,29 @@ export class PaymentChannelService {
       .single();
 
     if (error) throw error;
+
+    // Audit log channel close initiation or dispute
+    if (unilateral) {
+      await auditChannelDisputed(userId, {
+        channelId,
+        before: { state: beforeState },
+        after: { state: 'dispute' },
+      });
+    } else {
+      await auditChannelCloseInitiated(userId, {
+        channelId,
+        unilateral: false,
+        before: { state: beforeState },
+        after: { state: 'closing' },
+      });
+    }
+
     return this.toRecord(data);
   }
 
   async finalizeClose(userId: string, channelId: string): Promise<PaymentChannelRecord> {
+    const channel = await this.getChannel(userId, channelId);
+
     const { data, error } = await supabase
       .from('payment_channels')
       .update({
@@ -207,6 +243,14 @@ export class PaymentChannelService {
       .single();
 
     if (error) throw error;
+
+    // Audit log channel finalization
+    await auditChannelFinalized(userId, {
+      channelId,
+      before: { state: channel?.state },
+      after: { state: 'closed' },
+    });
+
     return this.toRecord(data);
   }
 

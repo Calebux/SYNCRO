@@ -517,4 +517,74 @@ jobs:
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
           SOROBAN_CONTRACT_ADDRESS: ${{ secrets.SOROBAN_CONTRACT_ADDRESS }}
           STELLAR_NETWORK_URL: ${{ secrets.STELLAR_NETWORK_URL }}
+          ADMISSION_TOTAL_BUDGET_MS: ${{ secrets.ADMISSION_TOTAL_BUDGET_MS }}
+          ADMISSION_IDENTITY_RESOLUTION_MS: ${{ secrets.ADMISSION_IDENTITY_RESOLUTION_MS }}
+          ADMISSION_SCOPE_READ_MS: ${{ secrets.ADMISSION_SCOPE_READ_MS }}
+          ADMISSION_CAP_CHECK_MS: ${{ secrets.ADMISSION_CAP_CHECK_MS }}
+          ADMISSION_METER_RESERVE_MS: ${{ secrets.ADMISSION_METER_RESERVE_MS }}
+          ADMISSION_BUDGET_ENFORCEMENT: ${{ secrets.ADMISSION_BUDGET_ENFORCEMENT }}
+          ADMISSION_PARALLEL_CHECKS: ${{ secrets.ADMISSION_PARALLEL_CHECKS }}
+          ADMISSION_IDENTITY_CACHE_ENABLED: ${{ secrets.ADMISSION_IDENTITY_CACHE_ENABLED }}
+          ADMISSION_SCOPE_CACHE_ENABLED: ${{ secrets.ADMISSION_SCOPE_CACHE_ENABLED }}
+          ADMISSION_CAP_CACHE_ENABLED: ${{ secrets.ADMISSION_CAP_CACHE_ENABLED }}
+          ADMISSION_METER_CACHE_ENABLED: ${{ secrets.ADMISSION_METER_CACHE_ENABLED }}
         run: npm test -- --coverage --ci
+
+  # ──────────────────────────────────────────────
+  # Job 6: Admission budget gate
+  # Gates CI on the admission p99 latency budget.
+  # Prevents new checks from silently being added
+  # to the hot path without a budget allocation.
+  # ──────────────────────────────────────────────
+  admission-budget-gate:
+    name: Admission Budget Gate
+    runs-on: ubuntu-latest
+    needs: [changes, test-backend]
+    if: ${{ needs.changes.outputs.force_full_run == 'true' || needs.changes.outputs.backend == 'true' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Run admission tests to collect p99 samples
+        working-directory: backend
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ADMISSION_TOTAL_BUDGET_MS: ${{ secrets.ADMISSION_TOTAL_BUDGET_MS }}
+          ADMISSION_PARALLEL_CHECKS: ${{ secrets.ADMISSION_PARALLEL_CHECKS }}
+          ADMISSION_IDENTITY_CACHE_ENABLED: ${{ secrets.ADMISSION_IDENTITY_CACHE_ENABLED }}
+          ADMISSION_SCOPE_CACHE_ENABLED: ${{ secrets.ADMISSION_SCOPE_CACHE_ENABLED }}
+          ADMISSION_CAP_CACHE_ENABLED: ${{ secrets.ADMISSION_CAP_CACHE_ENABLED }}
+          ADMISSION_METER_CACHE_ENABLED: ${{ secrets.ADMISSION_METER_CACHE_ENABLED }}
+        run: npm test -- --testPathPattern="admission-service" --coverage --ci
+
+      - name: Check admission budget compliance
+        working-directory: backend
+        env:
+          ADMISSION_TOTAL_BUDGET_MS: ${{ secrets.ADMISSION_TOTAL_BUDGET_MS }}
+          ADMISSION_BUDGET_ENFORCEMENT: ${{ secrets.ADMISSION_BUDGET_ENFORCEMENT }}
+          ADMISSION_MIN_SAMPLES_P99: ${{ secrets.ADMISSION_MIN_SAMPLES_P99 }}
+          ADMISSION_P99_WINDOW_MS: ${{ secrets.ADMISSION_P99_WINDOW_MS }}
+        run: npx ts-node scripts/check-admission-budget.ts
+
+      - name: Upload admission metrics on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: admission-metrics
+          path: |
+            backend/coverage/
+          retention-days: 7

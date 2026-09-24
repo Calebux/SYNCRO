@@ -113,6 +113,7 @@ import { errorHandler } from './middleware/errorHandler';
 import { swaggerSpec } from './swagger';
 import privacyMetricsAdminRoutes from './routes/admin/privacy-metrics';
 import metricsRoutes from './routes/metrics';
+import analyticsV3Routes from './routes/analytics-v3';
 
 
 const app = express();
@@ -257,6 +258,9 @@ app.get('/health', async (req, res) => {
 // Core SLIs Metrics Endpoint (Prometheus / JSON)
 app.use('/metrics', metricsRoutes);
 app.use('/api/metrics', metricsRoutes);
+
+// V3 Analytics Endpoints
+app.use('/api/analytics/v3', analyticsV3Routes);
 
 // Swagger Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));

@@ -4,7 +4,6 @@ import { container } from './container';
 import { riskDetectionService } from './risk-detection/risk-detection-service';
 import { expiryService } from './expiry-service';
 import { renewalLockService } from './renewal-lock-service';
-import { digestService } from './digest-service';
 import { webhookService } from './webhook-service';
 import { complianceService } from './compliance-service';
 import { supabase } from '../config/database';
@@ -147,20 +146,6 @@ export class SchedulerService {
           );
         } catch (error) {
           logger.error('Error in weekly Telegram summary job:', error);
-        }
-      }),
-    );
-
-    // ── 1st of every month at 8 AM UTC: monthly digest ───────────────────
-    // Cron: minute=0, hour=8, day=1, month=*, weekday=*
-    this.jobs.push(
-      cron.schedule('0 8 1 * *', async () => {
-        logger.info('Running monthly digest job');
-        try {
-          const result = await digestService.runMonthlyDigest();
-          logger.info('Monthly digest job completed', result);
-        } catch (error) {
-          logger.error('Error in monthly digest job:', error);
         }
       }),
     );
