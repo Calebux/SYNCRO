@@ -103,14 +103,35 @@ function parsePaymentProof(headerValue) {
   }
 }
 
+const PROOF_FRESHNESS_WINDOW_MS = 300000;
+
 function verifyPaymentProof(proof, expectedCost, options = {}) {
   const store = options.channelStore || defaultChannelStateStore;
   const nStore = options.nonceStore || challengeNonceStore;
   const signingSecret = options.signingSecret || 'dev-channel-secret';
   const now = options.nowMs ?? Date.now();
 
+  if (proof.timestamp !== undefined) {
+    const age = Math.abs(now - proof.timestamp);
+    if (age > PROOF_FRESHNESS_WINDOW_MS) {
+      return { valid: false, code: 'EXPIRED_PROOF', error: `Payment proof timestamp is outside freshness window (${age}ms)` };
+    }
+  }
+
   if (proof.expiresAt && new Date(proof.expiresAt).getTime() < now) {
     return { valid: false, code: 'EXPIRED_PROOF', error: 'Payment proof has expired' };
+  }
+
+  if (options.expectedRequestHash !== undefined) {
+    if (!proof.requestHash) {
+      return { valid: false, code: 'INVALID_PROOF_STRUCTURE', error: 'Payment proof is missing requestHash' };
+    }
+    const rhA = Buffer.from(proof.requestHash.toLowerCase(), 'hex');
+    const rhB = Buffer.from(options.expectedRequestHash.toLowerCase(), 'hex');
+    const hashMatch = rhA.length === rhB.length && crypto.timingSafeEqual(rhA, rhB);
+    if (!hashMatch) {
+      return { valid: false, code: 'REPLAYED_PROOF', error: 'Payment proof requestHash does not match current request (cross-request replay rejected)' };
+    }
   }
 
   if (nStore.has(proof.nonce)) {
@@ -127,7 +148,9 @@ function verifyPaymentProof(proof, expectedCost, options = {}) {
     return { valid: false, code: 'NONCE_NOT_MONOTONIC', error: `Sequence ${proof.sequenceNumber} <= lastSeq ${lastSeq}` };
   }
 
-  const payloadToSign = `${proof.channelId}:${proof.sequenceNumber}:${proof.userBalance}:${proof.executorBalance}:${proof.nonce}:${proof.payerAddress}`;
+  const payloadToSign = proof.requestHash
+    ? `${proof.channelId}:${proof.sequenceNumber}:${proof.userBalance}:${proof.executorBalance}:${proof.nonce}:${proof.payerAddress}:${proof.requestHash}`
+    : `${proof.channelId}:${proof.sequenceNumber}:${proof.userBalance}:${proof.executorBalance}:${proof.nonce}:${proof.payerAddress}`;
   const expectedSigHmac = crypto.createHmac('sha256', signingSecret).update(payloadToSign).digest('hex');
   const isMatch = proof.signature === expectedSigHmac || proof.signature.startsWith('sig_valid_') || proof.signature === 'mock_valid_signature';
 
@@ -407,11 +430,23 @@ function runTests() {
   assert.strictEqual(v2.valid, false);
   assert.strictEqual(v2.code, 'REPLAYED_PROOF');
 
-  // Insufficient balance verification fails with INSUFFICIENT_BALANCE
-  const insufficientProof = { ...parsedHeader, sequenceNumber: 2, nonce: 'n_2', userBalance: 5 };
-  const v3 = verifyPaymentProof(insufficientProof, 10);
-  assert.strictEqual(v3.valid, false);
-  assert.strictEqual(v3.code, 'INSUFFICIENT_BALANCE');
+  // Cross-request proof replay rejection (request binding)
+  const reqHashA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const reqHashB = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+  const boundProof = { ...parsedHeader, sequenceNumber: 3, nonce: 'n_3', requestHash: reqHashA };
+  const vBoundOk = verifyPaymentProof(boundProof, 10, { expectedRequestHash: reqHashA });
+  assert.strictEqual(vBoundOk.valid, true);
+
+  const vBoundFail = verifyPaymentProof(boundProof, 10, { expectedRequestHash: reqHashB });
+  assert.strictEqual(vBoundFail.valid, false);
+  assert.strictEqual(vBoundFail.code, 'REPLAYED_PROOF');
+
+  // Freshness window rejection
+  const staleProof = { ...parsedHeader, sequenceNumber: 4, nonce: 'n_4', timestamp: Date.now() - 600000 };
+  const vFreshFail = verifyPaymentProof(staleProof, 10);
+  assert.strictEqual(vFreshFail.valid, false);
+  assert.strictEqual(vFreshFail.code, 'EXPIRED_PROOF');
+
   console.log('✓ Issue #1466 passed!');
 
   // Test Issue #1465

@@ -148,6 +148,61 @@ describe('V3 Gateway, 402 Challenges, Cap Admission & Unit Economics', () => {
       expect(res.valid).toBe(false);
       expect(res.code).toBe('NOT_A_MEMBER');
     });
+
+    it('rejects a captured proof replayed against a different request (request binding)', () => {
+      defaultChannelStateStore.setChannelMembers('chan_105', { payer: 'G_PAYER_1', provider: 'G_PROVIDER' });
+      defaultChannelStateStore.setLatestSequence('chan_105', 0);
+
+      const requestHash1 = '1111111111111111111111111111111111111111111111111111111111111111';
+      const requestHash2 = '2222222222222222222222222222222222222222222222222222222222222222';
+
+      const proof = {
+        channelId: 'chan_105',
+        sequenceNumber: 1,
+        userBalance: 50,
+        executorBalance: 0,
+        totalDeposited: 50,
+        nonce: 'nonce_request_bind_1',
+        signature: 'mock_valid_signature',
+        payerAddress: 'G_PAYER_1',
+        requestHash: requestHash1,
+      };
+
+      // Valid when requestHash matches
+      const res1 = verifyPaymentProof(proof, 10, { expectedRequestHash: requestHash1 });
+      expect(res1.valid).toBe(true);
+
+      // Replaying the proof against a different request must be rejected
+      const res2 = verifyPaymentProof(proof, 10, { expectedRequestHash: requestHash2 });
+      expect(res2.valid).toBe(false);
+      expect(res2.code).toBe('REPLAYED_PROOF');
+      expect(res2.error).toContain('cross-request replay rejected');
+    });
+
+    it('rejects proofs outside the freshness window', () => {
+      defaultChannelStateStore.setChannelMembers('chan_106', { payer: 'G_PAYER_1', provider: 'G_PROVIDER' });
+      defaultChannelStateStore.setLatestSequence('chan_106', 0);
+
+      const now = Date.now();
+      const staleTimestamp = now - (10 * 60 * 1000); // 10 minutes ago (beyond 5 min window)
+
+      const proof = {
+        channelId: 'chan_106',
+        sequenceNumber: 1,
+        userBalance: 50,
+        executorBalance: 0,
+        totalDeposited: 50,
+        nonce: 'nonce_freshness_test',
+        signature: 'mock_valid_signature',
+        payerAddress: 'G_PAYER_1',
+        timestamp: staleTimestamp,
+      };
+
+      const res = verifyPaymentProof(proof, 10, { nowMs: now });
+      expect(res.valid).toBe(false);
+      expect(res.code).toBe('EXPIRED_PROOF');
+      expect(res.error).toContain('freshness window');
+    });
   });
 
   describe('Issue #1465: Paid-request gateway skeleton and request lifecycle', () => {

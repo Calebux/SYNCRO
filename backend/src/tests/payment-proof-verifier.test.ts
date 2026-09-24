@@ -115,7 +115,7 @@ describe('PaymentProofVerifier', () => {
     expect(result.ok).toBe(false);
     // Either already used or hash mismatch — both are correct rejections.
     const code = (result as { code: string }).code;
-    expect(['PROOF_ALREADY_USED', 'PROOF_CHANNEL_MISMATCH']).toContain(code);
+    expect(['PROOF_ALREADY_USED', 'PROOF_INVALID_REQUEST_HASH', 'PROOF_CHANNEL_MISMATCH']).toContain(code);
   });
 
   it('rejects a proof with the same nonce but a different requestHash (cross-request, fresh nonce)', () => {

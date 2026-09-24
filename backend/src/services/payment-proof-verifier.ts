@@ -294,7 +294,7 @@ export class PaymentProofVerifier {
       });
       return {
         ok: false,
-        code: 'PROOF_CHANNEL_MISMATCH',
+        code: 'PROOF_INVALID_REQUEST_HASH',
         message: 'Proof requestHash does not match the current request.',
       };
     }

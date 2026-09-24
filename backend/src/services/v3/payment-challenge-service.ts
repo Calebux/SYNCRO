@@ -23,6 +23,8 @@ export interface PaymentProof {
   signature: string;
   payerAddress: string;
   expiresAt?: string;
+  timestamp?: number;
+  requestHash?: string;
 }
 
 export interface NonceRecord {
@@ -120,6 +122,8 @@ export class InMemoryChannelStateStore implements ChannelStateStore {
 
 export const defaultChannelStateStore = new InMemoryChannelStateStore();
 
+export const PROOF_FRESHNESS_WINDOW_MS = 5 * 60 * 1000; // 300 000 ms (5 min)
+
 export interface VerificationResult {
   valid: boolean;
   code?: 'REPLAYED_PROOF' | 'EXPIRED_PROOF' | 'INVALID_SIGNATURE' | 'NOT_A_MEMBER' | 'NONCE_NOT_MONOTONIC' | 'INSUFFICIENT_BALANCE' | 'INVALID_PROOF_STRUCTURE';
@@ -187,6 +191,7 @@ export function verifyPaymentProof(
     nonceStore?: NonceStore;
     signingSecret?: string;
     nowMs?: number;
+    expectedRequestHash?: string;
   }
 ): VerificationResult {
   const store = options?.channelStore || defaultChannelStateStore;
@@ -194,7 +199,20 @@ export function verifyPaymentProof(
   const signingSecret = options?.signingSecret || 'dev-channel-secret';
   const now = options?.nowMs ?? Date.now();
 
-  // 1. Expiry check if proof carries expiry
+  // 1. Freshness window check on timestamp if provided
+  if (proof.timestamp !== undefined) {
+    const age = Math.abs(now - proof.timestamp);
+    if (age > PROOF_FRESHNESS_WINDOW_MS) {
+      return {
+        valid: false,
+        code: 'EXPIRED_PROOF',
+        error: `Payment proof timestamp is outside acceptable freshness window (${age}ms > ${PROOF_FRESHNESS_WINDOW_MS}ms)`,
+        details: { age, freshnessWindowMs: PROOF_FRESHNESS_WINDOW_MS },
+      };
+    }
+  }
+
+  // Expiry check if proof carries expiry string
   if (proof.expiresAt) {
     const expTime = new Date(proof.expiresAt).getTime();
     if (expTime < now) {
@@ -206,7 +224,29 @@ export function verifyPaymentProof(
     }
   }
 
-  // 2. Replay check via NonceStore
+  // 2. Request binding verification
+  if (options?.expectedRequestHash !== undefined) {
+    if (!proof.requestHash) {
+      return {
+        valid: false,
+        code: 'INVALID_PROOF_STRUCTURE',
+        error: 'Payment proof is missing required requestHash for request binding',
+      };
+    }
+    const rhA = Buffer.from(proof.requestHash.toLowerCase(), 'hex');
+    const rhB = Buffer.from(options.expectedRequestHash.toLowerCase(), 'hex');
+    const hashMatch = rhA.length === rhB.length && crypto.timingSafeEqual(rhA, rhB);
+    if (!hashMatch) {
+      return {
+        valid: false,
+        code: 'REPLAYED_PROOF',
+        error: 'Payment proof requestHash does not match current request (cross-request replay rejected)',
+        details: { proofRequestHash: proof.requestHash, expectedRequestHash: options.expectedRequestHash },
+      };
+    }
+  }
+
+  // 3. Replay check via NonceStore
   if (nStore.has(proof.nonce)) {
     return {
       valid: false,
@@ -216,7 +256,7 @@ export function verifyPaymentProof(
     };
   }
 
-  // 3. Channel Membership Check
+  // 4. Channel Membership Check
   const members = store.getChannelMembers(proof.channelId);
   if (members && members.payer !== proof.payerAddress) {
     return {
@@ -226,7 +266,7 @@ export function verifyPaymentProof(
     };
   }
 
-  // 4. Nonce / Sequence Monotonicity
+  // 5. Nonce / Sequence Monotonicity
   const lastSeq = store.getLatestSequence(proof.channelId);
   if (proof.sequenceNumber <= lastSeq) {
     return {
@@ -237,8 +277,10 @@ export function verifyPaymentProof(
     };
   }
 
-  // 5. Signature verification
-  const payloadToSign = `${proof.channelId}:${proof.sequenceNumber}:${proof.userBalance}:${proof.executorBalance}:${proof.nonce}:${proof.payerAddress}`;
+  // 6. Signature verification
+  const payloadToSign = proof.requestHash
+    ? `${proof.channelId}:${proof.sequenceNumber}:${proof.userBalance}:${proof.executorBalance}:${proof.nonce}:${proof.payerAddress}:${proof.requestHash}`
+    : `${proof.channelId}:${proof.sequenceNumber}:${proof.userBalance}:${proof.executorBalance}:${proof.nonce}:${proof.payerAddress}`;
   const expectedSigHmac = crypto.createHmac('sha256', signingSecret).update(payloadToSign).digest('hex');
 
   // Support ed25519 or HMAC signature
@@ -253,7 +295,7 @@ export function verifyPaymentProof(
     };
   }
 
-  // 6. Sufficient Balance Check
+  // 7. Sufficient Balance Check
   if (proof.userBalance < 0 || proof.userBalance < expectedCost) {
     return {
       valid: false,
