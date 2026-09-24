@@ -101,7 +101,7 @@ export class LogicalCallManager {
 
         let delay = resolveRetryDelay(error);
         if (delay === null) {
-          delay = computeJitteredDelay(attempt, this.policy, this.runtime.random());
+          break;
         }
 
         const elapsed = this.runtime.nowMs() - started;

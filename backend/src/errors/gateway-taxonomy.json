@@ -2,33 +2,121 @@
   "version": "2026-09-24",
   "errors": [
     {
-      "code": "GATEWAY_RATE_LIMITED",
-      "className": "GatewayRateLimitedError",
-      "httpStatus": 429,
-      "retryable": true,
-      "supportsRetryAfterHeader": true,
-      "defaultMessage": "Gateway rate limit exceeded."
-    },
-    {
-      "code": "GATEWAY_CHANNEL_EXHAUSTED",
-      "className": "GatewayChannelExhaustedError",
+      "code": "GATEWAY_PAYMENT_REQUIRED",
+      "className": "GatewayPaymentRequiredError",
       "httpStatus": 402,
+      "action": "provide_payment",
       "retryable": false,
       "supportsRetryAfterHeader": false,
-      "defaultMessage": "Payment channel balance is exhausted."
+      "defaultMessage": "Valid payment authorization is required."
+    },
+    {
+      "code": "GATEWAY_KEY_MISSING",
+      "className": "GatewayKeyMissingError",
+      "httpStatus": 401,
+      "action": "provide_credentials",
+      "retryable": false,
+      "supportsRetryAfterHeader": false,
+      "defaultMessage": "Gateway credentials are required."
+    },
+    {
+      "code": "GATEWAY_KEY_INVALID",
+      "className": "GatewayKeyInvalidError",
+      "httpStatus": 401,
+      "action": "refresh_credentials",
+      "retryable": false,
+      "supportsRetryAfterHeader": false,
+      "defaultMessage": "Gateway credentials are invalid."
     },
     {
       "code": "GATEWAY_KEY_REVOKED",
       "className": "GatewayKeyRevokedError",
       "httpStatus": 403,
+      "action": "refresh_credentials",
       "retryable": false,
       "supportsRetryAfterHeader": false,
       "defaultMessage": "Provider key has been revoked."
     },
     {
+      "code": "GATEWAY_SCOPE_DENIED",
+      "className": "GatewayScopeDeniedError",
+      "httpStatus": 403,
+      "action": "request_access",
+      "retryable": false,
+      "supportsRetryAfterHeader": false,
+      "defaultMessage": "The credential is not authorized for this scope."
+    },
+    {
+      "code": "GATEWAY_GRANT_EXPIRED",
+      "className": "GatewayGrantExpiredError",
+      "httpStatus": 403,
+      "action": "refresh_grant",
+      "retryable": false,
+      "supportsRetryAfterHeader": false,
+      "defaultMessage": "The payment grant has expired."
+    },
+    {
+      "code": "GATEWAY_CAP_EXCEEDED",
+      "className": "GatewayCapExceededError",
+      "httpStatus": 403,
+      "action": "request_cap_increase",
+      "retryable": false,
+      "supportsRetryAfterHeader": false,
+      "defaultMessage": "The credential spending cap has been exceeded."
+    },
+    {
+      "code": "GATEWAY_CHANNEL_EXHAUSTED",
+      "className": "GatewayChannelExhaustedError",
+      "httpStatus": 402,
+      "action": "fund_channel",
+      "retryable": false,
+      "supportsRetryAfterHeader": false,
+      "defaultMessage": "Payment channel balance is exhausted."
+    },
+    {
+      "code": "GATEWAY_METER_INSUFFICIENT",
+      "className": "GatewayMeterInsufficientError",
+      "httpStatus": 402,
+      "action": "fund_meter",
+      "retryable": false,
+      "supportsRetryAfterHeader": false,
+      "defaultMessage": "Meter balance is insufficient for this request."
+    },
+    {
+      "code": "GATEWAY_RATE_LIMITED",
+      "className": "GatewayRateLimitedError",
+      "httpStatus": 429,
+      "action": "wait",
+      "retryable": true,
+      "retryAfterSeconds": 1,
+      "supportsRetryAfterHeader": true,
+      "defaultMessage": "Gateway rate limit exceeded."
+    },
+    {
+      "code": "GATEWAY_UPSTREAM_UNAVAILABLE",
+      "className": "GatewayUpstreamUnavailableError",
+      "httpStatus": 503,
+      "action": "retry",
+      "retryable": true,
+      "retryAfterSeconds": 5,
+      "supportsRetryAfterHeader": true,
+      "defaultMessage": "Gateway upstream is unavailable."
+    },
+    {
+      "code": "GATEWAY_METER_DEGRADED",
+      "className": "GatewayMeterDegradedError",
+      "httpStatus": 503,
+      "action": "retry",
+      "retryable": true,
+      "retryAfterSeconds": 10,
+      "supportsRetryAfterHeader": true,
+      "defaultMessage": "Gateway metering is temporarily degraded."
+    },
+    {
       "code": "GATEWAY_BAD_REQUEST",
       "className": "GatewayBadRequestError",
       "httpStatus": 400,
+      "action": "fix_request",
       "retryable": false,
       "supportsRetryAfterHeader": false,
       "defaultMessage": "Gateway request is invalid."
@@ -37,6 +125,7 @@
       "code": "GATEWAY_UNAUTHORIZED",
       "className": "GatewayUnauthorizedError",
       "httpStatus": 401,
+      "action": "provide_credentials",
       "retryable": false,
       "supportsRetryAfterHeader": false,
       "defaultMessage": "Gateway credentials are invalid."
@@ -45,7 +134,9 @@
       "code": "GATEWAY_INTERNAL",
       "className": "GatewayInternalError",
       "httpStatus": 500,
+      "action": "retry",
       "retryable": true,
+      "retryAfterSeconds": 5,
       "supportsRetryAfterHeader": true,
       "defaultMessage": "Gateway internal error."
     }

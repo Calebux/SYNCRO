@@ -69,6 +69,7 @@ export interface AdmissionError {
   message: string;
   latencyMs: number;
   fatal: boolean;
+  code?: string;
 }
 
 export interface AdmissionStepResult<T> {
@@ -237,6 +238,7 @@ export class AdmissionService {
           message: error instanceof Error ? error.message : 'Unknown admission error',
           latencyMs: totalLatencyMs,
           fatal: true,
+          code: 'GATEWAY_INTERNAL',
         }],
       };
     }
@@ -489,6 +491,7 @@ export class AdmissionService {
         message: identity.error || 'Identity resolution failed',
         latencyMs: identity.latencyMs,
         fatal: true,
+        code: identity.data ? 'GATEWAY_KEY_INVALID' : 'GATEWAY_KEY_MISSING',
       });
     }
 
@@ -500,6 +503,7 @@ export class AdmissionService {
         message: scope.error || 'Scope read failed',
         latencyMs: scope.latencyMs,
         fatal: true,
+        code: scope.error ? 'GATEWAY_INTERNAL' : 'GATEWAY_SCOPE_DENIED',
       });
     }
 
@@ -510,7 +514,8 @@ export class AdmissionService {
         step: 'capCheck',
         message: 'Cap ceiling exceeded',
         latencyMs: cap.latencyMs,
-        fatal: false,
+        fatal: true,
+        code: 'GATEWAY_CAP_EXCEEDED',
       });
     }
 
@@ -521,7 +526,8 @@ export class AdmissionService {
         step: 'meterReserve',
         message: 'Insufficient meter balance',
         latencyMs: meter.latencyMs,
-        fatal: false,
+        fatal: true,
+        code: 'GATEWAY_METER_INSUFFICIENT',
       });
     }
 

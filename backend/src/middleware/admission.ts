@@ -3,6 +3,7 @@ import { admissionService } from '../services/admission-service';
 import logger from '../config/logger';
 import { admissionConfig } from '../config/admission';
 import { AuthenticatedRequest } from './auth';
+import gatewayTaxonomy from '../errors/gateway-taxonomy.json';
 
 /**
  * Admission middleware for x402-gated endpoints.
@@ -42,20 +43,28 @@ export function createAdmissionMiddleware(options: Partial<AdmissionMiddlewareOp
       (req as any).admissionResult = result;
 
       if (!result.admitted) {
-        const fatalErrors = result.errors.filter(e => e.fatal);
-        if (fatalErrors.length > 0) {
+        const deniedError = result.errors.find(e => e.fatal) ?? result.errors[0];
+        const definition = gatewayTaxonomy.errors.find(error => error.code === deniedError?.code)
+          ?? gatewayTaxonomy.errors.find(error => error.code === 'GATEWAY_INTERNAL')!;
           logger.warn('Admission denied', {
             userId: req.userId,
             errors: result.errors.map(e => e.message),
             totalLatencyMs: result.totalLatencyMs,
           });
-          res.status(402).json({
-            error: 'Payment Required',
-            detail: fatalErrors[0].message,
-            admissionResult: result,
+          if (definition.retryAfterSeconds !== undefined) {
+            res.setHeader('Retry-After', String(definition.retryAfterSeconds));
+          }
+          res.status(definition.httpStatus).json({
+            code: definition.code,
+            message: deniedError?.message || definition.defaultMessage,
+            detail: deniedError?.message || definition.defaultMessage,
+            action: definition.action,
+            retryable: definition.retryable,
+            ...(definition.retryAfterSeconds !== undefined
+              ? { retryAfterSeconds: definition.retryAfterSeconds }
+              : {}),
           });
           return;
-        }
       }
 
       // Log budget compliance
@@ -74,7 +83,11 @@ export function createAdmissionMiddleware(options: Partial<AdmissionMiddlewareOp
         opts.onError(req, res, error instanceof Error ? error : new Error(String(error)));
       } else {
         res.status(500).json({
-          error: 'Internal Server Error',
+          code: 'GATEWAY_INTERNAL',
+          message: 'Admission check failed',
+          action: 'retry',
+          retryable: true,
+          retryAfterSeconds: 5,
           detail: 'Admission check failed',
         });
       }

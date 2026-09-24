@@ -1,6 +1,16 @@
 import {
+  GatewayCapExceededError,
   GatewayChannelExhaustedError,
+  GatewayGrantExpiredError,
+  GatewayKeyInvalidError,
+  GatewayKeyMissingError,
+  GatewayKeyRevokedError,
+  GatewayMeterDegradedError,
+  GatewayMeterInsufficientError,
+  GatewayPaymentRequiredError,
   GatewayRateLimitedError,
+  GatewayScopeDeniedError,
+  GatewayUpstreamUnavailableError,
   createGatewayErrorFromCode,
 } from "../src/generated/gateway-errors.js";
 import { GatewayClient } from "../src/v3/gateway-client.js";
@@ -20,6 +30,26 @@ describe("v3 generated gateway errors", () => {
     const err = createGatewayErrorFromCode("GATEWAY_CHANNEL_EXHAUSTED");
     expect(err).toBeInstanceOf(GatewayChannelExhaustedError);
     expect(err.retryable).toBe(false);
+  });
+
+  it.each([
+    ["GATEWAY_PAYMENT_REQUIRED", GatewayPaymentRequiredError, 402, false],
+    ["GATEWAY_KEY_MISSING", GatewayKeyMissingError, 401, false],
+    ["GATEWAY_KEY_INVALID", GatewayKeyInvalidError, 401, false],
+    ["GATEWAY_KEY_REVOKED", GatewayKeyRevokedError, 403, false],
+    ["GATEWAY_SCOPE_DENIED", GatewayScopeDeniedError, 403, false],
+    ["GATEWAY_GRANT_EXPIRED", GatewayGrantExpiredError, 403, false],
+    ["GATEWAY_CAP_EXCEEDED", GatewayCapExceededError, 403, false],
+    ["GATEWAY_METER_INSUFFICIENT", GatewayMeterInsufficientError, 402, false],
+    ["GATEWAY_UPSTREAM_UNAVAILABLE", GatewayUpstreamUnavailableError, 503, true],
+    ["GATEWAY_METER_DEGRADED", GatewayMeterDegradedError, 503, true],
+  ] as const)("maps %s to a typed actionable error", (code, ErrorClass, status, retryable) => {
+    const err = createGatewayErrorFromCode(code);
+    expect(err).toBeInstanceOf(ErrorClass);
+    expect(err.code).toBe(code);
+    expect(err.status).toBe(status);
+    expect(err.retryable).toBe(retryable);
+    expect(err.action).toBeTruthy();
   });
 });
 

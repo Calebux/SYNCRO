@@ -3,6 +3,7 @@ import {
   GatewaySdkError,
   createGatewayErrorFromCode,
   createGatewayErrorFromHttpStatus,
+  isGatewayErrorCode,
 } from "../generated/gateway-errors.js";
 import { DefaultRetryPolicy, LogicalCallManager, LogicalCallOptions } from "./retry.js";
 
@@ -13,7 +14,7 @@ export interface GatewayClientOptions {
 }
 
 interface GatewayErrorPayload {
-  code?: GatewayErrorCode;
+  code?: string;
   message?: string;
 }
 
@@ -36,7 +37,7 @@ async function toGatewayError(response: Response): Promise<GatewaySdkError> {
   }
 
   const retryAfterMs = parseRetryAfterMs(response.headers);
-  if (payload.code) {
+  if (payload.code && isGatewayErrorCode(payload.code)) {
     return createGatewayErrorFromCode(payload.code, {
       message: payload.message,
       status: response.status,
