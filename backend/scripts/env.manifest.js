@@ -130,10 +130,6 @@ const optional = [
   // Encryption
   'ENCRYPTION_KEY',
 
-  // Calendar sync (iCal feed)
-  'CALENDAR_SECRET',
-  'CALENDAR_FEED_BASE_URL',
-
   // Telegram bot
   'TELEGRAM_BOT_TOKEN',
   'TELEGRAM_WEBHOOK_SECRET',
