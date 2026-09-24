@@ -42,7 +42,6 @@ import tagsRoutes from '../routes/tags';
 import userRoutes from '../routes/user';
 import sessionRoutes from '../routes/sessions';
 import apiKeysRoutes from '../routes/api-keys';
-import digestRoutes from '../routes/digest';
 import mfaRoutes from '../routes/mfa';
 import pushNotificationRoutes from '../routes/push-notifications';
 import walletRoutes from '../routes/wallet';
@@ -54,7 +53,6 @@ import giftCardLedgerRoutes from '../routes/gift-card-ledger';
 import notificationDeadLetterRoutes from '../routes/notification-dead-letter';
 import renewalDeadLetterRoutes from '../routes/renewal-dead-letter';
 import telegramWebhookRoutes from '../routes/telegram-webhook';
-import calendarRouter from '../routes/calendar';
 import userPreferencesRoutes from '../routes/user-preferences';
 import reminderSettingsRoutes from '../routes/reminder-settings';
 import paymentsRoutes from '../routes/payments';
@@ -70,6 +68,7 @@ import icloudRouter from '../routes/integrations/icloud';
 import slackRouter from '../routes/integrations/slack';
 import metricsRoutes from '../routes/metrics';
 import analyticsRoutes from '../routes/analytics';
+import analyticsV3Routes from '../routes/analytics-v3';
 import referralRoutes from '../routes/referrals';
 import suggestionRoutes from '../routes/suggestions';
 import { getQueueHealthMetrics } from '../routes/admin-queues';
@@ -265,15 +264,6 @@ const ALL_ROUTES: RouteDescriptor[] = [
   },
   {
     method: 'ALL',
-    path: '/digest',
-    version: 'v1',
-    auth: 'user',
-    tags: ['Digest'],
-    summary: 'Email digest preferences',
-    handler: digestRoutes,
-  },
-  {
-    method: 'ALL',
     path: '/mfa',
     version: 'v1',
     auth: 'user',
@@ -371,15 +361,6 @@ const ALL_ROUTES: RouteDescriptor[] = [
     tags: ['Telegram'],
     summary: 'Telegram webhook (verified inline)',
     handler: telegramWebhookRoutes,
-  },
-  {
-    method: 'ALL',
-    path: '/calendar',
-    version: 'v1',
-    auth: 'public',
-    tags: ['Calendar'],
-    summary: 'Calendar feed & preferences (mixed auth)',
-    handler: calendarRouter,
   },
   {
     method: 'ALL',
@@ -533,6 +514,24 @@ const ALL_ROUTES: RouteDescriptor[] = [
     tags: ['Analytics'],
     summary: 'Spend analytics & forecasting',
     handler: analyticsRoutes,
+  },
+  {
+    method: 'GET',
+    path: '/analytics/v3/usage',
+    version: 'v3',
+    auth: 'user',
+    tags: ['Analytics V3'],
+    summary: 'Principal analytics: usage, settlement, channels, rejections',
+    handler: analyticsV3Routes,
+  },
+  {
+    method: 'GET',
+    path: '/analytics/v3/operator/usage',
+    version: 'v3',
+    auth: 'admin',
+    tags: ['Analytics V3'],
+    summary: 'Operator analytics: global usage, settlement, channels, rejections',
+    handler: analyticsV3Routes,
   },
 
   // ── Referrals ───────────────────────────────────────────────────────────────
