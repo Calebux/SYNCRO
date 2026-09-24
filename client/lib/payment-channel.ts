@@ -8,6 +8,7 @@ export interface PaymentChannel {
   state: 'active' | 'closing' | 'closed' | 'dispute';
   lastUpdated: string;
   expiry?: string;
+  challengePeriodEndsAt?: string;
   history?: ChannelHistoryItem[];
 }
 
@@ -17,6 +18,14 @@ export interface ChannelHistoryItem {
   amount?: string;
   timestamp: string;
   description?: string;
+}
+
+export interface ChannelStreamSnapshot {
+  type: 'snapshot' | 'error';
+  channels?: PaymentChannel[];
+  degradedMode?: boolean;
+  message?: string;
+  serverTime: string;
 }
 
 function persistChannels(channels: PaymentChannel[]): void {
@@ -55,6 +64,37 @@ export async function getChannels(): Promise<PaymentChannel[]> {
   } catch {
     return loadPersistedChannels();
   }
+}
+
+export function openChannelStream(onMessage: (snapshot: ChannelStreamSnapshot) => void): EventSource {
+  const streamUrl = `${API_BASE}/api/payment-channels/stream`;
+  const source = new EventSource(streamUrl, { withCredentials: true });
+
+  source.onmessage = (event) => {
+    try {
+      const payload = JSON.parse(event.data) as ChannelStreamSnapshot;
+      if (payload.channels) {
+        persistChannels(payload.channels);
+      }
+      onMessage(payload);
+    } catch {
+      onMessage({
+        type: 'error',
+        message: 'Failed to parse stream payload',
+        serverTime: new Date().toISOString(),
+      });
+    }
+  };
+
+  source.onerror = () => {
+    onMessage({
+      type: 'error',
+      message: 'Live updates unavailable',
+      serverTime: new Date().toISOString(),
+    });
+  };
+
+  return source;
 }
 
 export async function openChannel(depositAmount: string, counterparty: string = 'SYNCRO Executor'): Promise<PaymentChannel> {
@@ -115,6 +155,12 @@ export interface ChannelPreferences {
   autoTopUpAmount: number | null;
 }
 
+export interface WatchtowerRecord {
+  address: string;
+  bounty: number;
+  registeredAt: string;
+}
+
 export async function getChannelPreferences(): Promise<ChannelPreferences> {
   const res = await fetch(`${API_BASE}/api/payment-channels/preferences`, {
     credentials: 'include',
@@ -134,4 +180,43 @@ export async function updateChannelPreferences(
   });
   if (!res.ok) throw new Error('Failed to update channel preferences');
   return res.json();
+}
+
+export async function getWatchtowers(channelId: string): Promise<WatchtowerRecord[]> {
+  const res = await fetch(`${API_BASE}/api/payment-channels/${channelId}/watchtowers`, {
+    credentials: 'include',
+  });
+  if (!res.ok) throw new Error('Failed to fetch watchtowers');
+  const payload = await res.json() as { watchtowers: WatchtowerRecord[] };
+  return payload.watchtowers ?? [];
+}
+
+export async function grantWatchtowerAuthority(
+  channelId: string,
+  watchtower: string,
+  bounty = 0,
+): Promise<WatchtowerRecord[]> {
+  const res = await fetch(`${API_BASE}/api/payment-channels/${channelId}/watchtowers`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ watchtower, bounty }),
+  });
+  if (!res.ok) throw new Error('Failed to grant authority');
+  const payload = await res.json() as { watchtowers: WatchtowerRecord[] };
+  return payload.watchtowers ?? [];
+}
+
+export async function revokeWatchtowerAuthority(
+  channelId: string,
+  watchtower: string,
+): Promise<WatchtowerRecord[]> {
+  const encoded = encodeURIComponent(watchtower);
+  const res = await fetch(`${API_BASE}/api/payment-channels/${channelId}/watchtowers/${encoded}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  if (!res.ok) throw new Error('Failed to revoke authority');
+  const payload = await res.json() as { watchtowers: WatchtowerRecord[] };
+  return payload.watchtowers ?? [];
 }

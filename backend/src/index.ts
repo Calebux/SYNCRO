@@ -112,6 +112,7 @@ import paymentChannelsRoutes from './routes/payment-channels';
 import { errorHandler } from './middleware/errorHandler';
 import { swaggerSpec } from './swagger';
 import privacyMetricsAdminRoutes from './routes/admin/privacy-metrics';
+import agentKeyCompromiseAdminRoutes from './routes/admin/agent-key-compromise';
 import metricsRoutes from './routes/metrics';
 
 
@@ -329,6 +330,7 @@ app.use('/admin/queues', adminQueuesRoutes);
 app.use('/api/admin/deletions', adminDeletionsRoutes);
 app.use('/api/admin/agent-wallets', createAdminLimiter(), agentWalletsRoutes);
 app.use('/api/admin', privacyMetricsAdminRoutes);
+app.use('/api/admin/agent-keys', createAdminLimiter(), agentKeyCompromiseAdminRoutes);
 
 
 app.get('/api/admin/metrics/subscriptions', createAdminLimiter(), adminAuth, async (req, res) => {

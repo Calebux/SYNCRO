@@ -16,6 +16,8 @@ export interface ChannelState {
   totalDeposited: number;
   watchtowers?: WatchtowerRecord[];
   watchtowerBountyPaid?: number;
+  closeInitiatedAt?: string;
+  challengePeriodEndsAt?: string;
 }
 
 export interface PaymentChannelRecord {
@@ -26,6 +28,7 @@ export interface PaymentChannelRecord {
   state: 'active' | 'closing' | 'closed' | 'dispute';
   lastUpdated: string;
   expiry?: string;
+  challengePeriodEndsAt?: string;
   channelState?: ChannelState;
   onChainChannelId?: string;
 }
@@ -40,6 +43,8 @@ function signState(state: ChannelState, channelId: string): string {
 }
 
 export class PaymentChannelService {
+  private readonly challengePeriodMs = 24 * 60 * 60 * 1000;
+
   async listChannels(userId: string): Promise<PaymentChannelRecord[]> {
     const { data, error } = await supabase
       .from('payment_channels')
@@ -115,6 +120,7 @@ export class PaymentChannelService {
     }
 
     const nextState: ChannelState = {
+      ...state,
       sequenceNumber: state.sequenceNumber + 1,
       userBalance: state.userBalance - amount,
       executorBalance: state.executorBalance + amount,
@@ -146,6 +152,7 @@ export class PaymentChannelService {
 
     const state = channel.channelState!;
     const nextState: ChannelState = {
+      ...state,
       sequenceNumber: state.sequenceNumber + 1,
       userBalance: state.userBalance + amount,
       executorBalance: state.executorBalance,
@@ -179,10 +186,23 @@ export class PaymentChannelService {
       throw new Error('Channel not found or not active');
     }
 
+    const now = new Date();
+    const nextState: ChannelState = {
+      ...(channel.channelState ?? {
+        sequenceNumber: 0,
+        userBalance: Number.parseFloat(channel.balance),
+        executorBalance: 0,
+        totalDeposited: Number.parseFloat(channel.balance),
+      }),
+      closeInitiatedAt: now.toISOString(),
+      challengePeriodEndsAt: new Date(now.getTime() + this.challengePeriodMs).toISOString(),
+    };
+
     const { data, error } = await supabase
       .from('payment_channels')
       .update({
         state: unilateral ? 'dispute' : 'closing',
+        channel_state: nextState,
         updated_at: new Date().toISOString(),
       })
       .eq('id', channelId)
@@ -223,6 +243,7 @@ export class PaymentChannelService {
       state: row.state as PaymentChannelRecord['state'],
       lastUpdated: (row.updated_at ?? row.created_at) as string,
       expiry: row.expiry as string | undefined,
+      challengePeriodEndsAt: (row.channel_state as ChannelState | null)?.challengePeriodEndsAt,
       channelState: row.channel_state as ChannelState | undefined,
       onChainChannelId: row.on_chain_channel_id as string | undefined,
     };
