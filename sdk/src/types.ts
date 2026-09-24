@@ -231,3 +231,22 @@ export interface AppNotification {
   isRead: boolean;
   createdAt: string;
 }
+
+export interface PaidReceiptPayload {
+  receiptId: string;
+  requestHash: string;
+  route: string;
+  unit: string;
+  quantity: number;
+  amount: number;
+  rateCardVersion: string;
+  exchangeRate: number | null;
+  channelId: string;
+  stateNonce: number;
+  timestamp: string;
+  signerPublicKey: string;
+}
+
+export interface PaidReceipt extends PaidReceiptPayload {
+  signature: string;
+}

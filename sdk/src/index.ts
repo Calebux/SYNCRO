@@ -36,6 +36,7 @@ import {
   createWebhookHandler,
   SYNCRO_WEBHOOK_HEADERS,
 } from "./webhooks.js";
+import { decodeReceiptHeader, verifyReceipt } from "./receipts.js";
 
 export interface Subscription {
   id: string;
@@ -885,6 +886,9 @@ export type {
   Webhook,
   // Notification types
   AppNotification,
+  // Receipt types
+  PaidReceipt,
+  PaidReceiptPayload,
 } from "./types.js";
 // ── Error taxonomy (v2 — #1303) ──────────────────────────────────────────────
 export {
@@ -915,6 +919,10 @@ export {
   createWebhookHandler,
   SYNCRO_WEBHOOK_HEADERS,
 } from "./webhooks.js";
+export {
+  decodeReceiptHeader,
+  verifyReceipt,
+} from "./receipts.js";
 export {
   buildSyncroMemo,
   parseSyncroMemo,
@@ -972,4 +980,3 @@ export type {
   MeteredOptions,
   HostedGatewayConfig,
 } from "./provider/index.js";
-} from "./generated/index.js";
