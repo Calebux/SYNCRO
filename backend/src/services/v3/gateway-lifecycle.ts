@@ -200,7 +200,15 @@ export function createGatewayLifecycle() {
         });
       }
 
-      const verification = verifyPaymentProof(proof, ctx.routePlan!.priceUpperBound);
+      // Compute canonical request hash (METHOD + PATH + BODY) to enforce request binding
+      const bodyStr = typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {});
+      const expectedRequestHash = crypto
+        .createHash('sha256')
+        .update(`${req.method.toUpperCase()}\0${req.path}\0${bodyStr}`)
+        .digest('hex');
+
+      const verificationOptions = proof.requestHash ? { expectedRequestHash } : undefined;
+      const verification = verifyPaymentProof(proof, ctx.routePlan!.priceUpperBound, verificationOptions);
       if (!verification.valid) {
         return res.status(402).json({
           error: verification.error,
@@ -210,6 +218,7 @@ export function createGatewayLifecycle() {
       }
 
       ctx.paymentProof = proof;
+      (ctx as any).verifiedRequestHash = expectedRequestHash;
       next();
     },
 
@@ -240,6 +249,21 @@ export function createGatewayLifecycle() {
         const reservationId = ctx.reservationId!;
 
         try {
+          // Re-verify binding before proxying to ensure intermediary did not alter request body/path
+          const bodyStr = typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {});
+          const postVerificationHash = crypto
+            .createHash('sha256')
+            .update(`${req.method.toUpperCase()}\0${req.path}\0${bodyStr}`)
+            .digest('hex');
+
+          const verifiedHash = (ctx as any).verifiedRequestHash;
+          if (verifiedHash && postVerificationHash !== verifiedHash) {
+            reservationTracker.release(reservationId, 'Proxy integrity check failed: Request altered after proof verification');
+            return res.status(400).json({
+              error: 'Proxy integrity violation: Request body or path was altered after payment proof verification',
+            });
+          }
+
           let upstreamResult: any;
 
           if (upstreamProvider) {
@@ -258,7 +282,7 @@ export function createGatewayLifecycle() {
           spendCapService.consumeLocal(ctx.identity!.agentId, actualUsage);
 
           // Generate Receipt
-          const requestHash = crypto.createHash('sha256').update(JSON.stringify(req.body || {})).digest('hex');
+          const requestHash = postVerificationHash;
           const receipt = {
             receiptId: `rcpt_${crypto.randomBytes(8).toString('hex')}`,
             requestHash,
