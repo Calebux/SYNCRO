@@ -115,6 +115,70 @@ export interface ChannelPreferences {
   autoTopUpAmount: number | null;
 }
 
+export type ChannelHistoryEventType =
+  | 'open'
+  | 'topup'
+  | 'payment'
+  | 'state_submitted'
+  | 'close_initiated'
+  | 'dispute'
+  | 'finalize';
+
+export interface ChannelStateEvent {
+  id: string;
+  type: ChannelHistoryEventType;
+  title: string;
+  timestamp: string;
+  source: 'on-chain' | 'off-chain';
+  amount?: number;
+  nonce?: string;
+  stateNumber?: number;
+  balance?: number;
+  confirmed?: boolean;
+  sequenceNumber?: number;
+  transactionHash?: string;
+  explorerUrl?: string;
+  note?: string;
+}
+
+export interface ChannelFinancials {
+  deposited: number;
+  userBalance: number;
+  meteredBalance: number;
+  unsettled: number;
+  committedOnChain: {
+    balanceA: number;
+    balanceB: number;
+    sequence: number;
+    transactionHash: string;
+    timestamp: string;
+  } | null;
+}
+
+export interface ChannelChallengeStatus {
+  windowSeconds: number;
+  windowDays: number;
+  periodActive: boolean;
+  deadline: string | null;
+  remainingSeconds: number | null;
+  source: 'on-chain' | 'default';
+}
+
+export interface ChannelHistoryResponse {
+  channel: PaymentChannel;
+  events: ChannelStateEvent[];
+  financials: ChannelFinancials;
+  challenge: ChannelChallengeStatus;
+}
+
+export async function getChannelHistory(channelId: string): Promise<ChannelHistoryResponse> {
+  const res = await fetch(`${API_BASE}/api/payment-channels/${channelId}/history`, {
+    credentials: 'include',
+  });
+  if (!res.ok) throw new Error('Failed to fetch channel history');
+  return res.json();
+}
+
 export async function getChannelPreferences(): Promise<ChannelPreferences> {
   const res = await fetch(`${API_BASE}/api/payment-channels/preferences`, {
     credentials: 'include',
