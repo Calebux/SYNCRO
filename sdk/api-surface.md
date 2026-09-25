@@ -123,6 +123,35 @@ FailureHandler
 MeteredOptions
 HostedGatewayConfig
 
+### CHANNELS
+
+CHANNEL_SCOPE
+ChannelClient
+  constructor(options: ChannelClientOptions)
+  open(input: OpenChannelInput): Promise<ChannelView>
+  topUp(channelId: bigint, amount: bigint): Promise<ChannelView>
+  getBalance(channelId: bigint): Promise<ChannelBalance>
+  getBurnRate(channelId: bigint): Promise<bigint | null>
+  ensureFunded(channelId: bigint): Promise<EnsureFundedResult>
+  initiateClose(input: InitiateCloseInput): Promise<CloseResult>
+  finalize(channelId: bigint, expectedSequence: bigint): Promise<ChannelView>
+ChannelScopeError   extends AuthError
+
+AutoTopUpConfig
+ChallengePeriod
+ChannelBalance
+ChannelClientOptions
+ChannelInvocation
+ChannelLifecycleState
+ChannelOperation
+ChannelScope
+ChannelTransport
+ChannelView
+CloseResult
+EnsureFundedResult
+InitiateCloseInput
+OpenChannelInput
+
 ### EXPERIMENTAL (namespaced — intentionally unstable)
 ## These exports are grouped under sdk/experimental and may change in any release.
 ## Do NOT depend on them in production code.
