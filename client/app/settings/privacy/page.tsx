@@ -2,8 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { fetchUserPreferences, updateUserPreferences } from '@/lib/api/user-preferences';
-import { GIFT_CARD_PROVIDERS, DEFAULT_GIFT_CARD_PROVIDER_ID } from '@/lib/gift-card-providers';
 import { useUserSettings } from '@/components/providers/user-settings-provider';
 import { generateStealthMetaAddress, isValidStealthMetaAddress } from '@syncro/shared';
 
@@ -13,7 +11,6 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 type ExportStatus = 'idle' | 'pending' | 'ready' | 'error';
 type DeleteStatus = 'idle' | 'scheduled' | 'error';
-type JitterLevel = 'off' | 'low' | 'medium' | 'high';
 
 interface JobState {
   jobId: string | null;
@@ -71,25 +68,6 @@ function triggerDownload(blob: Blob, filename: string): void {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
-}
-
-async function fetchUserPreferences(): Promise<{ reminder_jitter_level?: JitterLevel }> {
-  const res = await fetch(`${API_BASE}/api/user-preferences`, {
-    credentials: 'include',
-  });
-  if (!res.ok) throw new Error('Failed to fetch user preferences');
-  const json = await res.json();
-  return json.data;
-}
-
-async function updateUserPreferences(updates: { reminder_jitter_level?: JitterLevel; [key: string]: any }): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/user-preferences`, {
-    method: 'PATCH',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(updates),
-  });
-  if (!res.ok) throw new Error('Failed to update user preferences');
 }
 
 async function fetchPrivacyPreferences(): Promise<any> {
@@ -153,16 +131,6 @@ export default function DataPrivacyPage() {
   const [confirmed, setConfirmed] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // Gift card provider state
-  const [giftCardProviderId, setGiftCardProviderId] = useState(DEFAULT_GIFT_CARD_PROVIDER_ID);
-  const [giftCardProviderLoading, setGiftCardProviderLoading] = useState(true);
-  const [giftCardProviderSaving, setGiftCardProviderSaving] = useState(false);
-  const [giftCardProviderError, setGiftCardProviderError] = useState<string | null>(null);
-
-  // ── Jitter state ──────────────────────────────────────────────────────────
-  const [jitterLevel, setJitterLevel] = useState<JitterLevel>('off');
-  const [jitterLoading, setJitterLoading] = useState(false);
-  const [jitterError, setJitterError] = useState<string | null>(null);
   const [stealthMetaAddress, setStealthMetaAddress] = useState('');
   const [stealthStatus, setStealthStatus] = useState<string | null>(null);
   const [stealthLoading, setStealthLoading] = useState(false);
@@ -196,26 +164,6 @@ export default function DataPrivacyPage() {
   // ── Load preferences ───────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
-    fetchUserPreferences()
-      .then((prefs) => {
-        if (!cancelled) {
-          if (prefs.preferred_gift_card_provider) {
-            setGiftCardProviderId(prefs.preferred_gift_card_provider);
-          }
-          if (prefs.reminder_jitter_level) {
-            setJitterLevel(prefs.reminder_jitter_level);
-          }
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setGiftCardProviderError(err instanceof Error ? err.message : 'Failed to load preferences');
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setGiftCardProviderLoading(false);
-      });
-
     // Load privacy preferences
     fetchPrivacyPreferences()
       .then(prefs => {
@@ -241,35 +189,6 @@ export default function DataPrivacyPage() {
       cancelled = true;
     };
   }, []);
-
-  const handleGiftCardProviderChange = async (providerId: string) => {
-    const previous = giftCardProviderId;
-    setGiftCardProviderId(providerId);
-    setGiftCardProviderSaving(true);
-    setGiftCardProviderError(null);
-    try {
-      await updateUserPreferences({ preferred_gift_card_provider: providerId });
-    } catch (err) {
-      setGiftCardProviderId(previous);
-      setGiftCardProviderError(err instanceof Error ? err.message : 'Failed to save provider');
-    } finally {
-      setGiftCardProviderSaving(false);
-    }
-  };
-
-  // ── Handle jitter change ──────────────────────────────────────────────────
-  const handleJitterChange = async (newLevel: JitterLevel) => {
-    setJitterLoading(true);
-    setJitterError(null);
-    try {
-      await updateUserPreferences({ reminder_jitter_level: newLevel });
-      setJitterLevel(newLevel);
-    } catch (err) {
-      setJitterError(err instanceof Error ? err.message : 'Failed to update preference');
-    } finally {
-      setJitterLoading(false);
-    }
-  };
 
   const handleGenerateStealthAddress = () => {
     const generated = generateStealthMetaAddress();
@@ -436,13 +355,6 @@ export default function DataPrivacyPage() {
   // ── Derived UI state ──────────────────────────────────────────────────────
   const exportIsBusy = exportJob.status === 'pending';
   const exportLabel = exportIsBusy ? 'Preparing export…' : 'Download Export (ZIP)';
-
-  const jitterOptions: { value: JitterLevel; label: string; description: string }[] = [
-    { value: 'off', label: 'Off', description: 'No jitter — reminders sent exactly on schedule' },
-    { value: 'low', label: 'Low', description: '± 2 hours' },
-    { value: 'medium', label: 'Medium', description: '± 6 hours' },
-    { value: 'high', label: 'High', description: '± 12 hours' },
-  ];
 
   return (
     <main className="min-h-screen bg-gray-50 py-12 px-4">
@@ -618,40 +530,6 @@ export default function DataPrivacyPage() {
             </Link>
           </section>
 
-          {/* ── Section: Reminder Jitter ────────────────────────────────────────── */}
-          <section className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6" aria-labelledby="jitter-heading">
-            <h2 id="jitter-heading" className="text-base font-semibold text-gray-900 mb-1">Reminder Timing Jitter</h2>
-            <p className="text-sm text-gray-500 mb-4">
-              Add random jitter to subscription renewal reminders to prevent network observers from correlating reminders with gift card purchases.
-            </p>
-
-            {jitterError && (
-              <div role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4">
-                {jitterError}
-              </div>
-            )}
-
-            <div className="space-y-3">
-              {jitterOptions.map(option => (
-                <label key={option.value} className="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="jitter"
-                    value={option.value}
-                    checked={jitterLevel === option.value}
-                    onChange={() => handleJitterChange(option.value)}
-                    disabled={jitterLoading}
-                    className="mt-0.5 w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                  />
-                  <div>
-                    <div className="text-sm font-medium text-gray-900">{option.label}</div>
-                    <div className="text-xs text-gray-500">{option.description}</div>
-                  </div>
-                </label>
-              ))}
-            </div>
-          </section>
-
           {/* ── Section: Export ─────────────────────────────────────────── */}
           <section className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6" aria-labelledby="export-heading">
             <h2 id="export-heading" className="text-base font-semibold text-gray-900 mb-1">Export Your Data</h2>
@@ -720,56 +598,6 @@ export default function DataPrivacyPage() {
             >
               Manage Email Preferences
             </Link>
-          </section>
-
-          {/* Section: Gift Card Provider */}
-          <section className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-            <h2 className="text-base font-semibold text-gray-900 mb-1">Gift Card Purchase Provider</h2>
-            <p className="text-sm text-gray-500 mb-4">
-              Choose which provider Syncro uses when you buy a crypto-funded gift card to pay for a subscription.
-              Providers vary in Tor support, KYC requirements, and accepted cryptocurrencies.
-            </p>
-
-            {giftCardProviderError && (
-              <p className="text-sm text-red-600 mb-3">{giftCardProviderError}</p>
-            )}
-
-            {giftCardProviderLoading ? (
-              <p className="text-sm text-gray-400">Loading...</p>
-            ) : (
-              <div className="space-y-2">
-                {GIFT_CARD_PROVIDERS.map((provider) => (
-                  <label
-                    key={provider.id}
-                    className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                      giftCardProviderId === provider.id
-                        ? 'border-indigo-500 bg-indigo-50'
-                        : 'border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="gift-card-provider"
-                      className="mt-1 w-4 h-4 text-indigo-600 focus:ring-indigo-500"
-                      checked={giftCardProviderId === provider.id}
-                      disabled={giftCardProviderSaving}
-                      onChange={() => handleGiftCardProviderChange(provider.id)}
-                    />
-                    <span>
-                      <span className="block text-sm font-medium text-gray-900">
-                        {provider.name}
-                        {provider.torSupport && (
-                          <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
-                            Tor-friendly
-                          </span>
-                        )}
-                      </span>
-                      <span className="block text-xs text-gray-500 mt-0.5">{provider.description}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            )}
           </section>
 
           {/* ── Section: Delete Account ─────────────────────────────────── */}

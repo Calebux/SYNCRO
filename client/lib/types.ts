@@ -1,7 +1,5 @@
 export type BillingCycle = "monthly" | "yearly" | "quarterly";
 
-import { type CancellationGuide } from "@/lib/supabase/cancellation-guides";
-
 export type Difficulty = "easy" | "medium" | "hard";
 
 export type SubscriptionStatus = 'active' | 'cancelled' | 'paused' | 'trial' | 'expired';
@@ -25,7 +23,6 @@ export interface Subscription {
   history?: SubscriptionHistoryEntry[];
   createdAt: string;
   updatedAt: string;
-  cancellationGuide?: CancellationGuide;
   /** UI specific / Computed fields */
   icon?: string;
   renewsIn?: number;
