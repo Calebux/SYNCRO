@@ -10,6 +10,12 @@ Each release notes the minimum compatible backend version (`synchro`). If your b
 
 _Changes staged for the next release._
 
+### Added — Channel management helpers
+- `ChannelClient` opens, tops up, reads balance and burn rate, initiates close, and finalizes a payment channel without hand-written Soroban calls
+- `autoTopUp` tops a channel back up when its balance is at or below a configured floor
+- `initiateClose` returns the challenge period so callers can see funds are not released immediately
+- `ChannelScopeError` rejects an operation locally when the caller lacks the required scope
+
 ### Added — #1303 Typed error taxonomy
 - `ValidationError` — stable code `SYNCRO_VALIDATION`, retryable: `false`
 - `AuthError` — stable code `SYNCRO_AUTH`, retryable: `false` (replaces `AuthenticationError`, `ForbiddenError`)
