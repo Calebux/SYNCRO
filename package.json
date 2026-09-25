@@ -36,6 +36,8 @@
     "schema:snapshot": "bash scripts/generate-schema-snapshot.sh",
     "cleanup:migrations": "node scripts/cleanup-duplicate-migrations.js",
     "bootstrap": "node scripts/bootstrap.mjs",
+    "dev": "docker compose up -d",
+    "reset": "docker compose down -v",
     "doctor": "node scripts/doctor.mjs",
     "changeset": "changeset",
     "version-packages": "changeset version",
