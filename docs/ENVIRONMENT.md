@@ -38,7 +38,6 @@ packages must have a manifest + `.env.example` that agree; no-env packages must
 
 `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
 `JWT_SECRET`, `ADMIN_API_KEY`,
-`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`,
 `STELLAR_NETWORK_URL`, `SOROBAN_CONTRACT_ADDRESS`.
 
 `STRIPE_*` are optional (payments can be disabled); `PORT`, `NODE_ENV`,
@@ -66,8 +65,7 @@ Set `EXCHANGE_RATE_CACHE_SWR_FACTOR=0` to disable stale-while-revalidate.
 ### Client (required to build — `client/scripts/env.manifest.js`)
 
 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
-`NEXT_PUBLIC_API_URL`, `STRIPE_SECRET_KEY`,
-`NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
+`NEXT_PUBLIC_API_URL`.
 
 ## Naming conventions
 

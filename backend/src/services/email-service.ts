@@ -4,7 +4,6 @@ import { env } from '../config/env';
 import { DeliveryResult } from '../types/reminder';
 import { withRetry, RetryableError, NonRetryableError } from '../utils/retry';
 import { complianceService } from './compliance-service';
-import { secretProvider } from './secret-provider';
 import { EXTERNAL_SERVICE_POLICIES } from '../config/external-services';
 import {
   V3NotificationEventType,
@@ -46,27 +45,10 @@ export class EmailService {
       return this.transporter;
     }
 
-    if (env.SMTP_HOST) {
-      const password = await secretProvider.getSecret('SMTP_PASSWORD') || await secretProvider.getSecret('SMTP_PASS') || '';
-
-      this.transporter = nodemailer.createTransport({
-        host: env.SMTP_HOST,
-        port: parseInt(env.SMTP_PORT || '587'),
-        secure: env.SMTP_SECURE === 'true',
-        auth: {
-          user: env.SMTP_USER || '',
-          pass: password,
-        },
-        connectionTimeout: this.policy.timeoutMs,
-        greetingTimeout: this.policy.timeoutMs,
-        socketTimeout: this.policy.timeoutMs,
-      });
-    } else {
-      logger.warn('Email service not fully configured. Using mock transporter.');
-      this.transporter = nodemailer.createTransport({
-        jsonTransport: true,
-      });
-    }
+    // SMTP belongs to the retired subscription domain. v3 notification
+    // delivery uses in-app, push, Telegram, and Slack transports instead.
+    logger.warn('SMTP email delivery is disabled in v3. Using mock transporter.');
+    this.transporter = nodemailer.createTransport({ jsonTransport: true });
 
     return this.transporter;
   }

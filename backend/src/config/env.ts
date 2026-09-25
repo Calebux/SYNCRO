@@ -29,12 +29,6 @@ export const envSchema = z.object({
   // Admin
   ADMIN_API_KEY: z.string().min(1, { message: 'Missing ADMIN_API_KEY' }),
 
-  // Email / SMTP
-  SMTP_HOST: z.string().min(1, { message: 'Missing SMTP_HOST' }),
-  SMTP_PORT: z.string().min(1, { message: 'Missing SMTP_PORT' }),
-  SMTP_USER: z.string().min(1, { message: 'Missing SMTP_USER' }),
-  SMTP_PASS: z.string().min(1, { message: 'Missing SMTP_PASS' }),
-
   // Stellar / Soroban
   STELLAR_NETWORK_URL: z.string().url({ message: 'Missing STELLAR_NETWORK_URL' }),
   SOROBAN_CONTRACT_ADDRESS: z.string().min(1, { message: 'Missing SOROBAN_CONTRACT_ADDRESS' }),

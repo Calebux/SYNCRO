@@ -122,7 +122,7 @@ export class DependencyHealthService {
     const start = Date.now();
     try {
       const { data, error } = await supabase.from('subscriptions').select('count', { count: 'exact', head: true });
-      
+
       if (error) {
         return {
           name: 'database',
@@ -246,14 +246,13 @@ export class DependencyHealthService {
   }
 
   /**
-   * Check external providers (Stripe, Gmail, Outlook, etc.)
+  * Check external providers used by the v3 runtime.
    * Note: This is a lightweight check - full validation happens at usage time
    */
   async checkProviders(): Promise<DependencyStatus> {
     const start = Date.now();
     try {
       const providers: { [key: string]: string | undefined } = {
-        stripe: env.STRIPE_SECRET_KEY,
         gmail: env.GOOGLE_CLIENT_ID,
         outlook: env.MICROSOFT_CLIENT_ID,
         telegram: env.TELEGRAM_BOT_TOKEN,

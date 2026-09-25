@@ -27,9 +27,6 @@ const required = [
   'NEXT_PUBLIC_SUPABASE_ANON_KEY',
   // Canonical name for the backend API base URL (was NEXT_PUBLIC_API_BASE).
   'NEXT_PUBLIC_API_URL',
-  // Stripe: secret key (server-only) + publishable key (browser, Stripe.js).
-  'STRIPE_SECRET_KEY',
-  'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY',
 ];
 
 /** Recognized but not required. */
@@ -48,16 +45,6 @@ const optional = [
   'API_SECRET_KEY',
   'JWT_SECRET',
   'ENCRYPTION_KEY',
-
-  // Payment providers (server-only)
-  'STRIPE_WEBHOOK_SECRET',
-  'STRIPE_TEST_SECRET_KEY',
-  'STRIPE_LIVE_SECRET_KEY',
-  'PAYSTACK_SECRET_KEY',
-  'PAYPAL_CLIENT_ID',
-  'PAYPAL_CLIENT_SECRET',
-  'PAYPAL_MODE',
-  'ENABLE_MOCK_PAYMENTS',
 
   // System
   'NODE_ENV',

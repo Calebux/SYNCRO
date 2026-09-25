@@ -99,11 +99,6 @@ import calendarRouter from './routes/calendar';
 import userPreferencesRoutes from './routes/user-preferences';
 import reminderSettingsRoutes from './routes/reminder-settings';
 import { blockchainReconciliationService } from './services/blockchain-reconciliation-service';
-import paymentsRoutes from './routes/payments';
-import paystackWebhookRoutes from './routes/paystack-webhook';
-import stripeWebhookRoutes from './routes/stripe-webhook';
-import paypalWebhookRoutes from './routes/paypal-webhook';
-import adminWebhookEventsRoutes from './routes/admin/webhook-events';
 import { registerWebhookHandlers } from './services/webhook-handlers';
 import adminDeletionsRoutes from './routes/admin-deletions';
 import adminQueuesRoutes, { getQueueHealthMetrics } from './routes/admin-queues';
@@ -160,9 +155,6 @@ app.use((req, res, next) => {
 registerWebhookHandlers();
 
 // Payment webhooks require raw body for cryptographic signature verification
-app.use('/api/webhooks/paystack', express.raw({ type: 'application/json' }), paystackWebhookRoutes);
-app.use('/api/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWebhookRoutes);
-app.use('/api/webhooks/paypal', express.raw({ type: 'application/json' }), paypalWebhookRoutes);
 
 // Basic Middlewares
 app.use(cookieParser());
@@ -318,9 +310,7 @@ app.use('/api/notifications/dead-letter', notificationDeadLetterRoutes);
 app.use('/api/renewals/dead-letter', renewalDeadLetterRoutes);
 app.use('/api/exchange-rates', createExchangeRatesRouter(exchangeRateService));
 app.use('/api/gift-card-ledger', giftCardLedgerRoutes);
-app.use('/api/payments', authenticate, paymentsRoutes);
 app.use('/api/payment-channels', authenticate, paymentChannelsRoutes);
-app.use('/api/admin/webhook-events', adminWebhookEventsRoutes);
 app.use('/api/telegram', telegramWebhookRoutes);
 app.use('/api/calendar', calendarRouter);
 app.use('/api/user-preferences', authenticate, userPreferencesRoutes);
