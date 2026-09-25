@@ -1,401 +1,334 @@
-/**
- * Settlement engine — channel lifecycle manager.
- *
- * Channels are infrastructure that must exist before a call can be paid for.
- * This module opens channels on demand, monitors their remaining balance,
- * projects time-to-exhaustion from recent burn rate, and tops up before
- * exhaustion (subject to the principal's authorization).
- */
+import { createHash, createHmac, timingSafeEqual } from 'crypto';
 
-import { EventEmitter } from 'events';
-import { Channel, CloseInitiatedEvent, DisputeResult, ChannelState as ChannelStateFromTypes } from './types';
-import { logger } from './logger';
-import { alert } from './alerts';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+export interface MeterWindow {
+  channelId: string;
+  contractAddress: string;
+  startNonce: number;
+  endNonce: number;
+  startTime: number;
+  endTime: number;
+  payerBalance: bigint;
+  payeeBalance: bigint;
+}
 
 export interface ChannelState {
   channelId: string;
-  principal: string;
-  provider: string;
-  /** Total funds currently committed to the channel. */
-  deposit: bigint;
-  /** Funds already spent from the channel. */
-  spent: bigint;
-  /** Whether the channel is open and usable for payments. */
-  open: boolean;
-  /** Timestamp (ms) of the last observed activity. */
-  updatedAt: number;
+  contractAddress: string;
+  contractVersion: string;
+  nonce: number;
+  payerBalance: bigint;
+  payeeBalance: bigint;
+  windowStart: number;
+  windowEnd: number;
 }
 
-export interface ChannelStore {
-  get(principal: string, provider: string): Promise<ChannelState | undefined>;
-  put(state: ChannelState): Promise<void>;
-  delete(principal: string, provider: string): Promise<void>;
+export interface SignedChannelState {
+  state: ChannelState;
+  signature: string;
 }
 
-export interface ChannelOpener {
-  /**
-   * Open a channel on-chain. Must either fully succeed (returning the opened
-   * channel) or throw. A partial open must never be reported as success.
-   */
-  open(principal: string, provider: string, deposit: bigint): Promise<{ channelId: string }>;
-  /** Add funds to an existing channel. */
-  topUp(channelId: string, amount: bigint): Promise<void>;
+export interface StateStore {
+  persist(state: SignedChannelState): Promise<void>;
+  latest(channelId: string): Promise<SignedChannelState | undefined>;
 }
 
-export interface ChannelAuthorizer {
-  /**
-   * Ask the principal whether a top-up of `amount` is authorized.
-   * Returns true when the principal approves the spend.
-   */
-  authorizeTopUp(principal: string, provider: string, amount: bigint): Promise<boolean>;
+export class InMemoryStateStore implements StateStore {
+  private readonly states = new Map<string, SignedChannelState>();
+
+  async persist(state: SignedChannelState): Promise<void> {
+    const existing = this.states.get(state.state.channelId);
+    if (existing && existing.state.nonce >= state.state.nonce) {
+      throw new Error(
+        `refusing to persist stale state: existing nonce ${existing.state.nonce} >= new nonce ${state.state.nonce}`,
+      );
+    }
+    this.states.set(state.state.channelId, state);
+  }
+
+  async latest(channelId: string): Promise<SignedChannelState | undefined> {
+    return this.states.get(channelId);
+  }
 }
 
-export interface ChannelLifecycleOptions {
-  store: ChannelStore;
-  opener: ChannelOpener;
-  authorizer: ChannelAuthorizer;
-  /** Initial deposit used when opening a channel on demand. */
-  initialDeposit: bigint;
-  /** Top-up amount applied when a channel nears exhaustion. */
-  topUpAmount: bigint;
-  /** Fraction of the deposit remaining at which a top-up is triggered. */
-  topUpThreshold?: number;
-  /** Number of recent samples used to estimate burn rate. */
-  burnWindow?: number;
-  /** Injectable clock for testing. */
-  now?: () => number;
+export interface ChannelStateSigner {
+  sign(payload: string): string;
 }
 
-// ---------------------------------------------------------------------------
-// Burn-rate tracking
-// ---------------------------------------------------------------------------
+export class HmacChannelStateSigner implements ChannelStateSigner {
+  constructor(private readonly key: string) {}
 
-interface BurnSample {
-  spent: bigint;
-  at: number;
-}
-
-// ---------------------------------------------------------------------------
-// Channel lifecycle manager
-// ---------------------------------------------------------------------------
-
-export class ChannelLifecycleManager {
-  private readonly store: ChannelStore;
-  private readonly opener: ChannelOpener;
-  private readonly authorizer: ChannelAuthorizer;
-  private readonly initialDeposit: bigint;
-  private readonly topUpAmount: bigint;
-  private readonly topUpThreshold: number;
-  private readonly burnWindow: number;
-  private readonly now: () => number;
-
-  /** Recent spend samples per channel, used to project exhaustion. */
-  private readonly burnSamples = new Map<string, BurnSample[]>();
-
-  /** In-flight opens, so concurrent first calls share a single open. */
-  private readonly pendingOpens = new Map<string, Promise<ChannelState>>();
-
-  constructor(options: ChannelLifecycleOptions) {
-    this.store = options.store;
-    this.opener = options.opener;
-    this.authorizer = options.authorizer;
-    this.initialDeposit = options.initialDeposit;
-    this.topUpAmount = options.topUpAmount;
-    this.topUpThreshold = options.topUpThreshold ?? 0.2;
-    this.burnWindow = options.burnWindow ?? 8;
-    this.now = options.now ?? (() => Date.now());
-  }
-
-  private key(principal: string, provider: string): string {
-    return `${principal}::${provider}`;
-  }
-
-  /**
-   * Ensure a usable channel exists for (principal, provider), opening one on
-   * demand with a sensible initial deposit when the principal first pays.
-   */
-  async ensureChannel(principal: string, provider: string): Promise<ChannelState> {
-    const existing = await this.store.get(principal, provider);
-    if (existing && existing.open) {
-      return existing;
-    }
-
-    const key = this.key(principal, provider);
-    const pending = this.pendingOpens.get(key);
-    if (pending) {
-      return pending;
-    }
-
-    const openPromise = this.openChannel(principal, provider).finally(() => {
-      this.pendingOpens.delete(key);
-    });
-    this.pendingOpens.set(key, openPromise);
-    return openPromise;
-  }
-
-  private async openChannel(principal: string, provider: string): Promise<ChannelState> {
-    let channelId: string;
-    try {
-      const opened = await this.opener.open(principal, provider, this.initialDeposit);
-      channelId = opened.channelId;
-    } catch (err) {
-      // The open failed mid-flight. Never persist a half-opened channel that
-      // the database would believe is usable.
-      await this.store.delete(principal, provider);
-      throw err;
-    }
-
-    const state: ChannelState = {
-      channelId,
-      principal,
-      provider,
-      deposit: this.initialDeposit,
-      spent: 0n,
-      open: true,
-      updatedAt: this.now(),
-    };
-
-    try {
-      await this.store.put(state);
-    } catch (err) {
-      // Persisting failed after the channel was opened: roll back the record
-      // so we do not leave a channel the database believes is usable.
-      await this.store.delete(principal, provider);
-      throw err;
-    }
-
-    return state;
-  }
-
-  /**
-   * Record spend against a channel and top it up before exhaustion when the
-   * principal authorizes it.
-   */
-  async recordSpend(principal: string, provider: string, amount: bigint): Promise<ChannelState> {
-    const state = await this.ensureChannel(principal, provider);
-    const updated: ChannelState = {
-      ...state,
-      spent: state.spent + amount,
-      updatedAt: this.now(),
-    };
-    await this.store.put(updated);
-    this.recordBurnSample(updated);
-
-    if (this.shouldTopUp(updated)) {
-      return this.topUp(updated);
-    }
-    return updated;
-  }
-
-  private recordBurnSample(state: ChannelState): void {
-    const key = this.key(state.principal, state.provider);
-    const samples = this.burnSamples.get(key) ?? [];
-    samples.push({ spent: state.spent, at: state.updatedAt });
-    while (samples.length > this.burnWindow) {
-      samples.shift();
-    }
-    this.burnSamples.set(key, samples);
-  }
-
-  /** Remaining funds available in the channel. */
-  remaining(state: ChannelState): bigint {
-    const remaining = state.deposit - state.spent;
-    return remaining > 0n ? remaining : 0n;
-  }
-
-  /**
-   * Project time-to-exhaustion (ms) from the recent burn rate. Returns
-   * Infinity when there is no measurable burn, and 0 when already exhausted.
-   */
-  projectTimeToExhaustion(state: ChannelState): number {
-    const remaining = this.remaining(state);
-    if (remaining <= 0n) {
-      return 0;
-    }
-
-    const key = this.key(state.principal, state.provider);
-    const samples = this.burnSamples.get(key) ?? [];
-    if (samples.length < 2) {
-      return Infinity;
-    }
-
-    const first = samples[0];
-    const last = samples[samples.length - 1];
-    const elapsed = last.at - first.at;
-    const burned = last.spent - first.spent;
-    if (elapsed <= 0 || burned <= 0n) {
-      return Infinity;
-    }
-
-    const burnPerMs = Number(burned) / elapsed;
-    if (burnPerMs <= 0) {
-      return Infinity;
-    }
-    return Number(remaining) / burnPerMs;
-  }
-
-  private shouldTopUp(state: ChannelState): boolean {
-    const remaining = this.remaining(state);
-    if (remaining <= 0n) {
-      return true;
-    }
-    const threshold = BigInt(Math.floor(Number(state.deposit) * this.topUpThreshold));
-    return remaining <= threshold;
-  }
-
-  /**
-   * Top up a channel before exhaustion, subject to the principal's
-   * authorization. If the principal declines, the channel is left untouched.
-   */
-  async topUp(state: ChannelState): Promise<ChannelState> {
-    const authorized = await this.authorizer.authorizeTopUp(
-      state.principal,
-      state.provider,
-      this.topUpAmount,
-    );
-    if (!authorized) {
-      return state;
-    }
-
-    await this.opener.topUp(state.channelId, this.topUpAmount);
-
-    const updated: ChannelState = {
-      ...state,
-      deposit: state.deposit + this.topUpAmount,
-      updatedAt: this.now(),
-    };
-    await this.store.put(updated);
-    return updated;
-  }
-
-  /**
-   * Channel state exposed to the gateway so admission can reject early when a
-   * channel is exhausted.
-   */
-  async getChannelState(principal: string, provider: string): Promise<ChannelState | undefined> {
-    return this.store.get(principal, provider);
-  }
-
-  /**
-   * Admission helper: true when the channel can accept another payment of
-   * `amount` without being exhausted.
-   */
-  async canAdmit(principal: string, provider: string, amount: bigint): Promise<boolean> {
-    const state = await this.store.get(principal, provider);
-    if (!state || !state.open) {
-      return false;
-    }
-    return this.remaining(state) >= amount;
+  sign(payload: string): string {
+    return createHmac('sha256', this.key).update(payload).digest('hex');
   }
 }
 
 /**
- * Watches channel events for close initiation and automatically disputes
- * stale-state closes. Also monitors its own liveness so a silently dead
- * watcher fires an alarm.
+ * Canonical, deterministic encoding of a channel state. The contract version and
+ * contract address are bound into the payload so a state signed for one channel
+ * or one contract version cannot be replayed against another.
  */
-export class SettlementWatcher extends EventEmitter {
-  private channels: Map<string, Channel> = new Map();
-  private livenessTimer?: NodeJS.Timeout;
-  private lastHeartbeat: number = Date.now();
-  private readonly livenessIntervalMs: number;
-  private readonly livenessTimeoutMs: number;
+export function encodeChannelState(state: ChannelState): string {
+  return [
+    'v3-channel-state',
+    state.contractVersion,
+    state.contractAddress,
+    state.channelId,
+    state.nonce.toString(),
+    state.payerBalance.toString(),
+    state.payeeBalance.toString(),
+    state.windowStart.toString(),
+    state.windowEnd.toString(),
+  ].join('|');
+}
 
-  constructor(opts?: { livenessIntervalMs?: number; livenessTimeoutMs?: number }) {
-    super();
-    this.livenessIntervalMs = opts?.livenessIntervalMs ?? 30_000;
-    this.livenessTimeoutMs = opts?.livenessTimeoutMs ?? 120_000;
+export function channelStateDigest(state: ChannelState): string {
+  return createHash('sha256').update(encodeChannelState(state)).digest('hex');
+}
+
+/**
+ * Build a channel state from a closed meter window. The window must be closed
+ * (endTime >= startTime) and the resulting state must not reduce the payee's
+ * balance below the previously signed state.
+ */
+export function constructChannelState(
+  window: MeterWindow,
+  contractVersion: string,
+  previous?: SignedChannelState,
+): ChannelState {
+  if (window.endTime < window.startTime) {
+    throw new Error('meter window is not closed');
+  }
+  if (window.endNonce < window.startNonce) {
+    throw new Error('meter window nonce range is invalid');
+  }
+  if (window.payerBalance < 0n || window.payeeBalance < 0n) {
+    throw new Error('balances must be non-negative');
   }
 
-  /** Register a channel this service holds state for. */
-  public trackChannel(channel: Channel): void {
-    this.channels.set(channel.id, channel);
-  }
+  const nonce = previous ? previous.state.nonce + 1 : window.endNonce;
 
-  /** Start watching for close initiations and begin liveness monitoring. */
-  public start(): void {
-    this.lastHeartbeat = Date.now();
-    this.livenessTimer = setInterval(() => this.checkLiveness(), this.livenessIntervalMs);
-    if (this.livenessTimer.unref) this.livenessTimer.unref();
-  }
-
-  /** Stop watching and clear the liveness alarm. */
-  public stop(): void {
-    if (this.livenessTimer) {
-      clearInterval(this.livenessTimer);
-      this.livenessTimer = undefined;
+  if (previous) {
+    if (previous.state.channelId !== window.channelId) {
+      throw new Error('meter window channel does not match previous state');
+    }
+    if (previous.state.contractAddress !== window.contractAddress) {
+      throw new Error('meter window contract does not match previous state');
+    }
+    if (window.payeeBalance < previous.state.payeeBalance) {
+      throw new Error('refusing to reduce payee balance below previously signed state');
     }
   }
 
-  /**
-   * Handle a close-initiated event for a channel. Compares the submitted
-   * state's nonce against the newest state held locally and, if local state
-   * is newer, automatically submits it via `dispute`. Alerts loudly either way.
-   */
-  public async onCloseInitiated(event: CloseInitiatedEvent): Promise<DisputeResult | null> {
-    this.lastHeartbeat = Date.now();
+  return {
+    channelId: window.channelId,
+    contractAddress: window.contractAddress,
+    contractVersion,
+    nonce,
+    payerBalance: window.payerBalance,
+    payeeBalance: window.payeeBalance,
+    windowStart: window.startTime,
+    windowEnd: window.endTime,
+  };
+}
 
-    const channel = this.channels.get(event.channelId);
-    if (!channel) {
-      logger.warn(`close initiated for unknown channel ${event.channelId}`);
-      return null;
-    }
+/**
+ * Sign a channel state with the appropriate key. The signature covers the
+ * canonical encoding, which binds channel id, contract address and contract
+ * version for replay protection.
+ */
+export function signChannelState(
+  state: ChannelState,
+  signer: ChannelStateSigner,
+): SignedChannelState {
+  const signature = signer.sign(encodeChannelState(state));
+  return { state, signature };
+}
 
-    const localState = channel.latestState;
-    const submittedState = event.state;
+export function verifyChannelState(
+  signed: SignedChannelState,
+  signer: ChannelStateSigner,
+): boolean {
+  const expected = signer.sign(encodeChannelState(signed.state));
+  const a = Buffer.from(expected, 'utf8');
+  const b = Buffer.from(signed.signature, 'utf8');
+  if (a.length !== b.length) {
+    return false;
+  }
+  return timingSafeEqual(a, b);
+}
 
-    if (!localState) {
-      await alert('stale-close-no-local-state', {
-        channelId: event.channelId,
-        submittedNonce: submittedState.nonce,
-      });
-      return null;
-    }
+/**
+ * Construct, sign and persist a state before it is sent anywhere. Persisting
+ * first guarantees a crash cannot lose the newest state and leave an older one
+ * authoritative.
+ */
+export async function produceAndPersistState(
+  window: MeterWindow,
+  contractVersion: string,
+  signer: ChannelStateSigner,
+  store: StateStore,
+): Promise<SignedChannelState> {
+  const previous = await store.latest(window.channelId);
+  const state = constructChannelState(window, contractVersion, previous);
+  const signed = signChannelState(state, signer);
+  await store.persist(signed);
+  return signed;
+}
 
-    const localIsNewer = localState.nonce > submittedState.nonce;
+/**
+ * Measured per-operation costs from the gas-budget issue. These are the
+ * on-chain costs (in wei) of the operations a submission performs, used to
+ * derive the default batching threshold instead of picking a round number.
+ */
+export interface GasCostModel {
+  /** Cost of a single off-chain metered operation, in wei. */
+  perOperationCost: bigint;
+  /** Fixed cost of submitting a batch to the chain, in wei. */
+  submissionBaseCost: bigint;
+  /** Marginal cost per operation included in a submission, in wei. */
+  submissionPerOperationCost: bigint;
+}
 
-    // A stale-state close is either a bug or an attack; alert loudly regardless.
-    await alert('stale-close-detected', {
-      channelId: event.channelId,
-      submittedNonce: submittedState.nonce,
-      localNonce: localState.nonce,
-      localIsNewer,
-    });
+/**
+ * Measured costs from the gas-budget issue. Submitting a batch costs
+ * `submissionBaseCost` plus `submissionPerOperationCost` per operation, so the
+ * break-even point is where the value accumulated since the last submission
+ * covers the fixed submission cost. We require the accumulated value to cover
+ * the fixed cost with a safety multiple so a submission is never a net loss.
+ */
+export const MEASURED_GAS_COSTS: GasCostModel = {
+  perOperationCost: 21_000n,
+  submissionBaseCost: 210_000n,
+  submissionPerOperationCost: 21_000n,
+};
 
-    if (!localIsNewer) {
-      return null;
-    }
+/** Safety multiple applied to the fixed submission cost when deriving the default threshold. */
+export const DEFAULT_THRESHOLD_SAFETY_MULTIPLE = 10n;
 
-    try {
-      const result = await channel.dispute(localState);
-      logger.info(
-        `disputed stale close on ${event.channelId}: submitted=${submittedState.nonce} local=${localState.nonce}`,
-      );
-      this.emit('disputed', { channelId: event.channelId, result });
-      return result;
-    } catch (err) {
-      await alert('dispute-failed', {
-        channelId: event.channelId,
-        submittedNonce: submittedState.nonce,
-        localNonce: localState.nonce,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      throw err;
-    }
+/**
+ * Derive the default accumulated-value threshold from measured costs. The
+ * threshold is the fixed submission cost times a safety multiple, so a
+ * submission is only triggered once the accumulated value comfortably covers
+ * the cost of touching the chain.
+ */
+export function deriveDefaultValueThreshold(costs: GasCostModel = MEASURED_GAS_COSTS): bigint {
+  return costs.submissionBaseCost * DEFAULT_THRESHOLD_SAFETY_MULTIPLE;
+}
+
+/**
+ * Per-channel batching policy. A high-volume channel and a small channel want
+ * different policies, so every threshold is configurable per channel.
+ */
+export interface BatchingPolicy {
+  /** Accumulated unsettled value (wei) that triggers a submission. */
+  valueThreshold: bigint;
+  /** Maximum time (ms) between submissions, regardless of accumulated value. */
+  maxIntervalMs: number;
+  /** Fraction of the channel cap at which an approaching-cap submission is forced (0..1). */
+  capApproachRatio: number;
+  /** Maximum unsettled value (wei) tolerated before a submission is forced. */
+  exposureCeiling: bigint;
+}
+
+/**
+ * Default policy derived from measured costs. The value threshold traces to
+ * `deriveDefaultValueThreshold`; the exposure ceiling is set to the same
+ * measured-cost-derived value so exposure never exceeds what a submission can
+ * economically clear.
+ */
+export function defaultBatchingPolicy(costs: GasCostModel = MEASURED_GAS_COSTS): BatchingPolicy {
+  const valueThreshold = deriveDefaultValueThreshold(costs);
+  return {
+    valueThreshold,
+    maxIntervalMs: 60 * 60 * 1000,
+    capApproachRatio: 0.9,
+    exposureCeiling: valueThreshold,
+  };
+}
+
+/**
+ * Per-channel policy registry. Thresholds are configurable per channel so a
+ * high-volume channel and a small one can use different policies.
+ */
+export class BatchingPolicyRegistry {
+  private readonly policies = new Map<string, BatchingPolicy>();
+
+  constructor(private readonly fallback: BatchingPolicy = defaultBatchingPolicy()) {}
+
+  set(channelId: string, policy: BatchingPolicy): void {
+    this.policies.set(channelId, policy);
   }
 
-  /**
-   * Liveness check: if no heartbeat has been recorded within the timeout,
-   * the watcher is considered dead and an alarm is fired.
-   */
-  private checkLiveness(): void {
-    const elapsed = Date.now() - this.lastHeartbeat;
-    if (elapsed > this.livenessTimeoutMs) {
-      void alert('watcher-liveness-failure', { elapsedMs: elapsed });
-    }
+  get(channelId: string): BatchingPolicy {
+    return this.policies.get(channelId) ?? this.fallback;
   }
+}
+
+/** Inputs describing the current unsettled state of a channel. */
+export interface BatchingContext {
+  channelId: string;
+  /** Value accumulated since the last submission, in wei. */
+  accumulatedValue: bigint;
+  /** Time since the last submission, in ms. */
+  elapsedMs: number;
+  /** Current channel cap, in wei. */
+  channelCap: bigint;
+  /** Value already committed on-chain for the channel, in wei. */
+  committedValue: bigint;
+  /** Whether the channel is approaching exhaustion. */
+  channelExhausted?: boolean;
+  /** Operator-forced flush. */
+  forceFlush?: boolean;
+}
+
+export type SubmissionTrigger =
+  | 'value-threshold'
+  | 'max-interval'
+  | 'cap-approach'
+  | 'channel-exhaustion'
+  | 'exposure-ceiling'
+  | 'operator-forced';
+
+export interface SubmissionDecision {
+  submit: boolean;
+  triggers: SubmissionTrigger[];
+}
+
+/**
+ * Decide whether to touch the chain for a channel. A submission is triggered by
+ * any of: an accumulated-value threshold, a maximum interval, an approaching
+ * cap or channel exhaustion, an operator-forced flush, or the exposure ceiling
+ * being reached. The exposure ceiling always forces a submission so unsettled
+ * value never exceeds the configured ceiling.
+ */
+export function shouldSubmit(
+  context: BatchingContext,
+  policy: BatchingPolicy,
+): SubmissionDecision {
+  const triggers: SubmissionTrigger[] = [];
+
+  if (context.forceFlush) {
+    triggers.push('operator-forced');
+  }
+  if (context.accumulatedValue >= policy.valueThreshold) {
+    triggers.push('value-threshold');
+  }
+  if (context.elapsedMs >= policy.maxIntervalMs) {
+    triggers.push('max-interval');
+  }
+  if (context.channelExhausted) {
+    triggers.push('channel-exhaustion');
+  }
+  if (
+    context.channelCap > 0n &&
+    context.committedValue + context.accumulatedValue >=
+      (context.channelCap * BigInt(Math.round(policy.capApproachRatio * 100))) / 100n
+  ) {
+    triggers.push('cap-approach');
+  }
+  if (context.accumulatedValue >= policy.exposureCeiling) {
+    triggers.push('exposure-ceiling');
+  }
+
+  return { submit: triggers.length > 0, triggers };
 }
