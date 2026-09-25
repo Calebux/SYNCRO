@@ -9,7 +9,7 @@ import {
   CommandItem,
   CommandList,
 } from "@syncro/ui"
-import { Search, Plus, Settings, Users, BarChart3, LogOut, Moon } from "lucide-react"
+import { Settings, Users, BarChart3, LogOut, Moon } from "lucide-react"
 
 interface CommandPaletteProps {
   onNavigate?: (path: string) => void
@@ -49,31 +49,10 @@ export function CommandPalette({ onNavigate, onAction }: CommandPaletteProps) {
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
 
-        <CommandGroup heading="Actions">
-          <CommandItem onSelect={() => runCommand(() => onAction?.("new-subscription"))}>
-            <Plus className="mr-2 h-4 w-4" />
-            <span>New Subscription</span>
-            <kbd className="ml-auto pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-              <span className="text-xs">⌘</span>N
-            </kbd>
-          </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => onAction?.("search"))}>
-            <Search className="mr-2 h-4 w-4" />
-            <span>Search Subscriptions</span>
-            <kbd className="ml-auto pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-              /
-            </kbd>
-          </CommandItem>
-        </CommandGroup>
-
         <CommandGroup heading="Navigation">
           <CommandItem onSelect={() => runCommand(() => onNavigate?.("/dashboard"))}>
             <BarChart3 className="mr-2 h-4 w-4" />
             <span>Dashboard</span>
-          </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => onNavigate?.("/analytics"))}>
-            <BarChart3 className="mr-2 h-4 w-4" />
-            <span>Analytics</span>
           </CommandItem>
           <CommandItem onSelect={() => runCommand(() => onNavigate?.("/teams"))}>
             <Users className="mr-2 h-4 w-4" />

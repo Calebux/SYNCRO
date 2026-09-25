@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Moon, Sun, Plus, Trash2 } from "lucide-react";
+import { Bell, Moon, Sun } from "lucide-react";
 
 interface HeaderProps {
     activeView: string;
@@ -8,31 +8,16 @@ interface HeaderProps {
     onDarkModeToggle: () => void;
     unreadNotifications: number;
     onNotificationsToggle: () => void;
-    deletedCount?: number;
-    onDeletedToggle?: () => void;
-    onAddSubscription?: () => void;
 }
 
 const viewTitles: Record<string, { title: string; description: string }> = {
     dashboard: {
         title: "Dashboard",
-        description: "Welcome back! Here is your AI subscription overview.",
-    },
-    subscriptions: {
-        title: "Subscriptions",
-        description: "Manage and track all your AI tool subscriptions",
-    },
-    analytics: {
-        title: "Analytics",
-        description: "View detailed analytics and spending insights",
-    },
-    integrations: {
-        title: "Integrations",
-        description: "Central control for all your data connections",
+        description: "Welcome back! Here is your overview.",
     },
     teams: {
         title: "Teams",
-        description: "Manage your team members and their subscriptions",
+        description: "Manage your team members",
     },
     settings: {
         title: "Settings",
@@ -46,9 +31,6 @@ export function Header({
     onDarkModeToggle,
     unreadNotifications,
     onNotificationsToggle,
-    deletedCount = 0,
-    onDeletedToggle,
-    onAddSubscription,
 }: HeaderProps) {
     const viewInfo = viewTitles[activeView] || { title: "", description: "" };
 
@@ -113,38 +95,6 @@ export function Header({
                         </span>
                     )}
                 </button>
-                {onDeletedToggle && (
-                    <button
-                        onClick={onDeletedToggle}
-                        className={`p-2 ${
-                            darkMode ? "hover:bg-[#2D3748]" : "hover:bg-gray-100"
-                        } rounded-lg relative transition-colors`}
-                        aria-label={`Recently deleted (${deletedCount})`}
-                    >
-                        <Trash2 className="w-5 h-5" />
-                        {deletedCount > 0 && (
-                            <span className="absolute top-1 right-1 bg-[#E86A33] text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
-                                {deletedCount}
-                            </span>
-                        )}
-                    </button>
-                )}
-                {onAddSubscription && (
-                    <button
-                        onClick={onAddSubscription}
-                        data-tour="add-subscription"
-                        className={`flex items-center gap-2 ${
-                            darkMode
-                                ? "bg-[#FFD166] text-[#1E2A35] hover:bg-[#FFD166]/90"
-                                : "bg-[#1E2A35] text-white hover:bg-[#2D3748]"
-                        } px-4 py-2 rounded-lg text-sm font-medium transition-colors`}
-                    >
-                        <Plus className="w-4 h-4" />
-                        <span className="hidden sm:inline">
-                            Add subscription
-                        </span>
-                    </button>
-                )}
             </div>
         </div>
     );

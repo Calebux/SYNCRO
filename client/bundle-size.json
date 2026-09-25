@@ -6,7 +6,6 @@
     "perRoute": {
       "/": 350,
       "/dashboard": 350,
-      "/dashboard/analytics": 300,
       "/settings": 250,
       "/settings/security": 250,
       "/settings/notifications": 250,
@@ -19,8 +18,7 @@
       "/email-preferences": 200,
       "/offline": 150,
       "/oauth-success": 150,
-      "/oauth-error": 150,
-      "/spend-chart-demo": 250
+      "/oauth-error": 150
     },
     "perChunk": 200,
     "forbiddenInRoutes": {
