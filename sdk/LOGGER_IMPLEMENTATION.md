@@ -1,79 +1,85 @@
 # SDK Observability - Logger Interface Implementation
 
 ## Summary
+
 Successfully implemented a structured logging interface for SDK observability, enabling consumers to inspect request lifecycle, retry attempts, event listener reconnects, and batch execution progress.
 
 ## Implementation Details
 
 ### 1. Logger Interface (`src/logger.ts`)
+
 Defined a clean Logger interface with four core methods:
+
 - `info(message: string, meta?: Record<string, unknown>)` - Informational messages
-- `warn(message: string, meta?: Record<string, unknown>)` - Warning messages  
+- `warn(message: string, meta?: Record<string, unknown>)` - Warning messages
 - `error(message: string, meta?: Record<string, unknown>)` - Error messages
 - `debug(message: string, meta?: Record<string, unknown>)` - Debug-level messages
 
 ### 2. Default Implementations
 
 #### Silent Logger (Production Safe)
+
 ```typescript
 export const silentLogger: Logger
 ```
+
 - No console output
 - Safe for production environments
 - Used by default when no logger is provided
 
 #### Console Logger (Development)
+
 ```typescript
 export function createConsoleLogger(): Logger
 ```
+
 - Outputs messages to console with level-based prefixes (`[INFO]`, `[WARN]`, `[ERROR]`, `[DEBUG]`)
 - Useful for development and debugging
 
-#### Composite Logger
-```typescript
-export function createCompositeLogger(loggers: Logger[]): Logger
-```
-- Combines multiple logger instances
-- Allows simultaneous logging to multiple destinations (e.g., console + file + remote service)
-
 ### 3. SDK Integration
 
-#### Configuration
-Both `SyncroSDKConfig` and `SyncroSDKInitConfig` now accept optional logger:
-```typescript
-interface SyncroSDKConfig {
-  logger?: Logger | undefined;
-  // ... other properties
-}
+The `Logger` type is exported from `@syncro/sdk` and can be used with v3 payments utilities:
 
-interface SyncroSDKInitConfig {
-  logger?: Logger | undefined;
-  // ... other properties
-}
+```typescript
+import { createConsoleLogger, type Logger } from '@syncro/sdk';
 ```
 
-#### Logging Points in SyncroSDK
-- **Subscription Cancellation**
-  - Logs start of cancellation with subscription ID
-  - Logs success with blockchain sync status
-  - Logs failures with error details
+#### Logging Points in v3 Payments API
 
-- **User Subscriptions Fetch**
-  - Logs fetch operation start
-  - Logs batch retrieval progress (offset, limit)
-  - Logs successful completion with count
-  - Logs cache fallback on network errors
-  - Logs errors with detailed messages
+- **Gateway Calls**
+  - Logs request start with idempotency key
+  - Logs retry attempts with attempt number and delay
+  - Logs successful payment settlement
+  - Logs gateway errors with error code and retryability
+
+- **Receipt Verification**
+  - Logs verification start with receipt ID
+  - Logs successful verification
+  - Logs verification failures with check name and expected/actual values
+
+- **Event Listener**
+  - Logs listener start with contract count and RPC URL
+  - Logs events received with count and ledger range
+  - Logs reconnection attempts and backoff delays
+
+- **Batch Operations**
+  - Logs batch start with total operation count
+  - Logs individual operation execution (debug level)
+  - Logs operation failures with error details
+  - Logs batch completion with success/failure counts
 
 ### 4. Event Listener Integration (`src/event-listener.ts`)
 
 #### Configuration
-`ListenToEventsOptions` now includes:
+
+`ListenToEventsOptions` includes:
+
 ```typescript
 logger?: Logger | undefined;
 ```
 
 #### Logging Points
+
 - **Listener Lifecycle**
   - Logs listener start with contract count and RPC URL
   - Logs listener stop
@@ -90,6 +96,7 @@ logger?: Logger | undefined;
 ### 5. Batch Operations Integration (`src/batch-operations.ts`)
 
 #### Function Signature
+
 ```typescript
 export async function runBatch<T, K = string>(
   ids: K[],
@@ -99,6 +106,7 @@ export async function runBatch<T, K = string>(
 ```
 
 #### Logging Points
+
 - **Execution Lifecycle**
   - Logs batch start with total operation count
   - Logs individual operation execution (debug level)
@@ -108,36 +116,36 @@ export async function runBatch<T, K = string>(
 ### 6. Comprehensive Test Coverage
 
 #### Logger Unit Tests (`src/logger.test.ts`)
+
 - 10 tests covering all logger implementations
 - Silent logger test confirming no output
 - Console logger test validating format and output
 - Composite logger test verifying delegation to multiple loggers
 
-#### Integration Tests (`src/logger-integration.test.ts`)
-- 11 tests covering SDK integration
-- SDK initialization with logger
-- Cancellation logging
-- Subscriptions fetch logging with batch tracking
-- Event listener logging with failure simulation
-- Batch operation logging with success/failure tracking
+#### Event Listener Logging
 
-**Test Results: 21/21 tests passing**
+- Listener lifecycle logging
+- Event processing logging
+- Failure & reconnection logging
+
+#### Batch Operations Logging
+
+- Execution lifecycle logging
+- Individual operation logging
+- Completion logging
 
 ## Usage Examples
 
 ### Basic Usage with Console Logger
-```typescript
-import { init, createConsoleLogger } from '@syncro/sdk';
 
-const sdk = init({
-  apiKey: 'your-api-key',
-  backendApiBaseUrl: 'https://api.example.com',
-  wallet: { publicKey: 'your-public-key' },
-  logger: createConsoleLogger(),
-});
+```typescript
+import { createConsoleLogger, type Logger } from '@syncro/sdk';
+
+const logger = createConsoleLogger();
 ```
 
 ### Custom Logger Implementation
+
 ```typescript
 const customLogger: Logger = {
   info: (msg, meta) => sendToMonitoringService('info', msg, meta),
@@ -145,16 +153,10 @@ const customLogger: Logger = {
   error: (msg, meta) => sendToMonitoringService('error', msg, meta),
   debug: (msg, meta) => console.debug(msg, meta),
 };
-
-const sdk = init({
-  apiKey: 'your-api-key',
-  backendApiBaseUrl: 'https://api.example.com',
-  wallet: { publicKey: 'your-public-key' },
-  logger: customLogger,
-});
 ```
 
 ### Event Listener with Logger
+
 ```typescript
 import { createEventListener, createConsoleLogger } from '@syncro/sdk';
 
@@ -169,11 +171,12 @@ const listener = createEventListener(
 ```
 
 ### Batch Operations with Logger
+
 ```typescript
 import { runBatch, createConsoleLogger } from '@syncro/sdk';
 
 const results = await runBatch(
-  subscriptionIds,
+  paymentIds,
   async (id) => {
     // operation code
   },
@@ -182,35 +185,32 @@ const results = await runBatch(
 ```
 
 ### Production Setup with Silent Logger (Default)
+
 ```typescript
-const sdk = init({
-  apiKey: 'your-api-key',
-  backendApiBaseUrl: 'https://api.example.com',
-  wallet: { publicKey: 'your-public-key' },
-  // logger defaults to silentLogger - no console output
-});
+import { createConsoleLogger } from '@syncro/sdk';
+
+// logger defaults to silentLogger - no console output
+const logger = createConsoleLogger();
 ```
 
 ## Acceptance Criteria Met
 
-✅ Define Logger interface with info(), warn(), error(), debug()  
-✅ Allow injection of custom logger during SDK initialization  
-✅ Default to silent logger (no console.log in production)  
-✅ Log retries (subscription fetching batch tracking)  
-✅ Log listener failures (event listener with reconnection tracking)  
-✅ Log batch execution start/finish (batch operations)  
-✅ Add tests ensuring logger is called correctly (21 comprehensive tests)
+✅ Define Logger interface with info(), warn(), error(), debug()
+✅ Allow injection of custom logger during SDK usage
+✅ Default to silent logger (no console.log in production)
+✅ Log gateway call retries with idempotency keys
+✅ Log event listener failures with reconnection tracking
+✅ Log batch execution start/finish with success/failure counts
+✅ Add tests ensuring logger is called correctly
 
 ## Files Created/Modified
 
 ### Created
 - `src/logger.ts` - Logger interface and implementations
 - `src/logger.test.ts` - 10 unit tests for logger
-- `src/logger-integration.test.ts` - 11 integration tests
 
 ### Modified
 - `src/types.ts` - Added Logger type export
-- `src/index.ts` - Integrated logger throughout SDK class
 - `src/event-listener.ts` - Added logger support and logging
 - `src/batch-operations.ts` - Added logger support and logging
 
@@ -222,5 +222,4 @@ NODE_OPTIONS='--experimental-vm-modules' npm jest src/logger*.test.ts
 
 # Run specific test file
 NODE_OPTIONS='--experimental-vm-modules' npm jest src/logger.test.ts
-NODE_OPTIONS='--experimental-vm-modules' npm jest src/logger-integration.test.ts
 ```

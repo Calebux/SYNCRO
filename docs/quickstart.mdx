@@ -1,110 +1,62 @@
 ---
 title: Quickstart
-description: "Add your first subscription via the SYNCRO API in under 5 minutes"
+description: "Make your first x402 payment via the SYNCRO SDK in under 5 minutes"
 ---
 
 ## Prerequisites
 
 - A SYNCRO account — [sign up here](https://app.syncro.app)
 - An API key from your dashboard
+- A funded Stellar wallet for on-chain payments
 
 ## Step 1: Get your API key
 
 Log in to the [SYNCRO dashboard](https://app.syncro.app) and navigate to **Settings → API Keys**. Create a new key and copy it.
 
-## Step 2: Create your first subscription
+## Step 2: Make your first paid call
 
 <CodeGroup>
 
 ```bash cURL
-curl -X POST https://api.syncro.app/subscriptions \
+curl -X POST https://api.syncro.app/charge \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "Netflix",
-    "price": 17.99,
-    "currency": "USD",
-    "billingCycle": "monthly",
-    "nextRenewalDate": "2025-05-01"
+    "amount": 1000,
+    "currency": "USDC",
+    "description": "API call"
   }'
 ```
 
-```typescript TypeScript SDK
-import { SyncroSDK } from '@syncro/sdk';
+```typescript TypeScript SDK v3
+import { createPaidFetch } from "@syncro/sdk/v3";
 
-const syncro = new SyncroSDK({ apiKey: 'YOUR_API_KEY' });
-
-const subscription = await syncro.createSubscription({
-  name: 'Netflix',
-  price: 17.99,
-  currency: 'USD',
-  billingCycle: 'monthly',
-  nextRenewalDate: '2025-05-01',
+const fetch = createPaidFetch({ spendingKey: "..." });
+const res = await fetch("https://api.syncro.app/charge", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ amount: 1000, currency: "USDC" }),
 });
 
-console.log('Created:', subscription.id);
-```
-
-```python Python
-import requests
-
-response = requests.post(
-    'https://api.syncro.app/subscriptions',
-    headers={'Authorization': 'Bearer YOUR_API_KEY'},
-    json={
-        'name': 'Netflix',
-        'price': 17.99,
-        'currency': 'USD',
-        'billingCycle': 'monthly',
-        'nextRenewalDate': '2025-05-01',
-    }
-)
-print(response.json())
+if (res.receipt) {
+  console.log("Payment settled:", res.receipt.transaction);
+}
 ```
 
 </CodeGroup>
 
-## Step 3: List your subscriptions
+## Step 3: Verify the receipt
 
-```bash
-curl https://api.syncro.app/subscriptions \
-  -H "Authorization: Bearer YOUR_API_KEY"
-```
+```typescript
+import { verifyReceipt, decodeReceiptHeader } from "@syncro/sdk";
 
-**Response:**
-```json
-{
-  "data": [
-    {
-      "id": "sub_abc123",
-      "name": "Netflix",
-      "price": 17.99,
-      "currency": "USD",
-      "billingCycle": "monthly",
-      "nextRenewalDate": "2025-05-01",
-      "status": "active"
-    }
-  ],
-  "total": 1
-}
-```
-
-## Step 4: Set up a webhook (optional)
-
-Receive real-time events when a subscription renews or fails:
-
-```bash
-curl -X POST https://api.syncro.app/webhooks \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "https://yourapp.com/webhooks/syncro",
-    "events": ["subscription.renewed", "subscription.failed"]
-  }'
+const receipt = decodeReceiptHeader(res.headers.get("x-syncro-receipt")!);
+const ok = verifyReceipt(receipt);
+if (!ok) throw new Error("Invalid receipt");
 ```
 
 ## Next Steps
 
-- [Full API Reference](/api-reference/subscriptions)
+- [Full API Reference](/sdk-reference)
 - [Webhook Guide](/api-reference/webhooks)
-- [SDK Reference](/sdk-reference)
+- [Privacy & Migration Guide](/privacy/migration-guide)

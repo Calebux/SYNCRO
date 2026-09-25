@@ -1,4 +1,3 @@
-import type { SyncroSDK } from '../index.js';
 import { pricing, type RoutePricing, type PricingDeclarationInput, type RoutePricingRule } from './pricing.js';
 
 export interface SyncroReceipt {
@@ -19,7 +18,6 @@ export type FailureMode = 'serve-free' | 'reject';
 export type FailureHandler = (error: Error, req: any, res: any, next: any) => void;
 
 export interface MeteredOptions {
-  sdk?: SyncroSDK;
   apiKey?: string;
   baseURL?: string;
   onFailure?: FailureMode | FailureHandler;
@@ -133,16 +131,6 @@ export function metered(
 
       if (options.meterCall) {
         await options.meterCall(receipt, req);
-      } else if (options.sdk) {
-        try {
-          await (options.sdk as any).client.post('/provider/meter', {
-            receipt,
-            path,
-            method,
-          });
-        } catch (meterErr) {
-          console.warn('[SyncroSDK] Failed to report meter usage:', meterErr);
-        }
       }
 
       return next();
