@@ -4,9 +4,9 @@
  * GET    /api/tags                           — list user's custom tags
  * POST   /api/tags                           — create a new tag
  * DELETE /api/tags/:id                       — delete a tag (cascade removes assignments)
- * POST   /api/subscriptions/:id/tags         — assign tag to subscription
- * DELETE /api/subscriptions/:id/tags/:tagId  — remove tag from subscription
- * PATCH  /api/subscriptions/:id/notes        — update subscription notes
+ * POST   /api/tags/subscriptions/:id/tags         — assign tag to subscription
+ * DELETE /api/tags/subscriptions/:id/tags/:tagId  — remove tag from subscription
+ * PATCH  /api/tags/subscriptions/:id/notes        — update subscription notes
  */
 
 import express, { Response } from 'express';
@@ -107,7 +107,7 @@ router.delete('/:id', validate(uuidParamSchema, 'params'), async (req: Authentic
 // ─── Subscription tag assignments ────────────────────────────────────────────
 
 /**
- * POST /api/subscriptions/:id/tags
+ * POST /api/tags/subscriptions/:id/tags
  * Assign a tag to a subscription.
  */
 router.post(
@@ -165,7 +165,7 @@ router.post(
 );
 
 /**
- * DELETE /api/subscriptions/:id/tags/:tagId
+ * DELETE /api/tags/subscriptions/:id/tags/:tagId
  * Remove a tag from a subscription.
  */
 router.delete('/subscriptions/:id/tags/:tagId', validate(uuidParamSchema, 'params'), async (req: AuthenticatedRequest, res: Response) => {
@@ -210,7 +210,7 @@ router.delete('/subscriptions/:id/tags/:tagId', validate(uuidParamSchema, 'param
 // ─── Subscription notes ──────────────────────────────────────────────────────
 
 /**
- * PATCH /api/subscriptions/:id/notes
+ * PATCH /api/tags/subscriptions/:id/notes
  * Update the free-text notes on a subscription.
  */
 router.patch(

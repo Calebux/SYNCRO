@@ -159,8 +159,6 @@ describe('v2 surface schema (whole registry)', () => {
     expect(paths).toEqual(
       expect.arrayContaining([
         'GET /health',
-        'GET /subscriptions',
-        'GET /subscriptions/:id',
         'GET /tags',
       ]),
     );
@@ -198,7 +196,7 @@ describe('v2 surface schema (whole registry)', () => {
   it('rejects a malformed cursor with invalid-cursor', async () => {
     const res = await request(app).get('/health');
     expect(res.status).toBe(200);
-    const list = await request(app).get('/subscriptions').query({ cursor: 'tampered' });
+    const list = await request(app).get('/tags').query({ cursor: 'tampered' });
     expect(list.status).toBe(400);
     expect(list.body.type).toBe(V2_PROBLEM_TYPES.invalidCursor);
     expect(v2ProblemSchema.safeParse(list.body).success).toBe(true);

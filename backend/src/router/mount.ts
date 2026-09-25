@@ -1,16 +1,11 @@
 import { Router } from 'express';
 import { registerRoute, createVersionedRouter, getMountedRoutes, validateRegistry } from './registry';
 import { userRoutes } from '../routes/user.descriptors';
-import { subscriptionRoutes } from '../routes/subscriptions.descriptors';
 
 export function createApiRouter(): Router {
   const v1Router = createVersionedRouter({ basePath: '/api', version: 'v1' });
 
   for (const descriptor of userRoutes) {
-    registerRoute(v1Router, descriptor, { basePath: '/api', version: 'v1' });
-  }
-
-  for (const descriptor of subscriptionRoutes) {
     registerRoute(v1Router, descriptor, { basePath: '/api', version: 'v1' });
   }
 

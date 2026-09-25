@@ -28,12 +28,7 @@ import { isDraining } from '../lib/shutdown-state';
 import logger from '../config/logger';
 
 // ── Router imports ────────────────────────────────────────────────────────────
-import subscriptionRoutes from '../routes/subscriptions';
-import subscriptionShareRoutes from '../routes/subscription-shares';
-import subscriptionDedupRoutes from '../routes/subscription-dedup';
 import riskScoreRoutes from '../routes/risk-score';
-import simulationRoutes from '../routes/simulation';
-import merchantRoutes from '../routes/merchants';
 import teamRoutes from '../routes/team';
 import auditRoutes from '../routes/audit';
 import webhookRoutes from '../routes/webhooks';
@@ -42,21 +37,15 @@ import tagsRoutes from '../routes/tags';
 import userRoutes from '../routes/user';
 import sessionRoutes from '../routes/sessions';
 import apiKeysRoutes from '../routes/api-keys';
-import digestRoutes from '../routes/digest';
 import mfaRoutes from '../routes/mfa';
 import pushNotificationRoutes from '../routes/push-notifications';
 import walletRoutes from '../routes/wallet';
 import keyRotationRoutes from '../routes/key-rotation';
 import privacyRoutes from '../routes/privacy';
-import emailRescanRoutes from '../routes/email-rescan';
 import cspViolationsRoutes from '../routes/csp-violations';
-import giftCardLedgerRoutes from '../routes/gift-card-ledger';
 import notificationDeadLetterRoutes from '../routes/notification-dead-letter';
-import renewalDeadLetterRoutes from '../routes/renewal-dead-letter';
 import telegramWebhookRoutes from '../routes/telegram-webhook';
-import calendarRouter from '../routes/calendar';
 import userPreferencesRoutes from '../routes/user-preferences';
-import reminderSettingsRoutes from '../routes/reminder-settings';
 import paymentsRoutes from '../routes/payments';
 import paymentChannelsRoutes from '../routes/payment-channels';
 import adminWebhookEventsRoutes from '../routes/admin/webhook-events';
@@ -135,61 +124,12 @@ const ALL_ROUTES: RouteDescriptor[] = [
   // ── Core API routes ─────────────────────────────────────────────────────
   {
     method: 'ALL',
-    path: '/subscriptions',
-    version: 'v1',
-    auth: 'user',
-    tags: ['Subscriptions'],
-    summary: 'Subscription management',
-    auditEvent: 'subscription.accessed',
-    handler: subscriptionRoutes,
-  },
-  {
-    method: 'ALL',
-    path: '/subscriptions',
-    version: 'v1',
-    auth: 'public',
-    tags: ['Subscriptions'],
-    summary: 'Subscription sharing (public + authenticated)',
-    auditEvent: 'subscription_share.accessed',
-    handler: subscriptionShareRoutes,
-  },
-  {
-    method: 'ALL',
-    path: '/subscriptions',
-    version: 'v1',
-    auth: 'user',
-    tags: ['Subscriptions'],
-    summary: 'Subscription deduplication',
-    auditEvent: 'subscription_dedup.accessed',
-    handler: subscriptionDedupRoutes,
-  },
-  {
-    method: 'ALL',
     path: '/risk-score',
     version: 'v1',
     auth: 'user',
     tags: ['Risk Score'],
     summary: 'Risk scoring',
     handler: riskScoreRoutes,
-  },
-  {
-    method: 'ALL',
-    path: '/simulation',
-    version: 'v1',
-    auth: 'user',
-    rateLimit: 'simulation',
-    tags: ['Simulation'],
-    summary: 'Billing simulation',
-    handler: simulationRoutes,
-  },
-  {
-    method: 'ALL',
-    path: '/merchants',
-    version: 'v1',
-    auth: 'public',
-    tags: ['Merchants'],
-    summary: 'Merchant management (public reads, admin writes)',
-    handler: merchantRoutes,
   },
   {
     method: 'ALL',
@@ -268,15 +208,6 @@ const ALL_ROUTES: RouteDescriptor[] = [
   },
   {
     method: 'ALL',
-    path: '/digest',
-    version: 'v1',
-    auth: 'user',
-    tags: ['Digest'],
-    summary: 'Email digest preferences',
-    handler: digestRoutes,
-  },
-  {
-    method: 'ALL',
     path: '/mfa',
     version: 'v1',
     auth: 'user',
@@ -341,30 +272,12 @@ const ALL_ROUTES: RouteDescriptor[] = [
   },
   {
     method: 'ALL',
-    path: '/renewals/dead-letter',
-    version: 'v1',
-    auth: 'user',
-    tags: ['Renewals'],
-    summary: 'Renewal dead-letter queue',
-    handler: renewalDeadLetterRoutes,
-  },
-  {
-    method: 'ALL',
     path: '/exchange-rates',
     version: 'v1',
     auth: 'user',
     tags: ['Exchange Rates'],
     summary: 'Fiat & crypto exchange rates',
     handler: createExchangeRatesRouter(exchangeRateService),
-  },
-  {
-    method: 'ALL',
-    path: '/gift-card-ledger',
-    version: 'v1',
-    auth: 'user',
-    tags: ['Gift Card Ledger'],
-    summary: 'Gift card balance & history',
-    handler: giftCardLedgerRoutes,
   },
   {
     method: 'ALL',
@@ -377,30 +290,12 @@ const ALL_ROUTES: RouteDescriptor[] = [
   },
   {
     method: 'ALL',
-    path: '/calendar',
-    version: 'v1',
-    auth: 'public',
-    tags: ['Calendar'],
-    summary: 'Calendar feed & preferences (mixed auth)',
-    handler: calendarRouter,
-  },
-  {
-    method: 'ALL',
     path: '/user-preferences',
     version: 'v1',
     auth: 'user',
     tags: ['User Preferences'],
     summary: 'Notification preferences & quiet hours',
     handler: userPreferencesRoutes,
-  },
-  {
-    method: 'ALL',
-    path: '/reminder-settings',
-    version: 'v1',
-    auth: 'user',
-    tags: ['Reminder Settings'],
-    summary: 'Reminder configuration',
-    handler: reminderSettingsRoutes,
   },
 
   // ── Payment routes ────────────────────────────────────────────────────────
@@ -470,15 +365,6 @@ const ALL_ROUTES: RouteDescriptor[] = [
     tags: ['Integrations'],
     summary: 'Slack integration',
     handler: slackRouter,
-  },
-  {
-    method: 'ALL',
-    path: '/integrations/email',
-    version: 'v1',
-    auth: 'user',
-    tags: ['Integrations'],
-    summary: 'Email rescan',
-    handler: emailRescanRoutes,
   },
 
   // ── Admin routes ──────────────────────────────────────────────────────────

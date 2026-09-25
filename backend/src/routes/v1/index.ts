@@ -1,8 +1,5 @@
 import express from 'express';
-import subscriptionRoutes from '../subscriptions';
 import riskScoreRoutes from '../risk-score';
-import simulationRoutes from '../simulation';
-import merchantRoutes from '../merchants';
 import teamRoutes from '../team';
 import pushNotificationsRoutes from '../push-notifications';
 import userRoutes from '../user';
@@ -20,10 +17,7 @@ import logger from '../../config/logger';
 const v1Router = express.Router();
 
 // Standard API Routes
-v1Router.use('/subscriptions', subscriptionRoutes);
 v1Router.use('/risk-score', riskScoreRoutes);
-v1Router.use('/simulation', simulationRoutes);
-v1Router.use('/merchants', merchantRoutes);
 v1Router.use('/team', teamRoutes);
 v1Router.use('/push-notifications', pushNotificationsRoutes);
 v1Router.use('/user', userRoutes);
