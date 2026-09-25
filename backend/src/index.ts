@@ -89,6 +89,7 @@ import { startChannelSettlementJob, stopChannelSettlementJob } from './jobs/chan
 import { startSettlementReconciliationJob, stopSettlementReconciliationJob } from './jobs/settlement-reconciliation-job';
 import { startJobAlertMonitor, stopJobAlertMonitor } from './jobs/job-alert-monitor';
 import { startWebhookRetryJob, stopWebhookRetryJob } from './jobs/webhook-retry-job';
+import { startPaidCallAlertJob, stopPaidCallAlertJob } from './jobs/paid-call-alert-job';
 import { isDraining } from './lib/shutdown-state';
 import { registerGracefulShutdown } from './lib/graceful-shutdown';
 import giftCardLedgerRoutes from './routes/gift-card-ledger';
@@ -712,6 +713,7 @@ const server = app.listen(PORT, async () => {
   startSettlementReconciliationJob();
   startJobAlertMonitor();
   startWebhookRetryJob();
+  startPaidCallAlertJob();
 
   telegramCommandService.init();
   if (env.TELEGRAM_BOT_TOKEN && !env.TELEGRAM_WEBHOOK_SECRET) {
@@ -728,6 +730,7 @@ registerGracefulShutdown(server, {
     stopSettlementReconciliationJob();
     stopJobAlertMonitor();
     stopWebhookRetryJob();
+    stopPaidCallAlertJob();
   },
   stopEventListener: () => eventListener.stop(),
   stopTelegram: () => telegramCommandService.stop(),
