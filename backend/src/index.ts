@@ -118,6 +118,7 @@ import agentKeyCompromiseAdminRoutes from './routes/admin/agent-key-compromise';
 import metricsRoutes from './routes/metrics';
 import analyticsV3Routes from './routes/analytics-v3';
 import v3GatewayRoutes from './routes/v3/gateway';
+import v3ProviderRoutes from './routes/v3-gateway';
 
 
 const app = express();
@@ -283,6 +284,7 @@ app.get('/api/docs.json', (_req, res) => {
 app.use('/api/v1', v1Router);
 app.use('/api/v2', v2Router);
 app.use('/api/v3/gateway', v3GatewayRoutes);
+app.use('/api/v3', v3ProviderRoutes);
 
 // API Routes
 app.use('/api/keys', apiKeysRoutes);

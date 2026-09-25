@@ -25,6 +25,59 @@ export interface RegisteredRoute {
   createdAt: string;
 }
 
+/**
+ * A published price for one route. Versions are append-only: a later version
+ * does not rewrite an earlier one, and a call is priced by the version whose
+ * `effectiveFrom` was already in the past when the call was metered.
+ */
+export interface RateCardVersion {
+  versionId: string;
+  providerId: string;
+  routeId: string;
+  sequence: number;
+  label: string;
+  price: number;
+  unit: string;
+  quantityExtractor: string;
+  pathPattern: string;
+  method: string;
+  effectiveFrom: string;
+  createdAt: string;
+}
+
+export interface ProviderRouteView extends RegisteredRoute {
+  /** Version that prices calls metered at `applicableAt`. */
+  applicableVersion: RateCardVersion | null;
+}
+
+export type SettlementStatus = 'settled' | 'unsettled' | 'in_dispute';
+
+export interface ProviderSettlement {
+  settlementId: string;
+  providerId: string;
+  routeId: string;
+  receiptId: string;
+  method: string;
+  pathPattern: string;
+  unit: string;
+  quantity: number;
+  /** Unit price of the rate-card version that applied when the call was metered. */
+  price: number;
+  amount: number;
+  rateCardVersion: string;
+  rateCardEffectiveFrom: string;
+  status: SettlementStatus;
+  meteredAt: string;
+  channelId: string;
+}
+
+/** Three buckets, kept separate. There is no combined total. */
+export interface ProviderRevenue {
+  settled: number;
+  unsettled: number;
+  inDispute: number;
+}
+
 export interface AgentRegistryGrant {
   agentId: string;
   scopes: string[];
