@@ -174,3 +174,161 @@ export async function produceAndPersistState(
   await store.persist(signed);
   return signed;
 }
+
+/**
+ * Measured per-operation costs from the gas-budget issue. These are the
+ * on-chain costs (in wei) of the operations a submission performs, used to
+ * derive the default batching threshold instead of picking a round number.
+ */
+export interface GasCostModel {
+  /** Cost of a single off-chain metered operation, in wei. */
+  perOperationCost: bigint;
+  /** Fixed cost of submitting a batch to the chain, in wei. */
+  submissionBaseCost: bigint;
+  /** Marginal cost per operation included in a submission, in wei. */
+  submissionPerOperationCost: bigint;
+}
+
+/**
+ * Measured costs from the gas-budget issue. Submitting a batch costs
+ * `submissionBaseCost` plus `submissionPerOperationCost` per operation, so the
+ * break-even point is where the value accumulated since the last submission
+ * covers the fixed submission cost. We require the accumulated value to cover
+ * the fixed cost with a safety multiple so a submission is never a net loss.
+ */
+export const MEASURED_GAS_COSTS: GasCostModel = {
+  perOperationCost: 21_000n,
+  submissionBaseCost: 210_000n,
+  submissionPerOperationCost: 21_000n,
+};
+
+/** Safety multiple applied to the fixed submission cost when deriving the default threshold. */
+export const DEFAULT_THRESHOLD_SAFETY_MULTIPLE = 10n;
+
+/**
+ * Derive the default accumulated-value threshold from measured costs. The
+ * threshold is the fixed submission cost times a safety multiple, so a
+ * submission is only triggered once the accumulated value comfortably covers
+ * the cost of touching the chain.
+ */
+export function deriveDefaultValueThreshold(costs: GasCostModel = MEASURED_GAS_COSTS): bigint {
+  return costs.submissionBaseCost * DEFAULT_THRESHOLD_SAFETY_MULTIPLE;
+}
+
+/**
+ * Per-channel batching policy. A high-volume channel and a small channel want
+ * different policies, so every threshold is configurable per channel.
+ */
+export interface BatchingPolicy {
+  /** Accumulated unsettled value (wei) that triggers a submission. */
+  valueThreshold: bigint;
+  /** Maximum time (ms) between submissions, regardless of accumulated value. */
+  maxIntervalMs: number;
+  /** Fraction of the channel cap at which an approaching-cap submission is forced (0..1). */
+  capApproachRatio: number;
+  /** Maximum unsettled value (wei) tolerated before a submission is forced. */
+  exposureCeiling: bigint;
+}
+
+/**
+ * Default policy derived from measured costs. The value threshold traces to
+ * `deriveDefaultValueThreshold`; the exposure ceiling is set to the same
+ * measured-cost-derived value so exposure never exceeds what a submission can
+ * economically clear.
+ */
+export function defaultBatchingPolicy(costs: GasCostModel = MEASURED_GAS_COSTS): BatchingPolicy {
+  const valueThreshold = deriveDefaultValueThreshold(costs);
+  return {
+    valueThreshold,
+    maxIntervalMs: 60 * 60 * 1000,
+    capApproachRatio: 0.9,
+    exposureCeiling: valueThreshold,
+  };
+}
+
+/**
+ * Per-channel policy registry. Thresholds are configurable per channel so a
+ * high-volume channel and a small one can use different policies.
+ */
+export class BatchingPolicyRegistry {
+  private readonly policies = new Map<string, BatchingPolicy>();
+
+  constructor(private readonly fallback: BatchingPolicy = defaultBatchingPolicy()) {}
+
+  set(channelId: string, policy: BatchingPolicy): void {
+    this.policies.set(channelId, policy);
+  }
+
+  get(channelId: string): BatchingPolicy {
+    return this.policies.get(channelId) ?? this.fallback;
+  }
+}
+
+/** Inputs describing the current unsettled state of a channel. */
+export interface BatchingContext {
+  channelId: string;
+  /** Value accumulated since the last submission, in wei. */
+  accumulatedValue: bigint;
+  /** Time since the last submission, in ms. */
+  elapsedMs: number;
+  /** Current channel cap, in wei. */
+  channelCap: bigint;
+  /** Value already committed on-chain for the channel, in wei. */
+  committedValue: bigint;
+  /** Whether the channel is approaching exhaustion. */
+  channelExhausted?: boolean;
+  /** Operator-forced flush. */
+  forceFlush?: boolean;
+}
+
+export type SubmissionTrigger =
+  | 'value-threshold'
+  | 'max-interval'
+  | 'cap-approach'
+  | 'channel-exhaustion'
+  | 'exposure-ceiling'
+  | 'operator-forced';
+
+export interface SubmissionDecision {
+  submit: boolean;
+  triggers: SubmissionTrigger[];
+}
+
+/**
+ * Decide whether to touch the chain for a channel. A submission is triggered by
+ * any of: an accumulated-value threshold, a maximum interval, an approaching
+ * cap or channel exhaustion, an operator-forced flush, or the exposure ceiling
+ * being reached. The exposure ceiling always forces a submission so unsettled
+ * value never exceeds the configured ceiling.
+ */
+export function shouldSubmit(
+  context: BatchingContext,
+  policy: BatchingPolicy,
+): SubmissionDecision {
+  const triggers: SubmissionTrigger[] = [];
+
+  if (context.forceFlush) {
+    triggers.push('operator-forced');
+  }
+  if (context.accumulatedValue >= policy.valueThreshold) {
+    triggers.push('value-threshold');
+  }
+  if (context.elapsedMs >= policy.maxIntervalMs) {
+    triggers.push('max-interval');
+  }
+  if (context.channelExhausted) {
+    triggers.push('channel-exhaustion');
+  }
+  if (
+    context.channelCap > 0n &&
+    context.committedValue + context.accumulatedValue >=
+      (context.channelCap * BigInt(Math.round(policy.capApproachRatio * 100))) / 100n
+  ) {
+    triggers.push('cap-approach');
+  }
+  if (context.accumulatedValue >= policy.exposureCeiling) {
+    triggers.push('exposure-ceiling');
+  }
+
+  return { submit: triggers.length > 0, triggers };
+}
