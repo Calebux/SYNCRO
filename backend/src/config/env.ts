@@ -62,6 +62,9 @@ export const envSchema = z.object({
   SETTLEMENT_MAX_WAIT_MS: z.string().default('300000'),
   SETTLEMENT_MAX_QUEUE_DEPTH: z.string().default('500'),
   SETTLEMENT_MAX_IN_FLIGHT: z.string().default('2'),
+  // Three-way settlement reconciliation (meter / engine / chain)
+  SETTLEMENT_RECONCILIATION_ENABLED: z.string().default('true'),
+  RECONCILIATION_TOLERANCE_PCT: z.string().default('1'),
   MERCHANT_CACHE_TTL_MS: z.string().optional(),
   UNSUBSCRIBE_SECRET: z.string().optional(),
   BACKEND_URL: z.string().default('http://localhost:3001'),
@@ -327,4 +330,3 @@ export function getEnv(): Readonly<BackendEnv> {
 }
 
 export const env = getEnv();
-

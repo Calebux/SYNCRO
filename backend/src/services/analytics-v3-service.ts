@@ -1,5 +1,6 @@
 import { supabase } from '../config/database';
 import logger from '../config/logger';
+import { dependencyHealthService } from './dependency-health-service';
 import {
   PrincipalAnalytics,
   OperatorAnalytics,
@@ -9,6 +10,8 @@ import {
   RejectionCategory,
   RejectionReason,
   PrincipalMetric,
+  ChannelHealth,
+  PrincipalAlert,
 } from '@syncro/shared/domain';
 
 /** Default period: last 30 days */
@@ -54,6 +57,8 @@ export class AnalyticsV3Service {
       capUtilization,
       routeMix,
       rejectionReasons,
+      channelHealth,
+      alerts,
     ] = await Promise.all([
       this.countMeteredCalls(userId, period),
       this.sumSettledValue(userId, period),
@@ -62,6 +67,8 @@ export class AnalyticsV3Service {
       this.getCapUtilization(userId),
       this.getRouteMix(userId, period),
       this.getRejectionReasons(userId, period),
+      this.getChannelHealth(userId, period),
+      this.getPrincipalAlerts(userId, period),
     ]);
 
     return {
@@ -69,9 +76,21 @@ export class AnalyticsV3Service {
       valueSettled,
       valueUnsettled,
       activeChannels,
-      capUtilizationPerAgent: capUtilization,
+      capUtilizationPerAgent: capUtilization.map((agent) => {
+        const channel = channelHealth.find((item) => item.channelId === agent.agentId);
+        const projectedCapAt = channel?.burnRatePerDay && agent.currentBalance > 0
+          ? new Date(Date.now() + (agent.currentBalance / channel.burnRatePerDay) * 86_400_000).toISOString()
+          : null;
+        return {
+          ...agent,
+          dailySpendRate: channel?.burnRatePerDay ?? 0,
+          projectedCapAt,
+        };
+      }),
       routeMix,
       rejectionReasonsByCategory: rejectionReasons,
+      channelHealth,
+      alerts,
       period,
     };
   }
@@ -178,7 +197,7 @@ export class AnalyticsV3Service {
       .from('payment_channels')
       .select('channel_id, balance, deposit_amount')
       .eq('user_id', userId)
-      .eq('status', 'active');
+      .eq('state', 'active');
 
     if (!channels || channels.length === 0) return [];
 
@@ -187,14 +206,108 @@ export class AnalyticsV3Service {
       const balance = Number(channel.balance) || 0;
       // deposit_amount represents the channel capacity
       const capacity = deposit > 0 ? deposit : balance;
+      const currentSpend = Math.max(0, capacity - balance);
       return {
         agentId: channel.channel_id,
         agentName: `Channel ${channel.channel_id.slice(0, 8)}`,
         currentBalance: balance,
         capacity,
         utilizationPercentage: capacity > 0 ? (balance / capacity) * 100 : 0,
+        currentSpend,
       };
     });
+  }
+
+  /** Derive channel burn and exhaustion from the last 30 days of metered payments. */
+  private async getChannelHealth(userId: string, period: AnalyticsPeriod): Promise<ChannelHealth[]> {
+    const [{ data: channels }, { data: payments }] = await Promise.all([
+      supabase
+        .from('payment_channels')
+        .select('channel_id, counterparty, balance, deposit_amount, state, expiry')
+        .eq('user_id', userId)
+        .neq('state', 'closed'),
+      supabase
+        .from('channel_payments')
+        .select('channel_id, amount, created_at')
+        .eq('user_id', userId)
+        .gte('created_at', period.start)
+        .lte('created_at', period.end),
+    ]);
+
+    const paymentTotals = new Map<string, number>();
+    for (const payment of payments ?? []) {
+      paymentTotals.set(payment.channel_id, (paymentTotals.get(payment.channel_id) ?? 0) + Number(payment.amount || 0));
+    }
+    const days = Math.max(1, (Date.parse(period.end) - Date.parse(period.start)) / 86_400_000);
+
+    return (channels ?? []).map((channel) => {
+      const balance = Number(channel.balance) || 0;
+      const capacity = Number(channel.deposit_amount) || balance;
+      const burnRatePerDay = (paymentTotals.get(channel.channel_id) ?? 0) / days;
+      const exhaustion = burnRatePerDay > 0
+        ? new Date(Date.now() + (balance / burnRatePerDay) * 86_400_000).toISOString()
+        : null;
+      return {
+        channelId: channel.channel_id,
+        agentName: channel.counterparty || `Channel ${channel.channel_id.slice(0, 8)}`,
+        state: channel.state as ChannelHealth['state'],
+        balance,
+        capacity,
+        burnRatePerDay,
+        projectedExhaustionAt: exhaustion,
+        pendingClose: channel.state === 'closing' || channel.state === 'dispute',
+      };
+    });
+  }
+
+  private async getPrincipalAlerts(userId: string, period: AnalyticsPeriod): Promise<PrincipalAlert[]> {
+    const [{ data: channels }, { data: auditEvents }, dependencies] = await Promise.all([
+      supabase
+        .from('payment_channels')
+        .select('channel_id, state, updated_at')
+        .eq('user_id', userId)
+        .in('state', ['closing', 'dispute']),
+      supabase
+        .from('audit_logs')
+        .select('action, metadata, created_at')
+        .gte('created_at', period.start)
+        .lte('created_at', period.end)
+        .in('action', ['system.degraded_mode', 'reconciliation.adjusted'])
+        .order('created_at', { ascending: false })
+        .limit(20),
+      dependencyHealthService.checkAllDependencies(),
+    ]);
+
+    const alerts: PrincipalAlert[] = (auditEvents ?? []).map((event) => ({
+      type: event.action === 'system.degraded_mode' ? 'degraded_mode' : 'reconciliation_delta',
+      severity: 'critical',
+      message: event.action === 'system.degraded_mode'
+        ? 'Metering is in degraded mode; some calls may be delayed or unbilled.'
+        : 'A reconciliation delta needs attention.',
+      createdAt: event.created_at || new Date().toISOString(),
+    }));
+
+    if (dependencies.some((dependency) => dependency.status !== 'healthy')) {
+      alerts.unshift({
+        type: 'degraded_mode',
+        severity: 'critical',
+        message: 'Metering is in degraded mode; some calls may be delayed or unbilled.',
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    for (const channel of channels ?? []) {
+      alerts.push({
+        type: channel.state === 'dispute' ? 'dispute' : 'pending_close',
+        severity: channel.state === 'dispute' ? 'critical' : 'warning',
+        message: channel.state === 'dispute'
+          ? `Channel ${channel.channel_id.slice(0, 8)} is in dispute.`
+          : `Channel ${channel.channel_id.slice(0, 8)} has a pending close.`,
+        createdAt: channel.updated_at || new Date().toISOString(),
+      });
+    }
+
+    return alerts;
   }
 
   /**
@@ -235,25 +348,61 @@ export class AnalyticsV3Service {
    */
   private async getRejectionReasons(userId: string, period: AnalyticsPeriod): Promise<RejectionCategory[]> {
     const { data } = await supabase
-      .from('v3_analytics_rejections')
-      .select('category, rejection_count')
+      .from('pending_settlements')
+      .select('error_message, status, created_at')
       .eq('user_id', userId)
-      .gte('period_day', period.start.slice(0, 10))
-      .lte('period_day', period.end.slice(0, 10));
+      .neq('status', 'confirmed')
+      .gte('created_at', period.start)
+      .lte('created_at', period.end);
 
     if (!data || data.length === 0) return [];
 
-    const totalRejections = data.reduce((sum, row) => sum + Number(row.rejection_count), 0);
+    const grouped = new Map<string, Map<string, number>>();
+    for (const row of data) {
+      const reason = this.rejectionReason(row.error_message);
+      const category = this.rejectionCategory(reason);
+      const reasons = grouped.get(category) ?? new Map<string, number>();
+      reasons.set(reason, (reasons.get(reason) ?? 0) + 1);
+      grouped.set(category, reasons);
+    }
 
-    return data.map(row => {
-      const count = Number(row.rejection_count);
+    const totalRejections = data.length;
+
+    return Array.from(grouped.entries()).map(([category, reasons]) => {
+      const topReasons = Array.from(reasons.entries())
+        .map(([reason, count]) => ({ reason, count }))
+        .sort((left, right) => right.count - left.count);
+      const count = topReasons.reduce((sum, reason) => sum + reason.count, 0);
       return {
-        category: row.category,
+        category,
         count,
         percentage: totalRejections > 0 ? (count / totalRejections) * 100 : 0,
-        topReasons: [{ reason: row.category, count }],
+        topReasons,
       };
     });
+  }
+
+  private rejectionReason(errorMessage: string | null): string {
+    const message = (errorMessage ?? '').toLowerCase();
+    if (message.includes('auth') || message.includes('unauthorized')) return 'authentication_failed';
+    if (message.includes('rate') || message.includes('limit')) return 'rate_limit_exceeded';
+    if (message.includes('valid') || message.includes('malform')) return 'invalid_request';
+    if (message.includes('timeout')) return 'timeout';
+    if (message.includes('internal')) return 'internal_error';
+    if (message.includes('network') || message.includes('connection')) return 'network_unavailable';
+    if (message.includes('balance') || message.includes('fund')) return 'insufficient_balance';
+    if (message.includes('pay') || message.includes('billing')) return 'billing_failed';
+    return 'unspecified_failure';
+  }
+
+  private rejectionCategory(reason: string): string {
+    if (reason === 'authentication_failed') return 'authentication';
+    if (reason === 'rate_limit_exceeded') return 'rate_limit';
+    if (reason === 'invalid_request') return 'validation';
+    if (reason === 'timeout' || reason === 'internal_error') return 'internal_error';
+    if (reason === 'network_unavailable') return 'network';
+    if (reason === 'insufficient_balance' || reason === 'billing_failed') return 'billing';
+    return 'other';
   }
 
   // ═══════════════════════════════════════════════════════════

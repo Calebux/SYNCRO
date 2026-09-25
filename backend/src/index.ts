@@ -86,6 +86,7 @@ import { startSettlementBatchJob, stopSettlementBatchJob } from './jobs/settleme
 import { startStealthScanJob } from './jobs/stealth-scan-job';
 import { startChannelMonitorJob } from './jobs/channel-monitor-job';
 import { startChannelSettlementJob, stopChannelSettlementJob } from './jobs/channel-settlement-job';
+import { startSettlementReconciliationJob, stopSettlementReconciliationJob } from './jobs/settlement-reconciliation-job';
 import { startJobAlertMonitor, stopJobAlertMonitor } from './jobs/job-alert-monitor';
 import { startWebhookRetryJob, stopWebhookRetryJob } from './jobs/webhook-retry-job';
 import { isDraining } from './lib/shutdown-state';
@@ -99,6 +100,7 @@ import calendarRouter from './routes/calendar';
 import userPreferencesRoutes from './routes/user-preferences';
 import reminderSettingsRoutes from './routes/reminder-settings';
 import { blockchainReconciliationService } from './services/blockchain-reconciliation-service';
+import { settlementReconciliationService } from './services/settlement-reconciliation-service';
 import paymentsRoutes from './routes/payments';
 import paystackWebhookRoutes from './routes/paystack-webhook';
 import stripeWebhookRoutes from './routes/stripe-webhook';
@@ -585,6 +587,30 @@ app.post('/api/admin/reconciliation/run', createAdminLimiter(), adminAuth, async
   }
 });
 
+// ── Settlement Three-Way Reconciliation Endpoints ─────────────────────────────
+
+app.post('/api/admin/settlement-reconciliation/run', createAdminLimiter(), adminAuth, async (_req, res) => {
+  try {
+    const result = await settlementReconciliationService.run();
+    res.json({ success: true, data: result });
+  } catch (error) {
+    logger.error('Error running settlement reconciliation:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Settlement reconciliation failed',
+    });
+  }
+});
+
+app.post('/api/admin/settlement-reconciliation/unblock', createAdminLimiter(), adminAuth, (_req, res) => {
+  settlementReconciliationService.unblock();
+  res.json({ success: true, blocked: settlementReconciliationService.isBlocked() });
+});
+
+app.get('/api/admin/settlement-reconciliation/status', createAdminLimiter(), adminAuth, (_req, res) => {
+  res.json({ blocked: settlementReconciliationService.isBlocked() });
+});
+
 // Error Handlers
 app.use(Sentry.Handlers.errorHandler());
 app.use(errorHandler);
@@ -681,6 +707,7 @@ const server = app.listen(PORT, async () => {
   startStealthScanJob();
   startChannelMonitorJob();
   startChannelSettlementJob();
+  startSettlementReconciliationJob();
   startJobAlertMonitor();
   startWebhookRetryJob();
 
@@ -696,6 +723,7 @@ registerGracefulShutdown(server, {
     stopAutoResume();
     stopSettlementBatchJob();
     stopChannelSettlementJob();
+    stopSettlementReconciliationJob();
     stopJobAlertMonitor();
     stopWebhookRetryJob();
   },

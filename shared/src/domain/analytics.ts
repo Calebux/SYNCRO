@@ -70,6 +70,10 @@ export interface PrincipalAnalytics {
   routeMix: RouteMixEntry[];
   /** Rejection reasons grouped by category */
   rejectionReasonsByCategory: RejectionCategory[];
+  /** Channel-level spend, burn, exhaustion, and close state for the principal console. */
+  channelHealth: ChannelHealth[];
+  /** Conditions that need attention without requiring log inspection. */
+  alerts: PrincipalAlert[];
   /** Period these metrics cover */
   period: AnalyticsPeriod;
 }
@@ -104,6 +108,27 @@ export interface CapUtilization {
   currentBalance: number;
   capacity: number;
   utilizationPercentage: number;
+  currentSpend?: number;
+  dailySpendRate?: number;
+  projectedCapAt?: string | null;
+}
+
+export interface ChannelHealth {
+  channelId: string;
+  agentName: string;
+  state: 'active' | 'closing' | 'closed' | 'dispute';
+  balance: number;
+  capacity: number;
+  burnRatePerDay: number;
+  projectedExhaustionAt: string | null;
+  pendingClose: boolean;
+}
+
+export interface PrincipalAlert {
+  type: 'degraded_mode' | 'reconciliation_delta' | 'dispute' | 'pending_close';
+  severity: 'warning' | 'critical';
+  message: string;
+  createdAt: string;
 }
 
 export interface RouteMixEntry {

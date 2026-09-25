@@ -9,7 +9,7 @@ export type V3NotificationEventType =
 
 export type AudienceClassification = 'principal' | 'operator';
 
-export type NotificationChannel = 'email' | 'push' | 'telegram' | 'slack';
+export type NotificationChannel = 'push' | 'telegram' | 'slack';
 
 export interface V3EventClassification {
   eventType: V3NotificationEventType;
@@ -69,9 +69,9 @@ export type V3NotificationPreferences = Record<V3NotificationEventType, {
 }>;
 
 export const DEFAULT_V3_PRINCIPAL_PREFERENCES: V3NotificationPreferences = {
-  cap_threshold_warning: { enabled: true, channels: ['email', 'push'] },
-  channel_nearing_exhaustion: { enabled: true, channels: ['email', 'push', 'telegram'] },
-  channel_close_initiated: { enabled: true, channels: ['email', 'push', 'telegram'] },
+  cap_threshold_warning: { enabled: true, channels: ['push'] },
+  channel_nearing_exhaustion: { enabled: true, channels: ['push', 'telegram'] },
+  channel_close_initiated: { enabled: true, channels: ['push', 'telegram'] },
   dispute_detected: { enabled: false, channels: [] },
   degraded_mode_entered: { enabled: false, channels: [] },
   degraded_mode_exited: { enabled: false, channels: [] },
@@ -82,10 +82,10 @@ export const DEFAULT_V3_OPERATOR_PREFERENCES: V3NotificationPreferences = {
   cap_threshold_warning: { enabled: false, channels: [] },
   channel_nearing_exhaustion: { enabled: false, channels: [] },
   channel_close_initiated: { enabled: false, channels: [] },
-  dispute_detected: { enabled: true, channels: ['email', 'slack'] },
-  degraded_mode_entered: { enabled: true, channels: ['email', 'slack'] },
-  degraded_mode_exited: { enabled: true, channels: ['email', 'slack'] },
-  reconciliation_delta_outside_tolerance: { enabled: true, channels: ['email', 'slack'] },
+  dispute_detected: { enabled: true, channels: ['slack'] },
+  degraded_mode_entered: { enabled: true, channels: ['slack'] },
+  degraded_mode_exited: { enabled: true, channels: ['slack'] },
+  reconciliation_delta_outside_tolerance: { enabled: true, channels: ['slack'] },
 };
 
 export interface CapThresholdWarningPayload {

@@ -10,11 +10,17 @@ Each release notes the minimum compatible backend version (`synchro`). If your b
 
 _Changes staged for the next release._
 
-### Added — Channel management helpers
-- `ChannelClient` opens, tops up, reads balance and burn rate, initiates close, and finalizes a payment channel without hand-written Soroban calls
-- `autoTopUp` tops a channel back up when its balance is at or below a configured floor
-- `initiateClose` returns the challenge period so callers can see funds are not released immediately
-- `ChannelScopeError` rejects an operation locally when the caller lacks the required scope
+### Added — #1495 v3 SDK: README, examples, and quickstart rewrite
+- `sdk/README.md` rewritten around the v3 payments surface: a quickstart that goes from install to a paid call in under ten lines.
+- Runnable examples under `sdk/examples/`: `pay-for-call.ts`, `open-and-fund-channel.ts`, `verify-receipt.ts`, and `accept-payments.ts`.
+- Examples are executed in CI (`sdk-examples` job) so they cannot rot.
+
+### Removed — #1495 subscription SDK surface
+- The subscription SDK is gone. `createSubscription`, `listSubscriptions`, `getSubscription`, `updateSubscription`, `deleteSubscription`, `getSpendAnalytics`, and the subscription webhook helpers no longer exist.
+- `sdk/docs` and the subscription-oriented README content have been replaced by the v3 payments documentation.
+
+### Migration — #1495
+- **There is no upgrade path from the subscription SDK to v3.** The subscription API and the v3 payments API are not compatible; there is no shim, adapter, or codemod. Existing subscription integrations must be rewritten against the v3 payments surface. See the migration note in `sdk/README.md`.
 
 ### Added — #1303 Typed error taxonomy
 - `ValidationError` — stable code `SYNCRO_VALIDATION`, retryable: `false`

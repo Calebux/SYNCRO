@@ -591,8 +591,6 @@ jobs:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           STELLAR_NETWORK_URL: ${{ secrets.STELLAR_NETWORK_URL }}
           SOROBAN_CONTRACT_ADDRESS: ${{ secrets.SOROBAN_CONTRACT_ADDRESS }}
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_USER: ${{ secrets.SMTP_USER }}
         run: npm test -- -c tests/smoke/jest.smoke.config.js --verbose
 
       - name: Upload smoke test results
