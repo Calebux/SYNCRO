@@ -57,6 +57,30 @@ Three major architectural initiatives to improve quality, visibility, and securi
 
 ---
 
+### 4. [Settlement Engine Service](./04-settlement-engine.md)
+
+**Goal**: Turn metered usage into on-chain value movement through a distinct settlement engine service with a defined boundary.
+
+**Problem**: Metered usage has to become on-chain value movement, but nothing owns that translation. The subscription product settled on a renewal schedule, which no longer exists.
+
+**Solution**: Stand up the settlement engine as a distinct service that reads closed meter windows, produces signed channel states, decides when to touch the chain, and reconciles what the chain reports back.
+
+**Scope**:
+- Service skeleton with its own configuration, health endpoint, and lifecycle.
+- The interfaces it depends on: meter read, channel client, key access, event stream.
+- Explicitly out of scope: it does not admit calls, price routes, or talk to providers.
+- Define how many instances may run concurrently, and if more than one, how they avoid both signing state for the same channel.
+
+**Key Acceptance Criteria**:
+- The service runs, reports healthy, and its boundary is documented in the architecture doc.
+- Reads closed meter windows and produces signed channel states.
+- Decides when to touch the chain and reconciles what the chain reports back.
+- Concurrency model is defined so multiple instances never sign state for the same channel.
+
+**Status**: Spec ready for requirements refinement
+
+---
+
 ## Getting Started
 
 Each spec contains:
@@ -84,4 +108,4 @@ Each spec contains:
 | Preview Envs | ✅ Done | ⏳ Ready | ⏹️ Not started | ⏹️ |
 | Architecture Diagrams | ✅ Done | ⏳ Ready | ⏹️ Not started | ⏹️ |
 | Crypto Spec | ✅ Done | ⏳ Ready | ⏹️ Not started | ⏹️ |
-
+| Settlement Engine | ✅ Done | ⏳ Ready | ⏹️ Not started | ⏹️ |

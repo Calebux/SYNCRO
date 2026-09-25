@@ -163,3 +163,73 @@ backend/docs/
 - Architecture decisions are visible in diagrams before code review
 - Diagram diffs catch architecture changes before they're merged
 
+## Settlement Engine Service (v3)
+
+### Boundary and Responsibilities
+
+The settlement engine is a distinct service that translates metered usage into on-chain value movement. It owns the translation between closed meter windows and signed channel states. It does **not** admit calls, price routes, or talk to providers — those responsibilities belong to the API and pricing layers.
+
+Responsibilities:
+- Read closed meter windows from the meter read interface.
+- Produce signed channel states via the channel client.
+- Decide when to touch the chain (submission policy).
+- Reconcile what the chain reports back via the event stream.
+
+### Dependencies (interfaces)
+
+- **Meter read**: yields closed meter windows for a channel.
+- **Channel client**: submits signed channel states and reports on-chain submission results.
+- **Key access**: provides signing keys for channel state signing.
+- **Event stream**: delivers chain-reported events used for reconciliation.
+
+### Configuration, Health, and Lifecycle
+
+- Own configuration (channel set, submission policy, reconciliation cadence).
+- Health endpoint reporting readiness and liveness.
+- Lifecycle: startup (load config, connect dependencies) and graceful shutdown (drain in-flight submissions, release leases).
+
+### Concurrency and Signing Safety
+
+- Define how many instances may run concurrently.
+- If more than one instance runs, they must avoid both signing state for the same channel. Use per-channel leases/locks so only one instance signs a given channel at a time.
+
+### Out of Scope
+
+- Does not admit calls.
+- Does not price routes.
+- Does not talk to providers.
+
+### C4 Level 2: Settlement Engine Container
+
+```mermaid
+flowchart LR
+  MeterRead[Meter Read] --> Settlement[Settlement Engine]
+  Settlement --> ChannelClient[Channel Client]
+  Settlement --> KeyAccess[Key Access]
+  EventStream[Event Stream] --> Settlement
+  ChannelClient --> Chain[(Soroban Contracts)]
+  Chain --> EventStream
+```
+
+### Sequence: Settlement of a Closed Meter Window
+
+```mermaid
+sequenceDiagram
+  participant MR as Meter Read
+  participant SE as Settlement Engine
+  participant KA as Key Access
+  participant CC as Channel Client
+  participant CH as Soroban Contracts
+  participant ES as Event Stream
+
+  SE->>MR: read closed meter windows
+  MR-->>SE: closed window(s)
+  SE->>KA: request signing key
+  KA-->>SE: signing key
+  SE->>SE: produce signed channel state
+  SE->>CC: submit signed channel state
+  CC->>CH: on-chain submission
+  CH-->>ES: chain event
+  ES-->>SE: reconciliation event
+  SE->>SE: reconcile reported state
+```
