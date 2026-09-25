@@ -2,78 +2,184 @@
 
 This runbook covers deploying SYNCRO on infrastructure you control: sizing, Docker Compose, environment configuration, Supabase, Stellar connectivity, backups, monitoring, and troubleshooting.
 
-For local development setup, see [CONTRIBUTING.md](../CONTRIBUTING.md). For the environment-variable strategy and CI validation model, see [ENVIRONMENT.md](./ENVIRONMENT.md).
+v3 adds two processes the old client/API deploy does not have: a **settlement engine** that holds the key that signs channel states, and an **indexer** that stores how far it has read the chain. Those two change which environment may talk to which network, the order you start things, and how you roll back. Follow [v3 environments, deploy order, and rollback](#v3-environments-deploy-order-and-rollback) for any deploy that moves value. The later sections (Compose, env vars, Supabase, probes) still apply to the client and the API.
+
+For local development setup, see [CONTRIBUTING.md](../CONTRIBUTING.md). For the environment-variable strategy and CI validation model, see [ENVIRONMENT.md](./ENVIRONMENT.md). Custody of the settlement key is in [KEY_ROTATION_FLOW.md](../KEY_ROTATION_FLOW.md).
 
 ---
 
 ## Table of contents
 
 1. [Architecture overview](#architecture-overview)
-2. [Infrastructure requirements](#infrastructure-requirements)
-3. [Pre-deployment checklist](#pre-deployment-checklist)
-4. [Docker Compose setup](#docker-compose-setup)
-5. [Environment variable reference](#environment-variable-reference)
-6. [Supabase self-hosted configuration](#supabase-self-hosted-configuration)
-7. [Stellar node connection setup](#stellar-node-connection-setup)
-8. [Backup and restore procedures](#backup-and-restore-procedures)
-9. [Monitoring and alerting](#monitoring-and-alerting)
-10. [Ongoing maintenance](#ongoing-maintenance)
-11. [Troubleshooting FAQ](#troubleshooting-faq)
-12. [Related documentation](#related-documentation)
+2. [v3 environments, deploy order, and rollback](#v3-environments-deploy-order-and-rollback)
+3. [Infrastructure requirements](#infrastructure-requirements)
+4. [Pre-deployment checklist](#pre-deployment-checklist)
+5. [Docker Compose setup](#docker-compose-setup)
+6. [Environment variable reference](#environment-variable-reference)
+7. [Supabase self-hosted configuration](#supabase-self-hosted-configuration)
+8. [Stellar node connection setup](#stellar-node-connection-setup)
+9. [Backup and restore procedures](#backup-and-restore-procedures)
+10. [Monitoring and alerting](#monitoring-and-alerting)
+11. [Ongoing maintenance](#ongoing-maintenance)
+12. [Troubleshooting FAQ](#troubleshooting-faq)
+13. [Related documentation](#related-documentation)
 
 ---
 
 ## Architecture overview
 
-SYNCRO is a monorepo with four runtime components you deploy:
+SYNCRO is a monorepo. v3 splits the path that admits a paid call from the path that signs channel state and from the path that reads the chain.
 
-| Component | Package | Default port | Purpose |
-|-----------|---------|--------------|---------|
-| **Client** | `client/` | 3000 | Next.js web app (UI + server-side API routes) |
-| **Backend** | `backend/` | 3001 | Express API, background jobs, blockchain indexer |
-| **Database / Auth** | `supabase/` | 54321 (API), 54322 (Postgres) | PostgreSQL, Supabase Auth, Storage, RLS |
-| **Redis** | external | 6379 | Rate limiting, job queues, renewal locks (strongly recommended in production) |
+| Component | Where it lives | Scales? | Holds a key that can move value? |
+|-----------|----------------|---------|----------------------------------|
+| **Client** | `client/` :3000 | Yes | No |
+| **Gateway** | `backend/` :3001 (`backend/src/routes`, `backend/src/v3`) | Yes, as stateless API replicas | No. It admits calls. It does not sign channel states. |
+| **Meter** | `quota_guard/`, called by the gateway | With the gateway | No |
+| **Indexer** | `backend/src/blockchain/indexer.ts` | One active reader per database | No. It only reads Soroban RPC and writes Postgres. |
+| **Settlement engine** | `packages/settlement`, `backend/src/services`, settlement jobs in `backend/src/jobs` | **One process per environment** | **Yes.** This is the only runtime that may hold the channel-state signing key. |
+| **Database** | `supabase/` Postgres | Managed | No private keys. It does store the nonce high-water mark (`channel_signer_lease`) and the indexer cursor (`event_cursor`). |
+| **Redis** | external :6379 | Sentinel or managed | No |
 
-External dependencies (not self-hosted by SYNCRO, but required for full functionality):
-
-- **SMTP** — reminder and notification email
-- **Stellar Soroban RPC** — on-chain subscription logging and event indexing
-- **Payment providers** — Stripe, Paystack, PayPal (optional, feature-dependent)
-- **OAuth providers** — Google (Gmail), Microsoft (Outlook) (optional)
+On-chain contracts the gateway and the engine name by address: agent registry (scope), payment channel (state), spend caps, and escrow (disputes). Addresses come from the deploy manifest after contract deployment, not from the application image.
 
 ```mermaid
 flowchart TB
-  subgraph users [Users]
-    Browser[Browser / PWA]
-  end
-
-  subgraph syncro [SYNCRO stack]
-    Client[Client :3000]
-    Backend[Backend :3001]
-    Redis[(Redis :6379)]
-  end
-
-  subgraph data [Data layer]
-    Supabase[Supabase / PostgreSQL]
-  end
-
-  subgraph external [External services]
-    SMTP[SMTP]
-    Stellar[Soroban RPC]
-    Stripe[Stripe / Paystack]
-  end
-
-  Browser --> Client
-  Client --> Backend
-  Client --> Supabase
-  Backend --> Supabase
-  Backend --> Redis
-  Backend --> SMTP
-  Backend --> Stellar
-  Client --> Stripe
+  Agent[Consumer agent] --> Gateway[Gateway]
+  Browser[Console] --> Gateway
+  Gateway --> Meter[Meter]
+  Gateway --> Registry[Registry and cap contracts]
+  Meter --> Engine[Settlement engine]
+  Indexer[Indexer] --> Engine
+  Engine --> KMS[KMS or HSM signer]
+  Engine --> Channel[Channel contract]
+  Indexer --> RPC[Soroban RPC]
+  Channel --> RPC
+  RPC --> Indexer
+  Gateway --> DB[(Postgres)]
+  Indexer --> DB
+  Engine --> DB
 ```
 
-**Startup order:** Supabase (database) → Redis → Backend → Client.
+The settlement engine reads closed meter windows, signs the next channel state, submits when its policy says to touch the chain, and reconciles what the indexer has stored. It does not admit calls or price routes. The gateway does not get the signing key. The indexer does not get it either.
+
+**Deploy order** is in the next section: database, contracts, gateway configuration, indexer caught up, one settlement engine, then gateway traffic, then the client. The gateway stays dark until contract addresses are loaded, and the engine stays dark until the indexer has caught up.
+
+---
+
+## v3 environments, deploy order, and rollback
+
+Use this section to stand up an environment and to undo a bad application release. Contract upgrades are a separate procedure: [contract-upgrade-runbook.md](./ops/contract-upgrade-runbook.md).
+
+### Environments and what they connect to
+
+Each environment has its own database, its own indexer cursor, and its own settlement key. A process in one environment must not be given another environment's RPC, contract addresses, or key handle.
+
+| | Local | CI / test | Staging | Production |
+|---|---|---|---|---|
+| **Stellar network** | `testnet`, or `ENABLE_BLOCKCHAIN=false` | `testnet` | `testnet` | `mainnet` only. The process refuses to boot if the RPC URL, network name, or passphrase looks like testnet. |
+| **Contracts** | `deploy/manifests/testnet.json` after `contracts/scripts/deploy.sh testnet` | Fixture addresses, never mainnet | Staging testnet manifest. Reject the deploy if any address is a mainnet contract. | `deploy/manifests/mainnet.json` written at contract deploy time |
+| **Gateway** | Local API against the local database and the testnet manifest | Ephemeral API, discarded with the job | Staging API, staging database, testnet RPC, staging contract IDs | Production API, production database, mainnet RPC, mainnet contract IDs |
+| **Indexer** | Local Postgres `event_cursor`, testnet RPC, `SOROBAN_CONTRACT_ADDRESS` from the testnet manifest | Ephemeral database and cursor | Staging database and cursor, testnet RPC, same contract id the gateway uses | Production database and cursor, mainnet RPC, same contract id the gateway uses |
+| **Settlement engine** | One process. Dev keystore or git-ignored `.env`. May read the key. | One process. Throwaway key generated for that run and discarded. | One process. KMS/HSM handle only (`SETTLEMENT_SIGNING_KEY_HANDLE`). Same signing path as production. | One process. KMS/HSM handle only. `sign` permission. No `export` or `get`. A raw private key in the environment or on disk is a failed deploy. |
+| **Value the key can move** | Testnet channel balances only | None that persist | Testnet channel balances | Mainnet channel balances |
+
+Keys that can move value, and the only place they may be loaded:
+
+| Secret | What it can do | Where it is loaded |
+|--------|----------------|--------------------|
+| Settlement signing key (`SETTLEMENT_SIGNING_KEY_HANDLE` in staging and production; a dev key file only in local and CI) | Signs channel states. A signed state is an authorization to move the channel balance. | **Settlement engine only.** |
+| `STELLAR_SECRET_KEY` | Signs Soroban transactions (submit, open, top-up, dispute) when chain writes are on. | The settlement engine process, if it submits. Not the gateway replicas, not the client, not the indexer. |
+| `AGENT_MASTER_SEED` | Derives agent wallets when `ENABLE_BLOCKCHAIN=true`. Those addresses can spend. | Same single engine process, when that feature is on. |
+| Deployer `STELLAR_SECRET_KEY` used by `contracts/scripts/deploy.sh` | Deploys and initializes contracts. | The operator shell for the deploy. Remove it from the shell when the deploy finishes. It is not a runtime secret. |
+
+The client, the gateway, the meter, the indexer, Redis, and Postgres do not get these secrets. Postgres stores `channel_signer_lease.last_nonce_allocated` and signed states. That is not key material, and it must survive a rollback (see below).
+
+Staging and production reach the signer over authenticated mTLS. The engine asks the signer to sign a digest. Startup in those environments is misconfigured if the process can read key bytes. Local and CI are the only environments where a file-backed key is allowed, and that file must not be a copy of the staging or production key. Details: [KEY_ROTATION_FLOW.md](../KEY_ROTATION_FLOW.md).
+
+### Deploy order
+
+Do these steps in order. Later steps assume the earlier ones have finished.
+
+1. **Database.** Apply migrations, including `event_cursor` (singleton row `id = 1`, column `last_ledger`) and `channel_signer_lease` (`last_nonce_allocated`). The indexer cursor and the engine's nonce allocation both live in these tables.
+2. **Contracts.** Deploy or upgrade on the network that belongs to this environment. Record every contract id in `deploy/manifests/<network>.json` (`sorobanContractAddress`, `sorobanRpcUrl`, `stellarNetworkUrl`, `deployedAt`, `commitSha`). Per-contract ids used by `getContractAddress` live in `contracts/deployments/<network>.json` or in `CONTRACT_ADDRESS_<NAME>`. See [contracts/DEPLOYMENT.md](../contracts/DEPLOYMENT.md).
+3. **Gateway configuration, before traffic.** The gateway resolves registry scope and spend caps from those contract addresses. Load the manifest (the backend fills `SOROBAN_CONTRACT_ADDRESS`, `SOROBAN_RPC_URL`, and `STELLAR_NETWORK_URL` from `deploy/manifests/<network>.json` only when the env vars are unset). Confirm the addresses are for this environment's network. Leave the gateway out of the load balancer until step 6.
+4. **Indexer.** Start it with the same `SOROBAN_CONTRACT_ADDRESS` and RPC as the manifest. If `SOROBAN_CONTRACT_ADDRESS` is empty, or `ENABLE_BLOCKCHAIN=false`, the indexer logs a warning and does not run — do not continue. Wait until it has caught up:
+
+   ```sql
+   SELECT last_ledger, updated_at FROM event_cursor WHERE id = 1;
+   ```
+
+   ```bash
+   curl -s -X POST "$SOROBAN_RPC_URL" \
+     -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger","params":{}}'
+   ```
+
+   Proceed when `last_ledger` equals the RPC sequence. The engine reconciles closes and disputes from indexed rows in `blockchain_logs`. A stale cursor means it will act on a chain history it has not seen.
+5. **Settlement engine.** One process, after the indexer is caught up. Procedure in the next subsection. It reads the indexer's stored events and the meter's closed windows, and it is the only process with the signing key.
+6. **Gateway traffic.** Confirm `SOROBAN_CONTRACT_ADDRESS` and the per-contract ids match this environment's manifest. `GET /health/ready` only reports process dependencies (database, Redis); a 200 does not prove the contract addresses are loaded. Add the gateway to the load balancer after that check.
+7. **Client.** Point `NEXT_PUBLIC_API_URL` at that gateway. The client has no settlement key and no contract-admin key.
+
+Gateway replicas and client replicas can roll one at a time. The indexer should be a single reader of a given `event_cursor` row. The settlement engine cannot roll one at a time.
+
+### Settlement engine: single signer
+
+One settlement process may run in an environment. It holds the key that signs channel states. A second replica is not a standby you can leave running.
+
+`channel_signer_lease` allows only one `instance_id` to allocate a nonce for a channel while its lease is unexpired. The lease lasts 30 seconds. When it expires, a different process can take the row over and keep `last_nonce_allocated`. Two running engines race: after 30 seconds the second process can take the lease and sign as well. Do not put the engine in an autoscaler, a rolling Deployment with `maxUnavailable` less than the full set, or a load balancer with more than one target.
+
+What a deploy of this process actually is:
+
+1. Confirm the indexer check above is green, on the same database and the same contract id.
+2. Confirm `SETTLEMENT_SIGNING_KEY_HANDLE` is set on this process only. In staging and production the value is a KMS key id, and the IAM policy is `sign` only. Confirm no gateway replica, indexer, or client has `SETTLEMENT_SIGNING_KEY_HANDLE`, `STELLAR_SECRET_KEY`, or `AGENT_MASTER_SEED`.
+3. Stop the current engine process. Leave every `channel_signer_lease` row in place. Do not call `release_channel_signer_lease`. That function **deletes** the row. The next acquire inserts a new row with `last_nonce_allocated` defaulting to 0, and the new process will sign nonces that were already used.
+4. Wait until `lease_expires_at` is in the past for every row (30 seconds after the old process stopped, unless a clock is skewed). The row remains. The new process takes an expired lease and inherits `last_nonce_allocated`.
+5. Start the new binary. One OS process.
+6. Check the handoff before you send traffic:
+
+   ```sql
+   SELECT channel_id, instance_id, last_nonce_allocated, lease_expires_at
+   FROM channel_signer_lease
+   ORDER BY channel_id;
+   ```
+
+   After the first signature, `instance_id` matches the new process and nowhere else. The nonce it used is the previous `last_nonce_allocated` plus one.
+
+`allocate_next_nonce` increments `last_nonce_allocated` before the signature is produced. A nonce that was allocated and then failed to sign is still consumed. The next signature uses the next integer.
+
+### Rollback
+
+Roll back application code in this order. Do not roll the database back to a snapshot taken before the release you are leaving.
+
+1. Remove the gateway from the load balancer so no new paid calls are admitted and no new windows are handed to the engine.
+2. Stop the settlement engine that is running the newer version. Do not delete lease rows and do not call `release_channel_signer_lease`.
+3. Record the nonce floor **before** the older binary starts. You need this if the newer version signed anything:
+
+   ```sql
+   SELECT channel_id, last_nonce_allocated
+   FROM channel_signer_lease
+   ORDER BY channel_id;
+   ```
+
+   Also take the highest nonce stored for each channel in the signed-state rows the engine wrote. The floor for a channel is the greater of `last_nonce_allocated` and that stored nonce.
+4. If a lease row is missing but a signed state from the newer version exists, insert or update the row so `last_nonce_allocated` equals that signed nonce. The only legal direction for this column is upward.
+5. Start **one** process of the previous engine binary, on the same database, the same RPC, and the same key handle. Its first `allocate_next_nonce` returns `last_nonce_allocated + 1`.
+6. Confirm that first new state uses a nonce strictly greater than every nonce the newer version allocated or signed, including nonces that were allocated and never submitted. Then return the gateway to the load balancer on the previous gateway build.
+
+**A rollback must not re-sign nonce N with a different balance or payload if the newer version already allocated or signed N.** Two signatures at the same nonce let a counterparty submit the cheaper one. The older binary will do this if it sees a lower `last_nonce_allocated` than the newer version reached. That happens if you:
+
+- restore a database snapshot from before those allocations
+- `DELETE FROM channel_signer_lease`
+- call `release_channel_signer_lease` (it deletes the row, and the next insert starts at 0)
+- `UPDATE channel_signer_lease SET last_nonce_allocated` to a smaller number
+- run the old process and the new process at the same time, including during the 30-second lease
+- point the rolled-back engine at a different database than the one that recorded the newer nonces
+
+If the floor you recorded is higher than the row the old binary can see, stop. Fix the row so `last_nonce_allocated` is at least that floor, then start the old binary again. Do not let it sign until that is true.
+
+The gateway and the client roll back as ordinary stateless releases. They keep the contract addresses of the contracts that are actually deployed. An application rollback does not change contract ids and does not rewind channel nonces on chain.
+
+The indexer rolls back as a binary replace. Leave `event_cursor.last_ledger` where it is. Reprocessing from an older cursor is safe: `blockchain_logs` upserts on `transaction_hash` and ignores duplicates. Moving `last_ledger` forward to skip a gap is not safe. After an indexer rollback, repeat the caught-up check and only then start the engine. The engine depends on the indexer; a rolled-back engine still needs a cursor at the tip of the chain it is reconciling.
 
 ---
 
@@ -114,7 +220,7 @@ Suggested layout:
 
 | Tier | Components |
 |------|------------|
-| **App** | 2+ backend replicas behind a load balancer; 2+ client replicas or CDN-backed static export |
+| **App** | 2+ gateway replicas behind a load balancer; 2+ client replicas. Exactly one settlement-engine process and one indexer reader — see [Settlement engine: single signer](#settlement-engine-single-signer). |
 | **Data** | Dedicated Postgres (Supabase self-hosted or managed); Redis Sentinel or managed Redis |
 | **Edge** | Reverse proxy (nginx, Caddy, Traefik) with TLS, rate limiting, and WAF |
 
@@ -141,8 +247,8 @@ Complete these steps before pointing production traffic at the stack.
 - [ ] Obtain TLS certificates (Let's Encrypt or your CA).
 - [ ] Deploy Supabase (self-hosted or managed) and note URL + keys.
 - [ ] Apply migrations: `supabase db push --db-url "$DATABASE_URL"`.
-- [ ] Deploy Soroban contracts (if using blockchain features) — [contracts/DEPLOYMENT.md](../contracts/DEPLOYMENT.md).
-- [ ] Copy and fill `backend/.env` and `client/.env.local` from templates.
+- [ ] Deploy Soroban contracts — [contracts/DEPLOYMENT.md](../contracts/DEPLOYMENT.md) — and write the addresses into `deploy/manifests/<network>.json` before the gateway serves traffic.
+- [ ] Copy and fill `backend/.env` and `client/.env.local` from templates. Put `SETTLEMENT_SIGNING_KEY_HANDLE` on the settlement engine process only, not on gateway replicas or the client.
 - [ ] Generate secrets: `openssl rand -hex 32` for `JWT_SECRET`, `ADMIN_API_KEY`, `ENCRYPTION_KEY`.
 - [ ] Set production blockchain flags — [blockchain-feature-flags.md](./blockchain-feature-flags.md).
 - [ ] Validate environment:
@@ -158,7 +264,8 @@ Complete these steps before pointing production traffic at the stack.
   npm run build -w backend
   npm run build -w client
   ```
-- [ ] Configure reverse proxy and health checks (`/health/ready` on backend).
+- [ ] Start the indexer and wait until `event_cursor.last_ledger` matches the RPC tip. Then start **one** settlement engine. Bring the gateway up only after that. Full order and nonce-safe rollback: [v3 environments, deploy order, and rollback](#v3-environments-deploy-order-and-rollback).
+- [ ] Configure reverse proxy and health checks (`/health/ready` on the gateway).
 - [ ] Configure backups (Postgres daily; test a restore).
 - [ ] Configure monitoring (Sentry, uptime checks, log aggregation).
 - [ ] Run post-deploy smoke tests — [SMOKE_TESTS.md](./SMOKE_TESTS.md).
@@ -967,7 +1074,7 @@ Resolve conflicts in `supabase/migrations/` before pushing. Never edit applied m
 
 1. Lower `RISK_CALC_CONCURRENCY` (default `10`).
 2. Lower `INDEXER_BATCH_SIZE`.
-3. Scale horizontally (multiple backend replicas + shared Redis/Postgres).
+3. Scale the gateway (stateless API replicas behind the load balancer, shared Redis and Postgres). Do not add a second settlement-engine process. See [Settlement engine: single signer](#settlement-engine-single-signer).
 4. Profile with `LOG_LEVEL=debug` temporarily.
 
 ---
@@ -997,3 +1104,6 @@ Resolve conflicts in `supabase/migrations/` before pushing. Never edit applied m
 | [SECRET_ROTATION_POLICY.md](./SECRET_ROTATION_POLICY.md) | Secret rotation schedule |
 | [RLS_AUDIT_GUIDE.md](./RLS_AUDIT_GUIDE.md) | Row-level security audit |
 | [deploy/manifests/README.md](../deploy/manifests/README.md) | Deployment manifest format |
+| [KEY_ROTATION_FLOW.md](../KEY_ROTATION_FLOW.md) | Settlement signing-key custody, rotation, and compromise |
+| [ops/contract-upgrade-runbook.md](./ops/contract-upgrade-runbook.md) | Contract upgrade and contract-level rollback |
+| [backend/docs/channel-signer-lease-flow.md](../backend/docs/channel-signer-lease-flow.md) | Per-channel lease and nonce allocation |
