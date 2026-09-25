@@ -7,7 +7,7 @@ Welcome to SYNCRO's comprehensive privacy features guide. This documentation cov
 SYNCRO provides end-to-end encryption and privacy-preserving payment mechanisms built on proven cryptographic primitives:
 
 - **Stealth Addresses** — One-time payment addresses that prevent transaction linking
-- **Metadata Encryption** — Client-side encryption for sensitive subscription data
+- **Metadata Encryption** — Client-side encryption for sensitive payment data
 - **Pedersen Commitments** — Hide payment amounts while maintaining verifiability
 - **Payment Channels** — Off-chain payments with on-chain settlement
 - **Zero-Knowledge Proofs** — Prove facts about data without revealing the data
@@ -16,7 +16,7 @@ SYNCRO provides end-to-end encryption and privacy-preserving payment mechanisms 
 ## Quick Navigation
 
 - [Stealth Addresses](./stealth-addresses.md) — One-time payment addresses
-- [Metadata Encryption](./metadata-encryption.md) — Encrypt subscription details
+- [Metadata Encryption](./metadata-encryption.md) — Encrypt payment details
 - [Pedersen Commitments](./pedersen-commitments.md) — Hide payment amounts
 - [Payment Channels](./payment-channels.md) — Off-chain payments
 - [Zero-Knowledge Proofs](./zk-proofs.md) — Prove without revealing
@@ -27,11 +27,11 @@ SYNCRO provides end-to-end encryption and privacy-preserving payment mechanisms 
 
 ## What Problem Does Privacy Solve?
 
-**Privacy Problem**: When you subscribe to services, every payment reveals:
+**Privacy Problem**: When you make payments, every transaction reveals:
 - Your identity (linked to your wallet)
 - What service you're paying for
 - How much you're spending
-- When you renew
+- When you pay
 - Your payment patterns
 
 **SYNCRO Solution**: Using cryptographic privacy features, you can:
@@ -46,7 +46,7 @@ SYNCRO provides end-to-end encryption and privacy-preserving payment mechanisms 
 | Feature | Use Case | Privacy Gain | Performance |
 |---------|----------|-------------|-------------|
 | **Stealth Addresses** | One-time payments | Hides recipient identity | Fast |
-| **Metadata Encryption** | Hide subscription details | Server can't see what you pay for | Fast |
+| **Metadata Encryption** | Hide payment details | Server can't see what you pay for | Fast |
 | **Pedersen Commitments** | Hide amounts | Observer can't see payment value | Fast |
 | **Payment Channels** | Multiple payments | Batches on-chain | Very Fast |
 | **Zero-Knowledge** | Prove facts | No data leakage | Depends |
@@ -71,22 +71,22 @@ const result = deriveEphemeralStealthAddress(
 console.log('Send payment to:', result.stealthAddress);
 ```
 
-### 2. Encrypt Subscription Details
+### 2. Encrypt Payment Details
 
 ```typescript
-import { encryptSubscriptionMetadata, decryptSubscriptionMetadata } from '@syncro/sdk';
+import { encryptPaymentMetadata, decryptPaymentMetadata } from '@syncro/sdk';
 
 // Encrypt
-const encrypted = await encryptSubscriptionMetadata('your-aes-key', {
-  name: 'Netflix',
-  price: 15.99,
-  cycle: 'monthly',
-  provider: 'netflix.com'
+const encrypted = await encryptPaymentMetadata('your-aes-key', {
+  service: 'API Provider',
+  amount: 15.99,
+  currency: 'USD',
+  description: 'API call'
 });
 
 // Decrypt (only you have the key)
-const decrypted = await decryptSubscriptionMetadata('your-aes-key', encrypted);
-console.log(decrypted.name); // "Netflix"
+const decrypted = await decryptPaymentMetadata('your-aes-key', encrypted);
+console.log(decrypted.service); // "API Provider"
 ```
 
 ### 3. Hide Payment Amount with Commitment
@@ -107,7 +107,7 @@ console.log('Verified:', isValid);
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│         Your Privacy-Preserving App                │
+│         Your Privacy-Preserving App                  │
 ├─────────────────────────────────────────────────────┤
 │                                                     │
 │  ┌───────────────┐  ┌────────────────┐            │
@@ -168,11 +168,11 @@ console.log('Verified:', isValid);
 |--------|----------|---------|
 | stealth-derive | `generateStealthMetaAddress()` | Create stealth identity |
 | stealth-derive | `deriveEphemeralStealthAddress()` | One-time address per payment |
-| metadata-encryption | `encryptSubscriptionMetadata()` | Encrypt subscription details |
-| metadata-encryption | `decryptSubscriptionMetadata()` | Decrypt subscription details |
+| metadata-encryption | `encryptPaymentMetadata()` | Encrypt payment details |
+| metadata-encryption | `decryptPaymentMetadata()` | Decrypt payment details |
 | pedersen | `commit()` | Hide amount in commitment |
 | pedersen | `verify()` | Verify commitment matches amount |
-| key-derivation | `deriveSubscriptionEncryptionKey()` | Derive encryption key |
+| key-derivation | `derivePaymentEncryptionKey()` | Derive encryption key |
 | payment-commitment | `createPaymentCommitment()` | Create payment proof |
 | payment-commitment | `verifyPaymentCommitment()` | Verify payment proof |
 
@@ -186,6 +186,6 @@ console.log('Verified:', isValid);
 
 ## Version
 
-- SYNCRO SDK: v1.0+
+- SYNCRO SDK: v3.0+
 - Crypto Primitives: secp256k1, Ristretto, AES-GCM
-- Last Updated: 2026-06-26
+- Last Updated: 2026-08-26
