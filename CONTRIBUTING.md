@@ -1,6 +1,6 @@
 # Contributing to SYNCRO
 
-Thank you for contributing. This guide is the **single onboarding path** for the SYNCRO monorepo: install dependencies, configure environment variables, run local services (client, backend, Supabase), and execute tests.
+Thank you for contributing. This guide is the **single onboarding path** for the SYNCRO monorepo: install dependencies, configure environment variables, run local services (client, backend, v3 stack), and execute tests.
 
 For package-specific architecture and feature docs, follow the links in [Package-specific guides](#package-specific-guides).
 
@@ -13,7 +13,7 @@ For package-specific architecture and feature docs, follow the links in [Package
 | **Shared** | [`shared/`](./shared/) | Shared TypeScript types (`@syncro/shared`) |
 | **SDK** | [`sdk/`](./sdk/) | Public TypeScript SDK (`@syncro/sdk`) |
 | **Contracts** | [`contracts/`](./contracts/) | Soroban smart contracts (Rust) |
-| **Database** | [`supabase/`](./supabase/) | Migrations, seed data, local Supabase config |
+| **Database** | [`supabase/`](./supabase/) | Migrations, seed data |
 
 npm workspaces connect `backend`, `client`, `sdk`, and `shared`. Install from the **repository root** so `@syncro/shared` links resolve. The client package sets `legacy-peer-deps=true` in [`client/.npmrc`](./client/.npmrc); use `--legacy-peer-deps` at the root for the same effect. `--ignore-scripts` skips the client `preinstall` dep-range check, which flags workspace `*` ranges that npm resolves locally.
 
@@ -25,79 +25,37 @@ Install these before cloning:
 |------|---------|-------|
 | **Node.js** | 20 (see `.nvmrc`) | Required for client, backend, and shared packages |
 | **npm** | 10+ (bundled with Node) | Use npm only — do not use yarn or pnpm |
-| **Supabase CLI** | latest | Local Postgres, Auth, and Studio |
-| **Docker** | latest | Required by Supabase CLI for local stack |
-| **Redis** | optional | Enables persistent rate limiting and blockchain DLQ in backend |
+| **Docker** | latest | Required for the v3 local stack |
+| **Docker Compose** | latest | Bundled with Docker Desktop; standalone on Linux |
 | **Rust + Soroban CLI** | Rust 1.91, Soroban CLI 23.0.0 | Required for [`contracts/`](./contracts/) work; pinned in `rust-toolchain.toml` and `.devcontainer/` |
 
-Install the Supabase CLI:
+## Quick start (v3 local stack)
 
-```bash
-# macOS / Linux (Homebrew)
-brew install supabase/tap/supabase
-
-# Windows (Scoop)
-scoop bucket add supabase https://github.com/supabase/scoop-bucket.git
-scoop install supabase
-
-# npm (any platform)
-npm install -g supabase
-```
-
-## Quick start (local development)
-
-From a clean clone, one command brings up dependencies, env files, and (when Docker is available) the local database:
+From a clean clone, one command brings up the full v3 stack (Postgres, Redis, Soroban RPC, mock provider) and seeds a working paid-call scenario:
 
 ```bash
 git clone https://github.com/Calebux/SYNCRO.git
 cd SYNCRO
 npm run bootstrap
-npm run doctor
 ```
 
-Then start services:
+`npm run bootstrap` starts the v3 stack via Docker Compose, applies migrations, and seeds a principal, agent, scope, cap, and open funded channel.
+
+Then start the backend:
 
 ```bash
 npm run dev -w backend    # http://localhost:3001
-npm run dev -w client     # http://localhost:3000
 ```
 
-`npm run doctor` prints the exact binary that is missing (Node 20, Rust 1.91, Soroban CLI, Docker, Supabase CLI) and how to install it. A Dev Container with those versions pinned is in [`.devcontainer/`](./.devcontainer/).
+The mock provider is already running at `http://localhost:3002`. A paid call to the v3 gateway at `http://localhost:3001/api/v3/proxy` should succeed end-to-end.
 
-Manual steps if you are not using bootstrap:
+Reset the stack:
 
 ```bash
-# 1. Clone and install workspace dependencies
-git clone https://github.com/Calebux/SYNCRO.git
-cd SYNCRO
-npm install --legacy-peer-deps --ignore-scripts
-npm run build -w shared
-
-# 2. Start local Supabase (Postgres, Auth, Studio)
-supabase start
-
-# 3. Apply migrations and seed data
-supabase db reset    # migrations + supabase/seed.sql
-
-# 4. Copy env templates
-cp backend/.env.example backend/.env
-cp client/.env.example client/.env.local
-
-# 5. Fill in Supabase keys from `supabase status`
-#    - SUPABASE_URL / NEXT_PUBLIC_SUPABASE_URL → API URL (http://127.0.0.1:54321)
-#    - SUPABASE_ANON_KEY / NEXT_PUBLIC_SUPABASE_ANON_KEY → anon key
-#    - SUPABASE_SERVICE_ROLE_KEY → service_role key (backend + server-only client routes)
-#    Generate secrets: openssl rand -hex 32  (JWT_SECRET, ADMIN_API_KEY, ENCRYPTION_KEY)
-
-# 6. Validate env structure (no real secrets required)
-node scripts/check-env-docs.js
-node backend/scripts/validate-env.js --structural
-node client/scripts/validate-env.js --structural
-
-# 7. Start services (two terminals)
-cd backend && npm run dev    # http://localhost:3001
-cd client && npm run dev     # http://localhost:3000
+docker compose down -v    # one command reset
 ```
+
+`npm run doctor` prints the exact binary that is missing (Node 20, Docker, Docker Compose) and how to install it. A Dev Container with those versions pinned is in [`.devcontainer/`](./.devcontainer/).
 
 **Verify the stack**
 
@@ -106,10 +64,13 @@ cd client && npm run dev     # http://localhost:3000
 | Frontend | http://localhost:3000 |
 | Backend health | http://localhost:3001/health |
 | API docs | http://localhost:3001/api/docs |
-| Supabase Studio | http://localhost:54323 |
+| Mock provider | http://localhost:3002 |
+| Postgres | localhost:5432 |
+| Redis | localhost:6379 |
+| Soroban RPC | localhost:8000 |
 | Env docs in sync | `node scripts/check-env-docs.js` |
 
-> **Security:** Never commit `.env`, `.env.local`, or real credentials. Use placeholders in `.env.example` only. The Supabase **service role key** belongs in backend and server-only client code — never in browser-exposed `NEXT_PUBLIC_*` variables.
+> **Security:** Never commit `.env`, `.env.local`, or real credentials. Use placeholders in `.env.example` only.
 
 ## Environment variables
 

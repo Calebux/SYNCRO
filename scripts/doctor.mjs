@@ -57,12 +57,12 @@ if (!which("soroban") && which("stellar")) {
   const idx = missing.findIndex((m) => m.startsWith("Soroban"));
   if (idx >= 0) missing.splice(idx, 1);
 }
-check("Docker", "docker", "Install Docker Desktop / engine. Required for local Supabase.", "docker --version");
-check("Supabase CLI", "supabase", "npm install -g supabase   or   brew install supabase/tap/supabase", "supabase --version");
+check("Docker", "docker", "Install Docker Desktop / engine. Required for the v3 local stack.", "docker --version");
+check("Docker Compose", "docker compose", "Bundled with Docker Desktop; install separately on Linux.", "docker compose version");
 
 const redis = which("redis-server") || which("redis-cli");
 if (!redis) {
-  ok.push("Redis: optional (not found) — backend falls back without REDIS_URL");
+  ok.push("Redis: optional (not found) — Docker Compose provides Redis for the v3 stack");
 } else {
   ok.push(`Redis: ${redis}`);
 }
@@ -70,6 +70,7 @@ if (!redis) {
 const envFiles = [
   ["backend/.env.example", "required template"],
   ["backend/.env", "copy with: npm run bootstrap"],
+  ["docker-compose.yml", "v3 stack definition"],
 ];
 for (const [rel, hint] of envFiles) {
   const p = path.join(root, rel);

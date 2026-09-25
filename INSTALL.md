@@ -8,7 +8,7 @@ cd SYNCRO
 npm run bootstrap
 ```
 
-That installs workspace dependencies, copies env templates, and (when Docker + the Supabase CLI are available) applies migrations. Then:
+That installs workspace dependencies, copies env templates, and (when Docker is available) brings up the v3 local stack (Postgres, Redis, Soroban RPC, mock provider) and seeds a working paid-call scenario. Then:
 
 ```bash
 npm run doctor          # report any missing toolchain pieces
