@@ -1,12 +1,22 @@
 import { randomUUID } from 'node:crypto';
 import { Keypair } from '@stellar/stellar-sdk';
-import { InMemoryProviderStore, RegisterProviderInput, RegisterRouteInput } from './provider-store';
+import {
+  InMemoryProviderStore,
+  RecordSettlementInput,
+  RegisterProviderInput,
+  RegisterRouteInput,
+  ReviseRouteInput,
+} from './provider-store';
 import { ReceiptService } from './receipt-service';
 import { AgentRegistryReader, ScopeEnforcer } from './scope-enforcer';
 import {
   AgentRegistryGrant,
   PaidReceipt,
   ProviderRegistration,
+  ProviderRevenue,
+  ProviderRouteView,
+  ProviderSettlement,
+  RateCardVersion,
   RegisteredRoute,
   ScopeRejectionError,
 } from './types';
@@ -65,6 +75,47 @@ export class V3GatewayService {
 
   registerProvider(input: RegisterProviderInput): ProviderRegistration {
     return this.providers.registerProvider(input);
+  }
+
+  readProvider(providerId: string): ProviderRegistration {
+    return this.getProviderOrThrow(providerId);
+  }
+
+  updatePayoutAddress(providerId: string, payoutAddress: string): ProviderRegistration {
+    this.getProviderOrThrow(providerId);
+    return this.providers.updatePayoutAddress(providerId, payoutAddress);
+  }
+
+  listRoutes(providerId: string): ProviderRouteView[] {
+    this.getProviderOrThrow(providerId);
+    return this.providers.listRoutes(providerId);
+  }
+
+  listRateCards(providerId: string): RateCardVersion[] {
+    this.getProviderOrThrow(providerId);
+    return this.providers.listRateCards(providerId);
+  }
+
+  listSettlements(providerId: string): ProviderSettlement[] {
+    this.getProviderOrThrow(providerId);
+    return this.providers.listSettlements(providerId);
+  }
+
+  revenue(providerId: string): ProviderRevenue {
+    this.getProviderOrThrow(providerId);
+    return this.providers.revenue(providerId);
+  }
+
+  reviseRoute(
+    providerId: string,
+    routeId: string,
+    patch: ReviseRouteInput,
+  ): { route: RegisteredRoute; version: RateCardVersion } {
+    const provider = this.getProviderOrThrow(providerId);
+    if (!provider.payoutVerified) {
+      throw new Error('payout address must be verified before route registration');
+    }
+    return this.providers.reviseRoute(providerId, routeId, patch);
   }
 
   createPayoutChallenge(providerId: string): { challenge: string } {
@@ -139,6 +190,8 @@ export class V3GatewayService {
       body: input.body,
     });
 
+    const meteredAt = new Date().toISOString();
+    const applicable = this.providers.applicableVersion(route.routeId, meteredAt);
     const receipt = this.receipts.issueReceipt({
       receiptId: randomUUID(),
       route: route.scopeKey,
@@ -153,6 +206,24 @@ export class V3GatewayService {
       requestPath: input.path,
       requestQuery: input.query,
     });
+
+    const settlement: RecordSettlementInput = {
+      providerId: provider.providerId,
+      routeId: route.routeId,
+      receiptId: receipt.receiptId,
+      method: route.method,
+      pathPattern: route.pathPattern,
+      unit: route.unit,
+      quantity,
+      price: applicable?.price ?? route.price,
+      amount,
+      rateCardVersion: applicable?.label ?? input.rateCardVersion,
+      rateCardEffectiveFrom: applicable?.effectiveFrom ?? meteredAt,
+      status: 'unsettled',
+      meteredAt,
+      channelId: input.channelId,
+    };
+    this.providers.recordSettlement(settlement);
 
     return {
       upstream,
