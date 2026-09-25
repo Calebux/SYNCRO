@@ -77,6 +77,7 @@ export const envSchema = z.object({
   HEALTH_THRESHOLD_AGENT_INACTIVITY_HOURS: z.string().default('24'),
   LLM_PARSE_CONCURRENCY: z.string().default('4'),
   JOB_ALERT_MONITOR_ENABLED: z.string().default('true'),
+  PAID_CALL_ALERTS_ENABLED: z.string().default('true'),
   STEALTH_SCANNER_ENABLED: z.string().default('false'),
   CSP_INTERNAL_TOKEN: z.string().optional(),
   RENEWAL_LOCK_TTL_MS: z.string().default('300000'),

@@ -349,6 +349,42 @@ export class SettlementReconciliationService {
     return out;
   }
 
+  /**
+   * Return the latest reconciliation run summary for metrics export.
+   */
+  async getLatestReconciliation(): Promise<{
+    totalDelta: number;
+    channelsOutOfTolerance: number;
+    deltasByCause: Record<string, number>;
+    blocked: boolean;
+  }> {
+    try {
+      const { data, error } = await supabase
+        .from('settlement_reconciliation_runs')
+        .select('*')
+        .order('started_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (error || !data) {
+        return { totalDelta: 0, channelsOutOfTolerance: 0, deltasByCause: {}, blocked: false };
+      }
+
+      const deltasByCause: Record<string, number> = (data.deltas_by_cause as Record<string, number>) ?? {};
+      const totalDelta = Object.values(deltasByCause).reduce((sum, v) => sum + (typeof v === 'number' ? v : 0), 0);
+
+      return {
+        totalDelta,
+        channelsOutOfTolerance: data.channels_out_of_tolerance ?? 0,
+        deltasByCause,
+        blocked: data.blocked ?? false,
+      };
+    } catch (err) {
+      logger.error('[SettlementReconciliation] Failed to fetch latest reconciliation', { err });
+      return { totalDelta: 0, channelsOutOfTolerance: 0, deltasByCause: {}, blocked: false };
+    }
+  }
+
   private async _dispatchAlert(run: ReconciliationRun): Promise<void> {
     const outOfTolerance = run.channels.filter((c) => !c.allWithinTolerance);
     const causeBreakdown: Record<string, number> = {};

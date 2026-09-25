@@ -118,6 +118,7 @@ import agentKeyCompromiseAdminRoutes from './routes/admin/agent-key-compromise';
 import metricsRoutes from './routes/metrics';
 import analyticsV3Routes from './routes/analytics-v3';
 import v3GatewayRoutes from './routes/v3/gateway';
+import { startPaidCallAlertJob, stopPaidCallAlertJob } from './jobs/paid-call-alert-job';
 
 
 const app = express();
@@ -710,6 +711,7 @@ const server = app.listen(PORT, async () => {
   startSettlementReconciliationJob();
   startJobAlertMonitor();
   startWebhookRetryJob();
+  startPaidCallAlertJob();
 
   telegramCommandService.init();
   if (env.TELEGRAM_BOT_TOKEN && !env.TELEGRAM_WEBHOOK_SECRET) {
@@ -726,6 +728,7 @@ registerGracefulShutdown(server, {
     stopSettlementReconciliationJob();
     stopJobAlertMonitor();
     stopWebhookRetryJob();
+    stopPaidCallAlertJob();
   },
   stopEventListener: () => eventListener.stop(),
   stopTelegram: () => telegramCommandService.stop(),
