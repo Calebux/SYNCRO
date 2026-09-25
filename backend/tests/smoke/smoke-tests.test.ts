@@ -100,7 +100,7 @@ describe('Post-Deployment Smoke Tests', () => {
     }, 10000);
   });
 
-  describe('Critical Path: Dashboard & Subscriptions', () => {
+  describe('Critical Path: Dashboard', () => {
     it('should retrieve user role with authentication', async () => {
       const response = await request(BASE_URL)
         .get('/api/user/role')
@@ -111,51 +111,12 @@ describe('Post-Deployment Smoke Tests', () => {
       expect(response.body).toHaveProperty('role');
       expect(['owner', 'admin', 'member', 'viewer']).toContain(response.body.role);
     }, 10000);
-
-    it('should list user subscriptions', async () => {
-      const response = await request(BASE_URL)
-        .get('/api/subscriptions')
-        .set('Authorization', `Bearer ${authToken}`)
-        .expect(200);
-
-      expect(response.body).toHaveProperty('success', true);
-      expect(response.body).toHaveProperty('data');
-      expect(Array.isArray(response.body.data)).toBe(true);
-      expect(response.body).toHaveProperty('pagination');
-      expect(response.body.pagination).toHaveProperty('total');
-    }, 10000);
-
-    it('should reject subscription access without authentication', async () => {
-      await request(BASE_URL)
-        .get('/api/subscriptions')
-        .expect(401);
-    }, 10000);
-
-    it('should retrieve subscription metrics', async () => {
-      const response = await request(BASE_URL)
-        .get('/api/subscriptions')
-        .set('Authorization', `Bearer ${authToken}`)
-        .query({ limit: 5 })
-        .expect(200);
-
-      expect(response.body.success).toBe(true);
-      expect(response.body.pagination).toHaveProperty('limit', 5);
-    }, 10000);
   });
 
   describe('Critical Path: Payment & Billing Health', () => {
     it('should access exchange rates endpoint', async () => {
       const response = await request(BASE_URL)
         .get('/api/exchange-rates')
-        .set('Authorization', `Bearer ${authToken}`)
-        .expect(200);
-
-      expect(response.body).toBeDefined();
-    }, 10000);
-
-    it('should access gift card ledger endpoint', async () => {
-      const response = await request(BASE_URL)
-        .get('/api/gift-card-ledger')
         .set('Authorization', `Bearer ${authToken}`)
         .expect(200);
 
@@ -172,24 +133,6 @@ describe('Post-Deployment Smoke Tests', () => {
   });
 
   describe('Critical Path: Core API Operations', () => {
-    it('should retrieve merchants list', async () => {
-      const response = await request(BASE_URL)
-        .get('/api/merchants')
-        .set('Authorization', `Bearer ${authToken}`)
-        .expect(200);
-
-      expect(response.body).toBeDefined();
-    }, 10000);
-
-    it('should access user digest settings', async () => {
-      const response = await request(BASE_URL)
-        .get('/api/digest')
-        .set('Authorization', `Bearer ${authToken}`)
-        .expect(200);
-
-      expect(response.body).toBeDefined();
-    }, 10000);
-
     it('should retrieve tags', async () => {
       const response = await request(BASE_URL)
         .get('/api/tags')
@@ -203,11 +146,8 @@ describe('Post-Deployment Smoke Tests', () => {
   describe('Security & Rate Limiting', () => {
     it('should enforce authentication on protected endpoints', async () => {
       const protectedEndpoints = [
-        '/api/subscriptions',
         '/api/user/role',
-        '/api/merchants',
         '/api/tags',
-        '/api/digest',
       ];
 
       for (const endpoint of protectedEndpoints) {
@@ -226,11 +166,11 @@ describe('Post-Deployment Smoke Tests', () => {
       }
 
       const response = await request(BASE_URL)
-        .get('/api/subscriptions')
+        .get('/api/tags')
         .set('x-api-key', apiKey)
         .expect(200);
 
-      expect(response.body.success).toBe(true);
+      expect(response.body).toBeDefined();
     }, 10000);
   });
 

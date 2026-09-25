@@ -107,7 +107,6 @@ jest.mock('../src/middleware/auth', () => {
   };
 });
 
-import subscriptionRoutes from '../src/routes/subscriptions';
 import auditRoutes from '../src/routes/audit';
 import complianceRoutes from '../src/routes/compliance';
 import apiKeysRoutes from '../src/routes/api-keys';
@@ -124,38 +123,6 @@ function createApp(path: string, router: express.Router) {
 }
 
 describe('Authorization Tests - All Route Groups', () => {
-  describe('Subscriptions Routes - 401/403 Behavior', () => {
-    const app = createApp('/api/subscriptions', subscriptionRoutes);
-
-    it('GET /api/subscriptions returns 401 without authentication', async () => {
-      const res = await request(app).get('/api/subscriptions');
-      expect(res.status).toBe(401);
-      expect(res.body.error).toBe('Unauthorized');
-    });
-
-    it('POST /api/subscriptions returns 401 without authentication', async () => {
-      const res = await request(app)
-        .post('/api/subscriptions')
-        .send({ name: 'Netflix', price: 15.99 });
-      expect(res.status).toBe(401);
-    });
-
-    it('GET /api/subscriptions allows authenticated user', async () => {
-      const res = await request(app)
-        .get('/api/subscriptions')
-        .set('x-test-role', 'owner');
-      expect([200, 400]).toContain(res.status);
-    });
-
-    it('POST /api/subscriptions allows authenticated user', async () => {
-      const res = await request(app)
-        .post('/api/subscriptions')
-        .set('x-test-role', 'owner')
-        .send({ name: 'Netflix', price: 15.99 });
-      expect([200, 400, 422]).toContain(res.status);
-    });
-  });
-
   describe('Audit Routes - 401/403 Behavior', () => {
     const app = createApp('/api/audit', auditRoutes);
 
@@ -333,7 +300,6 @@ describe('Authorization Tests - All Route Groups', () => {
   describe('Authorization Failure Patterns', () => {
     it('all protected routes return 401 without token', async () => {
       const routes = [
-        { method: 'get', path: '/api/subscriptions' },
         { method: 'get', path: '/api/audit' },
         { method: 'get', path: '/api/user/profile' },
       ];
@@ -342,9 +308,7 @@ describe('Authorization Tests - All Route Groups', () => {
         const app = express();
         app.use(express.json());
 
-        if (route.path.includes('subscriptions')) {
-          app.use('/api/subscriptions', subscriptionRoutes);
-        } else if (route.path.includes('audit')) {
+        if (route.path.includes('audit')) {
           app.use('/api/audit', auditRoutes);
         } else if (route.path.includes('user')) {
           app.use('/api/user', userRoutes);

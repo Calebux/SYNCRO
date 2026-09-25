@@ -646,6 +646,102 @@
 
 /**
  * @openapi
+ * /api/admin/settlement-reconciliation/run:
+ *   post:
+ *     summary: POST /api/admin/settlement-reconciliation/run
+ *     tags: [Admin]
+ *     security:
+ *       - adminKey: []
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *             example:
+ *               success: true
+ *               data: {}
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @openapi
+ * /api/admin/settlement-reconciliation/status:
+ *   get:
+ *     summary: GET /api/admin/settlement-reconciliation/status
+ *     tags: [Admin]
+ *     security:
+ *       - adminKey: []
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *             example:
+ *               success: true
+ *               data: {}
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @openapi
+ * /api/admin/settlement-reconciliation/unblock:
+ *   post:
+ *     summary: POST /api/admin/settlement-reconciliation/unblock
+ *     tags: [Admin]
+ *     security:
+ *       - adminKey: []
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *             example:
+ *               success: true
+ *               data: {}
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @openapi
  * /api/admin/webhook-events:
  *   get:
  *     summary: Inspect stored deliveries, newest first.
@@ -716,6 +812,74 @@
  *     tags: [Admin]
  *     security:
  *       - adminKey: []
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *             example:
+ *               success: true
+ *               data: {}
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @openapi
+ * /api/analytics/v3/operator/usage:
+ *   get:
+ *     summary: "* Operator-facing analytics: aggregated usage and settlement metrics"
+ *     tags: [Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *       - cookieAuth: []
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *             example:
+ *               success: true
+ *               data: {}
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @openapi
+ * /api/analytics/v3/usage:
+ *   get:
+ *     summary: "* Principal-facing analytics: usage and settlement metrics for the"
+ *     tags: [Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *       - cookieAuth: []
  *     responses:
  *       200:
  *         description: Successful response
@@ -814,142 +978,6 @@
  *   get:
  *     summary: "Verify the tamper-evidence hash chain (admin only, issue #1081)."
  *     tags: [Audit]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/calendar/feed/{userId}/{token}.ics:
- *   get:
- *     summary: Public endpoint for iCal feed (authenticated via token)
- *     tags: [Calendar]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/calendar/preferences:
- *   get:
- *     summary: Get calendar sync preferences for the authenticated user
- *     tags: [Calendar]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/calendar/preferences:
- *   patch:
- *     summary: Update calendar sync preferences for the authenticated user
- *     tags: [Calendar]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/calendar/token:
- *   get:
- *     summary: Get current user's calendar token (requires standard auth)
- *     tags: [Calendar]
  *     security:
  *       - bearerAuth: []
  *       - apiKeyAuth: []
@@ -1202,394 +1230,6 @@
  *     summary: POST /api/compliance/unsubscribe
  *     tags: [Compliance]
 
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/digest/admin/run:
- *   post:
- *     summary: POST /api/digest/admin/run
- *     tags: [Digest]
- *     security:
- *       - adminKey: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/digest/history:
- *   get:
- *     summary: Get digest send history (last 24 records)
- *     tags: [Digest]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/digest/preferences:
- *   get:
- *     summary: Get digest preferences
- *     tags: [Digest]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/digest/preferences:
- *   patch:
- *     summary: Update digest settings (opt-in, digest day, year-to-date toggle).
- *     tags: [Digest]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/digest/test:
- *   post:
- *     summary: Send a test digest email (rate-limited to 1/hour)
- *     tags: [Digest]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/gift-card-ledger/balance:
- *   get:
- *     summary: GET /api/gift-card-ledger/balance
- *     tags: [Gift Card Ledger]
-
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/gift-card-ledger/deduct:
- *   post:
- *     summary: POST /api/gift-card-ledger/deduct
- *     tags: [Gift Card Ledger]
-
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/gift-card-ledger/history:
- *   get:
- *     summary: GET /api/gift-card-ledger/history
- *     tags: [Gift Card Ledger]
-
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/gift-card-ledger/reverse:
- *   post:
- *     summary: POST /api/gift-card-ledger/reverse
- *     tags: [Gift Card Ledger]
-
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/gift-card-ledger/top-up:
- *   post:
- *     summary: POST /api/gift-card-ledger/top-up
- *     tags: [Gift Card Ledger]
-
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/gift-card-ledger/verify:
- *   post:
- *     summary: POST /api/gift-card-ledger/verify
- *     tags: [Gift Card Ledger]
-
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/integrations/email/rescan:
- *   post:
- *     summary: POST /api/integrations/email/rescan
- *     tags: [Email Integration]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
  *     responses:
  *       200:
  *         description: Successful response
@@ -2296,6 +1936,108 @@
 
 /**
  * @openapi
+ * /api/key-rotation/settlement/compromise:
+ *   post:
+ *     summary: Compromise response for the settlement signing key.
+ *     tags: [Key Rotation]
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *       - cookieAuth: []
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *             example:
+ *               success: true
+ *               data: {}
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @openapi
+ * /api/key-rotation/settlement/rotate:
+ *   post:
+ *     summary: Rotate the settlement signing key without closing open channels.
+ *     tags: [Key Rotation]
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *       - cookieAuth: []
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *             example:
+ *               success: true
+ *               data: {}
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @openapi
+ * /api/key-rotation/settlement/status:
+ *   get:
+ *     summary: Report the custody posture of the settlement signing key without ever
+ *     tags: [Key Rotation]
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *       - cookieAuth: []
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *             example:
+ *               success: true
+ *               data: {}
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @openapi
  * /api/keys:
  *   get:
  *     summary: List API keys for the authenticated user
@@ -2436,176 +2178,6 @@
  *   get:
  *     summary: Get usage stats for an API key
  *     tags: [API Keys]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/merchants:
- *   get:
- *     summary: List merchants with optional filtering
- *     tags: [Merchants]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/merchants:
- *   post:
- *     summary: Create a merchant (admin only)
- *     tags: [Merchants]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/merchants/{id}:
- *   delete:
- *     summary: Delete a merchant (admin only)
- *     tags: [Merchants]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/merchants/{id}:
- *   get:
- *     summary: Get a merchant by ID
- *     tags: [Merchants]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/merchants/{id}:
- *   patch:
- *     summary: Update a merchant (admin only)
- *     tags: [Merchants]
  *     security:
  *       - bearerAuth: []
  *       - apiKeyAuth: []
@@ -3449,9 +3021,525 @@
 
 /**
  * @openapi
+ * /api/payment-channels/{id}/history:
+ *   get:
+ *     summary: "GET /api/payment-channels/{id}/history"
+ *     tags: [Payment Channels]
+ *     x-x402-payment:
+ *       enabled: true
+ *       description: Supports HTTP 402 micropayments via PAYMENT-SIGNATURE header
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *       - cookieAuth: []
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *             example:
+ *               success: true
+ *               data: {}
+ *       402:
+ *         description: Payment required (x402)
+ *         headers:
+ *           PAYMENT-REQUIRED:
+ *             $ref: '#/components/headers/PaymentRequired'
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/X402PaymentRequired'
+ *             example:
+ *               x402Version: 2
+ *               error: "PAYMENT-SIGNATURE header is required"
+ *               accepts:
+ *                 - scheme: exact
+ *                   network: "eip155:84532"
+ *                   amount: "10000"
+ *                   asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+ *                   payTo: "0x209693Bc6afc0C5328bA36FaF03C514EF312287C"
+ *                   maxTimeoutSeconds: 60
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @openapi
  * /api/payment-channels/{id}/topup:
  *   post:
  *     summary: "POST /api/payment-channels/{id}/topup"
+ *     tags: [Payment Channels]
+ *     x-x402-payment:
+ *       enabled: true
+ *       description: Supports HTTP 402 micropayments via PAYMENT-SIGNATURE header
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *       - cookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/PaymentSignatureHeader'
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *             example:
+ *               success: true
+ *               data: {}
+ *       402:
+ *         description: Payment required (x402)
+ *         headers:
+ *           PAYMENT-REQUIRED:
+ *             $ref: '#/components/headers/PaymentRequired'
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/X402PaymentRequired'
+ *             example:
+ *               x402Version: 2
+ *               error: "PAYMENT-SIGNATURE header is required"
+ *               accepts:
+ *                 - scheme: exact
+ *                   network: "eip155:84532"
+ *                   amount: "10000"
+ *                   asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+ *                   payTo: "0x209693Bc6afc0C5328bA36FaF03C514EF312287C"
+ *                   maxTimeoutSeconds: 60
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @openapi
+ * /api/payment-channels/{id}/watchtowers:
+ *   get:
+ *     summary: "GET /api/payment-channels/{id}/watchtowers"
+ *     tags: [Payment Channels]
+ *     x-x402-payment:
+ *       enabled: true
+ *       description: Supports HTTP 402 micropayments via PAYMENT-SIGNATURE header
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *       - cookieAuth: []
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *             example:
+ *               success: true
+ *               data: {}
+ *       402:
+ *         description: Payment required (x402)
+ *         headers:
+ *           PAYMENT-REQUIRED:
+ *             $ref: '#/components/headers/PaymentRequired'
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/X402PaymentRequired'
+ *             example:
+ *               x402Version: 2
+ *               error: "PAYMENT-SIGNATURE header is required"
+ *               accepts:
+ *                 - scheme: exact
+ *                   network: "eip155:84532"
+ *                   amount: "10000"
+ *                   asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+ *                   payTo: "0x209693Bc6afc0C5328bA36FaF03C514EF312287C"
+ *                   maxTimeoutSeconds: 60
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @openapi
+ * /api/payment-channels/{id}/watchtowers:
+ *   post:
+ *     summary: "POST /api/payment-channels/{id}/watchtowers"
+ *     tags: [Payment Channels]
+ *     x-x402-payment:
+ *       enabled: true
+ *       description: Supports HTTP 402 micropayments via PAYMENT-SIGNATURE header
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *       - cookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/PaymentSignatureHeader'
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *             example:
+ *               success: true
+ *               data: {}
+ *       402:
+ *         description: Payment required (x402)
+ *         headers:
+ *           PAYMENT-REQUIRED:
+ *             $ref: '#/components/headers/PaymentRequired'
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/X402PaymentRequired'
+ *             example:
+ *               x402Version: 2
+ *               error: "PAYMENT-SIGNATURE header is required"
+ *               accepts:
+ *                 - scheme: exact
+ *                   network: "eip155:84532"
+ *                   amount: "10000"
+ *                   asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+ *                   payTo: "0x209693Bc6afc0C5328bA36FaF03C514EF312287C"
+ *                   maxTimeoutSeconds: 60
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @openapi
+ * /api/payment-channels/{id}/watchtowers/{watchtower}:
+ *   delete:
+ *     summary: "DELETE /api/payment-channels/{id}/watchtowers/{watchtower}"
+ *     tags: [Payment Channels]
+ *     x-x402-payment:
+ *       enabled: true
+ *       description: Supports HTTP 402 micropayments via PAYMENT-SIGNATURE header
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *       - cookieAuth: []
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *             example:
+ *               success: true
+ *               data: {}
+ *       402:
+ *         description: Payment required (x402)
+ *         headers:
+ *           PAYMENT-REQUIRED:
+ *             $ref: '#/components/headers/PaymentRequired'
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/X402PaymentRequired'
+ *             example:
+ *               x402Version: 2
+ *               error: "PAYMENT-SIGNATURE header is required"
+ *               accepts:
+ *                 - scheme: exact
+ *                   network: "eip155:84532"
+ *                   amount: "10000"
+ *                   asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+ *                   payTo: "0x209693Bc6afc0C5328bA36FaF03C514EF312287C"
+ *                   maxTimeoutSeconds: 60
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @openapi
+ * /api/payment-channels/agents:
+ *   post:
+ *     summary: POST /api/payment-channels/agents
+ *     tags: [Payment Channels]
+ *     x-x402-payment:
+ *       enabled: true
+ *       description: Supports HTTP 402 micropayments via PAYMENT-SIGNATURE header
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *       - cookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/PaymentSignatureHeader'
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *             example:
+ *               success: true
+ *               data: {}
+ *       402:
+ *         description: Payment required (x402)
+ *         headers:
+ *           PAYMENT-REQUIRED:
+ *             $ref: '#/components/headers/PaymentRequired'
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/X402PaymentRequired'
+ *             example:
+ *               x402Version: 2
+ *               error: "PAYMENT-SIGNATURE header is required"
+ *               accepts:
+ *                 - scheme: exact
+ *                   network: "eip155:84532"
+ *                   amount: "10000"
+ *                   asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+ *                   payTo: "0x209693Bc6afc0C5328bA36FaF03C514EF312287C"
+ *                   maxTimeoutSeconds: 60
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @openapi
+ * /api/payment-channels/cap:
+ *   patch:
+ *     summary: PATCH /api/payment-channels/cap
+ *     tags: [Payment Channels]
+ *     x-x402-payment:
+ *       enabled: true
+ *       description: Supports HTTP 402 micropayments via PAYMENT-SIGNATURE header
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *       - cookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/PaymentSignatureHeader'
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *             example:
+ *               success: true
+ *               data: {}
+ *       402:
+ *         description: Payment required (x402)
+ *         headers:
+ *           PAYMENT-REQUIRED:
+ *             $ref: '#/components/headers/PaymentRequired'
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/X402PaymentRequired'
+ *             example:
+ *               x402Version: 2
+ *               error: "PAYMENT-SIGNATURE header is required"
+ *               accepts:
+ *                 - scheme: exact
+ *                   network: "eip155:84532"
+ *                   amount: "10000"
+ *                   asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+ *                   payTo: "0x209693Bc6afc0C5328bA36FaF03C514EF312287C"
+ *                   maxTimeoutSeconds: 60
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @openapi
+ * /api/payment-channels/fund:
+ *   post:
+ *     summary: POST /api/payment-channels/fund
+ *     tags: [Payment Channels]
+ *     x-x402-payment:
+ *       enabled: true
+ *       description: Supports HTTP 402 micropayments via PAYMENT-SIGNATURE header
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *       - cookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/PaymentSignatureHeader'
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *             example:
+ *               success: true
+ *               data: {}
+ *       402:
+ *         description: Payment required (x402)
+ *         headers:
+ *           PAYMENT-REQUIRED:
+ *             $ref: '#/components/headers/PaymentRequired'
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/X402PaymentRequired'
+ *             example:
+ *               x402Version: 2
+ *               error: "PAYMENT-SIGNATURE header is required"
+ *               accepts:
+ *                 - scheme: exact
+ *                   network: "eip155:84532"
+ *                   amount: "10000"
+ *                   asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+ *                   payTo: "0x209693Bc6afc0C5328bA36FaF03C514EF312287C"
+ *                   maxTimeoutSeconds: 60
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @openapi
+ * /api/payment-channels/grant-authority:
+ *   post:
+ *     summary: POST /api/payment-channels/grant-authority
+ *     tags: [Payment Channels]
+ *     x-x402-payment:
+ *       enabled: true
+ *       description: Supports HTTP 402 micropayments via PAYMENT-SIGNATURE header
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *       - cookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/PaymentSignatureHeader'
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *             example:
+ *               success: true
+ *               data: {}
+ *       402:
+ *         description: Payment required (x402)
+ *         headers:
+ *           PAYMENT-REQUIRED:
+ *             $ref: '#/components/headers/PaymentRequired'
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/X402PaymentRequired'
+ *             example:
+ *               x402Version: 2
+ *               error: "PAYMENT-SIGNATURE header is required"
+ *               accepts:
+ *                 - scheme: exact
+ *                   network: "eip155:84532"
+ *                   amount: "10000"
+ *                   asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+ *                   payTo: "0x209693Bc6afc0C5328bA36FaF03C514EF312287C"
+ *                   maxTimeoutSeconds: 60
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @openapi
+ * /api/payment-channels/payout-address:
+ *   patch:
+ *     summary: PATCH /api/payment-channels/payout-address
  *     tags: [Payment Channels]
  *     x-x402-payment:
  *       enabled: true
@@ -3576,6 +3664,118 @@
  *       - cookieAuth: []
  *     parameters:
  *       - $ref: '#/components/parameters/PaymentSignatureHeader'
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *             example:
+ *               success: true
+ *               data: {}
+ *       402:
+ *         description: Payment required (x402)
+ *         headers:
+ *           PAYMENT-REQUIRED:
+ *             $ref: '#/components/headers/PaymentRequired'
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/X402PaymentRequired'
+ *             example:
+ *               x402Version: 2
+ *               error: "PAYMENT-SIGNATURE header is required"
+ *               accepts:
+ *                 - scheme: exact
+ *                   network: "eip155:84532"
+ *                   amount: "10000"
+ *                   asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+ *                   payTo: "0x209693Bc6afc0C5328bA36FaF03C514EF312287C"
+ *                   maxTimeoutSeconds: 60
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @openapi
+ * /api/payment-channels/stream:
+ *   get:
+ *     summary: GET /api/payment-channels/stream
+ *     tags: [Payment Channels]
+ *     x-x402-payment:
+ *       enabled: true
+ *       description: Supports HTTP 402 micropayments via PAYMENT-SIGNATURE header
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *       - cookieAuth: []
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *             example:
+ *               success: true
+ *               data: {}
+ *       402:
+ *         description: Payment required (x402)
+ *         headers:
+ *           PAYMENT-REQUIRED:
+ *             $ref: '#/components/headers/PaymentRequired'
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/X402PaymentRequired'
+ *             example:
+ *               x402Version: 2
+ *               error: "PAYMENT-SIGNATURE header is required"
+ *               accepts:
+ *                 - scheme: exact
+ *                   network: "eip155:84532"
+ *                   amount: "10000"
+ *                   asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+ *                   payTo: "0x209693Bc6afc0C5328bA36FaF03C514EF312287C"
+ *                   maxTimeoutSeconds: 60
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @openapi
+ * /api/payment-channels/usage:
+ *   get:
+ *     summary: GET /api/payment-channels/usage
+ *     tags: [Payment Channels]
+ *     x-x402-payment:
+ *       enabled: true
+ *       description: Supports HTTP 402 micropayments via PAYMENT-SIGNATURE header
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *       - cookieAuth: []
  *     responses:
  *       200:
  *         description: Successful response
@@ -4019,74 +4219,6 @@
 
 /**
  * @openapi
- * /api/reminder-settings:
- *   get:
- *     summary: Get current reminder settings
- *     tags: [Reminder Settings]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/reminder-settings:
- *   patch:
- *     summary: Update reminder settings
- *     tags: [Reminder Settings]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
  * /api/reminders/process:
  *   post:
  *     summary: POST /api/reminders/process
@@ -4188,74 +4320,6 @@
  *     summary: GET /api/reminders/status
  *     tags: [Reminders]
 
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/renewals/dead-letter:
- *   get:
- *     summary: List renewal dead-letter entries for the authenticated user.
- *     tags: [Renewal Dead Letter]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/renewals/dead-letter/stats:
- *   get:
- *     summary: Admin-only aggregate DLQ statistics.
- *     tags: [Renewal Dead Letter]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
  *     responses:
  *       200:
  *         description: Successful response
@@ -4656,1355 +4720,6 @@
 
 /**
  * @openapi
- * /api/simulation:
- *   get:
- *     summary: Generate a billing simulation
- *     tags: [Simulation]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions:
- *   get:
- *     summary: List user's subscriptions
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions:
- *   post:
- *     summary: Create new subscription with idempotency support
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/{id}:
- *   delete:
- *     summary: Delete subscription
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/{id}:
- *   get:
- *     summary: Get single subscription
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/{id}:
- *   patch:
- *     summary: Update subscription with optimistic locking
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/{id}/attach-gift-card:
- *   post:
- *     summary: /
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/{id}/cancel:
- *   post:
- *     summary: Stop billing but keep record
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/{id}/cooldown-status:
- *   get:
- *     summary: /
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/{id}/notes:
- *   patch:
- *     summary: Update the free-text notes on a subscription.
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/{id}/notification-preferences:
- *   patch:
- *     summary: /
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/{id}/pause:
- *   post:
- *     summary: /
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/{id}/price-history:
- *   get:
- *     summary: /
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/{id}/restore:
- *   post:
- *     summary: Restore a soft-deleted subscription
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/{id}/resume:
- *   post:
- *     summary: /
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/{id}/retry-sync:
- *   post:
- *     summary: /
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/{id}/share:
- *   get:
- *     summary: List pending share invites for a subscription.
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/{id}/share:
- *   post:
- *     summary: Create a secure share invite for a subscription.
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/{id}/share/{inviteId}:
- *   delete:
- *     summary: Revoke a pending share invite.
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/{id}/share/audit:
- *   get:
- *     summary: Audit log of invite usage for a subscription.
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/{id}/snooze:
- *   post:
- *     summary: /
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/{id}/tags:
- *   post:
- *     summary: Assign a tag to a subscription.
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/{id}/tags/{tagId}:
- *   delete:
- *     summary: Remove a tag from a subscription.
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/{id}/track-interaction:
- *   post:
- *     summary: "POST /api/subscriptions/{id}/track-interaction"
- *     tags: [Subscriptions]
-
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/{id}/trial/cancel:
- *   post:
- *     summary: "POST /api/subscriptions/{id}/trial/cancel"
- *     tags: [Subscriptions]
-
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/{id}/trial/convert:
- *   post:
- *     summary: "POST /api/subscriptions/{id}/trial/convert"
- *     tags: [Subscriptions]
-
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/auto-tag:
- *   get:
- *     summary: GET /api/subscriptions/auto-tag
- *     tags: [Subscriptions]
-
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/bulk:
- *   post:
- *     summary: /
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/check-duplicates:
- *   post:
- *     summary: POST /api/subscriptions/check-duplicates
- *     tags: [Subscriptions]
-
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/dedup-thresholds:
- *   get:
- *     summary: GET /api/subscriptions/dedup-thresholds
- *     tags: [Subscriptions]
-
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/dedup-thresholds:
- *   put:
- *     summary: PUT /api/subscriptions/dedup-thresholds
- *     tags: [Subscriptions]
-
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/duplicates:
- *   get:
- *     summary: GET /api/subscriptions/duplicates
- *     tags: [Subscriptions]
-
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/duplicates/check:
- *   get:
- *     summary: GET /api/subscriptions/duplicates/check
- *     tags: [Subscriptions]
-
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/duplicates/merge:
- *   post:
- *     summary: POST /api/subscriptions/duplicates/merge
- *     tags: [Subscriptions]
-
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/encrypt-all:
- *   post:
- *     summary: POST /api/subscriptions/encrypt-all
- *     tags: [Subscriptions]
-
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/encryption-summary:
- *   get:
- *     summary: GET /api/subscriptions/encryption-summary
- *     tags: [Subscriptions]
-
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/import/commit:
- *   post:
- *     summary: POST /api/subscriptions/import/commit
- *     tags: [Subscriptions]
-
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/import/preview:
- *   post:
- *     summary: POST /api/subscriptions/import/preview
- *     tags: [Subscriptions]
-
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/share/{token}:
- *   get:
- *     summary: Public preview of a share invite (rate-limited at app level).
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/share/{token}/accept:
- *   post:
- *     summary: Accept a share invite (authenticated).
- *     tags: [Subscriptions]
- *     security:
- *       - bearerAuth: []
- *       - apiKeyAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
- * /api/subscriptions/trials/saved-metric:
- *   get:
- *     summary: GET /api/subscriptions/trials/saved-metric
- *     tags: [Subscriptions]
-
- *     responses:
- *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SuccessResponse'
- *             example:
- *               success: true
- *               data: {}
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-
-/**
- * @openapi
  * /api/suggestions:
  *   get:
  *     summary: Returns money-saving suggestions for the authenticated user.
@@ -6177,9 +4892,12 @@
  * @openapi
  * /api/tags/subscriptions/{id}/notes:
  *   patch:
- *     summary: "PATCH /api/tags/subscriptions/{id}/notes"
+ *     summary: Update the free-text notes on a subscription.
  *     tags: [Tags]
-
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *       - cookieAuth: []
  *     responses:
  *       200:
  *         description: Successful response
@@ -6208,9 +4926,12 @@
  * @openapi
  * /api/tags/subscriptions/{id}/tags:
  *   post:
- *     summary: "POST /api/tags/subscriptions/{id}/tags"
+ *     summary: Assign a tag to a subscription.
  *     tags: [Tags]
-
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *       - cookieAuth: []
  *     responses:
  *       200:
  *         description: Successful response
@@ -6239,9 +4960,12 @@
  * @openapi
  * /api/tags/subscriptions/{id}/tags/{tagId}:
  *   delete:
- *     summary: "DELETE /api/tags/subscriptions/{id}/tags/{tagId}"
+ *     summary: Remove a tag from a subscription.
  *     tags: [Tags]
-
+ *     security:
+ *       - bearerAuth: []
+ *       - apiKeyAuth: []
+ *       - cookieAuth: []
  *     responses:
  *       200:
  *         description: Successful response
@@ -7052,6 +5776,99 @@
  *       - bearerAuth: []
  *       - apiKeyAuth: []
  *       - cookieAuth: []
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *             example:
+ *               success: true
+ *               data: {}
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @openapi
+ * /api/v3/gateway/challenge:
+ *   get:
+ *     summary: GET /api/v3/gateway/challenge
+ *     tags: [API]
+
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *             example:
+ *               success: true
+ *               data: {}
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @openapi
+ * /api/v3/gateway/economics/{providerId}:
+ *   get:
+ *     summary: "GET /api/v3/gateway/economics/{providerId}"
+ *     tags: [API]
+
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *             example:
+ *               success: true
+ *               data: {}
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @openapi
+ * /api/v3/gateway/proxy:
+ *   post:
+ *     summary: POST /api/v3/gateway/proxy
+ *     tags: [API]
+
  *     responses:
  *       200:
  *         description: Successful response
