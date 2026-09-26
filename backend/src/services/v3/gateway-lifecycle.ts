@@ -1,14 +1,15 @@
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
-import logger from '../config/logger';
+import logger from '../../config/logger';
 import {
   generatePaymentChallenge,
   parsePaymentProof,
   verifyPaymentProof,
   PaymentProof,
-} from './v3/payment-challenge-service';
-import { spendCapService } from './v3/spend-cap-service';
-import { unitEconomicsService } from './v3/unit-economics-service';
+} from './payment-challenge-service';
+import { spendCapService } from './spend-cap-service';
+import { unitEconomicsService } from './unit-economics-service';
+import { agentConsoleService } from '../../v3/agent-console-service';
 
 export interface UpstreamProvider {
   name: string;
@@ -64,6 +65,12 @@ export class MeterReservationTracker {
 
   getStrandedCount(): number {
     return Array.from(this.reservations.values()).filter((r) => r.status === 'reserved').length;
+  }
+
+  listOpenForAgent(agentId: string): ReservationRecord[] {
+    return Array.from(this.reservations.values()).filter(
+      (record) => record.status === 'reserved' && record.agentId === agentId,
+    );
   }
 
   clear(): void {
@@ -124,11 +131,15 @@ export function createGatewayLifecycle() {
         });
       }
 
-      // Resolve key to agent identity
+      // Registered agents are admitted under the public identity they were granted.
+      // Unregistered keys keep the previous short id so existing callers are unchanged.
+      const registered = agentConsoleService.findAdmission(apiKey);
       req.gatewayCtx.identity = {
-        agentId: apiKey.startsWith('agent_') ? apiKey : `agent_${apiKey.slice(0, 10)}`,
+        agentId: registered || apiKey.startsWith('agent_')
+          ? apiKey
+          : `agent_${apiKey.slice(0, 10)}`,
         apiKey,
-        scopes: ['llm:call', 'compute:run'],
+        scopes: registered?.scopeIds ?? ['llm:call', 'compute:run'],
       };
       next();
     },
@@ -149,6 +160,23 @@ export function createGatewayLifecycle() {
     // 3. Check Scope
     checkScope: async (req: GatewayRequest, res: Response, next: NextFunction) => {
       const ctx = req.gatewayCtx!;
+      const admission = agentConsoleService.findAdmission(ctx.identity!.agentId);
+      if (admission) {
+        if (admission.status === 'revoked') {
+          return res.status(403).json({
+            error: 'agent_revoked',
+            message:
+              'This agent was revoked. New paid calls are refused. Calls already in progress still finish.',
+          });
+        }
+        if (!admission.scopeIds.includes(ctx.routePlan!.requiredScope)) {
+          return res.status(403).json({
+            error: `Missing required scope: ${ctx.routePlan!.requiredScope}`,
+          });
+        }
+        return next();
+      }
+
       const hasScope = ctx.identity?.scopes.includes(ctx.routePlan!.requiredScope);
       if (!hasScope) {
         return res.status(403).json({
@@ -280,6 +308,7 @@ export function createGatewayLifecycle() {
           const actualUsage = ctx.routePlan!.actualPrice;
           reservationTracker.commit(reservationId, actualUsage);
           spendCapService.consumeLocal(ctx.identity!.agentId, actualUsage);
+          agentConsoleService.recordPresentedSpend(ctx.identity!.agentId, actualUsage);
 
           // Generate Receipt
           const requestHash = postVerificationHash;

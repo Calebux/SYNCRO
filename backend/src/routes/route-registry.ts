@@ -75,6 +75,7 @@ import referralRoutes from '../routes/referrals';
 import suggestionRoutes from '../routes/suggestions';
 import { getQueueHealthMetrics } from '../routes/admin-queues';
 import v3GatewayRoutes from '../routes/v3/gateway';
+import agentConsoleRoutes from '../routes/v3/agents';
 
 // ── Exchange rate service (factory pattern) ───────────────────────────────────
 import { createExchangeRatesRouter } from '../routes/exchange-rates';
@@ -586,6 +587,15 @@ const ALL_ROUTES: RouteDescriptor[] = [
     tags: ['Gateway'],
     summary: 'v3 Paid-request gateway, 402 challenge, cap admission & unit economics',
     handler: v3GatewayRoutes,
+  },
+  {
+    method: 'ALL',
+    path: '/v3/agents',
+    version: 'v3',
+    auth: 'public',
+    tags: ['Agents'],
+    summary: 'Principal agent registration, spending authority, and revocation',
+    handler: agentConsoleRoutes,
   },
 ];
 

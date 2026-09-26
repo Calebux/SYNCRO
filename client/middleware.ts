@@ -35,7 +35,7 @@ function generateCSP(
     `style-src 'self' 'nonce-${nonce}'${isDev ? " 'unsafe-inline'" : ''}`,
     `img-src 'self' blob: data: https://res.cloudinary.com https://*.supabase.co https://ui-avatars.com`,
     `font-src 'self' data:`,
-    `connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com https://*.stellar.org`,
+    `connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com https://*.stellar.org${isDev ? " http://localhost:* http://127.0.0.1:*" : ""}`,
     `frame-src 'self' https://js.stripe.com`,
     `object-src 'none'`,
     `base-uri 'self'`,
