@@ -45,6 +45,8 @@ export default async function RootLayout({
                     </QueryProvider>
                 </NonceProvider>
                 <footer className="py-4 text-center text-xs text-gray-500">
+                    <Link href="/agents" className="hover:underline">Agents</Link>
+                    <span className="mx-2">·</span>
                     <Link href="/privacy" className="hover:underline">Privacy Policy</Link>
                     <span className="mx-2">·</span>
                     <Link href="/terms" className="hover:underline">Terms of Service</Link>

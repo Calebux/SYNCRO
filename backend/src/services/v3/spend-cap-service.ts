@@ -108,6 +108,10 @@ export class SpendCapService {
     return record;
   }
 
+  deleteCap(agentId: string): void {
+    this.capCache.delete(agentId);
+  }
+
   clear(): void {
     this.capCache.clear();
   }
