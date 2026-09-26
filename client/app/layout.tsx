@@ -50,6 +50,8 @@ export default async function RootLayout({
                     <Link href="/privacy" className="hover:underline">Privacy Policy</Link>
                     <span className="mx-2">·</span>
                     <Link href="/terms" className="hover:underline">Terms of Service</Link>
+                    <span className="mx-2">·</span>
+                    <Link href="/provider" className="hover:underline">Provider console</Link>
                 </footer>
                 <CookieConsent />
             </body>

@@ -32,12 +32,7 @@ import { requestLoggerMiddleware } from './middleware/requestLogger';
 import { schedulerService } from './services/scheduler';
 import { container } from './services/container';
 import { notificationPreferenceService } from './services/notification-preference-service';
-import subscriptionRoutes from './routes/subscriptions';
-import subscriptionShareRoutes from './routes/subscription-shares';
-import subscriptionDedupRoutes from './routes/subscription-dedup';
 import riskScoreRoutes from './routes/risk-score';
-import simulationRoutes from './routes/simulation';
-import merchantRoutes from './routes/merchants';
 import teamRoutes from './routes/team';
 import auditRoutes from './routes/audit';
 import webhookRoutes from './routes/webhooks';
@@ -46,13 +41,11 @@ import tagsRoutes from './routes/tags';
 import userRoutes from './routes/user';
 import sessionRoutes from './routes/sessions';
 import apiKeysRoutes from './routes/api-keys';
-import digestRoutes from './routes/digest';
 import mfaRoutes from './routes/mfa';
 import pushNotificationRoutes from './routes/push-notifications';
 import walletRoutes from './routes/wallet';
 import keyRotationRoutes from './routes/key-rotation';
 import privacyRoutes from './routes/privacy';
-import emailRescanRoutes from './routes/email-rescan';
 import gmailRouter from './routes/integrations/gmail'
 import outlookRouter from './routes/integrations/outlook'
 import yahooRouter from './routes/integrations/yahoo'
@@ -86,19 +79,18 @@ import { startSettlementBatchJob, stopSettlementBatchJob } from './jobs/settleme
 import { startStealthScanJob } from './jobs/stealth-scan-job';
 import { startChannelMonitorJob } from './jobs/channel-monitor-job';
 import { startChannelSettlementJob, stopChannelSettlementJob } from './jobs/channel-settlement-job';
+import { startSettlementReconciliationJob, stopSettlementReconciliationJob } from './jobs/settlement-reconciliation-job';
 import { startJobAlertMonitor, stopJobAlertMonitor } from './jobs/job-alert-monitor';
 import { startWebhookRetryJob, stopWebhookRetryJob } from './jobs/webhook-retry-job';
+import { startPaidCallAlertJob, stopPaidCallAlertJob } from './jobs/paid-call-alert-job';
 import { isDraining } from './lib/shutdown-state';
 import { registerGracefulShutdown } from './lib/graceful-shutdown';
-import giftCardLedgerRoutes from './routes/gift-card-ledger';
 import notificationDeadLetterRoutes from './routes/notification-dead-letter';
-import renewalDeadLetterRoutes from './routes/renewal-dead-letter';
 import telegramWebhookRoutes from './routes/telegram-webhook';
 import { telegramCommandService } from './services/telegram-command-service';
-import calendarRouter from './routes/calendar';
 import userPreferencesRoutes from './routes/user-preferences';
-import reminderSettingsRoutes from './routes/reminder-settings';
 import { blockchainReconciliationService } from './services/blockchain-reconciliation-service';
+import { settlementReconciliationService } from './services/settlement-reconciliation-service';
 import paymentsRoutes from './routes/payments';
 import paystackWebhookRoutes from './routes/paystack-webhook';
 import stripeWebhookRoutes from './routes/stripe-webhook';
@@ -116,7 +108,7 @@ import agentKeyCompromiseAdminRoutes from './routes/admin/agent-key-compromise';
 import metricsRoutes from './routes/metrics';
 import analyticsV3Routes from './routes/analytics-v3';
 import v3GatewayRoutes from './routes/v3/gateway';
-import agentConsoleRoutes from './routes/v3/agents';
+import v3ProviderRoutes from './routes/v3-gateway';
 
 
 const app = express();
@@ -282,16 +274,11 @@ app.get('/api/docs.json', (_req, res) => {
 app.use('/api/v1', v1Router);
 app.use('/api/v2', v2Router);
 app.use('/api/v3/gateway', v3GatewayRoutes);
-app.use('/api/v3/agents', agentConsoleRoutes);
+app.use('/api/v3', v3ProviderRoutes);
 
 // API Routes
 app.use('/api/keys', apiKeysRoutes);
-app.use('/api/subscriptions', subscriptionShareRoutes);
-app.use('/api/subscriptions', subscriptionRoutes);
-app.use('/api/subscriptions', subscriptionDedupRoutes);
 app.use('/api/risk-score', riskScoreRoutes);
-app.use('/api/simulation', simulationRoutes);
-app.use('/api/merchants', merchantRoutes);
 app.use('/api/team', teamRoutes);
 app.use('/api/audit', auditRoutes);
 app.use('/api/integrations/gmail', authenticate, gmailRouter)
@@ -299,7 +286,6 @@ app.use('/api/integrations/outlook', authenticate, outlookRouter)
 app.use('/api/integrations/yahoo', authenticate, yahooRouter)
 app.use('/api/integrations/icloud', authenticate, icloudRouter)
 app.use('/api/integrations/slack', authenticate, slackRouter);
-app.use('/api/integrations/email', authenticate, emailRescanRoutes);
 // No blanket `authenticate` here: POST / is called server-to-server by the
 // Next.js CSP report handler (gated by its own X-Internal-Request check);
 // the admin-only routes (stats/refresh-stats/user) apply authenticate
@@ -310,23 +296,18 @@ app.use('/api/compliance', complianceRoutes);
 app.use('/api/tags', tagsRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/sessions', sessionRoutes);
-app.use('/api/digest', digestRoutes);
 app.use('/api/mfa', mfaRoutes);
 app.use('/api/notifications/push', pushNotificationRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/key-rotation', keyRotationRoutes);
 app.use('/api/privacy', privacyRoutes);
 app.use('/api/notifications/dead-letter', notificationDeadLetterRoutes);
-app.use('/api/renewals/dead-letter', renewalDeadLetterRoutes);
 app.use('/api/exchange-rates', createExchangeRatesRouter(exchangeRateService));
-app.use('/api/gift-card-ledger', giftCardLedgerRoutes);
 app.use('/api/payments', authenticate, paymentsRoutes);
 app.use('/api/payment-channels', authenticate, paymentChannelsRoutes);
 app.use('/api/admin/webhook-events', adminWebhookEventsRoutes);
 app.use('/api/telegram', telegramWebhookRoutes);
-app.use('/api/calendar', calendarRouter);
 app.use('/api/user-preferences', authenticate, userPreferencesRoutes);
-app.use('/api/reminder-settings', authenticate, reminderSettingsRoutes);
 
 app.get('/api/reminders/status', (req, res) => {
   const status = schedulerService.getStatus();
@@ -587,6 +568,30 @@ app.post('/api/admin/reconciliation/run', createAdminLimiter(), adminAuth, async
   }
 });
 
+// ── Settlement Three-Way Reconciliation Endpoints ─────────────────────────────
+
+app.post('/api/admin/settlement-reconciliation/run', createAdminLimiter(), adminAuth, async (_req, res) => {
+  try {
+    const result = await settlementReconciliationService.run();
+    res.json({ success: true, data: result });
+  } catch (error) {
+    logger.error('Error running settlement reconciliation:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Settlement reconciliation failed',
+    });
+  }
+});
+
+app.post('/api/admin/settlement-reconciliation/unblock', createAdminLimiter(), adminAuth, (_req, res) => {
+  settlementReconciliationService.unblock();
+  res.json({ success: true, blocked: settlementReconciliationService.isBlocked() });
+});
+
+app.get('/api/admin/settlement-reconciliation/status', createAdminLimiter(), adminAuth, (_req, res) => {
+  res.json({ blocked: settlementReconciliationService.isBlocked() });
+});
+
 // Error Handlers
 app.use(Sentry.Handlers.errorHandler());
 app.use(errorHandler);
@@ -683,8 +688,10 @@ const server = app.listen(PORT, async () => {
   startStealthScanJob();
   startChannelMonitorJob();
   startChannelSettlementJob();
+  startSettlementReconciliationJob();
   startJobAlertMonitor();
   startWebhookRetryJob();
+  startPaidCallAlertJob();
 
   telegramCommandService.init();
   if (env.TELEGRAM_BOT_TOKEN && !env.TELEGRAM_WEBHOOK_SECRET) {
@@ -698,8 +705,10 @@ registerGracefulShutdown(server, {
     stopAutoResume();
     stopSettlementBatchJob();
     stopChannelSettlementJob();
+    stopSettlementReconciliationJob();
     stopJobAlertMonitor();
     stopWebhookRetryJob();
+    stopPaidCallAlertJob();
   },
   stopEventListener: () => eventListener.stop(),
   stopTelegram: () => telegramCommandService.stop(),

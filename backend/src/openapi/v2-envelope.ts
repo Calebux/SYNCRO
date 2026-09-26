@@ -56,7 +56,7 @@
  *           type: string
  *         instance:
  *           type: string
- *           examples: [/api/v2/subscriptions]
+ *           examples: [/api/v2/tags]
  *         request_id:
  *           type: string
  *         errors:

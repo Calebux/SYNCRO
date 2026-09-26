@@ -5,8 +5,8 @@
  *   npm run bootstrap
  *
  * Installs workspace deps, copies env templates, generates placeholder
- * secrets, builds @syncro/shared, and applies local Supabase migrations
- * when the CLI and Docker are available.
+ * secrets, builds @syncro/shared, and brings up the v3 local stack
+ * (Postgres, Redis, Soroban RPC, mock provider) via Docker Compose.
  */
 import { execSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -73,15 +73,16 @@ for (const f of ["backend/.env", "client/.env.local"]) {
   fillSecret(path.join(root, f), "ENCRYPTION_KEY");
 }
 
-if (has("supabase") && has("docker")) {
+if (has("docker") && has("docker compose")) {
   try {
-    run("supabase start");
-    run("supabase db reset");
+    run("docker compose up -d");
+    // Wait for postgres to be healthy before seeding
+    run("docker compose run --rm seed || true");
   } catch (err) {
-    console.warn("Supabase start/reset skipped:", err.message || err);
+    console.warn("v3 stack start/seed skipped:", err.message || err);
   }
 } else {
-  console.warn("Supabase CLI or Docker not found — skip db reset. Run `npm run doctor`.");
+  console.warn("Docker or Docker Compose not found — skip v3 stack. Run `npm run doctor`.");
 }
 
 console.log("\nBootstrap complete. Next:");

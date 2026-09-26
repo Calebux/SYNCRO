@@ -1,11 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import {
-  loadOfflineSubscriptions,
-  getOfflineCacheTimestamp,
-  type OfflineSubscription,
-} from '@/lib/offline-cache';
 
 // ─── Service worker verification ─────────────────────────────────────────────
 
@@ -31,45 +26,10 @@ function handleRetry() {
   window.location.reload();
 }
 
-// ─── Status badge ─────────────────────────────────────────────────────────────
-
-const STATUS_CLASSES: Record<string, string> = {
-  active: 'text-green-400',
-  cancelled: 'text-red-400',
-  paused: 'text-yellow-400',
-  expired: 'text-gray-400',
-  trial: 'text-blue-400',
-};
-
-function formatRenewal(iso: string | null): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function OfflinePage() {
-  const [subs, setSubs] = useState<OfflineSubscription[]>([]);
-  const [cacheTs, setCacheTs] = useState<string | null>(null);
   const swRegistered = useServiceWorkerStatus();
-
-  useEffect(() => {
-    setSubs(loadOfflineSubscriptions());
-    setCacheTs(getOfflineCacheTimestamp());
-  }, []);
-
-  const cacheAge = cacheTs
-    ? new Date(cacheTs).toLocaleString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      })
-    : null;
 
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-4">
@@ -94,9 +54,7 @@ export default function OfflinePage() {
           </div>
           <h1 className="text-2xl font-bold mb-2">You&apos;re Offline</h1>
           <p className="text-gray-400 text-sm">
-            {subs.length > 0
-              ? 'Showing your last cached subscriptions.'
-              : 'No cached data available. Connect to the internet to load your subscriptions.'}
+            Check your connection and try again.
           </p>
         </div>
 
@@ -110,42 +68,6 @@ export default function OfflinePage() {
           </div>
         )}
 
-        {/* Cached subscriptions */}
-        {subs.length > 0 && (
-          <div className="bg-gray-800 rounded-lg p-4 mb-4 text-left">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-base font-semibold">Cached Subscriptions</h2>
-              {cacheAge && (
-                <span className="text-xs text-gray-500" aria-label={`Cache last updated ${cacheAge}`}>
-                  Updated {cacheAge}
-                </span>
-              )}
-            </div>
-
-            <ul className="space-y-2" aria-label="Cached subscriptions">
-              {subs.map((sub) => (
-                <li
-                  key={sub.id}
-                  className="flex items-center justify-between p-3 bg-gray-700 rounded"
-                >
-                  <div className="min-w-0">
-                    <p className="font-medium truncate">{sub.name}</p>
-                    <p className="text-xs text-gray-400">
-                      Renews: {formatRenewal(sub.next_renewal)}
-                    </p>
-                  </div>
-                  <span
-                    className={`text-sm font-medium capitalize flex-shrink-0 ml-3 ${STATUS_CLASSES[sub.status] ?? 'text-gray-400'}`}
-                    aria-label={`Status: ${sub.status}`}
-                  >
-                    {sub.status}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
         {/* Retry / resync */}
         <button
           onClick={handleRetry}
@@ -153,10 +75,6 @@ export default function OfflinePage() {
         >
           Retry Connection
         </button>
-
-        <p className="mt-3 text-xs text-gray-500">
-          Read-only view — changes will sync when you&apos;re back online.
-        </p>
       </div>
     </div>
   );

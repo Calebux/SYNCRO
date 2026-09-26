@@ -1,28 +1,187 @@
-# SYNCRO local development Docker Compose stack
+# SYNCRO v3 local development Docker Compose stack
 #
-# Status: planned — service definitions are not yet checked in.
-# Today, local development uses the Supabase CLI (`supabase start`) for Postgres
-# and Auth; see CONTRIBUTING.md. Redis, Soroban RPC, and SMTP are configured via
-# backend/.env and client/.env.example (external or locally installed services).
+# Brings up the full v3 metered-rails stack for local development:
 #
-# Intended services for this file (Epic H — local/CI stack):
+#   npm run dev      # one command up
+#   npm run reset    # one command reset
+#
+# Services:
 #
 # postgres:
-#   Supabase-compatible Postgres for migrations (supabase/migrations/) and seed
-#   data (supabase/seed.sql). Replaces hosted Supabase credentials in dev/CI.
+#   Supabase-compatible Postgres for migrations and seed data.
+#   Replaces hosted Supabase credentials in dev.
 #
 # redis:
-#   Local cache/queue dependency for rate limiting, renewal jobs, and other
-#   Redis-backed backend features (REDIS_URL, RATE_LIMIT_REDIS_URL).
+#   Counter store for rate limiting, channel state, and the
+#   in-memory-to-persistent bridge used by the v3 meter and
+#   spend-cap service (REDIS_URL, RATE_LIMIT_REDIS_URL).
 #
 # soroban-rpc:
-#   Local Stellar/Soroban RPC endpoint for contract reads/writes in development
+#   Local Soroban RPC endpoint for contract reads/writes in development
 #   and integration tests (SOROBAN_RPC_URL, STELLAR_NETWORK_URL).
+#   Contracts are deployed via the Soroban CLI in the init container.
 #
-# mailpit (or similar):
-#   SMTP mail catcher for development email delivery; replaces real SMTP_* creds.
+# backend:
+#   SYNCRO Express API — hosts the v3 gateway, meter, and
+#   settlement engine. Connects to Postgres, Redis, and
+#   Soroban RPC. Mounts the local .env for dev overrides.
 #
-# Tor hidden-service deployment (separate concern):
-#   deploy/tor/docker-compose.tor.yml — dashboard behind a .onion address.
+# mock-provider:
+#   Minimal HTTP upstream provider that the v3 gateway proxies
+#   paid calls through. Returns a 200 OK with a JSON body so
+#   developers can exercise the full paid-call flow end-to-end.
 #
-services: {}
+# seed:
+#   One-shot initialisation that creates a principal, an agent
+#   with scope + cap, and an open funded channel so a developer
+#   starts from a working paid call rather than building one.
+#   Runs automatically on first startup and is removed afterwards.
+#
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: synchro
+      POSTGRES_USER: synchro
+      POSTGRES_PASSWORD: synchro_dev
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./supabase/migrations:/docker-entrypoint-initdb.d/migrations:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synchro -d synchro"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  soroban-rpc:
+    image: stellar/soroban-rpc:latest
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      SOROBAN_RPC_PORT: "8000"
+      SOROBAN_NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
+      SOROBAN_LOG_LEVEL: info
+    volumes:
+      - sorobandata:/soroban-data
+      - ./contracts:/contracts:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8000"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: development
+      PORT: "3001"
+      DATABASE_URL: postgresql://synchro:synchro_dev@postgres:5432/synchro
+      REDIS_URL: redis://redis:6379
+      RATE_LIMIT_REDIS_URL: redis://redis:6379
+      SOROBAN_RPC_URL: http://soroban-rpc:8000
+      STELLAR_NETWORK_URL: http://soroban-rpc:8000
+      STELLAR_NETWORK: testnet
+      STELLAR_NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
+      BACKEND_URL: http://localhost:3001
+      FRONTEND_URL: http://localhost:3000
+      LOG_LEVEL: info
+      ENABLE_BLOCKCHAIN: "true"
+      ENABLE_TESTNET_ACTIONS: "true"
+      PAYMENT_CHANNELS_ENABLED: "true"
+      CHANNEL_SIGNING_SECRET: dev-channel-secret
+      SETTLEMENT_MIN_BATCH: "1"
+      SETTLEMENT_MAX_BATCH: "5"
+      SETTLEMENT_MAX_WAIT_MS: "30000"
+      SETTLEMENT_MAX_IN_FLIGHT: "1"
+      SETTLEMENT_RECONCILIATION_ENABLED: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      soroban-rpc:
+        condition: service_healthy
+    volumes:
+      - ./backend/.env.example:/app/backend/.env.example:ro
+    env_file:
+      - ./backend/.env
+
+  mock-provider:
+    image: node:20-alpine
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    working_dir: /app
+    command: >
+      sh -c "
+      cat > server.mjs << 'EOF'
+      import http from 'node:http';
+      const server = http.createServer((req, res) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok', provider: 'mock', path: req.url }));
+      });
+      server.listen(3002, () => console.log('mock-provider on :3002'));
+      EOF
+      node server.mjs
+      "
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3002/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      backend:
+        condition: service_started
+
+  seed:
+    image: node:20-alpine
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://synchro:synchro_dev@postgres:5432/synchro
+      REDIS_URL: redis://redis:6379
+      SOROBAN_RPC_URL: http://soroban-rpc:8000
+      STELLAR_NETWORK: testnet
+      STELLAR_NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
+    volumes:
+      - ./backend/scripts/seed-v3.mjs:/app/seed-v3.mjs:ro
+      - ./shared:/app/shared:ro
+    working_dir: /app
+    command: node seed-v3.mjs
+
+volumes:
+  pgdata:
+  redisdata:
+  sorobandata:

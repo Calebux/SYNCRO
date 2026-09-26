@@ -1,7 +1,7 @@
 {
   "name": "@syncro/sdk",
-  "version": "1.1.0",
-  "description": "Official SDK for the SYNCRO Subscription Management Platform",
+  "version": "3.0.0",
+  "description": "Official SDK for the SYNCRO Payments Platform — v3 major release with subscription APIs removed",
   "packageManager": "npm@10.9.2",
   "type": "module",
   "sideEffects": false,
@@ -138,8 +138,9 @@
   },
   "keywords": [
     "syncro",
-    "subscriptions",
-    "sdk"
+    "payments",
+    "sdk",
+    "x402"
   ],
   "author": "SYNCRO",
   "license": "MIT",

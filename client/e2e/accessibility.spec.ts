@@ -5,7 +5,6 @@ import AxeBuilder from '@axe-core/playwright';
 const routes = [
   { name: 'Landing Page', path: '/' },
   { name: 'Dashboard', path: '/dashboard', authenticated: true },
-  { name: 'Analytics', path: '/dashboard/analytics', authenticated: true },
   { name: 'Settings', path: '/settings', authenticated: true },
   { name: '2FA Setup', path: '/auth/2fa', authenticated: true },
 ];
@@ -17,11 +16,6 @@ const knownViolations = [
     route: '/dashboard',
     ruleId: 'color-contrast',
     reason: 'Legacy spend chart colors need updating (Issue #702)',
-  },
-  {
-    route: '/dashboard/analytics',
-    ruleId: 'region',
-    reason: 'Third-party chart library missing aria-label (Issue #703)',
   },
 ];
 

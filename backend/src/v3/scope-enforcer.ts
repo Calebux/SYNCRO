@@ -29,6 +29,11 @@ export class ScopeEnforcer {
     this.cacheSoftTtlMs = options.cacheSoftTtlMs ?? 2_500;
   }
 
+  /** Drop a cached grant so a replacement is visible on the next call. */
+  invalidate(agentId: string): void {
+    this.cache.delete(agentId);
+  }
+
   async assertAllowed(request: ScopeCheckRequest): Promise<void> {
     const nowMs = Date.now();
     const cached = this.cache.get(request.agentId);
@@ -49,6 +54,9 @@ export class ScopeEnforcer {
       this.validateGrant(fresh, request.routeScope);
       return;
     } catch (error) {
+      if (error instanceof ScopeRejectionError) {
+        throw error;
+      }
       // If refresh fails, fail closed even if a stale cache entry exists.
       if (!cached || nowMs >= cached.hardExpiryMs) {
         throw new ScopeRejectionError(

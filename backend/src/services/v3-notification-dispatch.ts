@@ -11,7 +11,6 @@ import {
 } from '../types/v3-notifications';
 import { renderV3Notification, renderV3Telegram, renderV3Slack } from './v3-notification-templates';
 import { pushService, PushSubscription } from './push-service';
-import { emailService } from './email-service';
 import { telegramBotService } from './telegram-bot-service';
 import { slackService, sendSlackAlert } from './slack-service';
 import { roleService } from './role-service';
@@ -95,25 +94,6 @@ class V3NotificationDispatchService {
     }
   }
 
-  private async getUserEmail(userId: string): Promise<string | null> {
-    try {
-      const { data: authUser, error } = await supabase.auth.admin.getUserById(userId);
-      if (error) throw error;
-      return authUser?.user?.email || null;
-    } catch {
-      try {
-        const { data } = await supabase
-          .from('profiles')
-          .select('email')
-          .eq('id', userId)
-          .maybeSingle();
-        return (data as any)?.email || null;
-      } catch {
-        return null;
-      }
-    }
-  }
-
   private async getTeamSlackWebhook(userId: string): Promise<string | null> {
     try {
       const { data: ownedTeam } = await supabase
@@ -180,28 +160,6 @@ class V3NotificationDispatchService {
     const finalUrl = url || rendered.url;
 
     const transportPromises: Promise<unknown>[] = [];
-
-    if (channels.includes('email')) {
-      transportPromises.push((async () => {
-        const email = await this.getUserEmail(userId);
-        if (!email) return;
-        try {
-          await emailService.sendSimpleEmail(
-            email,
-            rendered.title,
-            rendered.body,
-            { userId, emailType: 'notifications' },
-          );
-          if (rendered.html) {
-            const transporterRef = (emailService as any);
-            const method = transporterRef.sendReminderEmail ? 'sendReminderEmail' : 'sendSimpleEmail';
-            logger.debug('[V3Dispatch] Email sent via', { method, userId, eventType });
-          }
-        } catch (err) {
-          logger.warn('[V3Dispatch] Email transport failed', { userId, eventType, error: err instanceof Error ? err.message : String(err) });
-        }
-      })());
-    }
 
     if (channels.includes('push')) {
       transportPromises.push((async () => {

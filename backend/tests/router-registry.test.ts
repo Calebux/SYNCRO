@@ -25,9 +25,9 @@ describe('Router Registry', () => {
     
     const userRoutes = routes.filter(r => r.fullPath.startsWith('/api/user'));
     expect(userRoutes.length).toBeGreaterThan(0);
-    
+
     const subRoutes = routes.filter(r => r.fullPath.startsWith('/api/subscriptions'));
-    expect(subRoutes.length).toBeGreaterThan(0);
+    expect(subRoutes).toHaveLength(0);
   });
 
   test('validates registry - no public routes under /api', () => {
@@ -40,9 +40,9 @@ describe('Router Registry', () => {
     expect(response.status).toBe(401);
   });
 
-  test('subscription routes require authentication', async () => {
+  test('subscription routes are no longer routable', async () => {
     const response = await request(app).get('/api/subscriptions');
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(404);
   });
 });
 

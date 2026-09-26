@@ -1,6 +1,11 @@
 ---
-"@syncro/sdk": minor
-"@syncro/shared": minor
+"@syncro/sdk": major
+"@syncro/shared": patch
 ---
 
-Dual ESM/CJS SDK builds with subpath exports, generated database and contract types, and changeset-driven releases.
+v3 major release: subscription APIs removed, clean break from previous major.
+The `@syncro/sdk` package now ships the v3 payments surface only.
+Subscription CRUD, analytics, notification, and gift-card APIs have been removed.
+The `@syncro/sdk/v3` sub-path provides the x402 payments API (GatewayClient,
+createPaidFetch, receipt verification, retry, gateway errors).
+See `sdk/README.md` for the v3 quickstart and migration notes.

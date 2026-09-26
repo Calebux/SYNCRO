@@ -21,6 +21,33 @@ const registerRouteSchema = z.object({
   quantityExtractor: z.string().min(1).default('constant:1'),
 });
 
+const reviseRouteSchema = z
+  .object({
+    pathPattern: z.string().min(1).optional(),
+    method: z.string().min(1).optional(),
+    unit: z.string().min(1).optional(),
+    price: z.number().positive().optional(),
+    quantityExtractor: z.string().min(1).optional(),
+  })
+  .refine((value) => Object.values(value).some((field) => field !== undefined), {
+    message: 'at least one route field is required',
+  });
+
+const payoutAddressSchema = z.object({
+  payoutAddress: z.string().min(1),
+});
+
+function routeParam(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) return value[0] ?? '';
+  return value ?? '';
+}
+
+function sendServiceError(res: Response, error: unknown) {
+  const message = error instanceof Error ? error.message : 'request failed';
+  const status = message === 'provider not found' || message === 'route not found' ? 404 : 400;
+  return res.status(status).json({ error: message });
+}
+
 const paidCallSchema = z.object({
   providerId: z.string().uuid(),
   path: z.string().min(1),
@@ -91,9 +118,75 @@ router.post('/providers', (req: Request, res: Response) => {
   return res.status(201).json({ data: provider });
 });
 
+router.get('/providers/:providerId', (req: Request, res: Response) => {
+  try {
+    return res.json({ data: service.readProvider(routeParam(req.params.providerId)) });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+router.patch('/providers/:providerId/payout-address', (req: Request, res: Response) => {
+  const parsed = payoutAddressSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  try {
+    const provider = service.updatePayoutAddress(routeParam(req.params.providerId), parsed.data.payoutAddress);
+    return res.json({ data: provider });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+router.get('/providers/:providerId/routes', (req: Request, res: Response) => {
+  try {
+    return res.json({ data: service.listRoutes(routeParam(req.params.providerId)) });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+router.patch('/providers/:providerId/routes/:routeId', (req: Request, res: Response) => {
+  const parsed = reviseRouteSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  try {
+    const result = service.reviseRoute(routeParam(req.params.providerId), routeParam(req.params.routeId), parsed.data);
+    return res.json({ data: result });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+router.get('/providers/:providerId/rate-cards', (req: Request, res: Response) => {
+  try {
+    return res.json({ data: service.listRateCards(routeParam(req.params.providerId)) });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+router.get('/providers/:providerId/settlements', (req: Request, res: Response) => {
+  try {
+    return res.json({ data: service.listSettlements(routeParam(req.params.providerId)) });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+router.get('/providers/:providerId/revenue', (req: Request, res: Response) => {
+  try {
+    return res.json({ data: service.revenue(routeParam(req.params.providerId)) });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
 router.post('/providers/:providerId/payout-challenge', (req: Request, res: Response) => {
   try {
-    const result = service.createPayoutChallenge(req.params.providerId);
+    const result = service.createPayoutChallenge(routeParam(req.params.providerId));
     return res.json({ data: result });
   } catch (error) {
     return res.status(404).json({ error: error instanceof Error ? error.message : 'not found' });
@@ -106,7 +199,7 @@ router.post('/providers/:providerId/payout-verify', (req: Request, res: Response
     return res.status(400).json({ error: 'signature is required' });
   }
   try {
-    const provider = service.verifyPayoutChallenge(req.params.providerId, signature);
+    const provider = service.verifyPayoutChallenge(routeParam(req.params.providerId), signature);
     return res.json({ data: provider });
   } catch (error) {
     return res.status(400).json({ error: error instanceof Error ? error.message : 'verification failed' });
@@ -120,7 +213,7 @@ router.post('/providers/:providerId/routes', (req: Request, res: Response) => {
   }
   try {
     const route = service.registerRoute({
-      providerId: req.params.providerId,
+      providerId: routeParam(req.params.providerId),
       ...parsed.data,
     });
     return res.status(201).json({ data: route });
@@ -192,11 +285,12 @@ router.post('/registry/grants', (req: Request, res: Response) => {
     expiresAt: parsed.data.expiresAt ?? null,
     revokedAt: parsed.data.revokedAt ?? null,
   });
+  scopeEnforcer.invalidate(parsed.data.agentId);
   return res.status(201).json({ data: parsed.data });
 });
 
 router.get('/receipts/:receiptId', (req: Request, res: Response) => {
-  const receipt = service.getReceipt(req.params.receiptId);
+  const receipt = service.getReceipt(routeParam(req.params.receiptId));
   if (!receipt) {
     return res.status(404).json({ error: 'receipt not found' });
   }

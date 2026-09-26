@@ -2,7 +2,7 @@
 
 ## Overview
 
-Encrypt subscription metadata (name, price, billing cycle, provider) so the server and any observer cannot see what services you're paying for. Only your device can decrypt with the encryption key.
+Encrypt payment metadata (service name, amount, currency, description) so the server and any observer cannot see what you're paying for. Only your device can decrypt with the encryption key.
 
 ## How It Works
 

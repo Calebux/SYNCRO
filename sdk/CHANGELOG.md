@@ -10,40 +10,36 @@ Each release notes the minimum compatible backend version (`synchro`). If your b
 
 _Changes staged for the next release._
 
-### Added — #1303 Typed error taxonomy
-- `ValidationError` — stable code `SYNCRO_VALIDATION`, retryable: `false`
-- `AuthError` — stable code `SYNCRO_AUTH`, retryable: `false` (replaces `AuthenticationError`, `ForbiddenError`)
-- `NetworkError` — stable code `SYNCRO_NETWORK`, retryable: `true`
-- `RpcError` — stable code `SYNCRO_RPC`, retryable: `true`
-- `ContractError` — stable code `SYNCRO_CONTRACT`, retryable: `false`; exposes `.contractName`, `.errorCode`, `.variant` (resolved from `CONTRACT_ERROR_REGISTRY`)
-- `withRetry(fn, policy?, idempotencyKey?)` — exponential backoff with jitter; refuses to retry non-retryable classes; blocks non-idempotent submissions beyond the first attempt without an `idempotencyKey`
-- `computeBackoffDelay(attempt, policy)` — compute the delay for a given attempt
-- `resolveContractErrorVariant(contractName, code)` — look up a contract error variant name by integer code
+---
 
-### Added — #1299 Public API surface
-- `sdk/api-surface.md` committed to the repo, listing every public export
-- `sdk/scripts/check-api-surface.cjs` — CI script that fails when a new export is not in the report
-- `npm run check:api-surface -w sdk` build step added to `prepublishOnly`
-- Semver and deprecation policy documented in `sdk/README.md`
-- Experimental API guidance added to README (sub-path `./experimental`)
+## [3.0.0] — 2026-08-26
 
-### Added — #1300 WASM contract bindings in CI
-- `generate-contract-bindings.cjs` now stamps a `CONTRACT_BINDINGS_VERSION` constant in every generated file
-- `--wasm-dir` flag scans a directory of `.wasm` artifacts and generates bindings from the live ABI
-- `--check` flag compares the committed hash to a freshly computed one; CI exits non-zero on mismatch
-- Four new CI jobs in `contracts.yml`: `check-bindings-stale`, `regenerate-bindings-from-wasm`, `verify-version-stamp`, `check-api-surface`
+### Breaking — subscription APIs removed
 
-### Added — #1304 Soroban sandbox integration suite
-- `sdk/tests/integration/soroban-sandbox.test.ts` — 7 flows covering register agent, create subscription on-chain, renew, read events, verify receipt (memo round-trip), failure flow with decoded `ContractError`, and contract signature change detection
-- `sdk/scripts/run-integration.sh` — single-command script that starts a Docker sandbox, deploys all contracts, regenerates bindings, and runs the integration suite
-- `npm run test:integration -w sdk` documented local command
-- `sdk-integration` CI job added to `test.yml` (runs on `run-integration` PR label or `force_full_run` dispatch)
+- The subscription SDK surface has been **removed** from `@syncro/sdk`. This is a clean break, not a deprecation.
+- `createSubscription`, `listSubscriptions`, `getSubscription`, `updateSubscription`, `deleteSubscription`, `getUserSubscriptions`, `getAnalyticsSummary`, `getRenewalHistory`, `createWebhook`, `listWebhooks`, `deleteWebhook`, `getNotifications`, `markNotificationRead`, `attachGiftCard`, `cancelSubscription`, and the `SyncroSDK` class no longer exist.
+- `SyncroSDKConfig`, `SyncroSDKInitConfig`, and all subscription-related types have been removed.
+- The deprecated error aliases (`AuthenticationError`, `ForbiddenError`, `RateLimitError`, `ConflictError`) have been removed.
+- Subscription-related Soroban contract bindings (`buildSubscriptionRegistryCreateSubscription`, etc.) have been removed.
+- **There is no upgrade path from the subscription SDK to v3.** The subscription API and the v3 payments API are not compatible; there is no shim, adapter, or codemod. Existing subscription integrations must be rewritten against the v3 payments surface.
 
-### Deprecated
-- `AuthenticationError` — use `AuthError` instead (will be removed in v2.0)
-- `ForbiddenError` — use `AuthError` instead (will be removed in v2.0)
-- `ConflictError` — use `ValidationError` instead (will be removed in v2.0)
-- `RateLimitError` — use `NetworkError` instead (will be removed in v2.0)
+### Added — v3 payments surface
+
+- `@syncro/sdk/v3` sub-path provides the x402 payments API: `GatewayClient`, `createPaidFetch`, receipt verification, retry utilities, and gateway error taxonomy.
+- `GatewayClient` — HTTP client with idempotency-key support and automatic 402 payment handling.
+- `createPaidFetch` — drop-in `fetch` wrapper that handles HTTP 402 (payment required) challenges.
+- `verifyReceipt` / `decodeReceiptHeader` — verify Soroban payment receipts with Ed25519 signatures.
+- `LogicalCallManager` — idempotency-key-aware retry manager for gateway calls.
+- Full gateway error taxonomy (`GatewaySdkError`, `GatewayPaymentRequiredError`, etc.) generated from backend taxonomy.
+
+### Migration
+
+- Existing subscription integrations must be rewritten against the v3 payments API. See `sdk/README.md` for the v3 quickstart.
+- The v3 payments API is accessed via `@syncro/sdk/v3` or the top-level `@syncro/sdk` exports.
+
+### Deprecated — final v1.x release
+
+- The previous major (`@syncro/sdk` v1.x) carried subscription APIs. The final v1.x release is **1.1.0**. Users on v1.x should migrate to v3; no further v1.x patches are planned.
 
 ---
 

@@ -31,18 +31,22 @@ describe('registry-generated OpenAPI spec', () => {
     expect(paths.length).toBeGreaterThanOrEqual(10);
     expect(paths).toEqual(expect.arrayContaining([
       '/api/user/profile',
-      '/api/subscriptions',
       '/api/keys',
     ]));
   });
 
+  test('does not document any subscription endpoint', () => {
+    const paths = Object.keys(spec.paths ?? {});
+    expect(paths.filter((p) => p.startsWith('/api/subscriptions'))).toEqual([]);
+  });
+
   test('includes security for authenticated routes', () => {
-    const subPath = spec.paths?.['/api/subscriptions'];
-    expect(subPath).toBeDefined();
+    const keysPath = spec.paths?.['/api/keys'];
+    expect(keysPath).toBeDefined();
     // At least one method should have security defined
     const methods = ['get', 'post', 'put', 'patch', 'delete'] as const;
     const hasSecurity = methods.some(
-      (m) => subPath?.[m] && 'security' in subPath[m]! && (subPath[m] as any).security,
+      (m) => keysPath?.[m] && 'security' in keysPath[m]! && (keysPath[m] as any).security,
     );
     expect(hasSecurity).toBe(true);
   });

@@ -58,7 +58,7 @@
     "bip39": "^3.1.0",
     "bullmq": "^5.79.1",
     "cookie-parser": "^1.4.7",
-    "csv-parse": "^6.2.1",
+    "csv-parse": "^7.0.2",
     "date-fns": "^4.4.0",
     "date-fns-tz": "3.2.0",
     "dotenv": "^17.4.2",
