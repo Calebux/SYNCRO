@@ -17,27 +17,28 @@ export function createV3GatewayRouter(customUpstream?: UpstreamProvider): Router
   const router = Router();
   const lifecycle = createGatewayLifecycle();
 
-  /**
-   * Main Paid-Request Gateway Endpoint
-   * Sequence:
-   * 1. resolveIdentity
-   * 2. resolveRouteAndPrice
-   * 3. checkScope
-   * 4. checkCap
-   * 5. verifyPayment
-   * 6. reserveMeter
-   * 7. proxyAndCommit
-   */
-  router.post(
-    '/proxy',
+  const middlewareStack = [
     lifecycle.resolveIdentity,
     lifecycle.resolveRouteAndPrice,
     lifecycle.checkScope,
     lifecycle.checkCap,
     lifecycle.verifyPayment,
     lifecycle.reserveMeter,
-    lifecycle.proxyAndCommit(customUpstream)
-  );
+    lifecycle.proxyAndCommit(customUpstream),
+  ];
+
+  /**
+   * Paid-Request Gateway Endpoints (routed generically through the same lifecycle stack)
+   * Supports:
+   *  - Call-billed route (/proxy)
+   *  - Token-billed route (/inference)
+   *  - Byte-billed route (/storage)
+   *  - Compute/seconds-billed route (/compute)
+   */
+  router.post('/proxy', ...middlewareStack);
+  router.post('/inference', ...middlewareStack);
+  router.post('/storage', ...middlewareStack);
+  router.post('/compute', ...middlewareStack);
 
   /**
    * Explicit Challenge endpoint (402 generation)
