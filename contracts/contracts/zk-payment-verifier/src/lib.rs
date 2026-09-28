@@ -1,5 +1,12 @@
 //! # ZK Payment Verifier
 //!
+//! > **v3 status: archived — see ADR-017.**
+//! > This contract is NOT part of the v3 settlement path (payment channels,
+//! > allowances, and the backend channel services never reference it). It
+//! > remains live for the subscription stack only (deploy script, SDK proofs,
+//! > backend privacy endpoints). Do not add new dependents without
+//! > reactivation per ADR-017.
+//!
 //! On-chain payment proof verification for SYNCRO subscription renewals.
 //!
 //! ## What this contract actually guarantees
