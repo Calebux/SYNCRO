@@ -8,8 +8,6 @@ from pathlib import Path
 
 # Mapping of contract names to their base error codes
 CONTRACTS = {
-    "subscription_renewal": 1000,
-    "subscription_logging": 1100,
     "virtual-card": 1200,
     # escrow already updated
     "agent-registry": 1400,

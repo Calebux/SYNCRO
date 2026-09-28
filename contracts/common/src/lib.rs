@@ -2,6 +2,11 @@
 
 use soroban_sdk::{contracterror, Env, Symbol};
 
+/// Guardian multisig governance helpers extracted from the deleted
+/// `subscription_renewal` crate (issue #1429): 2-of-M guardian approvals for
+/// destructive admin operations with a single-admin fast path.
+pub mod admin_multisig;
+
 /// Typed error returned by the shared counter helper when a counter increment
 /// would overflow its `u64` storage. All structured identifiers across the
 /// Syncro contracts are issued through [`next_counter_id`], and this error

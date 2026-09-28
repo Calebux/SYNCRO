@@ -3,7 +3,7 @@
 //! Non-destructive operations have a fast single-signer path.
 
 use soroban_sdk::{
-    contract, contractevent, contracttype, vec, Address, Env, Vec,
+    contract, contractevent, contracttype, vec, Address, Bytes, Env, Vec,
     panic_with_error,
 };
 
@@ -55,8 +55,9 @@ pub struct AdminProposal {
     pub state: ProposalState,
     pub created_at: u64,
     pub approved_at: u64,
-    /// Encoded operation data (varies by operation type)
-    pub data: Vec<u8>,
+    /// Encoded operation data (varies by operation type). `Bytes` rather
+    /// than `Vec<u8>`: `u8` is not XDR-mappable in current SDKs.
+    pub data: Bytes,
 }
 
 /// State machine for proposal lifecycle
@@ -203,7 +204,7 @@ pub fn propose_admin_operation(
     env: &Env,
     proposer: Address,
     operation: AdminOperation,
-    data: Vec<u8>,
+    data: Bytes,
 ) -> u64 {
     if !is_multisig_enabled(env) {
         panic!("Multisig not enabled; use single admin path");
@@ -396,7 +397,7 @@ pub fn propose_guardian_change(
     }
 
     // Encode guardians as bytes for proposal data
-    let mut data = vec![env];
+    let mut data = Bytes::new(env);
     for guardian in new_guardians.iter() {
         // Serialize each address as 32 bytes
         let bytes: soroban_sdk::Bytes = guardian.clone().into_val(env).try_into().unwrap();

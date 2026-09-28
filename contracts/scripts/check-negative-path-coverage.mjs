@@ -29,7 +29,6 @@ const TOKEN_TRANSFER_CRATES = new Set([
   "payment-adapter",
   "payment-splitter",
   "recurring_allowance",
-  "subscription_renewal",
   "subscription_refund",
 ]);
 

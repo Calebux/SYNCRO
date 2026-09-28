@@ -105,37 +105,6 @@ impl BudgetRegistry {
     pub fn new() -> Self {
         let mut baselines = HashMap::new();
 
-        // Subscription Renewal Contract
-        baselines.insert(
-            "subscription_renewal::renew".to_string(),
-            BudgetMetrics {
-                entrypoint: "subscription_renewal::renew".to_string(),
-                cpu_instructions: 268_000, // Measured worst case
-                memory_bytes: 32_768,
-                scenario: "worst_case".to_string(),
-            },
-        );
-
-        baselines.insert(
-            "subscription_renewal::init_sub".to_string(),
-            BudgetMetrics {
-                entrypoint: "subscription_renewal::init_sub".to_string(),
-                cpu_instructions: 45_000,
-                memory_bytes: 8_192,
-                scenario: "average".to_string(),
-            },
-        );
-
-        baselines.insert(
-            "subscription_renewal::cancel_sub".to_string(),
-            BudgetMetrics {
-                entrypoint: "subscription_renewal::cancel_sub".to_string(),
-                cpu_instructions: 35_000,
-                memory_bytes: 4_096,
-                scenario: "average".to_string(),
-            },
-        );
-
         // Escrow Contract
         baselines.insert(
             "escrow::create_escrow".to_string(),
@@ -154,17 +123,6 @@ impl BudgetRegistry {
                 cpu_instructions: 85_000,
                 memory_bytes: 20_480,
                 scenario: "worst_case".to_string(),
-            },
-        );
-
-        // Logging Contract
-        baselines.insert(
-            "subscription_logging::record_log".to_string(),
-            BudgetMetrics {
-                entrypoint: "subscription_logging::record_log".to_string(),
-                cpu_instructions: 25_000,
-                memory_bytes: 4_096,
-                scenario: "average".to_string(),
             },
         );
 

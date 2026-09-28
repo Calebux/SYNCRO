@@ -10,8 +10,6 @@ from typing import Dict, List, Tuple
 
 # Contract-to-base-code mapping
 CONTRACT_ERROR_BASES = {
-    "subscription_renewal": 1000,
-    "subscription_logging": 1100,
     "virtual-card": 1200,
     "escrow": 1300,
     "agent-registry": 1400,

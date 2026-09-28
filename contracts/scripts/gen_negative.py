@@ -43,10 +43,8 @@ INIT = {
     "recurring_allowance": "",
     "resolver-registry": "client.init(&Address::generate(&env), &2u32);",
     "stealth-announcement": "client.init(&Address::generate(&env));",
-    "subscription_logging": "client.init(&Address::generate(&env));",
     "subscription_nft": "client.init(&Address::generate(&env), &Address::generate(&env));",
     "subscription_refund": "client.init(&Address::generate(&env), &Address::generate(&env));",
-    "subscription_renewal": "let _ = client.init(&Address::generate(&env));",
     "virtual-card": "",
     "voucher-ledger": "client.init(&Address::generate(&env));",
     "zk-payment-verifier": "",
@@ -66,10 +64,8 @@ CLIENT = {
     "recurring_allowance": ("RecurringAllowanceContract", "RecurringAllowanceContractClient"),
     "resolver-registry": ("ResolverRegistry", "ResolverRegistryClient"),
     "stealth-announcement": ("StealthAnnouncementContract", "StealthAnnouncementContractClient"),
-    "subscription_logging": ("SubscriptionLoggingContract", "SubscriptionLoggingContractClient"),
     "subscription_nft": ("SubscriptionNftContract", "SubscriptionNftContractClient"),
     "subscription_refund": ("SubscriptionRefundContract", "SubscriptionRefundContractClient"),
-    "subscription_renewal": ("SubscriptionRenewalContract", "SubscriptionRenewalContractClient"),
     "virtual-card": ("VirtualCardContract", "VirtualCardContractClient"),
     "voucher-ledger": ("VoucherLedgerContract", "VoucherLedgerContractClient"),
     "zk-payment-verifier": ("ZkPaymentVerifier", "ZkPaymentVerifierClient"),
@@ -85,7 +81,6 @@ IMPORTS = {
     "payment-splitter": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, vec, Address, Env};",
     "resolver-registry": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, Env};",
     "stealth-announcement": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, BytesN, Env};",
-    "subscription_logging": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, BytesN, Env, String};",
     "subscription_nft": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, Env};",
     "subscription_refund": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, Env, String};",
     "voucher-ledger": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, BytesN, Env};",
@@ -96,7 +91,6 @@ IMPORTS = {
     "payment-adapter": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, Env};",
     "recurring_allowance": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, Env};",
     "agent-registry": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, Env};",
-    "subscription_renewal": "use soroban_sdk::{testutils::{Address as _, EnvTestConfig}, Address, Env};",
 }
 
 

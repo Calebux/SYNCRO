@@ -7,8 +7,6 @@ members = [
   "common",
   "contracts",
   "contracts/common",
-  "contracts/subscription_renewal",
-  "contracts/subscription_logging",
   "contracts/virtual-card",
   "contracts/escrow",
   "contracts/agent-registry",
