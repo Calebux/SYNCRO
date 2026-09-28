@@ -55,6 +55,7 @@ When a new decision replaces an existing ADR:
 | [ADR-009](./ADR-009-row-level-security-authorization.md) | Row-Level Security (RLS) as Primary Database Authorization Boundary | Accepted (Retrospective) | 2026-06-12 |
 | [ADR-010](./ADR-010-quota-guard-rate-limiting.md) | Dual-Engine Rate Limiting (Redis Token Bucket + Memory Fallback) | Accepted (Retrospective) | 2026-06-15 |
 | [ADR-011](./ADR-011-direct-token-transfer-renewals.md) | Direct Token Transfer for Recurring Subscription Renewals | Superseded by [ADR-005](./ADR-005-payment-channels-for-renewals.md) | 2026-05-25 |
+| [ADR-016](./ADR-016-upgrade-policy-for-settlement-contracts.md) | Upgrade Path and Versioning for the Settlement Contracts | Proposed | 2026-09-28 |
 
 ---
 

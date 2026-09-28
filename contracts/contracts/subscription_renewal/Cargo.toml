@@ -11,6 +11,7 @@ crate-type = ["cdylib", "rlib"]
 soroban-sdk = { workspace = true }
 subscription_logging = { path = "../subscription_logging" }
 syncro-common = { path = "../../common" }
+syncro-contract-common = { package = "syncro-contract-common", path = "../common" }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }

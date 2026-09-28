@@ -76,6 +76,19 @@ impl ZkPaymentVerifier {
     pub fn is_nullifier_used(env: Env, nullifier: BytesN<32>) -> bool {
         nullifier::is_used(&env, &nullifier)
     }
+
+    /// Returns the contract version.
+    /// Incremented when the implementation changes (used for deployments).
+    pub fn version(_env: Env) -> u32 {
+        syncro_contract_common::version(&_env)
+    }
+
+    /// Returns the contract interface version.
+    /// Incremented when public methods or error handling changes.
+    /// Used to detect API mismatches at runtime.
+    pub fn interface_version(_env: Env) -> u32 {
+        syncro_contract_common::interface_version_call(&_env)
+    }
 }
 
 #[cfg(test)]
