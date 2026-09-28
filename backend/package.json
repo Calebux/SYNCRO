@@ -70,7 +70,7 @@
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.4.0",
     "node-cron": "^4.6.0",
-    "nodemailer": "^8.0.7",
+    "nodemailer": "^10.0.10",
     "imapflow": "^1.0.170",
     "mailparser": "^3.9.28",
     "p-limit": "^3.1.0",
