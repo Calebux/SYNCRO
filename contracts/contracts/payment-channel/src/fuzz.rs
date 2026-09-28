@@ -373,4 +373,82 @@ proptest! {
             prop_assert_eq!(channel.state, ChannelState::Dispute);
         }
     }
+
+    /// Issue #1431: over a generated mix of `top_up` and `submit_state`, the
+    /// two balances must always sum to what has been deposited, and neither may
+    /// go negative. Asserted after every step, not just at the end.
+    #[test]
+    fn fuzz_operation_sequence_conserves_balance(
+        initial in 100i128..=1_000_000i128,
+        ops in prop::collection::vec((0u8..=1u8, 1i128..=50_000i128), 1..=8),
+    ) {
+        let (_env, client, depositor, counterparty, _admin, token) = fuzz_setup();
+        let channel_id = client.open_channel(&depositor, &counterparty, &token, &initial, &100u64);
+
+        let mut deposited = initial;
+        let mut sequence = 0u64;
+
+        for (kind, amount) in &ops {
+            if *kind == 0 {
+                client.top_up(&channel_id, amount, &depositor);
+                deposited = deposited.saturating_add(*amount);
+            } else {
+                // Move part of the pot to B without changing the total.
+                let to_b = (*amount).min(deposited);
+                sequence += 1;
+                client.submit_state(
+                    &channel_id,
+                    &(deposited - to_b),
+                    &to_b,
+                    &sequence,
+                    &depositor,
+                    &counterparty,
+                );
+            }
+
+            let channel = client.get_channel(&channel_id).unwrap();
+            prop_assert!(channel.balance_a >= 0, "balance_a went negative");
+            prop_assert!(channel.balance_b >= 0, "balance_b went negative");
+            prop_assert_eq!(
+                channel.balance_a.saturating_add(channel.balance_b),
+                deposited,
+                "balances stopped summing to the deposited total"
+            );
+        }
+    }
+
+    /// Issue #1431: finalize must pay out the highest sequence submitted before
+    /// the window closed, not the first or the last attempted.
+    #[test]
+    fn fuzz_finalize_pays_highest_submitted_sequence(
+        deposit in 100i128..=1_000_000i128,
+        splits in prop::collection::vec(0i128..=100i128, 2..=6),
+    ) {
+        let (env, client, depositor, counterparty, _admin, token) = fuzz_setup();
+        let channel_id = client.open_channel(&depositor, &counterparty, &token, &deposit, &100u64);
+
+        let mut last = (deposit, 0i128, 0u64);
+        for (i, split) in splits.iter().enumerate() {
+            let to_b = (*split).min(deposit);
+            let sequence = (i as u64) + 1;
+            client.submit_state(
+                &channel_id,
+                &(deposit - to_b),
+                &to_b,
+                &sequence,
+                &depositor,
+                &counterparty,
+            );
+            last = (deposit - to_b, to_b, sequence);
+        }
+
+        client.initiate_close(&channel_id, &last.2, &depositor);
+        env.ledger().set_timestamp(env.ledger().timestamp() + 1_000);
+        client.finalize(&channel_id, &last.2);
+
+        let channel = client.get_channel(&channel_id).unwrap();
+        prop_assert_eq!(channel.sequence, last.2);
+        prop_assert_eq!(channel.balance_a, last.0);
+        prop_assert_eq!(channel.balance_b, last.1);
+    }
 }
