@@ -1,4 +1,3 @@
-import { addDays } from 'date-fns';
 import { toZonedTime, fromZonedTime } from 'date-fns-tz';
 import { UserPreferences, NotificationPriority, NotificationPayload } from '../types/reminder';
 import logger from '../config/logger';
@@ -99,7 +98,8 @@ export class QuietHoursService {
       let candidate = fromZonedTime(localDateStr, tz);
 
       if (candidate <= currentTime) {
-        const nextZoned = addDays(zonedNow, 1);
+        const nextZoned = new Date(zonedNow.getTime());
+        nextZoned.setDate(nextZoned.getDate() + 1);
         const nextYear = nextZoned.getFullYear();
         const nextMonth = String(nextZoned.getMonth() + 1).padStart(2, '0');
         const nextDay = String(nextZoned.getDate()).padStart(2, '0');
