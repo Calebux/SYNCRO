@@ -245,6 +245,16 @@ describe('QuietHoursService — timezone-aware behaviour (Issue #71)', () => {
       expect(service.isInQuietHours(prefs, endTime)).toBe(false);
     });
 
+    it('does not drift by one hour when rolling to the next local day across DST', () => {
+      const prefs = makePrefs({ quiet_hours_timezone: 'America/New_York' });
+      const utcNow = new Date('2026-03-08T03:00:00Z');
+      const endTime = service.getQuietHoursEndTime(prefs, utcNow);
+
+      expect(endTime.toISOString()).not.toBe('2026-03-08T11:00:00.000Z');
+      expect(endTime.toISOString()).toBe('2026-03-08T12:00:00.000Z');
+      expect(service.isInQuietHours(prefs, endTime)).toBe(false);
+    });
+
     /**
      * DST Fall Back: 2026-11-01 in America/New_York (clocks fall back 02:00 EDT -> 01:00 EST).
      * Quiet hours: 22:00–08:00.
