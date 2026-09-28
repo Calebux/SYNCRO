@@ -326,4 +326,153 @@ describe('V3 Gateway & Ops Tests', () => {
       expect(res.body.data.recommendation.optimalBatchThreshold).toBeDefined();
     });
   });
+
+  describe('Issue #1446: Unit definitions beyond request count (tokens, calls, bytes & dropped stream fallback)', () => {
+    it('meters token-billed route correctly using extracted token count from response body', async () => {
+      const agentId = 'agent_token_test';
+      spendCapService.setCap({
+        cardId: 10,
+        agentId,
+        onChainCap: 500,
+        consumedLocal: 0,
+        lastSettledOnChainCap: 500,
+        dailyLimit: 0,
+        monthlyLimit: 0,
+        status: 'active',
+        expiresAt: 0,
+      });
+
+      defaultChannelStateStore.setChannelMembers('chan_token', { payer: 'G_PAYER', provider: 'G_PROVIDER' });
+      defaultChannelStateStore.setLatestSequence('chan_token', 0);
+
+      const proof = {
+        channelId: 'chan_token',
+        sequenceNumber: 1,
+        userBalance: 200,
+        executorBalance: 0,
+        totalDeposited: 200,
+        nonce: 'nonce_token_1',
+        signature: 'mock_valid_signature',
+        payerAddress: 'G_PAYER',
+      };
+      const proofHeader = Buffer.from(JSON.stringify(proof)).toString('base64');
+
+      const res = await request(app)
+        .post('/api/v3/gateway/inference')
+        .set('Authorization', `Bearer ${agentId}`)
+        .set('PAYMENT-SIGNATURE', proofHeader)
+        .send({ usage: { total_tokens: 85 } });
+
+      expect(res.status).toBe(200);
+      expect(res.body.receipt).toBeDefined();
+      expect(res.body.receipt.unitName).toBe('tokens');
+      expect(res.body.receipt.units).toBe(85);
+      expect(res.body.receipt.cost).toBe(8.5);
+      expect(res.body.receipt.fallbackUsed).toBe(false);
+    });
+
+    it('falls back to charging reservation bound when extraction fails or stream is dropped mid-flight', async () => {
+      const agentId = 'agent_fallback_test';
+      spendCapService.setCap({
+        cardId: 11,
+        agentId,
+        onChainCap: 500,
+        consumedLocal: 0,
+        lastSettledOnChainCap: 500,
+        dailyLimit: 0,
+        monthlyLimit: 0,
+        status: 'active',
+        expiresAt: 0,
+      });
+
+      defaultChannelStateStore.setChannelMembers('chan_fallback', { payer: 'G_PAYER', provider: 'G_PROVIDER' });
+      defaultChannelStateStore.setLatestSequence('chan_fallback', 0);
+
+      const proof = {
+        channelId: 'chan_fallback',
+        sequenceNumber: 1,
+        userBalance: 200,
+        executorBalance: 0,
+        totalDeposited: 200,
+        nonce: 'nonce_fallback_1',
+        signature: 'mock_valid_signature',
+        payerAddress: 'G_PAYER',
+      };
+      const proofHeader = Buffer.from(JSON.stringify(proof)).toString('base64');
+
+      const res = await request(app)
+        .post('/api/v3/gateway/inference')
+        .set('Authorization', `Bearer ${agentId}`)
+        .set('PAYMENT-SIGNATURE', proofHeader)
+        .send({ simulateDroppedStream: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body.receipt).toBeDefined();
+      expect(res.body.receipt.unitName).toBe('tokens');
+      expect(res.body.receipt.units).toBe(100);
+      expect(res.body.receipt.cost).toBe(10);
+      expect(res.body.receipt.fallbackUsed).toBe(true);
+    });
+
+    it('meters call-billed and token-billed routes correctly through the exact same code path', async () => {
+      const agentId = 'agent_dual_test';
+      spendCapService.setCap({
+        cardId: 12,
+        agentId,
+        onChainCap: 500,
+        consumedLocal: 0,
+        lastSettledOnChainCap: 500,
+        dailyLimit: 0,
+        monthlyLimit: 0,
+        status: 'active',
+        expiresAt: 0,
+      });
+
+      defaultChannelStateStore.setChannelMembers('chan_dual', { payer: 'G_PAYER', provider: 'G_PROVIDER' });
+      defaultChannelStateStore.setLatestSequence('chan_dual', 0);
+
+      // Call 1: Call-billed route
+      const proof1 = {
+        channelId: 'chan_dual',
+        sequenceNumber: 1,
+        userBalance: 200,
+        executorBalance: 0,
+        totalDeposited: 200,
+        nonce: 'nonce_dual_1',
+        signature: 'mock_valid_signature',
+        payerAddress: 'G_PAYER',
+      };
+      const res1 = await request(app)
+        .post('/api/v3/gateway/proxy')
+        .set('Authorization', `Bearer ${agentId}`)
+        .set('PAYMENT-SIGNATURE', Buffer.from(JSON.stringify(proof1)).toString('base64'))
+        .send({ prompt: 'call-billed test' });
+
+      expect(res1.status).toBe(200);
+      expect(res1.body.receipt.unitName).toBe('calls');
+      expect(res1.body.receipt.units).toBe(1);
+
+      // Call 2: Token-billed route
+      const proof2 = {
+        channelId: 'chan_dual',
+        sequenceNumber: 2,
+        userBalance: 200,
+        executorBalance: 0,
+        totalDeposited: 200,
+        nonce: 'nonce_dual_2',
+        signature: 'mock_valid_signature',
+        payerAddress: 'G_PAYER',
+      };
+      const res2 = await request(app)
+        .post('/api/v3/gateway/inference')
+        .set('Authorization', `Bearer ${agentId}`)
+        .set('PAYMENT-SIGNATURE', Buffer.from(JSON.stringify(proof2)).toString('base64'))
+        .send({ usage: { total_tokens: 150 } });
+
+      expect(res2.status).toBe(200);
+      expect(res2.body.receipt.unitName).toBe('tokens');
+      expect(res2.body.receipt.units).toBe(150);
+      expect(res2.body.receipt.cost).toBe(15);
+    });
+  });
 });
