@@ -126,6 +126,8 @@ export class RenewalExecutor {
         stealthAddress,
       );
 
+      
+
       if (!contractResult.success) {
         return await this.logFailure(subscriptionId, userId, 'contract_failure', contractResult.error);
       }
@@ -183,7 +185,7 @@ export class RenewalExecutor {
     return lastResult!;
   }
 
-  private async checkApproval(
+  async checkApproval(
     subscriptionId: string,
     approvalId: string,
     amount: number
@@ -211,7 +213,7 @@ export class RenewalExecutor {
     return { valid: true };
   }
 
-  private async validateBillingWindow(
+  async validateBillingWindow(
     subscriptionId: string
   ): Promise<{ valid: boolean; reason?: string; billingCycle?: 'monthly' | 'quarterly' | 'yearly' }> {
     const { data: subscription, error } = await this.supabase
@@ -266,7 +268,7 @@ export class RenewalExecutor {
     userId: string,
     subscriptionId: string,
     amount: number,
-  ): Promise<{ used: boolean }> {
+  ): Promise<{ used: boolean; channelId?: string }> {
     if (env.PAYMENT_CHANNELS_ENABLED !== 'true') {
       return { used: false };
     }
@@ -285,7 +287,7 @@ export class RenewalExecutor {
         channelId: channel.id,
         subscriptionId,
       });
-      return { used: true };
+      return { used: true, channelId: channel.id };
     } catch (err) {
       this.logger.warn('Channel renewal failed, falling back to on-chain', {
         subscriptionId,
@@ -295,7 +297,22 @@ export class RenewalExecutor {
     }
   }
 
-  private async triggerContractRenewal(
+    async enqueueSettlement(params: {
+    userId: string;
+    subscriptionId: string;
+    amount: number;
+    approvalId: string;
+  }): Promise<string> {
+    return this.settlementBatcher.enqueue({
+      userId: params.userId,
+      subscriptionId: params.subscriptionId,
+      amount: params.amount,
+      settlementType: 'renewal',
+      payload: { approvalId: params.approvalId },
+    });
+  }
+
+ async triggerContractRenewal(
     subscriptionId: string,
     approvalId: string,
     amount: number,
@@ -326,7 +343,7 @@ export class RenewalExecutor {
     }
   }
 
-  private async updateSubscription(
+  async updateSubscription(
     subscriptionId: string,
     billingCycle: 'monthly' | 'quarterly' | 'yearly',
     transactionHash?: string
@@ -360,7 +377,7 @@ export class RenewalExecutor {
       .eq('id', subscriptionId);
   }
 
-  private async logSuccess(
+  async logSuccess(
     subscriptionId: string,
     userId: string,
     transactionHash?: string,
