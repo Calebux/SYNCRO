@@ -124,6 +124,22 @@ pub struct AllowanceCapsUpdated {
     pub absolute_cap: i128,
 }
 
+/// Emitted when the contract is paused or unpaused (suspend lifecycle).
+#[contractevent]
+pub struct AllowancePaused {
+    pub paused: bool,
+    pub schema_version: u32,
+}
+
+/// Emitted when a consumption or caps update crosses into a new period
+/// window. Indexers tracking per-period spend must reset their window on this.
+#[contractevent]
+pub struct PeriodRolledOver {
+    pub allowance_id: u64,
+    pub new_period_start: u64,
+    pub schema_version: u32,
+}
+
 // ── Contract ────────────────────────────────────────────────────────────────────
 
 #[contract]
@@ -155,12 +171,22 @@ impl AllowanceContract {
     pub fn pause(env: Env) {
         Self::require_admin(&env);
         env.storage().instance().set(&DataKey::Paused, &true);
+        AllowancePaused {
+            paused: true,
+            schema_version: syncro_common::event_schema_version(),
+        }
+        .publish(&env);
     }
 
     /// Resume the contract. Admin only.
     pub fn unpause(env: Env) {
         Self::require_admin(&env);
         env.storage().instance().set(&DataKey::Paused, &false);
+        AllowancePaused {
+            paused: false,
+            schema_version: syncro_common::event_schema_version(),
+        }
+        .publish(&env);
     }
 
     /// Whether the contract is currently paused.
@@ -312,7 +338,10 @@ impl AllowanceContract {
         }
 
         // Reconcile the current period before validating against spent amounts.
-        Self::roll_period(&env, &mut allowance);
+        let rolled = Self::roll_period(&env, &mut allowance);
+        if rolled {
+            Self::publish_rollover(&env, allowance_id, allowance.period_start);
+        }
 
         if absolute_cap < allowance.total_spent || period_cap < allowance.period_spent {
             panic_with_error!(&env, AllowanceError::CapBelowSpent);
@@ -360,7 +389,10 @@ impl AllowanceContract {
         allowance.merchant.require_auth();
 
         // Reset the period window if the current one has fully elapsed.
-        Self::roll_period(&env, &mut allowance);
+        let rolled = Self::roll_period(&env, &mut allowance);
+        if rolled {
+            Self::publish_rollover(&env, allowance_id, allowance.period_start);
+        }
 
         // Enforce caps. Use checked arithmetic to be defensive against overflow.
         let new_period_spent = allowance
@@ -448,15 +480,27 @@ impl AllowanceContract {
     /// Advance `period_start` and reset `period_spent` if one or more full
     /// periods have elapsed since the current window began. The new window is
     /// aligned to period boundaries so caps track fixed cycles rather than
-    /// drifting with each pull.
-    fn roll_period(env: &Env, allowance: &mut Allowance) {
+    /// drifting with each pull. Returns true when the window actually rolled.
+    /// Callers that persist the allowance afterwards publish the rollover.
+    fn roll_period(env: &Env, allowance: &mut Allowance) -> bool {
         let now = env.ledger().timestamp();
         let elapsed = now.saturating_sub(allowance.period_start);
         if elapsed >= allowance.period_length {
             let periods = elapsed / allowance.period_length;
             allowance.period_start += periods * allowance.period_length;
             allowance.period_spent = 0;
+            return true;
         }
+        false
+    }
+
+    fn publish_rollover(env: &Env, allowance_id: u64, new_period_start: u64) {
+        PeriodRolledOver {
+            allowance_id,
+            new_period_start,
+            schema_version: syncro_common::event_schema_version(),
+        }
+        .publish(env);
     }
 
     /// Returns the contract version.
