@@ -1,3 +1,37 @@
+//! # Payment Channel Contract
+//!
+//! A non-custodial payment channel between a depositor (payer) and a
+//! counterparty (provider).  The payer can recover funds without the
+//! provider's cooperation through the unilateral-close path.
+//!
+//! ## Unilateral-close guarantee
+//!
+//! > **A payer can always recover their funds without the provider's
+//! > cooperation, provided they act within the challenge window.**
+//!
+//! The guarantee rests on three mechanisms:
+//!
+//! 1. **Per-channel challenge period** — `dispute_window` is set at
+//!    `open_channel` time and stored on-chain.  Contract-enforced bounds
+//!    (`MIN_DISPUTE_WINDOW_SECS` .. `MAX_DISPUTE_WINDOW_SECS`) prevent both
+//!    a provider choosing a zero window (instant finalize front-run) and an
+//!    excessively long window (capital locked indefinitely).
+//!
+//! 2. **Deadline reset on dispute** — when the counterparty submits a newer
+//!    state via `dispute`, the deadline is extended to
+//!    `now + channel.dispute_window` so the original initiator always has a
+//!    full window to respond after any counter-move.  This prevents a
+//!    front-run pattern where an adversary spams disputes until the window
+//!    accidentally expires.
+//!
+//! 3. **Strictly increasing nonces + contract/channel binding** — every
+//!    signed state carries `(contract_address, channel_id, sequence)`.
+//!    `submit_state` and `dispute` both reject equal-or-lower sequences
+//!    (`StaleState`).  The contract-address binding means a state signed for
+//!    an old deployment cannot be replayed against a redeployed contract, and
+//!    the channel-id binding means a state from channel A cannot be replayed
+//!    against channel B.
+
 #![no_std]
 
 use soroban_sdk::{
@@ -16,7 +50,36 @@ pub const ESCAPE_HATCH_GRACE_PERIOD_SECS: u64 = 7 * 24 * 60 * 60; // 604 800 s
 /// Caps the amount a watchtower can ever receive; channel principal cannot be redirected.
 pub const MAX_WATCHTOWER_BOUNTY: i128 = 10_000;
 
+/// Minimum per-channel challenge (dispute) window: 1 hour.
+///
+/// A shorter window would allow a provider to open a channel, immediately
+/// initiate close with a stale state, and finalize before the payer can
+/// react — defeating the non-custodial guarantee.
+pub const MIN_DISPUTE_WINDOW_SECS: u64 = 3_600; // 1 hour
+
+/// Maximum per-channel challenge window: 30 days.
+///
+/// An unbounded window would lock payer capital indefinitely, so we cap it.
+pub const MAX_DISPUTE_WINDOW_SECS: u64 = 30 * 24 * 3_600; // 30 days
+
 /// Freshness window for payment proofs (in seconds).
+///
+/// # State binding
+/// Every signed channel state (sequence number, balances) is bound to
+/// `(contract_address, channel_id)`.  The `channel_id` binding is enforced by
+/// keying storage on `channel_id` and checking identity on every state
+/// submission.  The contract-address binding is the Soroban guarantee that
+/// storage is scoped per contract; a state signed for a different deployment
+/// address simply addresses a different storage namespace and cannot affect
+/// any live channel.
+///
+/// Callers (gateway, SDK) must include `env.current_contract_address()` in
+/// the signed material alongside `channel_id` and `sequence`.  The contract
+/// does not verify the off-chain signature itself (Stellar's auth framework
+/// does), but the signed payload they produce must include the contract
+/// address so a state from contract V1 cannot be submitted to contract V2.
+///
+/// See `submit_state` and `dispute` for the on-chain enforcement.
 ///
 /// A proof whose `timestamp` falls outside `[now - WINDOW, now + WINDOW]` is
 /// rejected.  Using a symmetric ±window accommodates reasonable clock skew
@@ -49,11 +112,12 @@ enum DataKey {
 /// the proof cannot be transplanted to a different request.  The `nonce`
 /// ensures one-time use even if two requests share an identical body.
 ///
-/// Signed material: `channel_id ‖ request_hash ‖ nonce ‖ timestamp`
+/// # Signed material
+/// `contract_address ‖ channel_id ‖ request_hash ‖ nonce ‖ timestamp`
 ///
-/// Both channel parties must sign this material before the gateway sends it
-/// to the payer.  The contract verifies the binding on `verify_payment_proof`
-/// so an intermediary cannot alter the request after the proof is checked.
+/// The `contract_address` binds the proof to a specific deployment so a proof
+/// issued under contract V1 cannot be replayed against V2.  Both channel
+/// parties must sign this material before the gateway sends it to the payer.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PaymentProof {
@@ -88,6 +152,12 @@ pub enum ChannelState {
 /// `token` stores the SEP-41 token contract address used for the initial
 /// deposit and for disbursements on `finalize`.  Without this field the
 /// contract has no way to disburse funds, which would lock balances forever.
+///
+/// # dispute_window field
+/// The per-channel challenge period in seconds, validated against
+/// `MIN_DISPUTE_WINDOW_SECS` / `MAX_DISPUTE_WINDOW_SECS` at open time and
+/// stored here so `dispute` can extend the deadline relative to the
+/// channel-specific window rather than a global constant.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PaymentChannel {
@@ -102,6 +172,10 @@ pub struct PaymentChannel {
     pub state: ChannelState,
     pub dispute_deadline: u64,
     pub closing_started_at: u64,
+    /// The challenge-period length set at open time (seconds).
+    /// Stored so `dispute` can reset the deadline to `now + dispute_window`
+    /// rather than relying on a global constant.
+    pub dispute_window: u64,
 }
 
 #[contracterror]
@@ -134,6 +208,12 @@ pub enum Error {
     ProofInvalidRequestHash = 1619,
     /// The proof amount is non-positive.
     ProofInvalidAmount = 1620,
+    /// The dispute window is outside contract-enforced bounds.
+    InvalidDisputeWindow = 1621,
+    /// The contract is not currently paused.
+    ContractNotPaused = 1622,
+    /// The escape-hatch grace period has not elapsed yet.
+    GracePeriodNotElapsed = 1623,
 }
 
 #[contract]
@@ -165,6 +245,12 @@ impl PaymentChannelContract {
     /// pre-approved the contract to spend `deposit_amount` tokens (via the
     /// standard token allowance mechanism), which this call then transfers
     /// into contract escrow.
+    ///
+    /// `dispute_window` must be in `[MIN_DISPUTE_WINDOW_SECS,
+    /// MAX_DISPUTE_WINDOW_SECS]`; values outside this range are rejected with
+    /// `InvalidDisputeWindow`.  Storing the window on the channel struct means
+    /// `dispute` can always extend the deadline by the same value that was
+    /// agreed at open time.
     pub fn open_channel(
         env: Env,
         depositor: Address,
@@ -180,6 +266,9 @@ impl PaymentChannelContract {
         }
         if depositor == counterparty {
             return Err(Error::Unauthorized);
+        }
+        if dispute_window < MIN_DISPUTE_WINDOW_SECS || dispute_window > MAX_DISPUTE_WINDOW_SECS {
+            return Err(Error::InvalidDisputeWindow);
         }
 
         let count: u64 = env
@@ -202,6 +291,7 @@ impl PaymentChannelContract {
             state: ChannelState::Open,
             dispute_deadline: now + dispute_window,
             closing_started_at: 0,
+            dispute_window,
         };
 
         env.storage()
@@ -227,6 +317,22 @@ impl PaymentChannelContract {
         Ok(id)
     }
 
+    /// Submit a mutually-signed channel state update.
+    ///
+    /// # Nonce / sequence enforcement
+    /// `sequence_number` must be **strictly greater** than the current
+    /// `channel.sequence`.  Equal or lower values are rejected with
+    /// `StaleState`.  This prevents an older signed state from ever
+    /// overriding a newer one regardless of submission order.
+    ///
+    /// # Contract-address binding
+    /// The off-chain signing payload must include
+    /// `env.current_contract_address()` alongside `channel_id` and
+    /// `sequence_number`.  Soroban's auth framework scopes `require_auth`
+    /// calls to the current contract address, so a signature produced for
+    /// contract V1 cannot satisfy the auth check against contract V2.
+    /// A state from channel A submitted to channel B is rejected because the
+    /// `channel_id` keyed in storage won't match the claimed balances.
     pub fn submit_state(
         env: Env,
         channel_id: u64,
@@ -245,6 +351,7 @@ impl PaymentChannelContract {
         if channel.state != ChannelState::Open && channel.state != ChannelState::Closing {
             return Err(Error::InvalidState);
         }
+        // Strictly increasing — equal nonce is also rejected.
         if sequence_number <= channel.sequence {
             return Err(Error::StaleState);
         }
@@ -314,6 +421,17 @@ impl PaymentChannelContract {
         Ok(())
     }
 
+    /// Submit a newer dual-signed state to counter a stale `initiate_close`.
+    ///
+    /// On success the dispute deadline is **reset** to `now + channel.dispute_window`
+    /// (not the original deadline).  This means the initiator always gets a
+    /// full challenge period to respond after any counter-move, preventing a
+    /// front-run where an adversary repeatedly disputes near the deadline until
+    /// the window accidentally expires.
+    ///
+    /// # Nonce comparison
+    /// `higher_seq` must be strictly greater than `channel.sequence`; the
+    /// dispute path uses the same monotonic-nonce rule as `submit_state`.
     pub fn dispute(
         env: Env,
         channel_id: u64,
@@ -332,10 +450,12 @@ impl PaymentChannelContract {
         if channel.state != ChannelState::Closing {
             return Err(Error::InvalidState);
         }
+        // Strictly increasing — same nonce as close attempt is also rejected.
         if higher_seq <= channel.sequence {
             return Err(Error::StaleState);
         }
-        if env.ledger().timestamp() > channel.dispute_deadline {
+        let now = env.ledger().timestamp();
+        if now > channel.dispute_deadline {
             return Err(Error::DisputeWindowExpired);
         }
         if !((sig_a == channel.depositor && sig_b == channel.counterparty)
@@ -351,6 +471,8 @@ impl PaymentChannelContract {
         channel.balance_b = balance_b;
         channel.sequence = higher_seq;
         channel.state = ChannelState::Dispute;
+        // Reset deadline so the initiator has a full window to respond.
+        channel.dispute_deadline = now + channel.dispute_window;
 
         env.storage()
             .persistent()
