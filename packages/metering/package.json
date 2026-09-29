@@ -12,8 +12,8 @@
     "load:budget": "tsx load/run.ts --budget --report load/budget.json",
     "load:ci": "tsx load/run.ts --budget --report load/budget.json --ci"
   },
-  "dependencies": {},
   "devDependencies": {
+    "@types/node": "^20.19.43",
     "tsx": "^4.7.0",
     "typescript": "^5.4.0",
     "vitest": "^1.4.0"
