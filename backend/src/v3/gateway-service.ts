@@ -20,6 +20,7 @@ import {
   RegisteredRoute,
   ScopeRejectionError,
 } from './types';
+import type { Meter, MeterReservation, MeterReading } from '../../../packages/metering/src/meter';
 
 export interface UpstreamResult {
   status: number;
@@ -71,6 +72,14 @@ export class V3GatewayService {
     private readonly enforcer: ScopeEnforcer,
     private readonly receipts: ReceiptService,
     private readonly upstream: UpstreamCaller,
+    /**
+     * Metering core instance. Injected so tests can use InMemoryMeter and
+     * production can swap to a durable implementation without touching this file.
+     *
+     * The Meter interface (reserve / commit / release / read) is the only
+     * surface the gateway needs; all internal accounting is behind it.
+     */
+    private readonly meter: Meter,
   ) {}
 
   registerProvider(input: RegisterProviderInput): ProviderRegistration {
@@ -161,6 +170,10 @@ export class V3GatewayService {
     receipt: PaidReceipt;
     route: RegisteredRoute;
     inlineReceiptHeader: string | null;
+    /** Metering reading at the time the call was settled. */
+    meterReading: MeterReading;
+    /** True when the meter is operating in degraded mode for this principal. */
+    meterDegraded: boolean;
   }> {
     const provider = this.getProviderOrThrow(input.providerId);
     if (!provider.payoutVerified) {
@@ -181,22 +194,53 @@ export class V3GatewayService {
     });
 
     const quantity = input.quantity ?? 1;
-    const amount = route.price * quantity;
+    // upperBound: reserve for the worst-case quantity (may exceed actual).
+    const upperBound = quantity;
 
-    const upstream = await this.upstream.call({
-      upstreamBaseUrl: provider.upstreamBaseUrl,
-      method: input.method,
-      path: input.path,
-      body: input.body,
-    });
+    // -----------------------------------------------------------------------
+    // 1. Reserve — hold upperBound quota before touching the upstream.
+    //    This prevents two concurrent calls from racing through a shared quota.
+    // -----------------------------------------------------------------------
+    const reservation: MeterReservation = this.meter.reserve(
+      input.agentId,
+      route.scopeKey,
+      upperBound,
+    );
+
+    let upstream: UpstreamResult;
+
+    try {
+      upstream = await this.upstream.call({
+        upstreamBaseUrl: provider.upstreamBaseUrl,
+        method: input.method,
+        path: input.path,
+        body: input.body,
+      });
+    } catch (err) {
+      // -----------------------------------------------------------------------
+      // 3a. Release — upstream failed; return the full hold.
+      //     A failed call is not a free call in the product spec, but we do not
+      //     charge for it either — we simply release the reservation and let
+      //     the caller decide on retry policy.
+      // -----------------------------------------------------------------------
+      this.meter.release(reservation.id);
+      throw err;
+    }
+
+    // -----------------------------------------------------------------------
+    // 2. Commit — settle against actual usage; releases unused headroom.
+    // -----------------------------------------------------------------------
+    const { charged } = this.meter.commit(reservation.id, quantity);
 
     const meteredAt = new Date().toISOString();
     const applicable = this.providers.applicableVersion(route.routeId, meteredAt);
+    const amount = route.price * charged;
+
     const receipt = this.receipts.issueReceipt({
       receiptId: randomUUID(),
       route: route.scopeKey,
       unit: route.unit,
-      quantity,
+      quantity: charged,
       amount,
       rateCardVersion: input.rateCardVersion,
       exchangeRate: input.exchangeRate ?? null,
@@ -214,7 +258,7 @@ export class V3GatewayService {
       method: route.method,
       pathPattern: route.pathPattern,
       unit: route.unit,
-      quantity,
+      quantity: charged,
       price: applicable?.price ?? route.price,
       amount,
       rateCardVersion: applicable?.label ?? input.rateCardVersion,
@@ -225,6 +269,11 @@ export class V3GatewayService {
     };
     this.providers.recordSettlement(settlement);
 
+    // -----------------------------------------------------------------------
+    // 4. Read — snapshot the meter state for the receipt and callers.
+    // -----------------------------------------------------------------------
+    const meterReading = this.meter.read(input.agentId);
+
     return {
       upstream,
       route,
@@ -232,6 +281,8 @@ export class V3GatewayService {
       inlineReceiptHeader: this.receipts.headerFitsInline(receipt)
         ? this.receipts.encodeHeaderValue(receipt)
         : null,
+      meterReading,
+      meterDegraded: reservation.degraded,
     };
   }
 
@@ -251,4 +302,3 @@ export class V3GatewayService {
     return provider;
   }
 }
-
