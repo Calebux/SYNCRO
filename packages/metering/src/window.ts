@@ -1,5 +1,5 @@
 /**
- * Aggregation windows for the metering layer (Issue #1443).
+ * Aggregation windows for the metering layer (Issue #1443, #448).
  *
  * Every consumer of usage data has a different granularity:
  *  - **Admission** needs the current window's consumed amount in single-digit
@@ -23,7 +23,19 @@
  * 4. Late-arriving commits are never silently dropped: they are either
  *    redirected to a "late" ledger that the settlement layer can inspect, or
  *    rejected with a `LateArrivalError` when the window is already settled.
+ *
+ * Clock policy (ADR-017)
+ * ----------------------
+ * The `meterTimestampMs` parameter to `recordUsage()` MUST be the meter's own
+ * clock value — i.e. `meterClock.now()`. It must NEVER be a client-supplied
+ * timestamp. Client timestamps are stored as `clientTimestampMs` for audit
+ * purposes only and are never used for window boundary calculations.
+ *
+ * Every record carries a `clockSource` field so post-hoc audits can identify
+ * which clock produced the timestamp.
  */
+
+import type { ClockSource } from './clock';
 
 // ---------------------------------------------------------------------------
 // Window boundary math
@@ -112,14 +124,14 @@ export class CurrentWindowCounter {
 
   /**
    * Increment the counter for `principal` in the window that contains
-   * `timestampMs`. Returns the running total after the increment.
+   * `meterTimestampMs`.
    *
-   * If `timestampMs` is in a window that the `ClosedWindowStore` has already
-   * sealed, the caller must handle the late-arrival case before calling this.
+   * @param meterTimestampMs - MUST be the meter clock's value. Never a
+   *   client-supplied timestamp. (ADR-017)
    */
-  increment(principal: string, timestampMs: number, amount: number): number {
-    if (amount <= 0) return this.counters.get(counterKey(principal, windowBoundary(timestampMs, this.durationMs))) ?? 0;
-    const start = windowBoundary(timestampMs, this.durationMs);
+  increment(principal: string, meterTimestampMs: number, amount: number): number {
+    if (amount <= 0) return this.counters.get(counterKey(principal, windowBoundary(meterTimestampMs, this.durationMs))) ?? 0;
+    const start = windowBoundary(meterTimestampMs, this.durationMs);
     const key = counterKey(principal, start);
     const next = (this.counters.get(key) ?? 0) + amount;
     this.counters.set(key, next);
@@ -151,14 +163,23 @@ export class CurrentWindowCounter {
  * Snapshot of a closed window. Once a `ClosedWindowRecord` is written it
  * MUST NOT be mutated: settlement reads this value and relies on it being
  * stable.
+ *
+ * `clockSource` records which clock produced the `sealedAt` timestamp so
+ * post-hoc audits can identify records made under unusual clock conditions.
+ * (ADR-017)
  */
 export interface ClosedWindowRecord {
   principal: string;
   windowStart: number;
   windowEnd: number;
   totalUsed: number;
-  /** Unix ms when the window was sealed by `closeWindow()`. */
+  /** Unix ms when the window was sealed by `closeWindow()`. Meter clock. */
   sealedAt: number;
+  /**
+   * Which clock produced `sealedAt`. Always 'system' in production;
+   * 'test' in unit tests using TestClock. (ADR-017)
+   */
+  clockSource: ClockSource;
 }
 
 /**
@@ -233,13 +254,27 @@ export class ClosedWindowStore {
  */
 export type LateArrivalPolicy = 'redirect' | 'reject';
 
-/** Carries a late commit that was redirected rather than silently dropped. */
+/**
+ * Carries a late commit that was redirected rather than silently dropped.
+ *
+ * `meterTimestampMs` is the meter clock value at commit time. `clientTimestampMs`
+ * is the caller-supplied timestamp stored for audit; it was NOT used for window
+ * placement. (ADR-017)
+ */
 export interface LateRecord {
   principal: string;
   originalWindowStart: number;
-  timestampMs: number;
+  /** Meter clock value at the time of the late commit. Used for window placement. */
+  meterTimestampMs: number;
+  /**
+   * Client-supplied timestamp, stored for audit only. Never used for window
+   * boundary computation. (ADR-017)
+   */
+  clientTimestampMs?: number;
   amount: number;
   redirectedAt: number;
+  /** Which clock produced `meterTimestampMs`. (ADR-017) */
+  clockSource: ClockSource;
 }
 
 // ---------------------------------------------------------------------------
@@ -249,19 +284,30 @@ export interface LateRecord {
 export interface WindowStoreOptions {
   /** Width of each aggregation window in milliseconds. */
   durationMs: number;
-  /** Injected clock; defaults to `Date.now`. */
+  /** Injected meter clock; defaults to `Date.now`. (ADR-017) */
   clock?: WindowClock;
   /** What to do with commits that arrive after the window is sealed. */
   lateArrivalPolicy?: LateArrivalPolicy;
+  /**
+   * Clock source label for records produced by this store. Defaults to 'system'.
+   * Use 'test' when injecting a TestClock. (ADR-017)
+   */
+  clockSource?: ClockSource;
 }
 
 /**
  * Coordinates the current-window counter and the closed-window store.
  *
  * ## Write path (`recordUsage`)
- * 1. Compute the window boundary for the commit's timestamp.
+ * 1. Compute the window boundary for the commit's **meter** timestamp.
  * 2. If the window is already sealed → apply late-arrival policy.
  * 3. Otherwise → increment the in-memory counter.
+ *
+ * ## Clock contract (ADR-017)
+ * `meterTimestampMs` passed to `recordUsage()` MUST be the meter clock's own
+ * value — i.e. `this.clock()` from the owning `InMemoryMeter`. It must never
+ * be a client-supplied timestamp. Client timestamps are stored as
+ * `clientTimestampMs` for audit and are never used for boundary computation.
  *
  * ## Close path (`closeWindow`)
  * 1. Drain the in-memory counter for the window.
@@ -280,19 +326,27 @@ export class WindowStore {
 
   private readonly lateArrivalPolicy: LateArrivalPolicy;
   private readonly clock: WindowClock;
+  private readonly clockSource: ClockSource;
 
   constructor(options: WindowStoreOptions) {
     this.durationMs = options.durationMs;
     this.clock = options.clock ?? defaultClock;
     this.lateArrivalPolicy = options.lateArrivalPolicy ?? 'redirect';
+    this.clockSource = options.clockSource ?? 'system';
     this.counter = new CurrentWindowCounter(this.durationMs, this.clock);
     this.closed = new ClosedWindowStore();
   }
 
   /**
-   * Record usage for `principal` at `timestampMs`.
+   * Record usage for `principal` at `meterTimestampMs`.
    *
-   * - If the window containing `timestampMs` is open: fast in-memory
+   * ## IMPORTANT — clock contract (ADR-017)
+   * `meterTimestampMs` MUST be the meter's own clock value. It must NEVER be a
+   * client-supplied timestamp (e.g. from a request header or signed payload).
+   * Client timestamps must be passed separately as `clientTimestampMs` and are
+   * stored for audit only — they do not influence window placement.
+   *
+   * - If the window containing `meterTimestampMs` is open: fast in-memory
    *   increment; no I/O.
    * - If the window is already sealed: late-arrival policy applies.
    *
@@ -301,34 +355,37 @@ export class WindowStore {
    */
   recordUsage(
     principal: string,
-    timestampMs: number,
+    meterTimestampMs: number,
     amount: number,
+    clientTimestampMs?: number,
   ): number | undefined {
     if (amount <= 0) {
-      const ws = windowBoundary(timestampMs, this.durationMs);
+      const ws = windowBoundary(meterTimestampMs, this.durationMs);
       return this.counter.peek(principal, ws);
     }
 
-    const ws = windowBoundary(timestampMs, this.durationMs);
+    const ws = windowBoundary(meterTimestampMs, this.durationMs);
 
     if (this.closed.isSealed(principal, ws)) {
       // Late arrival — apply the configured policy.
       if (this.lateArrivalPolicy === 'reject') {
-        throw new LateArrivalError(principal, ws, timestampMs);
+        throw new LateArrivalError(principal, ws, meterTimestampMs);
       }
       // redirect: record in the late ledger and return undefined so the caller
       // knows the write did not land in the primary counter.
       this.lateRecords.push({
         principal,
         originalWindowStart: ws,
-        timestampMs,
+        meterTimestampMs,
+        clientTimestampMs,
         amount,
         redirectedAt: this.clock(),
+        clockSource: this.clockSource,
       });
       return undefined;
     }
 
-    return this.counter.increment(principal, timestampMs, amount);
+    return this.counter.increment(principal, meterTimestampMs, amount);
   }
 
   /**
@@ -349,6 +406,7 @@ export class WindowStore {
       windowEnd: windowStart + this.durationMs,
       totalUsed,
       sealedAt: this.clock(),
+      clockSource: this.clockSource,
     };
     this.closed.seal(record);
     return record;

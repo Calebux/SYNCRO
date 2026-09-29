@@ -43,6 +43,22 @@ export {
   type InMemoryMeterOptions,
 } from './meter';
 
+// Clock abstractions (ADR-017)
+export {
+  SystemClock,
+  TestClock,
+  ClockSkewGuard,
+  ClockSkewError,
+  assertNoClientTimestamp,
+  systemClock,
+  MAX_SKEW_MS,
+  HARD_SKEW_MS,
+  type MeterClock,
+  type ClockSource,
+  type SkewWarning,
+  type SkewAlertCallback,
+} from './clock';
+
 // Degraded-mode evaluator (port of quota_guard/degraded_mode.py)
 export type {
   DegradedModeEvaluator,
