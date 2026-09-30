@@ -171,17 +171,6 @@ export type CanonicalGiftCardLedgerStatus =
 
 /**
  * Validates whether a state transition is permitted under canonical state machine rules
+ * @deprecated Import from '@syncro/shared/logic/state-machines'
  */
-export function isValidSubscriptionTransition(
-  fromState: CanonicalSubscriptionState,
-  toState: CanonicalSubscriptionState,
-): boolean {
-  return VALID_SUBSCRIPTION_TRANSITIONS[fromState]?.includes(toState) ?? false;
-}
-
-export function isValidRenewalTransition(
-  fromState: CanonicalRenewalState,
-  toState: CanonicalRenewalState,
-): boolean {
-  return VALID_RENEWAL_TRANSITIONS[fromState]?.includes(toState) ?? false;
-}
+export { isValidSubscriptionTransition, isValidRenewalTransition } from '../logic/state-machines';
