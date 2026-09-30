@@ -1,5 +1,5 @@
 [package]
-name = "subscription_refund"
+name = "loyalty-rewards"
 version = "0.0.1"
 edition = "2021"
 publish = false
@@ -13,4 +13,3 @@ syncro-contract-common = { package = "syncro-contract-common", path = "../common
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
-proptest = { workspace = true }

@@ -1,6 +1,6 @@
 [package]
-name = "recurring_allowance"
-version = "0.1.0"
+name = "subscription-nft"
+version = "0.0.1"
 edition = "2021"
 publish = false
 

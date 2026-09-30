@@ -696,229 +696,229 @@
       "local_code": 11
     },
     "2300": {
-      "contract": "subscription_refund",
+      "contract": "subscription-refund",
       "variant": "AlreadyInitialized",
       "global_code": 2300,
       "local_code": 1
     },
     "2301": {
-      "contract": "subscription_refund",
+      "contract": "subscription-refund",
       "variant": "NotInitialized",
       "global_code": 2301,
       "local_code": 2
     },
     "2302": {
-      "contract": "subscription_refund",
+      "contract": "subscription-refund",
       "variant": "Unauthorized",
       "global_code": 2302,
       "local_code": 3
     },
     "2303": {
-      "contract": "subscription_refund",
+      "contract": "subscription-refund",
       "variant": "ChargeNotFound",
       "global_code": 2303,
       "local_code": 4
     },
     "2304": {
-      "contract": "subscription_refund",
+      "contract": "subscription-refund",
       "variant": "AlreadyRefunded",
       "global_code": 2304,
       "local_code": 5
     },
     "2305": {
-      "contract": "subscription_refund",
+      "contract": "subscription-refund",
       "variant": "InvalidAmount",
       "global_code": 2305,
       "local_code": 6
     },
     "2306": {
-      "contract": "subscription_refund",
+      "contract": "subscription-refund",
       "variant": "DisputeNotFound",
       "global_code": 2306,
       "local_code": 7
     },
     "2307": {
-      "contract": "subscription_refund",
+      "contract": "subscription-refund",
       "variant": "DisputeAlreadyExists",
       "global_code": 2307,
       "local_code": 8
     },
     "2308": {
-      "contract": "subscription_refund",
+      "contract": "subscription-refund",
       "variant": "DisputeNotApproved",
       "global_code": 2308,
       "local_code": 9
     },
     "2309": {
-      "contract": "subscription_refund",
+      "contract": "subscription-refund",
       "variant": "ContractPaused",
       "global_code": 2309,
       "local_code": 10
     },
     "2310": {
-      "contract": "subscription_refund",
+      "contract": "subscription-refund",
       "variant": "ChargeAlreadyExists",
       "global_code": 2310,
       "local_code": 11
     },
     "2400": {
-      "contract": "recurring_allowance",
+      "contract": "recurring-allowance",
       "variant": "AllowanceNotFound",
       "global_code": 2400,
       "local_code": 1
     },
     "2401": {
-      "contract": "recurring_allowance",
+      "contract": "recurring-allowance",
       "variant": "AllowanceInactive",
       "global_code": 2401,
       "local_code": 2
     },
     "2402": {
-      "contract": "recurring_allowance",
+      "contract": "recurring-allowance",
       "variant": "Unauthorized",
       "global_code": 2402,
       "local_code": 3
     },
     "2403": {
-      "contract": "recurring_allowance",
+      "contract": "recurring-allowance",
       "variant": "InvalidAmount",
       "global_code": 2403,
       "local_code": 4
     },
     "2404": {
-      "contract": "recurring_allowance",
+      "contract": "recurring-allowance",
       "variant": "InvalidCap",
       "global_code": 2404,
       "local_code": 5
     },
     "2405": {
-      "contract": "recurring_allowance",
+      "contract": "recurring-allowance",
       "variant": "InvalidPeriod",
       "global_code": 2405,
       "local_code": 6
     },
     "2406": {
-      "contract": "recurring_allowance",
+      "contract": "recurring-allowance",
       "variant": "Expired",
       "global_code": 2406,
       "local_code": 7
     },
     "2407": {
-      "contract": "recurring_allowance",
+      "contract": "recurring-allowance",
       "variant": "PeriodCapExceeded",
       "global_code": 2407,
       "local_code": 8
     },
     "2408": {
-      "contract": "recurring_allowance",
+      "contract": "recurring-allowance",
       "variant": "AbsoluteCapExceeded",
       "global_code": 2408,
       "local_code": 9
     },
     "2409": {
-      "contract": "recurring_allowance",
+      "contract": "recurring-allowance",
       "variant": "AlreadyActive",
       "global_code": 2409,
       "local_code": 10
     },
     "2500": {
-      "contract": "loyalty_rewards",
+      "contract": "loyalty-rewards",
       "variant": "NotInitialized",
       "global_code": 2500,
       "local_code": 1
     },
     "2501": {
-      "contract": "loyalty_rewards",
+      "contract": "loyalty-rewards",
       "variant": "AlreadyInitialized",
       "global_code": 2501,
       "local_code": 2
     },
     "2502": {
-      "contract": "loyalty_rewards",
+      "contract": "loyalty-rewards",
       "variant": "Unauthorized",
       "global_code": 2502,
       "local_code": 3
     },
     "2503": {
-      "contract": "loyalty_rewards",
+      "contract": "loyalty-rewards",
       "variant": "Paused",
       "global_code": 2503,
       "local_code": 4
     },
     "2504": {
-      "contract": "loyalty_rewards",
+      "contract": "loyalty-rewards",
       "variant": "RedeemTooSmall",
       "global_code": 2504,
       "local_code": 5
     },
     "2505": {
-      "contract": "loyalty_rewards",
+      "contract": "loyalty-rewards",
       "variant": "InsufficientPoints",
       "global_code": 2505,
       "local_code": 6
     },
     "2506": {
-      "contract": "loyalty_rewards",
+      "contract": "loyalty-rewards",
       "variant": "Overflow",
       "global_code": 2506,
       "local_code": 7
     },
     "2600": {
-      "contract": "subscription_nft",
+      "contract": "subscription-nft",
       "variant": "NotInitialized",
       "global_code": 2600,
       "local_code": 1
     },
     "2601": {
-      "contract": "subscription_nft",
+      "contract": "subscription-nft",
       "variant": "AlreadyInitialized",
       "global_code": 2601,
       "local_code": 2
     },
     "2602": {
-      "contract": "subscription_nft",
+      "contract": "subscription-nft",
       "variant": "Unauthorized",
       "global_code": 2602,
       "local_code": 3
     },
     "2603": {
-      "contract": "subscription_nft",
+      "contract": "subscription-nft",
       "variant": "Paused",
       "global_code": 2603,
       "local_code": 4
     },
     "2604": {
-      "contract": "subscription_nft",
+      "contract": "subscription-nft",
       "variant": "TokenNotFound",
       "global_code": 2604,
       "local_code": 5
     },
     "2605": {
-      "contract": "subscription_nft",
+      "contract": "subscription-nft",
       "variant": "TransferBlocked",
       "global_code": 2605,
       "local_code": 6
     },
     "2606": {
-      "contract": "subscription_nft",
+      "contract": "subscription-nft",
       "variant": "TokenAlreadyExists",
       "global_code": 2606,
       "local_code": 7
     },
     "2607": {
-      "contract": "subscription_nft",
+      "contract": "subscription-nft",
       "variant": "Overflow",
       "global_code": 2607,
       "local_code": 8
     },
     "2608": {
-      "contract": "subscription_nft",
+      "contract": "subscription-nft",
       "variant": "OwnerCapExceeded",
       "global_code": 2608,
       "local_code": 9
     },
     "2609": {
-      "contract": "subscription_nft",
+      "contract": "subscription-nft",
       "variant": "NotApproved",
       "global_code": 2609,
       "local_code": 10

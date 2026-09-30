@@ -1,7 +1,7 @@
 {
   "budgets": [
     {
-      "contract": "subscription_renewal",
+      "contract": "subscription-renewal",
       "entrypoint": "renew",
       "scenario": "worst_case",
       "description": "Renewal with max cap checks, logging enabled, cross-contract calls",
@@ -11,7 +11,7 @@
       "notes": "268 lines of renewal logic, cross-contract logging, cap validation, token transfer"
     },
     {
-      "contract": "subscription_renewal",
+      "contract": "subscription-renewal",
       "entrypoint": "init_sub",
       "scenario": "average",
       "description": "Initialize subscription",
@@ -21,7 +21,7 @@
       "notes": "Basic subscription initialization, no cross-contract calls"
     },
     {
-      "contract": "subscription_renewal",
+      "contract": "subscription-renewal",
       "entrypoint": "cancel_sub",
       "scenario": "average",
       "description": "Cancel subscription",
@@ -31,7 +31,7 @@
       "notes": "State transition and cleanup"
     },
     {
-      "contract": "subscription_renewal",
+      "contract": "subscription-renewal",
       "entrypoint": "approve_renewal",
       "scenario": "average",
       "description": "Approve renewal payment",
@@ -41,7 +41,7 @@
       "notes": "Signature verification and approval storage"
     },
     {
-      "contract": "subscription_renewal",
+      "contract": "subscription-renewal",
       "entrypoint": "set_paused",
       "scenario": "average",
       "description": "Pause/unpause protocol",
@@ -51,7 +51,7 @@
       "notes": "Single boolean storage write, fast path"
     },
     {
-      "contract": "subscription_renewal",
+      "contract": "subscription-renewal",
       "entrypoint": "propose_set_paused",
       "scenario": "average",
       "description": "Propose pause operation (multisig)",
@@ -61,7 +61,7 @@
       "notes": "Proposal creation, guardian validation"
     },
     {
-      "contract": "subscription_renewal",
+      "contract": "subscription-renewal",
       "entrypoint": "execute_set_paused",
       "scenario": "average",
       "description": "Execute pause after multisig approval",
@@ -71,7 +71,7 @@
       "notes": "Proposal state check, boolean write"
     },
     {
-      "contract": "subscription_renewal",
+      "contract": "subscription-renewal",
       "entrypoint": "set_user_cap",
       "scenario": "average",
       "description": "Set user spending cap",
@@ -81,7 +81,7 @@
       "notes": "Cap storage write, fast path"
     },
     {
-      "contract": "subscription_renewal",
+      "contract": "subscription-renewal",
       "entrypoint": "propose_set_user_cap",
       "scenario": "average",
       "description": "Propose user cap change (multisig)",
@@ -91,7 +91,7 @@
       "notes": "Proposal creation with address encoding"
     },
     {
-      "contract": "subscription_renewal",
+      "contract": "subscription-renewal",
       "entrypoint": "migrate_admin_to_multisig",
       "scenario": "average",
       "description": "Migrate from single admin to multisig",
@@ -141,7 +141,7 @@
       "notes": "Token transfer cross-contract call"
     },
     {
-      "contract": "subscription_logging",
+      "contract": "subscription-logging",
       "entrypoint": "record_log",
       "scenario": "average",
       "description": "Record subscription event log",
@@ -151,7 +151,7 @@
       "notes": "Event publication, commitment hash verification"
     },
     {
-      "contract": "subscription_logging",
+      "contract": "subscription-logging",
       "entrypoint": "audit_log",
       "scenario": "average",
       "description": "Query audit log entry",

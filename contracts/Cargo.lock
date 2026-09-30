@@ -1030,7 +1030,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
-name = "loyalty_rewards"
+name = "loyalty-rewards"
 version = "0.0.1"
 dependencies = [
  "soroban-sdk",
@@ -1316,7 +1316,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "recurring_allowance"
+name = "recurring-allowance"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
@@ -1861,28 +1861,21 @@ name = "subscription-integration-tests"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "subscription-logging",
  "subscription-registry",
- "subscription_logging",
- "subscription_renewal",
+ "subscription-renewal",
  "virtual-card",
 ]
 
 [[package]]
-name = "subscription-registry"
-version = "0.0.0"
-dependencies = [
- "soroban-sdk",
-]
-
-[[package]]
-name = "subscription_logging"
+name = "subscription-logging"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
 ]
 
 [[package]]
-name = "subscription_nft"
+name = "subscription-nft"
 version = "0.0.1"
 dependencies = [
  "soroban-sdk",
@@ -1890,7 +1883,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "subscription_refund"
+name = "subscription-refund"
 version = "0.0.1"
 dependencies = [
  "proptest",
@@ -1899,12 +1892,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "subscription_renewal"
+name = "subscription-registry"
+version = "0.0.0"
+dependencies = [
+ "proptest",
+ "soroban-sdk",
+]
+
+[[package]]
+name = "subscription-renewal"
 version = "0.0.1"
 dependencies = [
  "proptest",
  "soroban-sdk",
- "subscription_logging",
+ "subscription-logging",
  "syncro-common",
 ]
 

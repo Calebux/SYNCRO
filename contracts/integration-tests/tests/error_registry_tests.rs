@@ -14,8 +14,8 @@ mod error_registry_tests {
     #[test]
     fn test_error_code_ranges_are_disjoint() {
         let bases = vec![
-            (1000, "subscription_renewal"),
-            (1100, "subscription_logging"),
+            (1000, "subscription-renewal"),
+            (1100, "subscription-logging"),
             (1200, "virtual-card"),
             (1300, "escrow"),
             (1400, "agent-registry"),
@@ -27,10 +27,10 @@ mod error_registry_tests {
             (2000, "voucher-ledger"),
             (2100, "fee-collector"),
             (2200, "resolver-registry"),
-            (2300, "subscription_refund"),
-            (2400, "recurring_allowance"),
-            (2500, "loyalty_rewards"),
-            (2600, "subscription_nft"),
+            (2300, "subscription-refund"),
+            (2400, "recurring-allowance"),
+            (2500, "loyalty-rewards"),
+            (2600, "subscription-nft"),
             (2700, "attestation"),
             (2800, "guardian"),
             (2900, "fx-oracle"),

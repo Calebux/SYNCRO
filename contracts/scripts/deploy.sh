@@ -12,9 +12,9 @@ echo "==> Building contracts..."
 cargo build --manifest-path "$(dirname "$0")/../Cargo.toml" \
   --target wasm32-unknown-unknown \
   --release \
-  -p subscription_registry \
-  -p subscription_renewal \
-  -p subscription_logging \
+  -p subscription-registry \
+  -p subscription-renewal \
+  -p subscription-logging \
   -p zk_payment_verifier \
   -p contract_upgrade
 

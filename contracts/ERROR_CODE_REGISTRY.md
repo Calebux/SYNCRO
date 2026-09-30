@@ -7,8 +7,8 @@ This document defines the global, non-overlapping error code ranges for all SYNC
 
 | Contract                  | Range      | Base | Max | Description |
 |---------------------------|-----------|------|-----|-------------|
-| subscription_renewal      | 1000-1099 | 1000 | 99  | Subscription renewal logic |
-| subscription_logging      | 1100-1199 | 1100 | 99  | Event logging |
+| subscription-renewal      | 1000-1099 | 1000 | 99  | Subscription renewal logic |
+| subscription-logging      | 1100-1199 | 1100 | 99  | Event logging |
 | virtual-card              | 1200-1299 | 1200 | 99  | Virtual card management |
 | escrow                    | 1300-1399 | 1300 | 99  | Escrow agreement handling |
 | agent-registry            | 1400-1499 | 1400 | 99  | Agent registry & permissions |
@@ -20,10 +20,10 @@ This document defines the global, non-overlapping error code ranges for all SYNC
 | voucher-ledger            | 2000-2099 | 2000 | 99  | Voucher ledger |
 | fee-collector             | 2100-2199 | 2100 | 99  | Fee collection |
 | resolver-registry         | 2200-2299 | 2200 | 99  | Resolver registry |
-| subscription_refund       | 2300-2399 | 2300 | 99  | Subscription refund logic |
-| recurring_allowance       | 2400-2499 | 2400 | 99  | Recurring allowance (legacy) |
-| loyalty_rewards           | 2500-2599 | 2500 | 99  | Loyalty rewards |
-| subscription_nft          | 2600-2699 | 2600 | 99  | Subscription NFT |
+| subscription-refund       | 2300-2399 | 2300 | 99  | Subscription refund logic |
+| recurring-allowance       | 2400-2499 | 2400 | 99  | Recurring allowance (legacy) |
+| loyalty-rewards           | 2500-2599 | 2500 | 99  | Loyalty rewards |
+| subscription-nft          | 2600-2699 | 2600 | 99  | Subscription NFT |
 | attestation               | 2700-2799 | 2700 | 99  | Attestation service |
 | guardian                  | 2800-2899 | 2800 | 99  | Guardian authority |
 | fx-oracle                 | 2900-2999 | 2900 | 99  | FX oracle |

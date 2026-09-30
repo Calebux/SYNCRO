@@ -106,8 +106,8 @@ Successfully implemented the foundational architecture for privacy-preserving au
 ## 3. Soroban Contract Implementation
 
 ### Files Modified
-- `contracts/contracts/subscription_logging/src/lib.rs` (361 lines added)
-- `contracts/contracts/subscription_logging/src/test.rs` (407 lines, complete rewrite)
+- `contracts/contracts/subscription-logging/src/lib.rs` (361 lines added)
+- `contracts/contracts/subscription-logging/src/test.rs` (407 lines, complete rewrite)
 
 #### New Contract Functions
 
@@ -387,8 +387,8 @@ CREATE POLICY "commitment_blinding_factors_insert_service"
 6. 19 x Soroban test snapshots (JSON)
 
 ### Modified Files (3)
-1. `contracts/contracts/subscription_logging/src/lib.rs` (+361 lines)
-2. `contracts/contracts/subscription_logging/src/test.rs` (complete rewrite, 407 lines)
+1. `contracts/contracts/subscription-logging/src/lib.rs` (+361 lines)
+2. `contracts/contracts/subscription-logging/src/test.rs` (complete rewrite, 407 lines)
 3. `supabase/migrations/20260623000001_create_commitment_blinding_factors.sql` (updated)
 
 **Total Lines of Code:** ~5,000 lines
@@ -587,7 +587,7 @@ Implements privacy-preserving audit logging using cryptographic commitments, ena
 
 ```bash
 # Contract tests
-cd contracts/contracts/subscription_logging
+cd contracts/contracts/subscription-logging
 cargo test
 # Result: 19 passed; 0 failed
 ```
@@ -637,7 +637,7 @@ Closes #XXX
 
 2. **Test Contract Locally:**
    ```bash
-   cd contracts/contracts/subscription_logging
+   cd contracts/contracts/subscription-logging
    cargo test
    cargo build --release
    ```

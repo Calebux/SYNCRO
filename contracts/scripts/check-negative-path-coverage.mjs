@@ -28,9 +28,9 @@ const TOKEN_TRANSFER_CRATES = new Set([
   "allowance",
   "payment-adapter",
   "payment-splitter",
-  "recurring_allowance",
-  "subscription_renewal",
-  "subscription_refund",
+  "recurring-allowance",
+  "subscription-renewal",
+  "subscription-refund",
 ]);
 
 function stripTestModules(src) {

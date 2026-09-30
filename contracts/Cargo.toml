@@ -5,10 +5,10 @@
 resolver = "2"
 members = [
   "common",
-  "contracts",
+  "contracts/subscription-registry",
   "contracts/common",
-  "contracts/subscription_renewal",
-  "contracts/subscription_logging",
+  "contracts/subscription-renewal",
+  "contracts/subscription-logging",
   "contracts/virtual-card",
   "contracts/escrow",
   "contracts/agent-registry",
@@ -20,16 +20,16 @@ members = [
   "contracts/voucher-ledger",
   "contracts/fee-collector",
   "contracts/resolver-registry",
-  "contracts/subscription_refund",
-  "contracts/recurring_allowance",
-  "contracts/loyalty_rewards",
-  "contracts/subscription_nft",
+  "contracts/subscription-refund",
+  "contracts/recurring-allowance",
+  "contracts/loyalty-rewards",
+  "contracts/subscription-nft",
   "contracts/attestation",
   "contracts/guardian",
   "contracts/fx-oracle",
   "contracts/payment-splitter",
   "contracts/stealth-announcement",
-  "integration_tests",
+  "integration-tests",
 ]
 
 [workspace.dependencies]
