@@ -1769,6 +1769,19 @@ impl SubscriptionRenewalContract {
         let threshold = Self::get_team_threshold(env, team_id);
         amount > threshold
     }
+
+    /// Returns the contract version.
+    /// Incremented when the implementation changes (used for deployments).
+    pub fn version(_env: Env) -> u32 {
+        syncro_contract_common::version(&_env)
+    }
+
+    /// Returns the contract interface version.
+    /// Incremented when public methods or error handling changes.
+    /// Used to detect API mismatches at runtime.
+    pub fn interface_version(_env: Env) -> u32 {
+        syncro_contract_common::interface_version_call(&_env)
+    }
 }
 
 #[cfg(test)]

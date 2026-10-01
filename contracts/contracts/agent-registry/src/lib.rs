@@ -263,6 +263,19 @@ impl AgentRegistry {
     pub fn require_scopes(env: Env, agent: Address, scopes: ScopeSet) -> Result<(), Error> {
         Self::require_scope(env, agent, scopes)
     }
+
+    /// Returns the contract version.
+    /// Incremented when the implementation changes (used for deployments).
+    pub fn version(_env: Env) -> u32 {
+        syncro_common::version(&_env)
+    }
+
+    /// Returns the contract interface version.
+    /// Incremented when public methods or error handling changes.
+    /// Used to detect API mismatches at runtime.
+    pub fn interface_version(_env: Env) -> u32 {
+        syncro_common::interface_version_call(&_env)
+    }
 }
 
 mod test;

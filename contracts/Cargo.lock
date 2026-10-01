@@ -762,6 +762,7 @@ name = "fx-oracle"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "syncro-contract-common",
 ]
 
 [[package]]
@@ -1879,6 +1880,7 @@ name = "subscription_logging"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "syncro-contract-common",
 ]
 
 [[package]]
@@ -1906,6 +1908,7 @@ dependencies = [
  "soroban-sdk",
  "subscription_logging",
  "syncro-common",
+ "syncro-contract-common",
 ]
 
 [[package]]
@@ -2280,6 +2283,7 @@ name = "zk-payment-verifier"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "syncro-contract-common",
 ]
 
 [[package]]
