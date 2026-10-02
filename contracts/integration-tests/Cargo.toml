@@ -14,14 +14,14 @@ path = "tests/subscription_e2e_integration.rs"
 
 [dependencies]
 soroban-sdk = { workspace = true }
-subscription_renewal = { path = "../contracts/subscription_renewal" }
-subscription_logging = { path = "../contracts/subscription_logging" }
-subscription-registry = { path = "../contracts" }
+subscription-renewal = { path = "../contracts/subscription-renewal" }
+subscription-logging = { path = "../contracts/subscription-logging" }
+subscription-registry = { path = "../contracts/subscription-registry" }
 virtual-card = { path = "../contracts/virtual-card" }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
-subscription_renewal = { path = "../contracts/subscription_renewal" }
-subscription_logging = { path = "../contracts/subscription_logging" }
-subscription-registry = { path = "../contracts" }
+subscription-renewal = { path = "../contracts/subscription-renewal" }
+subscription-logging = { path = "../contracts/subscription-logging" }
+subscription-registry = { path = "../contracts/subscription-registry" }
 virtual-card = { path = "../contracts/virtual-card" }

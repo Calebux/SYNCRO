@@ -70,9 +70,9 @@ points_awarded = BASE_POINTS(100) + min(streak, 20) × STREAK_BONUS(50)
 
 | File | Lines | Description |
 |---|---|---|
-| `contracts/contracts/loyalty_rewards/Cargo.toml` | 14 | New crate manifest |
-| `contracts/contracts/loyalty_rewards/src/lib.rs` | 402 | Contract implementation |
-| `contracts/contracts/loyalty_rewards/src/test.rs` | 422 | 35-test suite |
+| `contracts/contracts/loyalty-rewards/Cargo.toml` | 14 | New crate manifest |
+| `contracts/contracts/loyalty-rewards/src/lib.rs` | 402 | Contract implementation |
+| `contracts/contracts/loyalty-rewards/src/test.rs` | 422 | 35-test suite |
 | `contracts/Cargo.toml` | +1 | Register crate in workspace |
 
 ## Test coverage (35 tests)

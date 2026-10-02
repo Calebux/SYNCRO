@@ -67,7 +67,7 @@ pub fn convert(env: Env, amount: i128, base_currency: String, quote_currency: St
 
 ### 2. Subscription Renewal Contract Integration
 
-**Location**: `contracts/contracts/subscription_renewal/src/lib.rs`
+**Location**: `contracts/contracts/subscription-renewal/src/lib.rs`
 
 **Changes**:
 - ✅ Added `currency` field to `SubscriptionData`
@@ -473,8 +473,8 @@ npm test fx-oracle-feeder
 - `/contracts/contracts/fx-oracle/README.md` (312 lines)
 
 ### Contract Integration
-- Modified: `/contracts/contracts/subscription_renewal/src/lib.rs`
-- Modified: `/contracts/contracts/subscription_renewal/src/test.rs`
+- Modified: `/contracts/contracts/subscription-renewal/src/lib.rs`
+- Modified: `/contracts/contracts/subscription-renewal/src/test.rs`
 - Updated: `/contracts/Cargo.toml` (added fx-oracle to workspace)
 
 ### Backend Services

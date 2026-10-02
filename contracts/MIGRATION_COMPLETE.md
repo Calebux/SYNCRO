@@ -125,8 +125,8 @@ Example measurements:
 
 ### New Files (1,750 lines)
 ```
-✨ contracts/contracts/subscription_renewal/src/admin_multisig.rs              445
-✨ contracts/contracts/subscription_renewal/src/tests/admin_multisig_tests.rs  285
+✨ contracts/contracts/subscription-renewal/src/admin_multisig.rs              445
+✨ contracts/contracts/subscription-renewal/src/tests/admin_multisig_tests.rs  285
 ✨ contracts/contracts/src/budget_harness.rs                                  215
 ✨ contracts/budgets.json                                                     253
 ✨ contracts/IMPLEMENTATION_SUMMARY.md                                        323
@@ -135,7 +135,7 @@ Example measurements:
 
 ### Modified Files (350 lines)
 ```
-📝 contracts/contracts/subscription_renewal/src/lib.rs                        +130
+📝 contracts/contracts/subscription-renewal/src/lib.rs                        +130
 📝 contracts/DEPLOYMENT.md                                                    +180
 📝 .github/workflows/contracts.yml                                            +40
 ```

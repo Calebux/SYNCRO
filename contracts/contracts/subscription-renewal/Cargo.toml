@@ -1,5 +1,5 @@
 [package]
-name = "subscription_renewal"
+name = "subscription-renewal"
 version = "0.0.1"
 edition = "2021"
 publish = false
@@ -9,10 +9,10 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 soroban-sdk = { workspace = true }
-subscription_logging = { path = "../subscription_logging" }
+subscription-logging = { path = "../subscription-logging" }
 syncro-common = { path = "../../common" }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 proptest = { workspace = true }
-subscription_logging = { path = "../subscription_logging" }
+subscription-logging = { path = "../subscription-logging" }

@@ -14,7 +14,7 @@ This document provides a comprehensive architecture review of the current audit 
 
 ### 1.1 Audit Log Structure
 
-**Location:** `contracts/contracts/subscription_logging/src/lib.rs`
+**Location:** `contracts/contracts/subscription-logging/src/lib.rs`
 
 #### Current Data Model
 
