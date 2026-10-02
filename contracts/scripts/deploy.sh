@@ -9,12 +9,12 @@ ADMIN_ADDRESS=$(stellar keys address "$SECRET_KEY" 2>/dev/null || \
   stellar account show --source "$SECRET_KEY" --network "$NETWORK" | grep "Public Key" | awk '{print $3}')
 
 echo "==> Building contracts..."
+# NOTE (issue #1429): subscription_renewal and subscription_logging were
+# removed from the v3 design; they are no longer built or deployed.
 cargo build --manifest-path "$(dirname "$0")/../Cargo.toml" \
   --target wasm32-unknown-unknown \
   --release \
   -p subscription_registry \
-  -p subscription_renewal \
-  -p subscription_logging \
   -p zk_payment_verifier \
   -p contract_upgrade
 
@@ -30,22 +30,6 @@ REGISTRY_ID=$(stellar contract deploy \
   --source "$SECRET_KEY" \
   --network "$NETWORK")
 echo "  SubscriptionRegistry: $REGISTRY_ID"
-
-# Deploy SubscriptionRenewal
-echo "  Deploying SubscriptionRenewal..."
-RENEWAL_ID=$(stellar contract deploy \
-  --wasm "$WASM_DIR/subscription_renewal.wasm" \
-  --source "$SECRET_KEY" \
-  --network "$NETWORK")
-echo "  SubscriptionRenewal: $RENEWAL_ID"
-
-# Deploy SubscriptionLogging
-echo "  Deploying SubscriptionLogging..."
-LOGGING_ID=$(stellar contract deploy \
-  --wasm "$WASM_DIR/subscription_logging.wasm" \
-  --source "$SECRET_KEY" \
-  --network "$NETWORK")
-echo "  SubscriptionLogging: $LOGGING_ID"
 
 # Deploy ZkPaymentVerifier
 echo "  Deploying ZkPaymentVerifier..."
@@ -65,21 +49,11 @@ echo "  ContractUpgradeGovernance: $UPGRADE_ID"
 
 echo ""
 echo "==> Running initialization..."
-bash "$(dirname "$0")/init.sh" "$NETWORK" "$SECRET_KEY" "$RENEWAL_ID" "$LOGGING_ID" "$UPGRADE_ID"
-# Optional: issue a mock testnet asset, fund test accounts, and wire it into
-   # SubscriptionRenewal's escrow token slot. Off by default so this never runs
-   # against mainnet by accident.
-   if [ "${SETUP_MOCK_TOKEN:-false}" = "true" ]; then
-     echo ""
-     echo "==> Setting up mock token for testing..."
-     bash "$(dirname "$0")/setup-mock-token.sh" "$NETWORK" "$RENEWAL_ID"
-   fi
+bash "$(dirname "$0")/init.sh" "$NETWORK" "$SECRET_KEY" "$UPGRADE_ID"
 
 echo ""
 echo "==> Add to backend/.env:"
 echo "SOROBAN_REGISTRY_ADDRESS=$REGISTRY_ID"
-echo "SOROBAN_RENEWAL_ADDRESS=$RENEWAL_ID"
-echo "SOROBAN_LOGGING_ADDRESS=$LOGGING_ID"
 echo "SOROBAN_ZK_VERIFIER_ADDRESS=$ZK_VERIFIER_ID"
 echo "SOROBAN_UPGRADE_ADDRESS=$UPGRADE_ID"
 
@@ -88,8 +62,6 @@ OUTPUT_FILE="$(dirname "$0")/deployed-addresses-${NETWORK}.env"
 cat > "$OUTPUT_FILE" <<EOF
 # Deployed on $NETWORK — $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 SOROBAN_REGISTRY_ADDRESS=$REGISTRY_ID
-SOROBAN_RENEWAL_ADDRESS=$RENEWAL_ID
-SOROBAN_LOGGING_ADDRESS=$LOGGING_ID
 SOROBAN_ZK_VERIFIER_ADDRESS=$ZK_VERIFIER_ID
 SOROBAN_UPGRADE_ADDRESS=$UPGRADE_ID
 EOF

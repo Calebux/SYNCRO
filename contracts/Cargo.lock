@@ -1862,21 +1862,12 @@ version = "0.1.0"
 dependencies = [
  "soroban-sdk",
  "subscription-registry",
- "subscription_logging",
- "subscription_renewal",
  "virtual-card",
 ]
 
 [[package]]
 name = "subscription-registry"
 version = "0.0.0"
-dependencies = [
- "soroban-sdk",
-]
-
-[[package]]
-name = "subscription_logging"
-version = "0.1.0"
 dependencies = [
  "soroban-sdk",
 ]
@@ -1896,16 +1887,6 @@ dependencies = [
  "proptest",
  "soroban-sdk",
  "syncro-contract-common",
-]
-
-[[package]]
-name = "subscription_renewal"
-version = "0.0.1"
-dependencies = [
- "proptest",
- "soroban-sdk",
- "subscription_logging",
- "syncro-common",
 ]
 
 [[package]]
