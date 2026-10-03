@@ -57,7 +57,7 @@ When a new decision replaces an existing ADR:
 | [ADR-011](./ADR-011-direct-token-transfer-renewals.md) | Direct Token Transfer for Recurring Subscription Renewals | Superseded by [ADR-005](./ADR-005-payment-channels-for-renewals.md) | 2026-05-25 |
 | [ADR-015](./ADR-015-channel-settlement-fee-split.md) | Channel Settlement Fee Split Architecture | Proposed | 2026-09-23 |
 | [ADR-016](./ADR-016-metering-core-typescript-promotion.md) | Promote quota_guard to the TypeScript Metering Core | Accepted | 2026-09-29 |
-| [ADR-017](./ADR-017-clock-skew-and-window-boundary-correctness.md) | Authoritative Clock per Decision, Skew Bound, and Ledger-Time Policy | Accepted | 2026-09-29 |
+| [ADR-017](./ADR-017-zk-payment-verifier-role-in-v3.md) | Role of zk-payment-verifier in v3 | Proposed | 2026-09-28 |
 
 ---
 

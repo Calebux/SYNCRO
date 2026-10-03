@@ -197,7 +197,7 @@ To prevent ambiguity when errors are surfaced across contract boundaries (e.g., 
 | virtual-card              | 1200-1299 | Virtual card management |
 | escrow                    | 1300-1399 | Escrow agreement handling |
 | agent-registry            | 1400-1499 | Agent registry & permissions |
-| zk-payment-verifier       | 1500-1599 | Zero-knowledge proof verification |
+| zk-payment-verifier       | 1500-1599 | Zero-knowledge proof verification (archived for v3, see ADR-017) |
 | payment-channel           | 1600-1699 | Payment channel operations |
 | contract-upgrade          | 1700-1799 | Contract upgrade governance |
 | allowance                 | 1800-1899 | Recurring allowance management |
