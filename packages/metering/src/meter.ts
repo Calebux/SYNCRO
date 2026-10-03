@@ -29,6 +29,7 @@ import { WindowStore, type WindowStoreOptions } from './window';
 import { readCurrentWindow } from './usage-read';
 import { evaluateOverage, type OverageState, createOverageState, recordUsage } from './overage';
 import type { DegradedModeEvaluator, DegradedModeResult } from './degraded';
+import type { MeterClock } from './clock';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -149,8 +150,15 @@ export interface InMemoryMeterOptions {
   windowDurationMs?: number;
   /** Per-principal limits. Entries can also be set later via `setLimit`. */
   limits?: Record<string, number>;
-  /** Injectable clock for deterministic tests. */
-  clock?: () => number;
+  /**
+   * Injectable clock for deterministic tests.
+   *
+   * May be a plain `() => number` function (legacy) or a `MeterClock` object.
+   * When a `MeterClock` is provided its `source` field is propagated to every
+   * record produced by this meter so auditors can identify the clock origin.
+   * (ADR-017)
+   */
+  clock?: (() => number) | MeterClock;
   /** Degraded-mode evaluator. If omitted, degraded mode is never activated. */
   degradedEvaluator?: DegradedModeEvaluator;
   /** Reservation timeout in ms. Default: 60_000. */
@@ -173,7 +181,24 @@ export class InMemoryMeter implements Meter {
   private readonly clock: () => number;
 
   constructor(options: InMemoryMeterOptions = {}) {
-    this.clock = options.clock ?? (() => Date.now());
+    // Accept either a plain function or a MeterClock object. (ADR-017)
+    const clockInput = options.clock;
+    let clockFn: () => number;
+    let clockSourceLabel: import('./clock').ClockSource = 'system';
+
+    if (!clockInput) {
+      clockFn = () => Date.now();
+      clockSourceLabel = 'system';
+    } else if (typeof clockInput === 'function') {
+      clockFn = clockInput;
+      clockSourceLabel = 'test'; // plain functions are assumed test clocks
+    } else {
+      // MeterClock object
+      clockFn = () => clockInput.now();
+      clockSourceLabel = clockInput.source;
+    }
+
+    this.clock = clockFn;
     this.store = new InMemoryAllowanceStore();
     if (options.limits) {
       for (const [principal, limit] of Object.entries(options.limits)) {
@@ -189,6 +214,7 @@ export class InMemoryMeter implements Meter {
       durationMs: options.windowDurationMs ?? 60_000,
       clock: this.clock,
       lateArrivalPolicy: 'redirect',
+      clockSource: clockSourceLabel,
     };
     this.windowStore = new WindowStore(windowOpts);
     this.degradedEvaluator = options.degradedEvaluator;
@@ -274,7 +300,11 @@ export class InMemoryMeter implements Meter {
 
     const { charged, released } = this.ledger.commit(reservationId, actual);
 
-    // Record in the window store (fast path, in-memory).
+    // Record in the window store using the METER clock — never caller-supplied time.
+    // This is the ADR-017 contract: the meter clock is the sole authority for
+    // window boundary placement. clientTimestampMs is not available here because
+    // the Meter interface does not accept one; callers must use ClockSkewGuard
+    // before calling commit() if they need to audit client timestamps.
     this.windowStore.recordUsage(r.principal, this.clock(), actual);
 
     // Evaluate overage warnings.
