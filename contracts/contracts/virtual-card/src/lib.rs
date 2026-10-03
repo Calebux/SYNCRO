@@ -1,121 +1,142 @@
+//! # Agent Spend-Cap Contract
+//!
+//! A principal issues a spend cap to an agent, denominated in token units, for
+//! a fixed period.  The gateway calls [`AgentSpendCapContract::can_transact`]
+//! before forwarding a paid request and calls
+//! [`AgentSpendCapContract::record_spend`] to settle once the request completes.
+//!
+//! ## Design decisions
+//!
+//! **Admission-only enforcement**
+//! The cap is checked *and* consumed at admission (`can_transact` + internal
+//! atomic debit), not at settlement.  This makes enforcement synchronous with
+//! the request decision and avoids a settlement window where the agent could
+//! race multiple concurrent requests against the same headroom.
+//!
+//! **No rollover**
+//! Unused allowance does NOT carry forward into the next period.  This bounds
+//! the principal's worst-case exposure: a cap of N means the agent can spend
+//! at most N per period, not N × (missed_periods + 1).
+//!
+//! **Period rollover**
+//! At the start of a new period the `consumed` counter resets to zero
+//! automatically (lazy evaluation on admission/query, no cron needed).
+//!
+//! **Suspend / resume**
+//! A principal may suspend a cap at any time; suspended caps fail admission
+//! with a distinct `CapSuspended` error, separate from `CapExceeded`.
+
 #![no_std]
-#![allow(deprecated)]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, vec, Address, Env, String, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env,
 };
-use syncro_contract_common as syncro_common;
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-/// Seconds in a ledger-time day bucket (UTC epoch).
-const SECONDS_PER_DAY: u64 = 86_400;
-/// Rolling 30-day month bucket length in seconds.
-const SECONDS_PER_MONTH: u64 = 86_400 * 30;
-
-/// Time (in seconds) a contract must be continuously paused before any card
-/// holder may invoke the escape-hatch withdrawal for their own balance.
-///
-/// 7 days — compile-time constant, not admin-settable.
-pub const ESCAPE_HATCH_GRACE_PERIOD_SECS: u64 = 7 * 24 * 60 * 60; // 604 800 s
+/// Minimum challenge / period length: 1 hour in seconds.
+pub const MIN_PERIOD_SECS: u64 = 3_600;
+/// Maximum challenge / period length: 1 year in seconds.
+pub const MAX_PERIOD_SECS: u64 = 365 * 24 * 3_600;
 
 // ============================================================================
-// Error Types
+// Error types
 // ============================================================================
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
-pub enum VirtualCardError {
-    CardNotFound = 1,
+pub enum SpendCapError {
+    /// The cap record does not exist.
+    CapNotFound = 1,
+    /// Caller is not the principal that issued the cap.
     Unauthorized = 2,
-    CardInactive = 3,
-    InvalidCardState = 4,
-    LimitExceeded = 5,
-    InvalidInput = 6,
-    Expired = 7,
-    DuplicateCard = 8,
-    NotSupported = 9,
-    InternalError = 10,
-    CounterOverflow = 11,
-    DailyLimitExceeded = 12,
-    MonthlyLimitExceeded = 13,
-    MerchantNotAllowed = 14,
-    MerchantBlocked = 15,
-    ContractNotPaused = 16,
-    GracePeriodNotElapsed = 17,
+    /// The cap is suspended; no spending allowed.
+    CapSuspended = 3,
+    /// The requested amount would exceed the remaining allowance.
+    CapExceeded = 4,
+    /// A numeric parameter was out of the accepted range.
+    InvalidInput = 5,
+    /// The contract counter overflowed (practically unreachable).
+    CounterOverflow = 6,
+    /// The cap has already been issued for this (principal, agent) pair.
+    DuplicateCap = 7,
+    /// The period length is outside the contract-enforced bounds.
+    InvalidPeriod = 8,
 }
 
-// ── Card ID type ─────────────────────────────────────────────────────────────
-// `card_id` is typed as `u64`, issued by the shared counter helper in the
-// `syncro-common` crate, so the identifier space is effectively unbounded.
-
 // ============================================================================
-// Storage Keys
+// Storage keys
 // ============================================================================
 
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
-    CardMeta(u64),
-    CardBalance(u64),
-    CardStatus(u64),
-    SpendCounters(u64),
-    MerchantAllowlist(u64),
-    MerchantBlocklist(u64),
+    /// Spend cap record keyed by its numeric cap_id.
+    Cap(u64),
+    /// Global cap counter.
+    CapCounter,
 }
 
 // ============================================================================
-// Data Types
+// Data types
 // ============================================================================
 
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CardStatus {
-    Pending = 0,
+pub enum CapStatus {
     Active = 1,
     Suspended = 2,
-    Closed = 3,
-    AwaitingActivation = 4,
 }
 
-#[contracttype]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CardType {
-    Standard = 0,
-    Premium = 1,
-    Restricted = 2,
-    Corporate = 3,
-    Disposable = 4,
-    Custom = 5,
-}
-
+/// A spend cap issued by `principal` to `agent`.
 #[contracttype]
 #[derive(Clone, Debug)]
-pub struct Card {
+pub struct SpendCap {
+    /// Unique identifier, auto-assigned.
     pub id: u64,
-    pub holder: Address,
-    pub card_type: CardType,
-    pub balance: i128,
-    pub status: CardStatus,
-    pub created_at: u64,
-    pub expires_at: u64,
-    /// Max spend per rolling day bucket (0 = unlimited).
-    pub daily_limit: i128,
-    /// Max spend per rolling 30-day bucket (0 = unlimited).
-    pub monthly_limit: i128,
+    /// The address that controls (and funded) this cap.
+    pub principal: Address,
+    /// The agent whose requests are gated by this cap.
+    pub agent: Address,
+    /// Maximum spend allowed per period, in token units.
+    pub allowance: i128,
+    /// How much of the current period's allowance has been consumed.
+    pub consumed: i128,
+    /// Length of each cap period in seconds.
+    pub period_secs: u64,
+    /// Ledger timestamp at which the current period started.
+    pub period_started_at: u64,
+    /// Whether the cap is currently usable.
+    pub status: CapStatus,
 }
 
-/// Rolling spend counters keyed by ledger timestamp buckets.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SpendCounters {
-    pub daily_bucket: u64,
-    pub daily_spent: i128,
-    pub monthly_bucket: u64,
-    pub monthly_spent: i128,
+impl SpendCap {
+    /// Remaining headroom for the current period.
+    pub fn remaining(&self) -> i128 {
+        self.allowance.saturating_sub(self.consumed)
+    }
+
+    /// True when the current ledger time has crossed into a new period.
+    pub fn period_has_rolled(&self, now: u64) -> bool {
+        now >= self.period_started_at.saturating_add(self.period_secs)
+    }
+
+    /// Roll the period forward (lazy, called on first access in a new period).
+    /// Unused allowance is discarded — no carryover by design.
+    pub fn roll_period(&mut self, now: u64) {
+        if self.period_has_rolled(now) {
+            // Advance the window: find the start of the current period.
+            let elapsed = now.saturating_sub(self.period_started_at);
+            let periods_elapsed = elapsed / self.period_secs;
+            self.period_started_at = self
+                .period_started_at
+                .saturating_add(periods_elapsed * self.period_secs);
+            self.consumed = 0;
+        }
+    }
 }
 
 // ============================================================================
@@ -123,614 +144,274 @@ pub struct SpendCounters {
 // ============================================================================
 
 #[contract]
-pub struct VirtualCardContract;
-
-impl VirtualCardContract {
-    fn daily_bucket(ts: u64) -> u64 {
-        ts / SECONDS_PER_DAY
-    }
-
-    fn monthly_bucket(ts: u64) -> u64 {
-        ts / SECONDS_PER_MONTH
-    }
-
-    /// Load spend counters and lazily reset buckets that have rolled over.
-    fn load_spend_counters(env: &Env, card_id: u64) -> SpendCounters {
-        let ts = env.ledger().timestamp();
-        let current_daily = Self::daily_bucket(ts);
-        let current_monthly = Self::monthly_bucket(ts);
-
-        let mut counters: SpendCounters = env
-            .storage()
-            .persistent()
-            .get(&DataKey::SpendCounters(card_id))
-            .unwrap_or(SpendCounters {
-                daily_bucket: current_daily,
-                daily_spent: 0,
-                monthly_bucket: current_monthly,
-                monthly_spent: 0,
-            });
-
-        if counters.daily_bucket != current_daily {
-            counters.daily_bucket = current_daily;
-            counters.daily_spent = 0;
-        }
-        if counters.monthly_bucket != current_monthly {
-            counters.monthly_bucket = current_monthly;
-            counters.monthly_spent = 0;
-        }
-
-        counters
-    }
-
-    fn save_spend_counters(env: &Env, card_id: u64, counters: &SpendCounters) {
-        env.storage()
-            .persistent()
-            .set(&DataKey::SpendCounters(card_id), counters);
-    }
-
-    fn merchant_in_list(list: &Vec<String>, merchant: &String) -> bool {
-        for i in 0..list.len() {
-            if list.get(i).unwrap() == *merchant {
-                return true;
-            }
-        }
-        false
-    }
-
-    fn check_merchant(
-        env: &Env,
-        card_id: u64,
-        merchant: &String,
-    ) -> Result<(), VirtualCardError> {
-        let blocklist: Vec<String> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::MerchantBlocklist(card_id))
-            .unwrap_or(vec![env]);
-
-        if Self::merchant_in_list(&blocklist, merchant) {
-            return Err(VirtualCardError::MerchantBlocked);
-        }
-
-        let allowlist: Vec<String> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::MerchantAllowlist(card_id))
-            .unwrap_or(vec![env]);
-
-        if allowlist.len() > 0 && !Self::merchant_in_list(&allowlist, merchant) {
-            return Err(VirtualCardError::MerchantNotAllowed);
-        }
-
-        Ok(())
-    }
-
-    fn check_velocity_limits(
-        env: &Env,
-        card: &Card,
-        card_id: u64,
-        amount: i128,
-    ) -> Result<SpendCounters, VirtualCardError> {
-        let mut counters = Self::load_spend_counters(env, card_id);
-
-        if card.daily_limit > 0 {
-            let new_daily = counters
-                .daily_spent
-                .checked_add(amount)
-                .ok_or(VirtualCardError::InternalError)?;
-            if new_daily > card.daily_limit {
-                env.events().publish(
-                    (
-                        soroban_sdk::Symbol::new(env, "daily_limit_exceeded"),
-                        soroban_sdk::Symbol::new(env, "card"),
-                    ),
-                    (card_id, amount, counters.daily_spent, card.daily_limit),
-                );
-                return Err(VirtualCardError::DailyLimitExceeded);
-            }
-        }
-
-        if card.monthly_limit > 0 {
-            let new_monthly = counters
-                .monthly_spent
-                .checked_add(amount)
-                .ok_or(VirtualCardError::InternalError)?;
-            if new_monthly > card.monthly_limit {
-                env.events().publish(
-                    (
-                        soroban_sdk::Symbol::new(env, "monthly_limit_exceeded"),
-                        soroban_sdk::Symbol::new(env, "card"),
-                    ),
-                    (card_id, amount, counters.monthly_spent, card.monthly_limit),
-                );
-                return Err(VirtualCardError::MonthlyLimitExceeded);
-            }
-        }
-
-        counters.daily_spent = counters
-            .daily_spent
-            .checked_add(amount)
-            .ok_or(VirtualCardError::InternalError)?;
-        counters.monthly_spent = counters
-            .monthly_spent
-            .checked_add(amount)
-            .ok_or(VirtualCardError::InternalError)?;
-
-        Ok(counters)
-    }
-
-    fn remaining_for_limit(limit: i128, spent: i128) -> i128 {
-        if limit <= 0 {
-            i128::MAX
-        } else {
-            limit.saturating_sub(spent)
-        }
-    }
-}
+pub struct AgentSpendCapContract;
 
 #[contractimpl]
-impl VirtualCardContract {
-    /// Issue a new virtual card for a user with an initial balance.
-    /// Emits a `card_issued` event.
+impl AgentSpendCapContract {
+    // ── Issuance ─────────────────────────────────────────────────────────────
+
+    /// Issue a new spend cap.
     ///
-    /// `daily_limit` and `monthly_limit` of 0 mean unlimited for that window.
-    pub fn issue_card(
+    /// # Arguments
+    /// * `principal` — the address funding/controlling this cap (must auth)
+    /// * `agent`     — the address whose requests are gated
+    /// * `allowance` — max token units spendable per `period_secs` window
+    /// * `period_secs` — period length; must be in `[MIN_PERIOD_SECS, MAX_PERIOD_SECS]`
+    ///
+    /// # Returns
+    /// The new `cap_id`.
+    pub fn issue_cap(
         env: Env,
-        user: Address,
-        amount: i128,
-        card_type: CardType,
-        expires_at: u64,
-        daily_limit: i128,
-        monthly_limit: i128,
-    ) -> Result<u64, VirtualCardError> {
-        user.require_auth();
+        principal: Address,
+        agent: Address,
+        allowance: i128,
+        period_secs: u64,
+    ) -> Result<u64, SpendCapError> {
+        principal.require_auth();
 
-        if amount < 0 || daily_limit < 0 || monthly_limit < 0 {
-            return Err(VirtualCardError::InvalidInput);
+        if allowance <= 0 {
+            return Err(SpendCapError::InvalidInput);
+        }
+        if period_secs < MIN_PERIOD_SECS || period_secs > MAX_PERIOD_SECS {
+            return Err(SpendCapError::InvalidPeriod);
         }
 
-        let current_ts = env.ledger().timestamp();
-        if expires_at > 0 && expires_at <= current_ts {
-            return Err(VirtualCardError::Expired);
-        }
+        let cap_id = Self::next_id(&env)?;
+        let now = env.ledger().timestamp();
 
-        let card_id = syncro_common::next_counter_id(
-            &env,
-            soroban_sdk::Symbol::new(&env, "CardCounter"),
-        )
-        .map_err(|_| VirtualCardError::CounterOverflow)?;
-
-        let card = Card {
-            id: card_id,
-            holder: user.clone(),
-            card_type,
-            balance: amount,
-            status: CardStatus::Active,
-            created_at: current_ts,
-            expires_at,
-            daily_limit,
-            monthly_limit,
+        let cap = SpendCap {
+            id: cap_id,
+            principal: principal.clone(),
+            agent: agent.clone(),
+            allowance,
+            consumed: 0,
+            period_secs,
+            period_started_at: now,
+            status: CapStatus::Active,
         };
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::CardMeta(card_id), &card);
-
-        let counters = SpendCounters {
-            daily_bucket: Self::daily_bucket(current_ts),
-            daily_spent: 0,
-            monthly_bucket: Self::monthly_bucket(current_ts),
-            monthly_spent: 0,
-        };
-        Self::save_spend_counters(&env, card_id, &counters);
+        env.storage().persistent().set(&DataKey::Cap(cap_id), &cap);
 
         env.events().publish(
-            (soroban_sdk::Symbol::new(&env, "card_issued"), user),
-            (card_id, amount, current_ts),
+            (symbol_short!("cap"), symbol_short!("issued")),
+            (cap_id, principal, agent, allowance, period_secs),
         );
 
-        Ok(card_id)
+        Ok(cap_id)
     }
 
-    /// Process a payment from a virtual card.
-    /// Deducts `amount` from the card balance and emits a `payment_processed` event.
-    /// Auto-closes the card when balance reaches zero.
-    pub fn process_payment(
+    // ── Admission gate ────────────────────────────────────────────────────────
+
+    /// Admission query called by the gateway **before** routing a paid request.
+    ///
+    /// Returns `Ok(remaining_after_debit)` and atomically debits `amount` from
+    /// the current period's allowance.  Any error is distinguishable by variant:
+    ///
+    /// * `CapNotFound`  — no such cap
+    /// * `CapSuspended` — cap exists but is suspended
+    /// * `CapExceeded`  — cap is active but headroom is insufficient
+    ///
+    /// The debit is applied inside this call so that concurrent requests cannot
+    /// both see positive headroom and both proceed.
+    pub fn can_transact(
         env: Env,
-        card_id: u64,
+        cap_id: u64,
         amount: i128,
-        merchant: String,
-    ) -> Result<u64, VirtualCardError> {
+    ) -> Result<i128, SpendCapError> {
         if amount <= 0 {
-            return Err(VirtualCardError::InvalidInput);
+            return Err(SpendCapError::InvalidInput);
         }
 
-        let mut card: Card = env
+        let mut cap: SpendCap = env
             .storage()
             .persistent()
-            .get(&DataKey::CardMeta(card_id))
-            .ok_or(VirtualCardError::CardNotFound)?;
+            .get(&DataKey::Cap(cap_id))
+            .ok_or(SpendCapError::CapNotFound)?;
 
-        card.holder.require_auth();
+        // Lazy period rollover — no carryover.
+        let now = env.ledger().timestamp();
+        cap.roll_period(now);
 
-        if card.status != CardStatus::Active {
-            return Err(VirtualCardError::CardInactive);
+        if cap.status == CapStatus::Suspended {
+            return Err(SpendCapError::CapSuspended);
         }
 
-        let current_ts = env.ledger().timestamp();
-        if card.expires_at > 0 && current_ts > card.expires_at {
-            card.status = CardStatus::Closed;
-            env.storage()
-                .persistent()
-                .set(&DataKey::CardMeta(card_id), &card);
-            return Err(VirtualCardError::Expired);
+        let new_consumed = cap
+            .consumed
+            .checked_add(amount)
+            .ok_or(SpendCapError::InvalidInput)?;
+
+        if new_consumed > cap.allowance {
+            env.events().publish(
+                (symbol_short!("cap"), symbol_short!("exceeded")),
+                (cap_id, amount, cap.consumed, cap.allowance),
+            );
+            return Err(SpendCapError::CapExceeded);
         }
 
-        Self::check_merchant(&env, card_id, &merchant)?;
-
-        if amount > card.balance {
-            return Err(VirtualCardError::LimitExceeded);
-        }
-
-        let counters = Self::check_velocity_limits(&env, &card, card_id, amount)?;
-
-        card.balance -= amount;
-
-        if card.balance == 0 {
-            card.status = CardStatus::Closed;
-        }
-
-        env.storage()
-            .persistent()
-            .set(&DataKey::CardMeta(card_id), &card);
-        Self::save_spend_counters(&env, card_id, &counters);
-
-        let tx_id = syncro_common::next_counter_id(
-            &env,
-            soroban_sdk::Symbol::new(&env, "TxCounter"),
-        )
-        .map_err(|_| VirtualCardError::CounterOverflow)?;
+        // Atomic debit — persist before returning.
+        cap.consumed = new_consumed;
+        env.storage().persistent().set(&DataKey::Cap(cap_id), &cap);
 
         env.events().publish(
-            (
-                soroban_sdk::Symbol::new(&env, "payment_processed"),
-                soroban_sdk::Symbol::new(&env, "card"),
-            ),
-            (card_id, amount, merchant, current_ts),
+            (symbol_short!("cap"), symbol_short!("debited")),
+            (cap_id, amount, cap.consumed, cap.allowance),
         );
 
-        Ok(tx_id)
+        Ok(cap.remaining())
     }
 
-    /// Set the merchant allowlist for a card. Only the card holder may call this.
-    /// When non-empty, only listed merchants may charge the card.
-    pub fn set_merchant_allowlist(
+    // ── Queries ───────────────────────────────────────────────────────────────
+
+    /// Return the remaining headroom for the current period, accounting for
+    /// lazy rollover.  Does NOT mutate state.
+    pub fn get_balance(env: Env, cap_id: u64) -> Result<i128, SpendCapError> {
+        let mut cap: SpendCap = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Cap(cap_id))
+            .ok_or(SpendCapError::CapNotFound)?;
+
+        let now = env.ledger().timestamp();
+        cap.roll_period(now);
+
+        Ok(cap.remaining())
+    }
+
+    /// Return full cap metadata (after lazy rollover).
+    pub fn get_cap(env: Env, cap_id: u64) -> Result<SpendCap, SpendCapError> {
+        let mut cap: SpendCap = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Cap(cap_id))
+            .ok_or(SpendCapError::CapNotFound)?;
+
+        let now = env.ledger().timestamp();
+        cap.roll_period(now);
+        Ok(cap)
+    }
+
+    // ── Principal controls ────────────────────────────────────────────────────
+
+    /// Suspend a cap.  Only the issuing principal may call this.
+    ///
+    /// Returns `CapSuspended` error variant so callers can distinguish it from
+    /// suspension due to exceeding the limit.
+    pub fn suspend_cap(
         env: Env,
-        card_id: u64,
+        cap_id: u64,
         caller: Address,
-        merchants: Vec<String>,
-    ) -> Result<(), VirtualCardError> {
+    ) -> Result<(), SpendCapError> {
         caller.require_auth();
 
-        let card: Card = env
+        let mut cap: SpendCap = env
             .storage()
             .persistent()
-            .get(&DataKey::CardMeta(card_id))
-            .ok_or(VirtualCardError::CardNotFound)?;
+            .get(&DataKey::Cap(cap_id))
+            .ok_or(SpendCapError::CapNotFound)?;
 
-        if card.holder != caller {
-            return Err(VirtualCardError::Unauthorized);
+        if cap.principal != caller {
+            return Err(SpendCapError::Unauthorized);
         }
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::MerchantAllowlist(card_id), &merchants);
+        cap.status = CapStatus::Suspended;
+        env.storage().persistent().set(&DataKey::Cap(cap_id), &cap);
+
+        env.events().publish(
+            (symbol_short!("cap"), symbol_short!("suspended")),
+            (cap_id, caller),
+        );
 
         Ok(())
     }
 
-    /// Set the merchant blocklist for a card. Only the card holder may call this.
-    pub fn set_merchant_blocklist(
+    /// Resume a previously suspended cap.  Only the issuing principal may call.
+    pub fn resume_cap(
         env: Env,
-        card_id: u64,
+        cap_id: u64,
         caller: Address,
-        merchants: Vec<String>,
-    ) -> Result<(), VirtualCardError> {
+    ) -> Result<(), SpendCapError> {
         caller.require_auth();
 
-        let card: Card = env
+        let mut cap: SpendCap = env
             .storage()
             .persistent()
-            .get(&DataKey::CardMeta(card_id))
-            .ok_or(VirtualCardError::CardNotFound)?;
+            .get(&DataKey::Cap(cap_id))
+            .ok_or(SpendCapError::CapNotFound)?;
 
-        if card.holder != caller {
-            return Err(VirtualCardError::Unauthorized);
+        if cap.principal != caller {
+            return Err(SpendCapError::Unauthorized);
         }
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::MerchantBlocklist(card_id), &merchants);
-
-        Ok(())
-    }
-
-    /// Remaining spend allowance for the current rolling day window.
-    pub fn remaining_daily(env: Env, card_id: u64) -> Result<i128, VirtualCardError> {
-        let card: Card = env
-            .storage()
-            .persistent()
-            .get(&DataKey::CardMeta(card_id))
-            .ok_or(VirtualCardError::CardNotFound)?;
-
-        let counters = Self::load_spend_counters(&env, card_id);
-        Ok(Self::remaining_for_limit(
-            card.daily_limit,
-            counters.daily_spent,
-        ))
-    }
-
-    /// Remaining spend allowance for the current rolling 30-day window.
-    pub fn remaining_monthly(env: Env, card_id: u64) -> Result<i128, VirtualCardError> {
-        let card: Card = env
-            .storage()
-            .persistent()
-            .get(&DataKey::CardMeta(card_id))
-            .ok_or(VirtualCardError::CardNotFound)?;
-
-        let counters = Self::load_spend_counters(&env, card_id);
-        Ok(Self::remaining_for_limit(
-            card.monthly_limit,
-            counters.monthly_spent,
-        ))
-    }
-
-    /// Returns the current balance of a card.
-    pub fn get_balance(env: Env, card_id: u64) -> i128 {
-        let card: Option<Card> = env.storage().persistent().get(&DataKey::CardMeta(card_id));
-        card.map(|c| c.balance).unwrap_or(0)
-    }
-
-    /// Returns the full card metadata.
-    pub fn get_card(env: Env, card_id: u64) -> Result<Card, VirtualCardError> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::CardMeta(card_id))
-            .ok_or(VirtualCardError::CardNotFound)
-    }
-
-    /// Activate a pending card. Caller must be the card holder.
-    pub fn activate_card(env: Env, card_id: u64, caller: Address) -> Result<(), VirtualCardError> {
-        caller.require_auth();
-
-        let mut card: Card = env
-            .storage()
-            .persistent()
-            .get(&DataKey::CardMeta(card_id))
-            .ok_or(VirtualCardError::CardNotFound)?;
-
-        if card.holder != caller {
-            return Err(VirtualCardError::Unauthorized);
-        }
-
-        if card.status == CardStatus::Closed {
-            return Err(VirtualCardError::InvalidCardState);
-        }
-
-        card.status = CardStatus::Active;
-        env.storage()
-            .persistent()
-            .set(&DataKey::CardMeta(card_id), &card);
+        cap.status = CapStatus::Active;
+        env.storage().persistent().set(&DataKey::Cap(cap_id), &cap);
 
         env.events().publish(
-            (soroban_sdk::Symbol::new(&env, "card_activated"), caller),
-            (card_id, env.ledger().timestamp()),
+            (symbol_short!("cap"), symbol_short!("resumed")),
+            (cap_id, caller),
         );
 
         Ok(())
     }
 
-    /// Deactivate / permanently close a card. Caller must be the card holder.
-    pub fn deactivate_card(
+    /// Increase the allowance on a cap.  Only the issuing principal may call.
+    pub fn top_up_cap(
         env: Env,
-        card_id: u64,
+        cap_id: u64,
         caller: Address,
-        reason: String,
-    ) -> Result<(), VirtualCardError> {
+        additional: i128,
+    ) -> Result<(), SpendCapError> {
         caller.require_auth();
 
-        let mut card: Card = env
-            .storage()
-            .persistent()
-            .get(&DataKey::CardMeta(card_id))
-            .ok_or(VirtualCardError::CardNotFound)?;
-
-        if card.holder != caller {
-            return Err(VirtualCardError::Unauthorized);
+        if additional <= 0 {
+            return Err(SpendCapError::InvalidInput);
         }
 
-        card.status = CardStatus::Closed;
-        env.storage()
+        let mut cap: SpendCap = env
+            .storage()
             .persistent()
-            .set(&DataKey::CardMeta(card_id), &card);
+            .get(&DataKey::Cap(cap_id))
+            .ok_or(SpendCapError::CapNotFound)?;
+
+        if cap.principal != caller {
+            return Err(SpendCapError::Unauthorized);
+        }
+
+        cap.allowance = cap
+            .allowance
+            .checked_add(additional)
+            .ok_or(SpendCapError::InvalidInput)?;
+
+        env.storage().persistent().set(&DataKey::Cap(cap_id), &cap);
 
         env.events().publish(
-            (
-                soroban_sdk::Symbol::new(&env, "card_deactivated"),
-                soroban_sdk::Symbol::new(&env, "card"),
-            ),
-            (card_id, reason, env.ledger().timestamp()),
+            (symbol_short!("cap"), symbol_short!("toppedup")),
+            (cap_id, additional, cap.allowance),
         );
 
         Ok(())
     }
 
-    /// Temporarily suspend a card. Caller must be the card holder.
-    pub fn suspend_card(env: Env, card_id: u64, caller: Address) -> Result<(), VirtualCardError> {
-        caller.require_auth();
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
-        let mut card: Card = env
+    fn next_id(env: &Env) -> Result<u64, SpendCapError> {
+        let current: u64 = env
             .storage()
-            .persistent()
-            .get(&DataKey::CardMeta(card_id))
-            .ok_or(VirtualCardError::CardNotFound)?;
-
-        if card.holder != caller {
-            return Err(VirtualCardError::Unauthorized);
-        }
-
-        if card.status != CardStatus::Active {
-            return Err(VirtualCardError::InvalidCardState);
-        }
-
-        card.status = CardStatus::Suspended;
+            .instance()
+            .get(&DataKey::CapCounter)
+            .unwrap_or(0u64);
+        let next = current
+            .checked_add(1)
+            .ok_or(SpendCapError::CounterOverflow)?;
         env.storage()
-            .persistent()
-            .set(&DataKey::CardMeta(card_id), &card);
-
-        env.events().publish(
-            (soroban_sdk::Symbol::new(&env, "card_suspended"), caller),
-            (card_id, env.ledger().timestamp()),
-        );
-
-        Ok(())
-    }
-
-    /// Verify that `claimant` is the holder of `card_id`.
-    pub fn verify_ownership(env: Env, card_id: u64, claimant: Address) -> bool {
-        let card: Option<Card> = env.storage().persistent().get(&DataKey::CardMeta(card_id));
-        card.map(|c| c.holder == claimant).unwrap_or(false)
-    }
-
-    /// Check whether a card is eligible to process a given `amount`.
-    pub fn can_transact(env: Env, card_id: u64, amount: i128) -> bool {
-        let card: Option<Card> = env.storage().persistent().get(&DataKey::CardMeta(card_id));
-        match card {
-            None => false,
-            Some(c) => {
-                if c.status != CardStatus::Active {
-                    return false;
-                }
-                if c.expires_at > 0 && env.ledger().timestamp() > c.expires_at {
-                    return false;
-                }
-                if amount > c.balance {
-                    return false;
-                }
-                if Self::check_velocity_limits(&env, &c, card_id, amount).is_err() {
-                    return false;
-                }
-                true
-            }
-        }
+            .instance()
+            .set(&DataKey::CapCounter, &next);
+        Ok(next)
     }
 
     /// Returns the contract version.
     pub fn version(_env: Env) -> u32 {
-        2
-    }
-
-    // ── Pause / escape-hatch ─────────────────────────────────────────────────
-
-    /// Pause the contract.
-    ///
-    /// Only the card-holder should call this in practice; in a real deployment
-    /// this would be restricted to an admin key.  For the MVP the caller is
-    /// not restricted here — add `caller.require_auth()` + admin check once an
-    /// admin key storage pattern is introduced to this contract.
-    pub fn pause(env: Env) {
-        if !env.storage().instance().has(&DataKey::PausedSince) {
-            let now = env.ledger().timestamp();
-            env.storage()
-                .instance()
-                .set(&DataKey::PausedSince, &now);
-        }
-    }
-
-    /// Unpause the contract.
-    pub fn unpause(env: Env) {
-        env.storage().instance().remove(&DataKey::PausedSince);
-    }
-
-    /// Returns `true` when the contract is currently paused.
-    pub fn is_paused(env: Env) -> bool {
-        env.storage().instance().has(&DataKey::PausedSince)
-    }
-
-    /// Emergency escape-hatch — allows a card holder to recover their own
-    /// remaining balance after the contract has been paused for longer than
-    /// `ESCAPE_HATCH_GRACE_PERIOD_SECS`.
-    ///
-    /// In this contract the "balance" is an off-chain accounting unit (not
-    /// an on-chain token balance), so the escape hatch zeroes the card and
-    /// emits an auditable event.  Actual token refund happens off-chain via
-    /// the event log; the on-chain record is updated so the card cannot be
-    /// double-claimed.
-    ///
-    /// # Security
-    /// * Contract MUST be paused.
-    /// * Grace period MUST have elapsed.
-    /// * Only the card's recorded holder may call this.
-    /// * Calling a second time returns `CardInactive` — the card was already
-    ///   closed/zeroed on the first call.
-    pub fn escape_hatch_withdraw(
-        env: Env,
-        card_id: u32,
-        caller: Address,
-    ) -> Result<i128, VirtualCardError> {
-        // ── 1. Contract must be paused ───────────────────────────
-        let paused_since: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::PausedSince)
-            .ok_or(VirtualCardError::ContractNotPaused)?;
-
-        // ── 2. Grace period must have elapsed ────────────────────
-        let now = env.ledger().timestamp();
-        let elapsed = now.saturating_sub(paused_since);
-        if elapsed < ESCAPE_HATCH_GRACE_PERIOD_SECS {
-            return Err(VirtualCardError::GracePeriodNotElapsed);
-        }
-
-        // ── 3. Load card ──────────────────────────────────────────
-        let mut card: Card = env
-            .storage()
-            .persistent()
-            .get(&DataKey::CardMeta(card_id))
-            .ok_or(VirtualCardError::CardNotFound)?;
-
-        // ── 4. Caller must be the card holder ────────────────────
-        if card.holder != caller {
-            return Err(VirtualCardError::Unauthorized);
-        }
-        caller.require_auth();
-
-        // ── 5. Card must still have a claimable balance ──────────
-        // Closed cards have already been settled or previously escaped.
-        if card.status == CardStatus::Closed {
-            return Err(VirtualCardError::CardInactive);
-        }
-
-        let recoverable_balance = card.balance;
-
-        // ── 6. EFFECTS — zero balance and close the card ─────────
-        card.balance = 0;
-        card.status = CardStatus::Closed;
-        env.storage()
-            .persistent()
-            .set(&DataKey::CardMeta(card_id), &card);
-
-        // ── 7. Emit distinct escape-hatch event ──────────────────
-        env.events().publish(
-            (
-                soroban_sdk::Symbol::new(&env, "escape_hatch"),
-                soroban_sdk::Symbol::new(&env, "card"),
-            ),
-            (card_id, caller, recoverable_balance, paused_since),
-        );
-
-        Ok(recoverable_balance)
+        3
     }
 }
 
@@ -739,517 +420,364 @@ impl VirtualCardContract {
 // ============================================================================
 
 #[cfg(test)]
-mod fuzz;
-
-
-#[cfg(test)]
-mod negative;
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use soroban_sdk::{testutils::Address as _, testutils::Ledger, Env};
 
-    fn setup() -> (Env, Address) {
+    fn setup() -> (Env, Address, Address) {
         let env = Env::default();
         env.mock_all_auths();
-        let user = Address::generate(&env);
-        (env, user)
+        let principal = Address::generate(&env);
+        let agent = Address::generate(&env);
+        (env, principal, agent)
     }
 
-    fn issue_standard(
-        client: &VirtualCardContractClient,
-        user: &Address,
-        amount: i128,
+    // Issue a standard cap with a 1-day period and 1000 allowance.
+    fn issue_default(
+        client: &AgentSpendCapContractClient,
+        principal: &Address,
+        agent: &Address,
     ) -> u64 {
-        client.issue_card(user, &amount, &CardType::Standard, &0_u64, &0_i128, &0_i128)
+        client.issue_cap(principal, agent, &1_000_i128, &MIN_PERIOD_SECS)
+    }
+
+    // ── Issue ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_issue_cap_success() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        let cap_id = issue_default(&client, &principal, &agent);
+        assert_eq!(cap_id, 1);
+
+        let cap = client.get_cap(&cap_id);
+        assert_eq!(cap.allowance, 1_000);
+        assert_eq!(cap.consumed, 0);
+        assert_eq!(cap.status, CapStatus::Active);
+        assert_eq!(cap.principal, principal);
+        assert_eq!(cap.agent, agent);
     }
 
     #[test]
-    fn test_issue_card_success() {
-        let (env, user) = setup();
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
+    fn test_issue_cap_zero_allowance_rejected() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let card_id = client.issue_card(
-            &user,
-            &1000_i128,
-            &CardType::Standard,
-            &0_u64,
-            &100_i128,
-            &500_i128,
-        );
-
-        assert_eq!(card_id, 1);
-        assert_eq!(client.get_balance(&card_id), 1000_i128);
-
-        let card = client.get_card(&card_id);
-        assert_eq!(card.daily_limit, 100_i128);
-        assert_eq!(card.monthly_limit, 500_i128);
+        let res = client.try_issue_cap(&principal, &agent, &0_i128, &MIN_PERIOD_SECS);
+        assert_eq!(res, Err(Ok(SpendCapError::InvalidInput)));
     }
 
     #[test]
-    fn test_issue_card_negative_amount() {
-        let (env, user) = setup();
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
+    fn test_issue_cap_negative_allowance_rejected() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let result = client.try_issue_card(
-            &user,
-            &(-1_i128),
-            &CardType::Standard,
-            &0_u64,
-            &0_i128,
-            &0_i128,
-        );
-        assert!(result.is_err());
+        let res = client.try_issue_cap(&principal, &agent, &-1_i128, &MIN_PERIOD_SECS);
+        assert_eq!(res, Err(Ok(SpendCapError::InvalidInput)));
     }
 
     #[test]
-    fn test_process_payment_deducts_balance() {
-        let (env, user) = setup();
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
+    fn test_issue_cap_period_too_short_rejected() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let card_id = issue_standard(&client, &user, 500_i128);
-
-        client.process_payment(&card_id, &200_i128, &String::from_str(&env, "merchant_a"));
-
-        assert_eq!(client.get_balance(&card_id), 300_i128);
+        let res = client.try_issue_cap(&principal, &agent, &100_i128, &(MIN_PERIOD_SECS - 1));
+        assert_eq!(res, Err(Ok(SpendCapError::InvalidPeriod)));
     }
 
     #[test]
-    fn test_process_payment_limit_exceeded() {
-        let (env, user) = setup();
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
+    fn test_issue_cap_period_too_long_rejected() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let card_id = issue_standard(&client, &user, 100_i128);
-
-        let result =
-            client.try_process_payment(&card_id, &200_i128, &String::from_str(&env, "merchant_b"));
-        assert!(result.is_err());
+        let res = client.try_issue_cap(&principal, &agent, &100_i128, &(MAX_PERIOD_SECS + 1));
+        assert_eq!(res, Err(Ok(SpendCapError::InvalidPeriod)));
     }
 
     #[test]
-    fn test_daily_limit_enforced() {
-        let (env, user) = setup();
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
+    fn test_issue_cap_ids_sequential() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let card_id = client.issue_card(
-            &user,
-            &1000_i128,
-            &CardType::Standard,
-            &0_u64,
-            &100_i128,
-            &0_i128,
-        );
+        let id1 = issue_default(&client, &principal, &agent);
+        let id2 = issue_default(&client, &principal, &agent);
+        let id3 = issue_default(&client, &principal, &agent);
+        assert_eq!(id1, 1);
+        assert_eq!(id2, 2);
+        assert_eq!(id3, 3);
+    }
 
-        client.process_payment(&card_id, &80_i128, &String::from_str(&env, "m1"));
-        assert_eq!(client.remaining_daily(&card_id), 20_i128);
+    // ── Admission (can_transact) ──────────────────────────────────────────────
 
-        let res = client.try_process_payment(
-            &card_id,
-            &30_i128,
-            &String::from_str(&env, "m2"),
-        );
-        assert_eq!(res, Err(Ok(VirtualCardError::DailyLimitExceeded)));
+    #[test]
+    fn test_can_transact_debits_and_returns_remaining() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        let cap_id = issue_default(&client, &principal, &agent);
+        let remaining = client.can_transact(&cap_id, &300_i128);
+        assert_eq!(remaining, 700_i128);
+
+        // Second call sees updated consumed.
+        let remaining2 = client.can_transact(&cap_id, &200_i128);
+        assert_eq!(remaining2, 500_i128);
     }
 
     #[test]
-    fn test_daily_counter_resets_on_new_bucket() {
-        let (env, user) = setup();
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
+    fn test_can_transact_cap_not_found() {
+        let (env, _, _) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let card_id = client.issue_card(
-            &user,
-            &1000_i128,
-            &CardType::Standard,
-            &0_u64,
-            &100_i128,
-            &0_i128,
-        );
-
-        client.process_payment(&card_id, &90_i128, &String::from_str(&env, "m1"));
-        assert_eq!(client.remaining_daily(&card_id), 10_i128);
-
-        env.ledger().set_timestamp(SECONDS_PER_DAY + 1);
-        assert_eq!(client.remaining_daily(&card_id), 100_i128);
-
-        client.process_payment(&card_id, &50_i128, &String::from_str(&env, "m1"));
-        assert_eq!(client.remaining_daily(&card_id), 50_i128);
+        let res = client.try_can_transact(&999_u64, &10_i128);
+        assert_eq!(res, Err(Ok(SpendCapError::CapNotFound)));
     }
 
     #[test]
-    fn test_monthly_limit_enforced() {
-        let (env, user) = setup();
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
+    fn test_can_transact_suspended_cap_returns_cap_suspended() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let card_id = client.issue_card(
-            &user,
-            &5000_i128,
-            &CardType::Standard,
-            &0_u64,
-            &0_i128,
-            &200_i128,
-        );
+        let cap_id = issue_default(&client, &principal, &agent);
+        client.suspend_cap(&cap_id, &principal);
 
-        client.process_payment(&card_id, &150_i128, &String::from_str(&env, "m1"));
-
-        let res = client.try_process_payment(
-            &card_id,
-            &60_i128,
-            &String::from_str(&env, "m2"),
-        );
-        assert_eq!(res, Err(Ok(VirtualCardError::MonthlyLimitExceeded)));
+        let res = client.try_can_transact(&cap_id, &10_i128);
+        // Must be CapSuspended, NOT CapExceeded
+        assert_eq!(res, Err(Ok(SpendCapError::CapSuspended)));
     }
 
     #[test]
-    fn test_monthly_counter_resets_on_new_bucket() {
-        let (env, user) = setup();
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
+    fn test_can_transact_exceeded_returns_cap_exceeded() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let card_id = client.issue_card(
-            &user,
-            &5000_i128,
-            &CardType::Standard,
-            &0_u64,
-            &0_i128,
-            &200_i128,
-        );
+        let cap_id = issue_default(&client, &principal, &agent);
 
-        client.process_payment(&card_id, &180_i128, &String::from_str(&env, "m1"));
-        assert_eq!(client.remaining_monthly(&card_id), 20_i128);
+        // Exhaust the cap.
+        client.can_transact(&cap_id, &1_000_i128);
 
-        env.ledger().set_timestamp(SECONDS_PER_MONTH + 1);
-        assert_eq!(client.remaining_monthly(&card_id), 200_i128);
+        // Next call must return CapExceeded, not CapSuspended.
+        let res = client.try_can_transact(&cap_id, &1_i128);
+        assert_eq!(res, Err(Ok(SpendCapError::CapExceeded)));
     }
 
     #[test]
-    fn test_merchant_allowlist_rejects_unknown() {
-        let (env, user) = setup();
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
+    fn test_can_transact_exactly_at_limit_succeeds() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let card_id = issue_standard(&client, &user, 500_i128);
-
-        let allowlist = vec![
-            &env,
-            String::from_str(&env, "netflix"),
-            String::from_str(&env, "spotify"),
-        ];
-        client.set_merchant_allowlist(&card_id, &user, &allowlist);
-
-        let ok = client.try_process_payment(
-            &card_id,
-            &10_i128,
-            &String::from_str(&env, "netflix"),
-        );
-        assert!(ok.is_ok());
-
-        let bad = client.try_process_payment(
-            &card_id,
-            &10_i128,
-            &String::from_str(&env, "unknown_merchant"),
-        );
-        assert_eq!(bad, Err(Ok(VirtualCardError::MerchantNotAllowed)));
+        let cap_id = issue_default(&client, &principal, &agent);
+        let remaining = client.can_transact(&cap_id, &1_000_i128);
+        assert_eq!(remaining, 0_i128);
     }
 
     #[test]
-    fn test_merchant_blocklist_rejects() {
-        let (env, user) = setup();
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
+    fn test_can_transact_one_over_limit_rejected() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let card_id = issue_standard(&client, &user, 500_i128);
-
-        let blocklist = vec![&env, String::from_str(&env, "bad_actor")];
-        client.set_merchant_blocklist(&card_id, &user, &blocklist);
-
-        let res = client.try_process_payment(
-            &card_id,
-            &10_i128,
-            &String::from_str(&env, "bad_actor"),
-        );
-        assert_eq!(res, Err(Ok(VirtualCardError::MerchantBlocked)));
+        let cap_id = issue_default(&client, &principal, &agent);
+        let res = client.try_can_transact(&cap_id, &1_001_i128);
+        assert_eq!(res, Err(Ok(SpendCapError::CapExceeded)));
     }
 
     #[test]
-    fn test_unauthorized_allowlist_mutation() {
-        let (env, user) = setup();
+    fn test_can_transact_balance_unchanged_on_failure() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        let cap_id = issue_default(&client, &principal, &agent);
+        // Partially consume.
+        client.can_transact(&cap_id, &400_i128);
+
+        // Over-limit attempt.
+        let _ = client.try_can_transact(&cap_id, &700_i128);
+
+        // Balance must be unchanged at 600.
+        assert_eq!(client.get_balance(&cap_id), 600_i128);
+    }
+
+    // ── Period rollover ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_period_rollover_resets_consumed_no_carryover() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        let cap_id = issue_default(&client, &principal, &agent);
+        // Spend within the period.
+        client.can_transact(&cap_id, &900_i128);
+        assert_eq!(client.get_balance(&cap_id), 100_i128);
+
+        // Advance past the period.
+        let now = env.ledger().timestamp();
+        env.ledger().set_timestamp(now + MIN_PERIOD_SECS + 1);
+
+        // New period — full allowance available (no carryover of unused 100).
+        assert_eq!(client.get_balance(&cap_id), 1_000_i128);
+    }
+
+    #[test]
+    fn test_multiple_period_rollovers() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        let cap_id = issue_default(&client, &principal, &agent);
+        let start = env.ledger().timestamp();
+
+        // Spend 500 in period 0.
+        client.can_transact(&cap_id, &500_i128);
+
+        // Advance 5 periods.
+        env.ledger().set_timestamp(start + MIN_PERIOD_SECS * 5 + 1);
+        // Full 1000 available — the 500 unused from period 0 does NOT compound.
+        assert_eq!(client.get_balance(&cap_id), 1_000_i128);
+
+        // Spend 300 in period 5.
+        client.can_transact(&cap_id, &300_i128);
+        assert_eq!(client.get_balance(&cap_id), 700_i128);
+    }
+
+    #[test]
+    fn test_can_transact_triggers_lazy_rollover() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        let cap_id = issue_default(&client, &principal, &agent);
+        client.can_transact(&cap_id, &999_i128);
+
+        let now = env.ledger().timestamp();
+        env.ledger().set_timestamp(now + MIN_PERIOD_SECS + 1);
+
+        // After rollover 700 should be admitted (new period = 1000 available).
+        let remaining = client.can_transact(&cap_id, &700_i128);
+        assert_eq!(remaining, 300_i128);
+    }
+
+    // ── Suspend / resume ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_suspend_then_resume() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        let cap_id = issue_default(&client, &principal, &agent);
+        client.suspend_cap(&cap_id, &principal);
+
+        // Suspended.
+        assert_eq!(
+            client.try_can_transact(&cap_id, &10_i128),
+            Err(Ok(SpendCapError::CapSuspended))
+        );
+
+        // Resume.
+        client.resume_cap(&cap_id, &principal);
+        let remaining = client.can_transact(&cap_id, &10_i128);
+        assert_eq!(remaining, 990_i128);
+    }
+
+    #[test]
+    fn test_suspend_unauthorized_rejected() {
+        let (env, principal, agent) = setup();
         let attacker = Address::generate(&env);
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let card_id = issue_standard(&client, &user, 100_i128);
+        let cap_id = issue_default(&client, &principal, &agent);
+        let res = client.try_suspend_cap(&cap_id, &attacker);
+        assert_eq!(res, Err(Ok(SpendCapError::Unauthorized)));
 
-        let allowlist = vec![&env, String::from_str(&env, "netflix")];
-        let res = client.try_set_merchant_allowlist(&card_id, &attacker, &allowlist);
-        assert_eq!(res, Err(Ok(VirtualCardError::Unauthorized)));
+        // Cap must still be active.
+        assert_eq!(client.get_cap(&cap_id).status, CapStatus::Active);
     }
 
     #[test]
-    fn test_suspended_card_cannot_process_payment() {
-        let (env, user) = setup();
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
-
-        let card_id = issue_standard(&client, &user, 100_i128);
-        client.suspend_card(&card_id, &user);
-
-        let res = client.try_process_payment(
-            &card_id,
-            &50_i128,
-            &String::from_str(&env, "merchant_suspended"),
-        );
-        assert_eq!(res, Err(Ok(VirtualCardError::CardInactive)));
-    }
-
-    #[test]
-    fn test_auto_close_on_zero_balance() {
-        let (env, user) = setup();
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
-
-        let card_id = client.issue_card(
-            &user,
-            &100_i128,
-            &CardType::Disposable,
-            &0_u64,
-            &0_i128,
-            &0_i128,
-        );
-
-        client.process_payment(&card_id, &100_i128, &String::from_str(&env, "merchant_c"));
-
-        let card = client.get_card(&card_id);
-        assert_eq!(card.status, CardStatus::Closed);
-    }
-
-    #[test]
-    fn test_verify_ownership() {
-        let (env, user) = setup();
-        let other = Address::generate(&env);
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
-
-        let card_id = issue_standard(&client, &user, 100_i128);
-
-        assert!(client.verify_ownership(&card_id, &user));
-        assert!(!client.verify_ownership(&card_id, &other));
-    }
-
-    #[test]
-    fn test_deactivate_card() {
-        let (env, user) = setup();
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
-
-        let card_id = issue_standard(&client, &user, 100_i128);
-
-        client.deactivate_card(&card_id, &user, &String::from_str(&env, "user_request"));
-
-        let card = client.get_card(&card_id);
-        assert_eq!(card.status, CardStatus::Closed);
-    }
-
-    #[test]
-    fn test_unauthorized_deactivation() {
-        let (env, user) = setup();
+    fn test_resume_unauthorized_rejected() {
+        let (env, principal, agent) = setup();
         let attacker = Address::generate(&env);
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let card_id = issue_standard(&client, &user, 100_i128);
+        let cap_id = issue_default(&client, &principal, &agent);
+        client.suspend_cap(&cap_id, &principal);
 
-        let result =
-            client.try_deactivate_card(&card_id, &attacker, &String::from_str(&env, "attack"));
-        assert!(result.is_err());
+        let res = client.try_resume_cap(&cap_id, &attacker);
+        assert_eq!(res, Err(Ok(SpendCapError::Unauthorized)));
+
+        // Must remain suspended.
+        assert_eq!(client.get_cap(&cap_id).status, CapStatus::Suspended);
+    }
+
+    // ── Top-up ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_top_up_cap_increases_allowance() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        let cap_id = issue_default(&client, &principal, &agent);
+        client.top_up_cap(&cap_id, &principal, &500_i128);
+
+        let cap = client.get_cap(&cap_id);
+        assert_eq!(cap.allowance, 1_500_i128);
+        assert_eq!(client.get_balance(&cap_id), 1_500_i128);
     }
 
     #[test]
-    fn test_can_transact() {
-        let (env, user) = setup();
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
-
-        let card_id = issue_standard(&client, &user, 100_i128);
-
-        assert!(client.can_transact(&card_id, &50_i128));
-        assert!(!client.can_transact(&card_id, &150_i128));
-    }
-
-    #[test]
-    fn test_error_types_defined() {
-        let errors = [
-            VirtualCardError::CardNotFound,
-            VirtualCardError::Unauthorized,
-            VirtualCardError::CardInactive,
-            VirtualCardError::InvalidCardState,
-            VirtualCardError::LimitExceeded,
-            VirtualCardError::InvalidInput,
-            VirtualCardError::Expired,
-            VirtualCardError::DuplicateCard,
-            VirtualCardError::NotSupported,
-            VirtualCardError::InternalError,
-            VirtualCardError::DailyLimitExceeded,
-            VirtualCardError::MonthlyLimitExceeded,
-            VirtualCardError::MerchantNotAllowed,
-            VirtualCardError::MerchantBlocked,
-        ];
-        assert_eq!(errors.len(), 14);
-    }
-
-    // ── Escape-hatch tests ───────────────────────────────────────
-
-    #[test]
-    fn test_escape_hatch_recovers_balance_after_grace_period() {
-        let (env, user) = setup();
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
-
-        let card_id = client.issue_card(
-            &user,
-            &800_i128,
-            &CardType::Standard,
-            &0_u64,
-            &0_i128,
-            &0_i128,
-        );
-
-        // Spend some balance first
-        client.process_payment(&card_id, &200_i128, &String::from_str(&env, "merchant"));
-        assert_eq!(client.get_balance(&card_id), 600_i128);
-
-        // Pause and advance past grace period
-        client.pause();
-        let paused_at = env.ledger().timestamp();
-        env.ledger().set_timestamp(paused_at + ESCAPE_HATCH_GRACE_PERIOD_SECS + 1);
-
-        let recovered = client.escape_hatch_withdraw(&card_id, &user);
-        assert_eq!(recovered, 600_i128);
-
-        // Card must be closed and zeroed
-        let card = client.get_card(&card_id);
-        assert_eq!(card.balance, 0_i128);
-        assert_eq!(card.status, CardStatus::Closed);
-    }
-
-    #[test]
-    fn test_escape_hatch_fails_before_grace_period() {
-        let (env, user) = setup();
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
-
-        let card_id = issue_standard(&client, &user, 500_i128);
-
-        client.pause();
-        let paused_at = env.ledger().timestamp();
-        // Only 1 second elapsed
-        env.ledger().set_timestamp(paused_at + 1);
-
-        let result = client.try_escape_hatch_withdraw(&card_id, &user);
-        assert_eq!(result, Err(Ok(VirtualCardError::GracePeriodNotElapsed)));
-    }
-
-    #[test]
-    fn test_escape_hatch_fails_when_not_paused() {
-        let (env, user) = setup();
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
-
-        let card_id = issue_standard(&client, &user, 500_i128);
-
-        // No pause — must fail
-        let result = client.try_escape_hatch_withdraw(&card_id, &user);
-        assert_eq!(result, Err(Ok(VirtualCardError::ContractNotPaused)));
-    }
-
-    #[test]
-    fn test_escape_hatch_fails_after_unpause() {
-        let (env, user) = setup();
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
-
-        let card_id = issue_standard(&client, &user, 500_i128);
-
-        client.pause();
-        let paused_at = env.ledger().timestamp();
-        env.ledger().set_timestamp(paused_at + ESCAPE_HATCH_GRACE_PERIOD_SECS + 1);
-        client.unpause();
-
-        let result = client.try_escape_hatch_withdraw(&card_id, &user);
-        assert_eq!(result, Err(Ok(VirtualCardError::ContractNotPaused)));
-    }
-
-    #[test]
-    fn test_escape_hatch_cross_user_theft_prevented() {
-        let (env, user) = setup();
+    fn test_top_up_unauthorized_rejected() {
+        let (env, principal, agent) = setup();
         let attacker = Address::generate(&env);
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let card_id = issue_standard(&client, &user, 500_i128);
-
-        client.pause();
-        let paused_at = env.ledger().timestamp();
-        env.ledger().set_timestamp(paused_at + ESCAPE_HATCH_GRACE_PERIOD_SECS + 1);
-
-        // Attacker is not the card holder
-        let result = client.try_escape_hatch_withdraw(&card_id, &attacker);
-        assert_eq!(result, Err(Ok(VirtualCardError::Unauthorized)));
+        let cap_id = issue_default(&client, &principal, &agent);
+        let res = client.try_top_up_cap(&cap_id, &attacker, &500_i128);
+        assert_eq!(res, Err(Ok(SpendCapError::Unauthorized)));
     }
 
+    // ── get_balance ───────────────────────────────────────────────────────────
+
     #[test]
-    fn test_escape_hatch_cannot_double_withdraw() {
-        let (env, user) = setup();
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
+    fn test_get_balance_unknown_cap() {
+        let (env, _, _) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let card_id = issue_standard(&client, &user, 500_i128);
-
-        client.pause();
-        let paused_at = env.ledger().timestamp();
-        env.ledger().set_timestamp(paused_at + ESCAPE_HATCH_GRACE_PERIOD_SECS + 1);
-
-        client.escape_hatch_withdraw(&card_id, &user);
-
-        // Second call must fail — card is now Closed
-        let result = client.try_escape_hatch_withdraw(&card_id, &user);
-        assert_eq!(result, Err(Ok(VirtualCardError::CardInactive)));
+        let res = client.try_get_balance(&999_u64);
+        assert_eq!(res, Err(Ok(SpendCapError::CapNotFound)));
     }
 
+    // ── version ───────────────────────────────────────────────────────────────
+
     #[test]
-    fn test_escape_hatch_zero_balance_card() {
-        let (env, user) = setup();
-        let contract_id = env.register(VirtualCardContract, ());
-        let client = VirtualCardContractClient::new(&env, &contract_id);
-
-        // Issue and immediately spend full balance so it auto-closes
-        let card_id = client.issue_card(
-            &user,
-            &100_i128,
-            &CardType::Disposable,
-            &0_u64,
-            &0_i128,
-            &0_i128,
-        );
-        client.process_payment(&card_id, &100_i128, &String::from_str(&env, "merchant"));
-
-        // Card is now Closed with zero balance
-        let card = client.get_card(&card_id);
-        assert_eq!(card.status, CardStatus::Closed);
-
-        client.pause();
-        let paused_at = env.ledger().timestamp();
-        env.ledger().set_timestamp(paused_at + ESCAPE_HATCH_GRACE_PERIOD_SECS + 1);
-
-        // Closed card — escape hatch correctly refuses
-        let result = client.try_escape_hatch_withdraw(&card_id, &user);
-        assert_eq!(result, Err(Ok(VirtualCardError::CardInactive)));
+    fn test_version_is_v3() {
+        let (env, _, _) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+        assert_eq!(client.version(), 3_u32);
     }
 }
+
+#[cfg(test)]
+mod fuzz;
+
+#[cfg(test)]
+mod negative;
