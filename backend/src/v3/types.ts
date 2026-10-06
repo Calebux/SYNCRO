@@ -1,4 +1,12 @@
+import type { DegradedPolicy } from '../../../packages/metering/src/degraded-admission';
+
 export type ProviderMode = 'staging' | 'production';
+
+/**
+ * What a provider does while the meter's counter store is unavailable
+ * (Issue #1444): fail open and serve unbilled, or fail closed and refuse.
+ */
+export type DegradedModePolicy = DegradedPolicy;
 
 export interface ProviderRegistration {
   providerId: string;
@@ -9,6 +17,8 @@ export interface ProviderRegistration {
   mode: ProviderMode;
   payoutVerified: boolean;
   payoutChallenge: string | null;
+  /** Per-provider degraded-mode policy; platform default until overridden. */
+  degradedMode: DegradedModePolicy;
   createdAt: string;
   updatedAt: string;
 }
@@ -102,6 +112,35 @@ export class ScopeRejectionError extends Error {
   constructor(code: ScopeRejectionCode, message: string) {
     super(message);
     this.code = code;
+  }
+}
+
+export type MeterDegradedReason = 'fail_closed' | 'exposure_ceiling';
+
+/**
+ * The counter store is down and the provider's policy says this call must not
+ * be served unbilled — either because it fails closed by configuration, or
+ * because its unbilled-exposure budget for this outage is spent (#1444).
+ *
+ * Mapped to HTTP 503 with `GATEWAY_METER_DEGRADED` and `Retry-After`, which
+ * the SDK already treats as retryable with a 10s delay.
+ */
+export class MeterDegradedError extends Error {
+  readonly code = 'GATEWAY_METER_DEGRADED';
+  readonly status = 503;
+  readonly retryAfterSeconds = 10;
+  readonly reason: MeterDegradedReason;
+  readonly providerId: string;
+
+  constructor(reason: MeterDegradedReason, providerId: string) {
+    super(
+      reason === 'fail_closed'
+        ? 'metering is degraded and this provider fails closed'
+        : 'metering is degraded and this provider exhausted its unbilled exposure budget',
+    );
+    this.name = 'MeterDegradedError';
+    this.reason = reason;
+    this.providerId = providerId;
   }
 }
 

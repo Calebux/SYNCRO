@@ -18,6 +18,25 @@ import {
 const DEFAULT_GRANULARITY: AnalyticsPeriod['granularity'] = 'day';
 
 /**
+ * State recorded by a `system.degraded_mode` audit entry (#1444). The entry
+ * writes `before`/`after` as `{ state }`; an unreadable payload reads as the
+ * conservative `degraded` so a broken audit never hides an outage.
+ */
+function degradedState(event: { metadata?: unknown } | null): 'degraded' | 'healthy' {
+  if (!event) return 'degraded';
+  let metadata = event.metadata;
+  if (typeof metadata === 'string') {
+    try {
+      metadata = JSON.parse(metadata);
+    } catch {
+      return 'degraded';
+    }
+  }
+  const after = (metadata as { after?: { state?: string } } | null)?.after;
+  return after?.state === 'healthy' ? 'healthy' : 'degraded';
+}
+
+/**
  * V3 Analytics Service — metrics around usage and settlement.
  *
  * Replaces the subscription-centric analytics with channel/usage-centric
@@ -278,14 +297,35 @@ export class AnalyticsV3Service {
       dependencyHealthService.checkAllDependencies(),
     ]);
 
-    const alerts: PrincipalAlert[] = (auditEvents ?? []).map((event) => ({
-      type: event.action === 'system.degraded_mode' ? 'degraded_mode' : 'reconciliation_delta',
-      severity: 'critical',
-      message: event.action === 'system.degraded_mode'
-        ? 'Metering is in degraded mode; some calls may be delayed or unbilled.'
-        : 'A reconciliation delta needs attention.',
-      createdAt: event.created_at || new Date().toISOString(),
-    }));
+    const degradedEvents = (auditEvents ?? []).filter(
+      (event) => event.action === 'system.degraded_mode',
+    );
+    const latestDegraded = degradedEvents[0] ?? null; // created_at descending
+
+    const alerts: PrincipalAlert[] = [];
+    for (const event of auditEvents ?? []) {
+      if (event.action === 'system.degraded_mode') {
+        // Only the newest transition describes current state: an outage that
+        // has recovered must not keep rendering as an active outage (#1444).
+        if (event !== latestDegraded) continue;
+        const recovered = degradedState(event) === 'healthy';
+        alerts.push({
+          type: 'degraded_mode',
+          severity: recovered ? 'warning' : 'critical',
+          message: recovered
+            ? 'Metering recovered from degraded mode; reconcile unbilled calls before settling.'
+            : 'Metering is in degraded mode; some calls may be delayed or unbilled.',
+          createdAt: event.created_at || new Date().toISOString(),
+        });
+        continue;
+      }
+      alerts.push({
+        type: 'reconciliation_delta',
+        severity: 'critical',
+        message: 'A reconciliation delta needs attention.',
+        createdAt: event.created_at || new Date().toISOString(),
+      });
+    }
 
     if (dependencies.some((dependency) => dependency.status !== 'healthy')) {
       alerts.unshift({
