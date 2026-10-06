@@ -68,6 +68,21 @@ pub fn interface_version_call(_env: &Env) -> u32 {
 }
 
 // ============================================================================
+// Indexer event schema version (issue #1430)
+// ============================================================================
+
+/// Version of the versioned indexer event envelope.
+///
+/// Every event published for off-chain indexing carries this version as its
+/// leading payload field (`schema_version`), so the indexer can reject an
+/// unknown version outright rather than mis-decoding a shape it does not
+/// understand. Bump alongside any event shape change and record the change
+/// in the consuming indexer's supported-versions list.
+pub fn event_schema_version() -> u32 {
+    1
+}
+
+// ============================================================================
 // Error Code Registry
 // ============================================================================
 
