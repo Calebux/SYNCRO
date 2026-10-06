@@ -73,7 +73,7 @@
     "nodemailer": "^10.0.10",
     "imapflow": "^1.0.170",
     "mailparser": "^3.9.28",
-    "p-limit": "^3.1.0",
+    "p-limit": "^7.3.3",
     "rate-limit-redis": "^4.3.1",
     "redis": "^6.2.1",
     "speakeasy": "^2.0.0",
