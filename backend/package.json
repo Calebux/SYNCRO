@@ -74,7 +74,7 @@
     "imapflow": "^1.0.170",
     "mailparser": "^3.9.28",
     "p-limit": "^7.3.3",
-    "rate-limit-redis": "^4.3.1",
+    "rate-limit-redis": "^6.0.1",
     "redis": "^6.2.1",
     "speakeasy": "^2.0.0",
     "stripe": "^22.6.2",
