@@ -1,3 +1,22 @@
+// The gateway now writes a durable usage reservation, which pulls in
+// `config/database` -> `config/env`, and that validates (then exits) on import.
+// Prime the required variables before anything below is loaded.
+process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'https://example.supabase.co';
+process.env.SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'test-anon-key';
+process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-service-role-key';
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-jwt-secret';
+process.env.SMTP_HOST = process.env.SMTP_HOST || 'smtp.example.com';
+process.env.SMTP_PORT = process.env.SMTP_PORT || '587';
+process.env.SMTP_USER = process.env.SMTP_USER || 'test-user';
+process.env.SMTP_PASS = process.env.SMTP_PASS || 'test-pass';
+
+// The gateway persists a meter reservation before serving a paid call, so this
+// suite needs a store. Pointing it at the in-memory fake keeps the real
+// reserve -> commit path exercised instead of stubbing the ledger away.
+jest.mock('../src/config/database', () => ({
+  supabase: require('./helpers/fake-usage-store').createFakeStore().client,
+}));
+
 import express from 'express';
 import request from 'supertest';
 import { Keypair } from '@stellar/stellar-sdk';

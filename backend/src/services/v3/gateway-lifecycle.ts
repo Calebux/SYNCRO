@@ -17,6 +17,7 @@ import {
   ResponseExtractionContext,
   QuantityExtractor,
 } from './metering-units';
+import { meterUsageLedgerService } from '../usage/meter-usage-ledger';
 
 export interface UpstreamProvider {
   name: string;
@@ -41,16 +42,25 @@ export interface ReservationRecord {
 export class MeterReservationTracker {
   private reservations = new Map<string, ReservationRecord>();
 
+  /**
+   * Track an in-flight reservation.
+   *
+   * `reservationId` is optional: when the durable ledger already minted an id
+   * for this call, passing it keeps a single identity across the in-memory
+   * tracker and `meter_usage_ledger`, so a crash is traceable from one side to
+   * the other.
+   */
   reserve(
     agentId: string,
     route: string,
     priceUpperBound: number,
     unitName: string = 'calls',
-    reservationBound: number = 1
+    reservationBound: number = 1,
+    reservationId?: string,
   ): string {
-    const reservationId = `res_${crypto.randomBytes(8).toString('hex')}`;
-    this.reservations.set(reservationId, {
-      reservationId,
+    const id = reservationId ?? `res_${crypto.randomBytes(8).toString('hex')}`;
+    this.reservations.set(id, {
+      reservationId: id,
       agentId,
       route,
       priceUpperBound,
@@ -59,7 +69,7 @@ export class MeterReservationTracker {
       reservedAt: Date.now(),
       status: 'reserved',
     });
-    return reservationId;
+    return id;
   }
 
   commit(
@@ -295,14 +305,41 @@ export function createGatewayLifecycle() {
     },
 
     // 6. Reserve at Meter (strictly AFTER admission passes!)
+    //
+    // The reservation is written durably before the upstream is called, so a
+    // crash between here and commit leaves a record that the reconciliation
+    // job can classify rather than an invisible hole.
     reserveMeter: async (req: GatewayRequest, res: Response, next: NextFunction) => {
       const ctx = req.gatewayCtx!;
+
+      const ledgerReservation = await meterUsageLedgerService.reserve({
+        agentId: ctx.identity!.agentId,
+        route: ctx.routePlan!.path,
+        unitName: ctx.routePlan!.unitName,
+        reservedUnits: ctx.routePlan!.reservationBound,
+        reservedAmount: ctx.routePlan!.priceUpperBound,
+      });
+
+      // Fail closed: serving usage we cannot account for is the exact gap this
+      // reconciliation exists to close, so refuse rather than create one.
+      if (!ledgerReservation.persisted) {
+        logger.error('[Gateway] Refusing request — meter reservation could not be persisted', {
+          agentId: ctx.identity!.agentId,
+          route: ctx.routePlan!.path,
+        });
+        return res.status(503).json({
+          error: 'Metering unavailable — request not accepted',
+          code: 'METER_RESERVATION_UNAVAILABLE',
+        });
+      }
+
       const reservationId = reservationTracker.reserve(
         ctx.identity!.agentId,
         ctx.routePlan!.path,
         ctx.routePlan!.priceUpperBound,
         ctx.routePlan!.unitName,
-        ctx.routePlan!.reservationBound
+        ctx.routePlan!.reservationBound,
+        ledgerReservation.reservationId,
       );
       ctx.reservationId = reservationId;
 
@@ -312,6 +349,16 @@ export function createGatewayLifecycle() {
           const resRecord = reservationTracker.get(ctx.reservationId);
           if (resRecord && resRecord.status === 'reserved') {
             reservationTracker.release(ctx.reservationId, 'Client disconnected prematurely');
+            // Persist the release too, otherwise this is indistinguishable from
+            // a crash once the TTL elapses.
+            meterUsageLedgerService
+              .release(ctx.reservationId, 'Client disconnected prematurely')
+              .catch((err) =>
+                logger.error('[Gateway] Failed to persist reservation release on disconnect', {
+                  reservationId: ctx.reservationId,
+                  error: err instanceof Error ? err.message : String(err),
+                }),
+              );
           }
         }
       });
@@ -345,6 +392,10 @@ export function createGatewayLifecycle() {
           const verifiedHash = (ctx as any).verifiedRequestHash;
           if (verifiedHash && postVerificationHash !== verifiedHash) {
             reservationTracker.release(reservationId, 'Proxy integrity check failed: Request altered after proof verification');
+            await meterUsageLedgerService.release(
+              reservationId,
+              'Proxy integrity check failed: Request altered after proof verification',
+            );
             return res.status(400).json({
               error: 'Proxy integrity violation: Request body or path was altered after payment proof verification',
             });
@@ -410,6 +461,23 @@ export function createGatewayLifecycle() {
           spendCapService.consumeLocal(ctx.identity!.agentId, actualUsage);
           agentConsoleService.recordPresentedSpend(ctx.identity!.agentId, actualUsage);
 
+          // Record the usage durably. If the meter is degraded or this write
+          // fails, the usage is queued in degraded_usage_log and replayed by
+          // the daily reconciliation job — it is never silently dropped.
+          const ledgerCommit = await meterUsageLedgerService.commit({
+            reservationId,
+            actualUnits,
+            actualAmount: actualUsage,
+            fallbackUsed,
+          });
+          if (!ledgerCommit.metered && !ledgerCommit.queuedForReplay) {
+            logger.error('[Gateway] Served usage could not be recorded for reconciliation', {
+              reservationId,
+              agentId: ctx.identity!.agentId,
+              amount: actualUsage,
+            });
+          }
+
           // Generate Receipt with unit metadata
           const requestHash = postVerificationHash;
           const receipt = {
@@ -431,7 +499,9 @@ export function createGatewayLifecycle() {
           });
         } catch (err: any) {
           // Guarantee reservation is released on ANY error/exception path!
-          reservationTracker.release(reservationId, `Upstream call failed: ${err.message}`);
+          const releaseReason = `Upstream call failed: ${err.message}`;
+          reservationTracker.release(reservationId, releaseReason);
+          await meterUsageLedgerService.release(reservationId, releaseReason);
           return res.status(502).json({
             error: `Upstream gateway error: ${err.message}`,
             reservationReleased: true,
