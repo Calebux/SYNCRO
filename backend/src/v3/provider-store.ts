@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_DEGRADED_POLICY } from '../../../packages/metering/src/degraded-admission';
+import { normalizeRateLimitPolicy, type RateLimitPolicy } from '../../../packages/metering/src/rate-limit';
 import {
   DegradedModePolicy,
   ProviderMode,
@@ -20,12 +21,21 @@ export interface RegisterProviderInput {
   mode: ProviderMode;
   /** Optional override of the platform degraded-mode default (#1444). */
   degradedMode?: Partial<DegradedModePolicy>;
+  /** Optional override of the platform per-route rate-limit default (#1447). */
+  rateLimit?: Partial<RateLimitPolicy>;
 }
 
 /** Patch for the per-provider degraded-mode policy (#1444). */
 export interface UpdateDegradedModePolicyInput {
   failMode?: DegradedModePolicy['failMode'];
   exposureCeiling?: number;
+}
+
+/** Patch for the per-provider rate-limit policy (#1447). */
+export interface UpdateRateLimitInput {
+  requestsPerInterval?: number;
+  intervalMs?: number;
+  burstAllowance?: number;
 }
 
 export interface RegisterRouteInput {
@@ -35,6 +45,8 @@ export interface RegisterRouteInput {
   unit: string;
   price: number;
   quantityExtractor: string;
+  /** Optional per-route rate-limit override; inherits the provider default (#1447). */
+  rateLimit?: Partial<RateLimitPolicy>;
 }
 
 export interface ReviseRouteInput {
@@ -43,6 +55,8 @@ export interface ReviseRouteInput {
   unit?: string;
   price?: number;
   quantityExtractor?: string;
+  /** Replaces the route's rate-limit override; omit to keep it (#1447). */
+  rateLimit?: Partial<RateLimitPolicy>;
 }
 
 export interface RecordSettlementInput {
@@ -112,6 +126,7 @@ export class InMemoryProviderStore {
       payoutVerified: false,
       payoutChallenge: null,
       degradedMode: normalizeDegradedMode(input.degradedMode),
+      rateLimit: normalizeRateLimitPolicy(input.rateLimit),
       createdAt,
       updatedAt: createdAt,
     };
@@ -172,6 +187,29 @@ export class InMemoryProviderStore {
     return provider;
   }
 
+  /**
+   * Change the per-agent x route burst budget for every route this provider
+   * registers (#1447). Existing per-route overrides stand; routes without an
+   * override inherit the new provider value immediately.
+   */
+  updateRateLimit(providerId: string, patch: UpdateRateLimitInput): ProviderRegistration {
+    const provider = this.getProvider(providerId);
+    if (!provider) {
+      throw new Error('provider not found');
+    }
+    const next = normalizeRateLimitPolicy({ ...provider.rateLimit, ...patch });
+    if (
+      next.requestsPerInterval === provider.rateLimit.requestsPerInterval &&
+      next.intervalMs === provider.rateLimit.intervalMs &&
+      next.burstAllowance === provider.rateLimit.burstAllowance
+    ) {
+      throw new Error('no rate limit changes');
+    }
+    provider.rateLimit = next;
+    this.saveProvider(provider);
+    return provider;
+  }
+
   registerRoute(input: RegisterRouteInput): RegisteredRoute {
     const routeId = randomUUID();
     const route: RegisteredRoute = {
@@ -183,6 +221,7 @@ export class InMemoryProviderStore {
       price: input.price,
       quantityExtractor: input.quantityExtractor,
       scopeKey: buildScopeKey(input.method, input.pathPattern),
+      rateLimit: input.rateLimit !== undefined ? normalizeRateLimitPolicy(input.rateLimit) : undefined,
       createdAt: nowIso(),
     };
     this.routes.set(routeId, route);
@@ -221,6 +260,10 @@ export class InMemoryProviderStore {
       unit: patch.unit?.trim() || existing.unit,
       price: patch.price !== undefined ? patch.price : existing.price,
       quantityExtractor: patch.quantityExtractor?.trim() || existing.quantityExtractor,
+      rateLimit:
+        patch.rateLimit !== undefined
+          ? normalizeRateLimitPolicy(patch.rateLimit)
+          : existing.rateLimit,
     };
     next.scopeKey = buildScopeKey(next.method, next.pathPattern);
 
@@ -236,7 +279,10 @@ export class InMemoryProviderStore {
       next.method === existing.method &&
       next.unit === existing.unit &&
       next.price === existing.price &&
-      next.quantityExtractor === existing.quantityExtractor;
+      next.quantityExtractor === existing.quantityExtractor &&
+      next.rateLimit?.requestsPerInterval === existing.rateLimit?.requestsPerInterval &&
+      next.rateLimit?.intervalMs === existing.rateLimit?.intervalMs &&
+      next.rateLimit?.burstAllowance === existing.rateLimit?.burstAllowance;
     if (unchanged) {
       throw new Error('no route changes');
     }

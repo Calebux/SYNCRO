@@ -95,6 +95,16 @@ export {
   type DegradedUsageStore,
 } from './degraded-log';
 
+// Per-agent x route burst rate limiting (Issue #1447)
+export {
+  RateLimiter,
+  DEFAULT_RATE_LIMIT_POLICY,
+  normalizeRateLimitPolicy,
+  validateRateLimitPolicy,
+  type RateLimitPolicy,
+  type RateLimitDecision,
+} from './rate-limit';
+
 // Window / aggregation primitives
 export {
   WindowStore,

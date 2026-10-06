@@ -10,11 +10,21 @@ import { createDegradedAlertHandler } from '../v3/degraded-alerts';
 import { InMemoryMeter } from '../../../packages/metering/src/meter';
 import { DegradedAdmissionController } from '../../../packages/metering/src/degraded-admission';
 import { FileDegradedUsageLog } from '../../../packages/metering/src/degraded-log';
+import { RateLimiter } from '../../../packages/metering/src/rate-limit';
 
 const degradedModeFields = {
   failMode: z.enum(['fail_open', 'fail_closed']).optional(),
   /** Value the provider may serve unbilled during one outage (#1444). */
   exposureCeiling: z.number().finite().min(0).optional(),
+};
+
+const rateLimitFields = {
+  /** Requests allowed per interval at steady state (#1447). */
+  requestsPerInterval: z.number().finite().min(0).optional(),
+  /** Length of the interval in milliseconds (#1447). */
+  intervalMs: z.number().finite().positive().optional(),
+  /** Burst headroom refilled at the same rate (#1447). */
+  burstAllowance: z.number().finite().min(0).optional(),
 };
 
 const registerProviderSchema = z.object({
@@ -24,6 +34,8 @@ const registerProviderSchema = z.object({
   agreementTerms: z.string().min(1),
   mode: z.enum(['staging', 'production']).default('staging'),
   degradedMode: z.object(degradedModeFields).optional(),
+  /** Per-provider per-route burst limit; platform default until overridden (#1447). */
+  rateLimit: z.object(rateLimitFields).optional(),
 });
 
 const registerRouteSchema = z.object({
@@ -32,6 +44,8 @@ const registerRouteSchema = z.object({
   unit: z.string().min(1),
   price: z.number().positive(),
   quantityExtractor: z.string().min(1).default('constant:1'),
+  /** Per-route rate-limit override; inherits the provider default (#1447). */
+  rateLimit: z.object(rateLimitFields).optional(),
 });
 
 const reviseRouteSchema = z
@@ -41,6 +55,7 @@ const reviseRouteSchema = z
     unit: z.string().min(1).optional(),
     price: z.number().positive().optional(),
     quantityExtractor: z.string().min(1).optional(),
+    rateLimit: z.object(rateLimitFields).optional(),
   })
   .refine((value) => Object.values(value).some((field) => field !== undefined), {
     message: 'at least one route field is required',
@@ -85,6 +100,18 @@ const degradedModePolicySchema = z
   .refine((value) => value.failMode !== undefined || value.exposureCeiling !== undefined, {
     message: 'at least one policy field is required',
   });
+
+const rateLimitPolicySchema = z
+  .object(rateLimitFields)
+  .refine(
+    (value) =>
+      value.requestsPerInterval !== undefined ||
+      value.intervalMs !== undefined ||
+      value.burstAllowance !== undefined,
+    {
+      message: 'at least one policy field is required',
+    },
+  );
 
 const registryReader = new InMemoryAgentRegistryReader();
 const providerStore = new InMemoryProviderStore();
@@ -140,13 +167,22 @@ const degradedAdmission = new DegradedAdmissionController({
   onEvent: createDegradedAlertHandler(),
 });
 
+/**
+ * Per-agent x route burst rate limiting (#1447). The service installs each
+ * route's effective policy (route override ?? provider default) the moment a
+ * provider registers or revises a route, so nothing is ever served unlimited.
+ */
+const rateLimiter = new RateLimiter();
+const meter = new InMemoryMeter();
+
 const service = new V3GatewayService(
   providerStore,
   scopeEnforcer,
   receiptService,
   upstreamCaller,
-  new InMemoryMeter(),
+  meter,
   degradedAdmission,
+  rateLimiter,
 );
 
 const router = Router();
@@ -200,6 +236,31 @@ router.patch('/providers/:providerId/degraded-mode-policy', (req: Request, res: 
   } catch (error) {
     const message = error instanceof Error ? error.message : 'update failed';
     if (message === 'no degraded mode changes') {
+      return res.status(400).json({ error: message });
+    }
+    return sendServiceError(res, error);
+  }
+});
+
+/**
+ * Re-policy this provider's per-route burst limits (#1447). Routes with their
+ * own override keep it; routes inheriting the provider default pick up the
+ * change immediately.
+ */
+router.patch('/providers/:providerId/rate-limit', (req: Request, res: Response) => {
+  const parsed = rateLimitPolicySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  try {
+    const provider = service.updateRateLimit(
+      routeParam(req.params.providerId),
+      parsed.data,
+    );
+    return res.json({ data: provider.rateLimit });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'update failed';
+    if (message === 'no rate limit changes') {
       return res.status(400).json({ error: message });
     }
     return sendServiceError(res, error);
@@ -364,6 +425,38 @@ router.post('/gateway/paid', async (req: Request, res: Response) => {
         });
     }
 
+    // Per-agent rate limit exceeded (#1447). 429 + Retry-After is the
+    // taxonomy's GATEWAY_RATE_LIMITED contract: a back-off hint, not a
+    // rejection of the agent's funds.
+    if (service.isMeterRateLimitedError(error)) {
+      return res
+        .status(error.status)
+        .set('Retry-After', String(Math.max(1, Math.ceil(error.retryAfterMs / 1000))))
+        .json({
+          error: error.code,
+          code: error.code,
+          message: error.message,
+          route: error.route,
+          retryAfterMs: error.retryAfterMs,
+          action: error.action,
+        });
+    }
+
+    // Out of metering headroom (#1447). 402 GATEWAY_METER_INSUFFICIENT — the
+    // "fund me" rejection, deliberately distinct from the "slow down" above.
+    if (service.isMeterInsufficientFundsError(error)) {
+      return res.status(error.status).json({
+        error: error.code,
+        code: error.code,
+        message: error.message,
+        route: error.route,
+        available: error.available,
+        needed: error.needed,
+        limit: error.limit,
+        action: error.action,
+      });
+    }
+
     const message = error instanceof Error ? error.message : 'paid request failed';
     return res.status(400).json({ error: message });
   }
@@ -405,5 +498,7 @@ export {
   service as v3GatewayService,
   degradedAdmission,
   degradedUsageLog,
+  rateLimiter,
+  meter,
 };
 

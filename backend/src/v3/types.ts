@@ -1,4 +1,5 @@
 import type { DegradedPolicy } from '../../../packages/metering/src/degraded-admission';
+import type { RateLimitPolicy } from '../../../packages/metering/src/rate-limit';
 
 export type ProviderMode = 'staging' | 'production';
 
@@ -19,6 +20,12 @@ export interface ProviderRegistration {
   payoutChallenge: string | null;
   /** Per-provider degraded-mode policy; platform default until overridden. */
   degradedMode: DegradedModePolicy;
+  /**
+   * Per-agent × route burst rate limit applied to every route this provider
+   * registers unless the route overrides it (#1447). Platform default until
+   * overridden — nothing is exempt silently.
+   */
+  rateLimit: RateLimitPolicy;
   createdAt: string;
   updatedAt: string;
 }
@@ -32,6 +39,8 @@ export interface RegisteredRoute {
   price: number;
   quantityExtractor: string;
   scopeKey: string;
+  /** Per-route rate-limit override; falls back to the provider default (#1447). */
+  rateLimit?: RateLimitPolicy;
   createdAt: string;
 }
 
@@ -141,6 +150,59 @@ export class MeterDegradedError extends Error {
     this.name = 'MeterDegradedError';
     this.reason = reason;
     this.providerId = providerId;
+  }
+}
+
+/**
+ * The agent outran its per-route burst budget (#1447): "slow down", not "out
+ * of money". Mapped to HTTP 429 `GATEWAY_RATE_LIMITED` with a `Retry-After`
+ * hint — deliberately distinguishable from `GatewayMeterInsufficientError`
+ * (402, `GATEWAY_METER_INSUFFICIENT`) so a client can back off instead of
+ * giving up, and re-fund instead of retrying.
+ */
+export class MeterRateLimitedError extends Error {
+  readonly code = 'GATEWAY_RATE_LIMITED';
+  readonly status = 429;
+  readonly retryable = true;
+  readonly action = 'wait';
+  /** Headroom in milliseconds: how long until the next request may pass. */
+  readonly retryAfterMs: number;
+  readonly route: string;
+
+  constructor(route: string, retryAfterMs: number) {
+    super(`per-agent rate limit exceeded on ${route}: retry after ${retryAfterMs}ms`);
+    this.name = 'MeterRateLimitedError';
+    this.route = route;
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+/**
+ * The agent has no metering headroom left (#1447): "out of money", not "slow
+ * down". Mapped to HTTP 402 `GATEWAY_METER_INSUFFICIENT` — the taxonomy code
+ * v2's `AdmissionService` already emits — which the SDK treats as a hard,
+ * non-retryable failure, so the agent refills instead of hammering.
+ */
+export class MeterInsufficientFundsError extends Error {
+  readonly code = 'GATEWAY_METER_INSUFFICIENT';
+  readonly status = 402;
+  readonly retryable = false;
+  readonly action = 'fund';
+  readonly route: string;
+  readonly available: number;
+  readonly needed: number;
+  readonly limit: number;
+
+  constructor(route: string, available: number, needed: number, limit: number) {
+    super(
+      `metering cap exceeded on ${route}: ${available} available, ${needed} needed ` +
+        `(limit ${limit})`,
+    );
+    this.name = 'MeterInsufficientFundsError';
+    this.route = route;
+    this.available = available;
+    this.needed = needed;
+    this.limit = limit;
   }
 }
 
