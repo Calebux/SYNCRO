@@ -80,6 +80,7 @@ import { startStealthScanJob } from './jobs/stealth-scan-job';
 import { startChannelMonitorJob } from './jobs/channel-monitor-job';
 import { startChannelSettlementJob, stopChannelSettlementJob } from './jobs/channel-settlement-job';
 import { startSettlementReconciliationJob, stopSettlementReconciliationJob } from './jobs/settlement-reconciliation-job';
+import { startUsageReconciliationJob, stopUsageReconciliationJob } from './jobs/usage-reconciliation-job';
 import { startJobAlertMonitor, stopJobAlertMonitor } from './jobs/job-alert-monitor';
 import { startWebhookRetryJob, stopWebhookRetryJob } from './jobs/webhook-retry-job';
 import { startPaidCallAlertJob, stopPaidCallAlertJob } from './jobs/paid-call-alert-job';
@@ -689,6 +690,7 @@ const server = app.listen(PORT, async () => {
   startChannelMonitorJob();
   startChannelSettlementJob();
   startSettlementReconciliationJob();
+  startUsageReconciliationJob();
   startJobAlertMonitor();
   startWebhookRetryJob();
   startPaidCallAlertJob();
@@ -706,6 +708,7 @@ registerGracefulShutdown(server, {
     stopSettlementBatchJob();
     stopChannelSettlementJob();
     stopSettlementReconciliationJob();
+    stopUsageReconciliationJob();
     stopJobAlertMonitor();
     stopWebhookRetryJob();
     stopPaidCallAlertJob();
