@@ -1,16 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import { Keypair } from '@stellar/stellar-sdk';
+import type { DegradedAdmissionController, DegradedAdmissionDecision } from '../../../packages/metering/src/degraded-admission';
 import {
   InMemoryProviderStore,
   RecordSettlementInput,
   RegisterProviderInput,
   RegisterRouteInput,
   ReviseRouteInput,
+  UpdateDegradedModePolicyInput,
 } from './provider-store';
 import { ReceiptService } from './receipt-service';
 import { AgentRegistryReader, ScopeEnforcer } from './scope-enforcer';
 import {
   AgentRegistryGrant,
+  MeterDegradedError,
   PaidReceipt,
   ProviderRegistration,
   ProviderRevenue,
@@ -80,10 +83,33 @@ export class V3GatewayService {
      * surface the gateway needs; all internal accounting is behind it.
      */
     private readonly meter: Meter,
+    /**
+     * Degraded-mode admission for counter-store outages (Issue #1444).
+     *
+     * Optional so the gateway can be built without an outage policy in unit
+     * tests; production wiring always supplies one, because "unbounded
+     * fail-open" is not a policy we ship.
+     */
+    private readonly degraded?: DegradedAdmissionController,
   ) {}
 
   registerProvider(input: RegisterProviderInput): ProviderRegistration {
-    return this.providers.registerProvider(input);
+    const provider = this.providers.registerProvider(input);
+    this.degraded?.setPolicy(provider.providerId, provider.degradedMode);
+    return provider;
+  }
+
+  /**
+   * Re-policy a provider's counter-store outage behaviour (#1444): fail open
+   * or closed, and how much value it may serve unbilled during one outage.
+   */
+  updateDegradedModePolicy(
+    providerId: string,
+    patch: UpdateDegradedModePolicyInput,
+  ): ProviderRegistration {
+    const provider = this.providers.updateDegradedModePolicy(providerId, patch);
+    this.degraded?.setPolicy(provider.providerId, provider.degradedMode);
+    return provider;
   }
 
   readProvider(providerId: string): ProviderRegistration {
@@ -174,6 +200,12 @@ export class V3GatewayService {
     meterReading: MeterReading;
     /** True when the meter is operating in degraded mode for this principal. */
     meterDegraded: boolean;
+    /**
+     * The counter-store outage decision for this call (#1444). Null when no
+     * degraded-admission controller is wired; otherwise present on every call
+     * so callers can tell a healthy serve from a fail-open one.
+     */
+    degradedAdmission: DegradedAdmissionDecision | null;
   }> {
     const provider = this.getProviderOrThrow(input.providerId);
     if (!provider.payoutVerified) {
@@ -196,6 +228,25 @@ export class V3GatewayService {
     const quantity = input.quantity ?? 1;
     // upperBound: reserve for the worst-case quantity (may exceed actual).
     const upperBound = quantity;
+
+    // -----------------------------------------------------------------------
+    // 0. Degraded admission — decide what happens if the counter store is
+    //    down before we promise the caller anything (#1444).
+    //
+    //    The exposure at risk is the worst-case value of this call: if the
+    //    store never counts it, `route price x upper bound` is what leaks.
+    //    A refusal here is a clean 503 before the upstream is touched; an
+    //    admission holds that much headroom against the provider's ceiling
+    //    so concurrent calls cannot jointly overshoot it.
+    // -----------------------------------------------------------------------
+    const exposure = route.price * upperBound;
+    const admission = this.degraded?.admit(provider.providerId, exposure) ?? null;
+    if (admission && !admission.admitted) {
+      throw new MeterDegradedError(
+        admission.reason === 'fail_closed' ? 'fail_closed' : 'exposure_ceiling',
+        provider.providerId,
+      );
+    }
 
     // -----------------------------------------------------------------------
     // 1. Reserve — hold upperBound quota before touching the upstream.
@@ -224,6 +275,8 @@ export class V3GatewayService {
       //     the caller decide on retry policy.
       // -----------------------------------------------------------------------
       this.meter.release(reservation.id);
+      // Nothing was served, so the unbilled headroom goes back to the pool.
+      this.degraded?.rollback(admission?.holdId ?? null);
       throw err;
     }
 
@@ -270,6 +323,26 @@ export class V3GatewayService {
     this.providers.recordSettlement(settlement);
 
     // -----------------------------------------------------------------------
+    // 3b. Settle the degraded hold — the call went out unbilled, so write it
+    //     down before returning. The receipt id keys the record, which makes
+    //     the write idempotent under replay and lets reconciliation match the
+    //     log against receipts one-for-one. (#1444)
+    // -----------------------------------------------------------------------
+    if (admission?.holdId) {
+      this.degraded?.settle(admission.holdId, {
+        id: receipt.receiptId,
+        providerId: provider.providerId,
+        principal: input.agentId,
+        route: route.scopeKey,
+        reservationId: reservation.id,
+        receiptId: receipt.receiptId,
+        units: charged,
+        amount,
+        meteredAt,
+      });
+    }
+
+    // -----------------------------------------------------------------------
     // 4. Read — snapshot the meter state for the receipt and callers.
     // -----------------------------------------------------------------------
     const meterReading = this.meter.read(input.agentId);
@@ -282,7 +355,8 @@ export class V3GatewayService {
         ? this.receipts.encodeHeaderValue(receipt)
         : null,
       meterReading,
-      meterDegraded: reservation.degraded,
+      meterDegraded: reservation.degraded || (admission?.degraded ?? false),
+      degradedAdmission: admission,
     };
   }
 
@@ -292,6 +366,10 @@ export class V3GatewayService {
 
   isScopeError(error: unknown): error is ScopeRejectionError {
     return error instanceof ScopeRejectionError;
+  }
+
+  isMeterDegradedError(error: unknown): error is MeterDegradedError {
+    return error instanceof MeterDegradedError;
   }
 
   private getProviderOrThrow(providerId: string): ProviderRegistration {
