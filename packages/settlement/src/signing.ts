@@ -1,4 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
+import { encodeBalance } from '@syncro/shared/bigint-balance';
 
 /**
  * A closed meter window that a channel state is constructed from.
@@ -88,8 +89,8 @@ export function encodeChannelState(state: ChannelState): string {
     state.contractAddress,
     state.channelId,
     state.nonce.toString(),
-    state.payerBalance.toString(),
-    state.payeeBalance.toString(),
+    encodeBalance(state.payerBalance),
+    encodeBalance(state.payeeBalance),
     state.windowStart.toString(),
     state.windowEnd.toString(),
   ].join('|');

@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'crypto';
 import { sign, verify, type KeyObject } from 'crypto';
+import { encodeBalance } from '@syncro/shared/bigint-balance';
 
 /**
  * A closed meter window that a channel state covers.
@@ -89,8 +90,8 @@ export function encodeChannelState(state: ChannelState): Buffer {
     state.contractAddress,
     String(state.contractVersion),
     String(state.nonce),
-    state.payerBalance.toString(),
-    state.payeeBalance.toString(),
+    encodeBalance(state.payerBalance),
+    encodeBalance(state.payeeBalance),
     String(state.window.start),
     String(state.window.end),
   ].join('|');

@@ -1,4 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
+import { encodeBalance, decodeBalance } from '@syncro/shared/bigint-balance';
 
 export interface MeterWindow {
   channelId: string;
@@ -73,11 +74,11 @@ export function encodeChannelState(state: ChannelState): string {
     state.contractVersion,
     state.contractAddress,
     state.channelId,
-    state.nonce.toString(),
-    state.payerBalance.toString(),
-    state.payeeBalance.toString(),
-    state.windowStart.toString(),
-    state.windowEnd.toString(),
+    String(state.nonce),
+    encodeBalance(state.payerBalance),
+    encodeBalance(state.payeeBalance),
+    String(state.windowStart),
+    String(state.windowEnd),
   ].join('|');
 }
 
@@ -332,6 +333,3 @@ export function shouldSubmit(
 
   return { submit: triggers.length > 0, triggers };
 }
-
-export * from './channel-manager';
-export * from './distributed-lock';

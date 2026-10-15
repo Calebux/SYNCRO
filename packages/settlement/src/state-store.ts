@@ -1,6 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { promises as fs } from 'fs';
 import { dirname } from 'path';
+import { encodeBalance, decodeBalance } from '@syncro/shared/bigint-balance';
 
 /**
  * A closed meter window that a channel state is constructed from.
@@ -62,8 +63,8 @@ export function encodeChannelState(state: ChannelState): string {
     state.contractAddress.toLowerCase(),
     String(state.contractVersion),
     String(state.nonce),
-    state.payerBalance.toString(),
-    state.payeeBalance.toString(),
+    encodeBalance(state.payerBalance),
+    encodeBalance(state.payeeBalance),
     String(state.windowStart),
     String(state.windowEnd),
   ].join('|');
@@ -126,41 +127,11 @@ export function constructChannelState(params: {
 }
 
 /**
- * Interface for durable storage of signed channel states.
- * Implementations MUST persist the state before returning (write-before-acknowledge).
+ * Persists signed channel states. Every state is written to disk before it is
+ * sent anywhere, so a crash cannot lose the newest state and leave an older
+ * one authoritative.
  */
-export interface SignedStateStore {
-  /**
-   * Persists a signed state durably. Returns once the state is guaranteed
-   * to be durable (fsynced to disk, committed to database, etc.).
-   */
-  persist(signed: SignedChannelState): Promise<void>;
-
-  /**
-   * Loads the most recently persisted signed state for a channel, if any.
-   */
-  loadLatest(channelId: string): Promise<SignedChannelState | undefined>;
-
-  /**
-   * Constructs, signs and persists a state from a closed meter window.
-   * The state is persisted before it is returned, enforcing persist-before-send
-   * ordering for callers.
-   */
-  buildAndPersist(params: {
-    channelId: string;
-    contractAddress: string;
-    contractVersion: number;
-    window: MeterWindow;
-    signingKey: string;
-  }): Promise<SignedChannelState>;
-}
-
-/**
- * File-based implementation of SignedStateStore for local development.
- * Every state is written to disk before it is sent anywhere, so a crash cannot
- * lose the newest state and leave an older one authoritative.
- */
-export class FileSignedStateStore implements SignedStateStore {
+export class ChannelStateStore {
   constructor(private readonly filePath: string) {}
 
   /**
@@ -172,8 +143,8 @@ export class FileSignedStateStore implements SignedStateStore {
     const record = JSON.stringify({
       state: {
         ...signed.state,
-        payerBalance: signed.state.payerBalance.toString(),
-        payeeBalance: signed.state.payeeBalance.toString(),
+        payerBalance: encodeBalance(signed.state.payerBalance),
+        payeeBalance: encodeBalance(signed.state.payeeBalance),
       },
       signature: signed.signature,
     });
@@ -181,7 +152,7 @@ export class FileSignedStateStore implements SignedStateStore {
   }
 
   /** Loads the most recently persisted signed state, if any. */
-  async loadLatest(_channelId: string): Promise<SignedChannelState | undefined> {
+  async load(): Promise<SignedChannelState | undefined> {
     let raw: string;
     try {
       raw = await fs.readFile(this.filePath, 'utf8');
@@ -199,8 +170,8 @@ export class FileSignedStateStore implements SignedStateStore {
     return {
       state: {
         ...parsed.state,
-        payerBalance: BigInt(parsed.state.payerBalance),
-        payeeBalance: BigInt(parsed.state.payeeBalance),
+        payerBalance: decodeBalance(parsed.state.payerBalance),
+        payeeBalance: decodeBalance(parsed.state.payeeBalance),
       },
       signature: parsed.signature,
     };
@@ -218,7 +189,7 @@ export class FileSignedStateStore implements SignedStateStore {
     window: MeterWindow;
     signingKey: string;
   }): Promise<SignedChannelState> {
-    const previous = await this.loadLatest(params.channelId);
+    const previous = await this.load();
     const state = constructChannelState({
       channelId: params.channelId,
       contractAddress: params.contractAddress,
@@ -231,92 +202,3 @@ export class FileSignedStateStore implements SignedStateStore {
     return signed;
   }
 }
-
-/**
- * Postgres-backed implementation of SignedStateStore.
- * Uses the payment_channels table which has a trigger that journals every
- * state change to channel_state_journal (see migration 0001_signed_state_journal.sql).
- * This ensures write-before-acknowledge: the state is committed to the database
- * before the method returns, and the journal captures it in the same transaction.
- */
-export class PostgresSignedStateStore implements SignedStateStore {
-  constructor(
-    private readonly supabase: ReturnType<typeof import('@supabase/supabase-js').createClient>,
-  ) {}
-
-  /**
-   * Persists a signed state to the payment_channels table.
-   * The database trigger on payment_channels.channel_state will journal
-   * the change to channel_state_journal in the same transaction.
-   */
-  async persist(signed: SignedChannelState): Promise<void> {
-    const { error } = await this.supabase
-      .from('payment_channels')
-      .update({
-        channel_state: signed.state,
-        state_signature: signed.signature,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', signed.state.channelId);
-
-    if (error) {
-      throw new Error(`Failed to persist signed state: ${error.message}`);
-    }
-  }
-
-  /** Loads the most recently persisted signed state for a channel, if any. */
-  async loadLatest(channelId: string): Promise<SignedChannelState | undefined> {
-    const { data, error } = await this.supabase
-      .from('payment_channels')
-      .select('channel_state, state_signature')
-      .eq('id', channelId)
-      .maybeSingle();
-
-    if (error) {
-      throw new Error(`Failed to load signed state: ${error.message}`);
-    }
-
-    if (!data || !data.channel_state || !data.state_signature) {
-      return undefined;
-    }
-
-    // channel_state comes back as JSON from the database
-    const state = data.channel_state as ChannelState;
-    return {
-      state: {
-        ...state,
-        payerBalance: BigInt(state.payerBalance.toString()),
-        payeeBalance: BigInt(state.payeeBalance.toString()),
-      },
-      signature: data.state_signature,
-    };
-  }
-
-  /**
-   * Constructs, signs and persists a state from a closed meter window.
-   * The state is persisted before it is returned, enforcing persist-before-send
-   * ordering for callers.
-   */
-  async buildAndPersist(params: {
-    channelId: string;
-    contractAddress: string;
-    contractVersion: number;
-    window: MeterWindow;
-    signingKey: string;
-  }): Promise<SignedChannelState> {
-    const previous = await this.loadLatest(params.channelId);
-    const state = constructChannelState({
-      channelId: params.channelId,
-      contractAddress: params.contractAddress,
-      contractVersion: params.contractVersion,
-      window: params.window,
-      previous: previous?.state,
-    });
-    const signed = signChannelState(state, params.signingKey);
-    await this.persist(signed);
-    return signed;
-  }
-}
-
-// Re-export the original class name for backward compatibility
-export { FileSignedStateStore as ChannelStateStore };
