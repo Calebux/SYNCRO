@@ -10,3 +10,7 @@ syncro-contract-common = { package = "syncro-contract-common", path = "../common
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 proptest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
