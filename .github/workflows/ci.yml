@@ -715,6 +715,9 @@ jobs:
       - name: Run doc validation
         run: node scripts/validate-docs.js
 
+      - name: Ensure error reference is up to date
+        run: node scripts/check-error-reference.mjs
+
       - name: Comment on PR if validation fails
         if: failure()
         uses: actions/github-script@v9
