@@ -1,6 +1,6 @@
 # ADR-000: [Short Title of Decision]
 
-**Status:** [Proposed | Accepted | Accepted (Retrospective) | Superseded by [ADR-XXX](./ADR-XXX-title.md) | Rejected]  
+**Status:** Proposed | Accepted | Accepted (Retrospective) | Superseded by [ADR-XXX | Rejected]  
 **Date:** YYYY-MM-DD  
 **Deciders:** [Engineering team, Maintainers, Architecture Working Group, etc.]  
 **Issue/PR:** [#XXX](https://github.com/ShantelPeters/SYNCRO/issues/XXX)

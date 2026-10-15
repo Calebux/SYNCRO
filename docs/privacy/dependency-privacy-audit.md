@@ -23,7 +23,7 @@ This audit reviewed the repository's dependency graph, telemetry-related integra
 ### 2. Sentry
 
 - Sentry is enabled in the client and backend for crash/error reporting.
-- The shared scrubber in [shared/src/sentry.ts](../../shared/src/sentry.ts) redacts headers, cookies, auth tokens, secrets, and common card/payment fields before events are sent.
+- The shared scrubber in [shared/src/sentry.ts](../../shared/src/platform/sentry.ts) redacts headers, cookies, auth tokens, secrets, and common card/payment fields before events are sent.
 - Privacy note: Sentry still receives error context and stack traces; this is acceptable for operational monitoring but should remain opt-in via environment configuration rather than being forced on in all environments.
 - Disable/limit in non-production if the team wants stricter privacy posture.
 

@@ -27,7 +27,7 @@ Each ADR tracks its lifecycle using one of the following statuses:
 | **Proposed** | Under active RFC review in a pull request or design issue. |
 | **Accepted** | Approved and implemented in the codebase. |
 | **Accepted (Retrospective)** | Formally documented after initial implementation to capture historical architectural reasoning. |
-| **Superseded by [ADR-XXX](./ADR-XXX-title.md)** | Replaced by a newer architectural decision. Must include a link to the replacing ADR. |
+| **Superseded by ADR-XXX** | Replaced by a newer architectural decision. Must include a link to the replacing ADR. |
 | **Rejected** | Evaluated during RFC phase but decided against. Kept for historical reference. |
 
 ### How to Supersede an ADR

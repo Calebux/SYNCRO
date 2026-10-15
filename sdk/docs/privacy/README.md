@@ -18,9 +18,9 @@ SYNCRO provides end-to-end encryption and privacy-preserving payment mechanisms 
 - [Stealth Addresses](./stealth-addresses.md) — One-time payment addresses
 - [Metadata Encryption](./metadata-encryption.md) — Encrypt payment details
 - [Pedersen Commitments](./pedersen-commitments.md) — Hide payment amounts
-- [Payment Channels](./payment-channels.md) — Off-chain payments
-- [Zero-Knowledge Proofs](./zk-proofs.md) — Prove without revealing
-- [Key Derivation](./key-derivation.md) — Deterministic key generation
+- Payment Channels — Off-chain payments
+- Zero-Knowledge Proofs — Prove without revealing
+- Key Derivation — Deterministic key generation
 - [Integration Guide](./integration-guide.md) — Build privacy into your app
 - [Migration Guide](./migration-guide.md) — Add privacy to existing apps
 - [Security Considerations](./security-considerations.md) — Threat models and best practices

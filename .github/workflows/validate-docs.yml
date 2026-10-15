@@ -10,6 +10,7 @@ on:
       - 'backend/SUBSCRIPTION_API.md'
       - 'scripts/validate-docs.js'
       - 'scripts/validate-docs.test.js'
+      - '**/*.md'
       - '.github/workflows/validate-docs.yml'
   workflow_dispatch:
 
@@ -31,7 +32,17 @@ jobs:
       
       - name: Install dependencies
         run: npm ci
-      
+
+      - name: Check relative markdown links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          # Relative links only: --offline keeps the job from failing on the network.
+          args: >-
+            --offline
+            --no-progress
+            './**/*.md'
+          fail: true
+
       - name: Reject absolute file:// documentation links
         run: node --test scripts/validate-docs.test.js
 
