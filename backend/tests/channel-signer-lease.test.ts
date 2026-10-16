@@ -1,13 +1,28 @@
 import { ChannelSignerLeaseService } from '../src/services/channel-signer-lease-service';
 import { supabase } from '../src/config/database';
+import {
+  HmacChannelStateSigner,
+  signChannelState,
+  verifyChannelState,
+  constructChannelState,
+  encodeChannelState,
+  InMemoryStateStore,
+  type MeterWindow,
+  type ChannelState,
+  type SignedChannelState,
+} from '@syncro/settlement';
 
 /**
  * Basic test for channel signer lease service
- * 
+ *
  * This test verifies the 2% implementation:
  * - Lease can be acquired
  * - Nonce allocation is atomic
  * - Concurrent instances are rejected
+ *
+ * Also exercises the @syncro/settlement package through its public API
+ * to ensure the package's signing and verification functions work correctly
+ * in the context of lease-protected signing.
  */
 
 describe('ChannelSignerLeaseService - Basic Lease Protection', () => {
@@ -44,7 +59,7 @@ describe('ChannelSignerLeaseService - Basic Lease Protection', () => {
 
   test('should acquire lease successfully', async () => {
     const result = await service1.acquireLease(testChannelId);
-    
+
     expect(result.success).toBe(true);
     expect(result.currentNonce).toBe(0);
     expect(result.message).toContain('lease');
@@ -76,7 +91,7 @@ describe('ChannelSignerLeaseService - Basic Lease Protection', () => {
   test('should prevent nonce allocation without lease', async () => {
     // Try to allocate nonce without acquiring lease first
     const result = await service1.allocateNonce(testChannelId);
-    
+
     expect(result.success).toBe(false);
     expect(result.message).toContain('No lease exists');
   });
@@ -87,7 +102,7 @@ describe('ChannelSignerLeaseService - Basic Lease Protection', () => {
 
     // Instance 2 tries to allocate nonce
     const result = await service2.allocateNonce(testChannelId);
-    
+
     expect(result.success).toBe(false);
     expect(result.message).toContain('different instance');
   });
@@ -97,7 +112,7 @@ describe('ChannelSignerLeaseService - Basic Lease Protection', () => {
     await service1.acquireLease(testChannelId, 1);
 
     // Wait for lease to expire
-    await new Promise(resolve => setTimeout(resolve, 1100));
+    await new Promise((resolve) => setTimeout(resolve, 1100));
 
     // Instance 2 should be able to acquire the expired lease
     const lease2 = await service2.acquireLease(testChannelId);
@@ -107,7 +122,7 @@ describe('ChannelSignerLeaseService - Basic Lease Protection', () => {
 
   test('should release lease successfully', async () => {
     await service1.acquireLease(testChannelId);
-    
+
     const released = await service1.releaseLease(testChannelId);
     expect(released).toBe(true);
 
@@ -118,14 +133,14 @@ describe('ChannelSignerLeaseService - Basic Lease Protection', () => {
 
   test('holdsLease should return true for active lease holder', async () => {
     await service1.acquireLease(testChannelId);
-    
+
     const holds = await service1.holdsLease(testChannelId);
     expect(holds).toBe(true);
   });
 
   test('holdsLease should return false for non-lease-holder', async () => {
     await service1.acquireLease(testChannelId);
-    
+
     const holds = await service2.holdsLease(testChannelId);
     expect(holds).toBe(false);
   });
@@ -151,7 +166,100 @@ describe('ChannelSignerLeaseService - Basic Lease Protection', () => {
     await expect(
       service2.signWithLease(testChannelId, async (nonce) => {
         return { nonce, signature: 'fake-signature' };
-      })
+      }),
     ).rejects.toThrow('another instance');
+  });
+});
+
+describe('@syncro/settlement package - signing API with lease integration', () => {
+  const signer = new HmacChannelStateSigner('test-lease-key');
+  const store = new InMemoryStateStore();
+
+  const window: MeterWindow = {
+    channelId: 'ch_lease_test',
+    contractAddress: '0xlease',
+    startNonce: 1,
+    endNonce: 5,
+    startTime: 1000,
+    endTime: 2000,
+    payerBalance: 50n,
+    payeeBalance: 25n,
+  };
+
+  it('signChannelState produces a valid signature via HmacChannelStateSigner', () => {
+    const state = constructChannelState(window, 'v1');
+    const signed = signChannelState(state, signer);
+    expect(signed.state.channelId).toBe('ch_lease_test');
+    expect(signed.signature).toBeDefined();
+    expect(signed.signature.length).toBeGreaterThan(0);
+  });
+
+  it('verifyChannelState validates signatures produced by signChannelState', () => {
+    const state = constructChannelState(window, 'v1');
+    const signed = signChannelState(state, signer);
+    expect(verifyChannelState(signed, signer)).toBe(true);
+  });
+
+  it('verifyChannelState rejects signatures from a different signer', () => {
+    const state = constructChannelState(window, 'v1');
+    const signed = signChannelState(state, signer);
+    const otherSigner = new HmacChannelStateSigner('other-key');
+    expect(verifyChannelState(signed, otherSigner)).toBe(false);
+  });
+
+  it('verifyChannelState rejects tampered state', () => {
+    const state = constructChannelState(window, 'v1');
+    const signed = signChannelState(state, signer);
+    const tampered: SignedChannelState = {
+      state: { ...state, payerBalance: state.payerBalance + 1n },
+      signature: signed.signature,
+    };
+    expect(verifyChannelState(tampered, signer)).toBe(false);
+  });
+
+  it('encodeChannelState is deterministic for the same state', () => {
+    const state = constructChannelState(window, 'v1');
+    const encoded1 = encodeChannelState(state);
+    const encoded2 = encodeChannelState(state);
+    expect(encoded1).toBe(encoded2);
+  });
+
+  it('encodeChannelState includes channelId, contractAddress, and version', () => {
+    const state = constructChannelState(window, 'v1');
+    const encoded = encodeChannelState(state);
+    expect(encoded).toContain('ch_lease_test');
+    expect(encoded).toContain('0xlease');
+    expect(encoded).toContain('v1');
+  });
+
+  it('InMemoryStateStore persists signed states for lease-protected channels', async () => {
+    const state = constructChannelState(window, 'v1');
+    const signed = signChannelState(state, signer);
+    await store.persist(signed);
+
+    const retrieved = await store.latest('ch_lease_test');
+    expect(retrieved).toBeDefined();
+    expect(retrieved!.state.nonce).toBe(5);
+  });
+
+  it('InMemoryStateStore rejects stale state after a newer state exists', async () => {
+    const state = constructChannelState(window, 'v1');
+    const signed = signChannelState(state, signer);
+    await store.persist(signed);
+
+    const staleWindow: MeterWindow = {
+      ...window,
+      startNonce: 1,
+      endNonce: 3,
+      startTime: 500,
+      endTime: 1000,
+      payerBalance: 25n,
+      payeeBalance: 10n,
+    };
+    const staleState = constructChannelState(staleWindow, 'v1', signed);
+    const staleSigned = signChannelState(staleState, signer);
+    await expect(store.persist(staleSigned)).rejects.toThrow(
+      'refusing to persist stale state',
+    );
   });
 });

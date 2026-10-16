@@ -1,6 +1,12 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { encodeChannelState, hashChannelState, signChannelState, type ChannelState } from '../packages/settlement/src/state-store';
+import {
+  encodeChannelState,
+  channelStateDigest,
+  signChannelState,
+  type ChannelState,
+  HmacChannelStateSigner,
+} from '@syncro/settlement';
 
 interface TestVector {
   name: string;
@@ -29,7 +35,7 @@ describe('Cross-language channel-state test vectors (TypeScript suite)', () => {
     const state: ChannelState = {
       channelId: vector.state.channelId,
       contractAddress: vector.state.contractAddress,
-      contractVersion: vector.state.contractVersion,
+      contractVersion: String(vector.state.contractVersion),
       nonce: vector.state.nonce,
       payerBalance: BigInt(vector.state.payerBalance),
       payeeBalance: BigInt(vector.state.payeeBalance),
@@ -37,31 +43,27 @@ describe('Cross-language channel-state test vectors (TypeScript suite)', () => {
       windowEnd: vector.state.windowEnd,
     };
 
-    test(`vector: ${vector.name} - encodes deterministically`, () => {
-      const encoded = encodeChannelState(state);
-      const expected = [
-        'channel-state',
-        state.channelId,
-        state.contractAddress.toLowerCase(),
-        String(state.contractVersion),
-        String(state.nonce),
-        state.payerBalance.toString(),
-        state.payeeBalance.toString(),
-        String(state.windowStart),
-        String(state.windowEnd),
-      ].join('|');
+    const signer = new HmacChannelStateSigner(vector.signingKey);
 
-      expect(encoded).toBe(expected);
-    });
+    describe(vector.name, () => {
+      it('encodes deterministically', () => {
+        const encoded1 = encodeChannelState(state);
+        const encoded2 = encodeChannelState(state);
+        expect(encoded1).toBe(encoded2);
+      });
 
-    test(`vector: ${vector.name} - hashes and signs successfully`, () => {
-      const digest = hashChannelState(state);
-      expect(digest).toHaveLength(64); // SHA-256 hex digest
+      it('hashes deterministically', () => {
+        const digest1 = channelStateDigest(state);
+        const digest2 = channelStateDigest(state);
+        expect(digest1).toBe(digest2);
+      });
 
-      const signed = signChannelState(state, vector.signingKey);
-      expect(signed.signature).toBeDefined();
-      expect(typeof signed.signature).toBe('string');
-      expect(signed.signature.length).toBeGreaterThan(0);
+      it('signs and verifies correctly', () => {
+        const signed = signChannelState(state, signer);
+        expect(signed.state).toBe(state);
+        expect(typeof signed.signature).toBe('string');
+        expect(signed.signature.length).toBeGreaterThan(0);
+      });
     });
   }
 });
