@@ -153,6 +153,7 @@ cargo test
 **Purpose**: Manage authorized execution agents and their permission scopes.
 - `register` / `revoke_agent` - Add or remove agents.
 - `update_scopes` - Grant specific scopes (Renewals, GiftCards, Approvals).
+- `register_with_expiry` / `set_expiry` / `get_expiry` - Optional authority expiry (ledger timestamp, seconds). `is_authorized`, `has_scope` and `require_*` fail once `now >= expires_at`. See [docs/agent-registry-expiry.md](docs/agent-registry-expiry.md) for the storage layout and migration notes.
 - `is_authorized` / `require_authorized` - Verify agent authorization.
 
 ### 6. Subscription Logging Contract (`contracts/contracts/subscription-logging/`)

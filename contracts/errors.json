@@ -233,6 +233,30 @@
       "global_code": 1405,
       "local_code": 6
     },
+    "1406": {
+      "contract": "agent-registry",
+      "variant": "NotRegistered",
+      "global_code": 1406,
+      "local_code": 7
+    },
+    "1407": {
+      "contract": "agent-registry",
+      "variant": "MissingScope",
+      "global_code": 1407,
+      "local_code": 8
+    },
+    "1408": {
+      "contract": "agent-registry",
+      "variant": "AuthorityExpired",
+      "global_code": 1408,
+      "local_code": 9
+    },
+    "1409": {
+      "contract": "agent-registry",
+      "variant": "InvalidExpiry",
+      "global_code": 1409,
+      "local_code": 10
+    },
     "1600": {
       "contract": "payment-channel",
       "variant": "AlreadyInitialized",

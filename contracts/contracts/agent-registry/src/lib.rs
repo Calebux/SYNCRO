@@ -16,6 +16,10 @@ pub enum Error {
     NotPendingAdmin = 6,
     NotRegistered = 7,
     MissingScope = 8,
+    /// The agent is registered but its authority has expired (issue #1656).
+    AuthorityExpired = 9,
+    /// The requested expiry is not strictly in the future (issue #1656).
+    InvalidExpiry = 10,
 }
 
 
@@ -55,7 +59,13 @@ enum DataKey {
     Admin,
     /// Address that has been nominated to become admin but has not yet accepted.
     PendingAdmin,
+    /// Scope mask (`u32`) for a registered agent.  Unchanged since v1.
     Agent(Address),
+    /// Optional expiry for an agent's authority, as a ledger timestamp
+    /// (`u64`, seconds).  Stored under its OWN key so that entries written
+    /// before issue #1656 (a bare `u32` under `Agent`) stay readable with no
+    /// migration.  Key absent => the authority never expires.
+    AgentExpiry(Address),
 }
 
 #[contract]
@@ -161,10 +171,71 @@ impl AgentRegistry {
     }
 
 
-    /// Register a new agent. Admin only.
+    /// Register a new agent with no expiry. Admin only.
     pub fn register(env: Env, agent: Address) -> Result<(), Error> {
         Self::require_admin(&env)?;
+        Self::store_new_agent(&env, &agent);
+        // A fresh registration never inherits an expiry from an old one.
+        env.storage()
+            .persistent()
+            .remove(&DataKey::AgentExpiry(agent.clone()));
 
+        env.events()
+            .publish((symbol_short!("agent"), symbol_short!("reg")), agent);
+
+        Ok(())
+    }
+
+    /// Register a new agent whose authority lapses at `expires_at`
+    /// (ledger timestamp, seconds). `None` means "never expires". Admin only.
+    ///
+    /// Emits `agent/reg` and, when an expiry is set, `agent/exp_set`.
+    pub fn register_with_expiry(
+        env: Env,
+        agent: Address,
+        expires_at: Option<u64>,
+    ) -> Result<(), Error> {
+        Self::require_admin(&env)?;
+        Self::check_expiry(&env, expires_at)?;
+
+        Self::store_new_agent(&env, &agent);
+        Self::write_expiry(&env, &agent, expires_at);
+
+        env.events()
+            .publish((symbol_short!("agent"), symbol_short!("reg")), agent);
+
+        Ok(())
+    }
+
+    /// Set, extend, shorten or clear (`None`) an agent's expiry. Admin only.
+    ///
+    /// The agent must be registered. Because expired entries are not deleted,
+    /// the admin can also revive an expired agent by setting a new future
+    /// expiry. Emits `agent/exp_set` (or `agent/exp_clr` for `None`).
+    pub fn set_expiry(
+        env: Env,
+        agent: Address,
+        expires_at: Option<u64>,
+    ) -> Result<(), Error> {
+        Self::require_admin(&env)?;
+        Self::check_expiry(&env, expires_at)?;
+
+        if !env.storage().persistent().has(&DataKey::Agent(agent.clone())) {
+            return Err(Error::NotRegistered);
+        }
+
+        Self::write_expiry(&env, &agent, expires_at);
+        Ok(())
+    }
+
+    /// Read an agent's expiry (ledger timestamp, seconds), if one is set.
+    /// Returns `None` for "never expires" AND for unknown agents; use
+    /// `is_authorized` to tell those apart.
+    pub fn get_expiry(env: Env, agent: Address) -> Option<u64> {
+        env.storage().persistent().get(&DataKey::AgentExpiry(agent))
+    }
+
+    fn store_new_agent(env: &Env, agent: &Address) {
         // Store an explicit u32 scope mask (initially empty). The previous
         // implementation stored a `bool` here, which is a different type than
         // the `u32` read by `has_scope`/`update_scopes` — reading it back as a
@@ -174,11 +245,50 @@ impl AgentRegistry {
         env.storage()
             .persistent()
             .set(&DataKey::Agent(agent.clone()), &0u32);
+    }
 
-        env.events()
-            .publish((symbol_short!("agent"), symbol_short!("reg")), agent);
+    /// Expiry must be strictly in the future (`None` is always fine).
+    fn check_expiry(env: &Env, expires_at: Option<u64>) -> Result<(), Error> {
+        match expires_at {
+            Some(t) if t <= env.ledger().timestamp() => Err(Error::InvalidExpiry),
+            _ => Ok(()),
+        }
+    }
 
-        Ok(())
+    fn write_expiry(env: &Env, agent: &Address, expires_at: Option<u64>) {
+        match expires_at {
+            Some(t) => {
+                env.storage()
+                    .persistent()
+                    .set(&DataKey::AgentExpiry(agent.clone()), &t);
+                env.events().publish(
+                    (symbol_short!("agent"), symbol_short!("exp_set")),
+                    (agent.clone(), t),
+                );
+            }
+            None => {
+                env.storage()
+                    .persistent()
+                    .remove(&DataKey::AgentExpiry(agent.clone()));
+                env.events().publish(
+                    (symbol_short!("agent"), symbol_short!("exp_clr")),
+                    agent.clone(),
+                );
+            }
+        }
+    }
+
+    /// True when the agent has an expiry and the ledger time has reached it.
+    /// Authority is valid while `now < expires_at`.
+    fn is_expired(env: &Env, agent: &Address) -> bool {
+        match env
+            .storage()
+            .persistent()
+            .get::<_, u64>(&DataKey::AgentExpiry(agent.clone()))
+        {
+            Some(t) => env.ledger().timestamp() >= t,
+            None => false,
+        }
     }
 
     pub fn update_scopes(
@@ -216,6 +326,9 @@ impl AgentRegistry {
         env.storage()
             .persistent()
             .remove(&DataKey::Agent(agent.clone()));
+        env.storage()
+            .persistent()
+            .remove(&DataKey::AgentExpiry(agent.clone()));
 
         env.events().publish(
             (symbol_short!("agent"), symbol_short!("revoke")),
@@ -225,20 +338,28 @@ impl AgentRegistry {
         Ok(())
     }
 
-    /// Check if an agent is authorized.
+    /// Check if an agent is authorized: registered AND not expired.
     pub fn is_authorized(env: Env, agent: Address) -> bool {
-        env.storage().persistent().has(&DataKey::Agent(agent))
+        env.storage().persistent().has(&DataKey::Agent(agent.clone()))
+            && !Self::is_expired(&env, &agent)
     }
 
-    /// Return Err(Error::NotRegistered) if the agent has no registry entry.
+    /// Return Err(Error::NotRegistered) if the agent has no registry entry, or
+    /// Err(Error::AuthorityExpired) if its authority has lapsed.
     pub fn require_authorized(env: Env, agent: Address) -> Result<(), Error> {
-        if !env.storage().persistent().has(&DataKey::Agent(agent)) {
+        if !env.storage().persistent().has(&DataKey::Agent(agent.clone())) {
             return Err(Error::NotRegistered);
+        }
+        if Self::is_expired(&env, &agent) {
+            return Err(Error::AuthorityExpired);
         }
         Ok(())
     }
 
     pub fn has_scope(env: Env, agent: Address, scope: ScopeSet) -> bool {
+        if Self::is_expired(&env, &agent) {
+            return false;
+        }
         match env
             .storage()
             .persistent()
@@ -253,6 +374,9 @@ impl AgentRegistry {
     pub fn require_scope(env: Env, agent: Address, scope: ScopeSet) -> Result<(), Error> {
         agent.require_auth();
 
+        if Self::is_expired(&env, &agent) {
+            return Err(Error::AuthorityExpired);
+        }
         if !Self::has_scope(env, agent.clone(), scope) {
             return Err(Error::MissingScope);
         }
