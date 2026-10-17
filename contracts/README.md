@@ -139,6 +139,7 @@ cargo test
 - `activate_card` / `deactivate_card` / `suspend_card` - Manage card lifecycle states.
 - `verify_ownership` - Asserts if claimant is card holder.
 - `can_transact` - Verifies eligibility (active state, expiry, balance).
+- `issue_scoped_cap` / `can_transact_scoped` / `get_cap_scope` / `get_pair_caps` - Spend caps limited to a provider or route scope (e.g. `inference`, `storage`). See [docs/virtual-card-scoped-caps.md](docs/virtual-card-scoped-caps.md).
 
 ### 4. Escrow Contract (`contracts/contracts/escrow/`)
 **Purpose**: Secure holding of funds with dispute resolution capability.
@@ -734,6 +735,10 @@ new entrypoint is added without those tests or when this table drifts from
 | `virtual-card` | `suspend_card` | `neg_suspend_card_unauthorized` | `neg_suspend_card_wrong_state` | n/a |
 | `virtual-card` | `verify_ownership` | `neg_verify_ownership_unauthorized` | `neg_verify_ownership_wrong_state` | n/a |
 | `virtual-card` | `can_transact` | `neg_can_transact_unauthorized` | `neg_can_transact_wrong_state` | n/a |
+| `virtual-card` | `issue_scoped_cap` | `neg_issue_scoped_cap_unauthorized` | `neg_issue_scoped_cap_wrong_state` | n/a |
+| `virtual-card` | `can_transact_scoped` | `neg_can_transact_scoped_unauthorized` | `neg_can_transact_scoped_wrong_state` | n/a |
+| `virtual-card` | `get_cap_scope` | `neg_get_cap_scope_unauthorized` | `neg_get_cap_scope_wrong_state` | n/a |
+| `virtual-card` | `get_pair_caps` | `neg_get_pair_caps_unauthorized` | `neg_get_pair_caps_wrong_state` | n/a |
 | `virtual-card` | `version` | `neg_version_unauthorized` | `neg_version_wrong_state` | n/a |
 | `voucher-ledger` | `init` | `neg_init_unauthorized` | `neg_init_wrong_state` | n/a |
 | `voucher-ledger` | `mint_voucher` | `neg_mint_voucher_unauthorized` | `neg_mint_voucher_wrong_state` | n/a |

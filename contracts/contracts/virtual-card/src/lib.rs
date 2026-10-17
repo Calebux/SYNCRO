@@ -22,6 +22,16 @@
 //! At the start of a new period the `consumed` counter resets to zero
 //! automatically (lazy evaluation on admission/query, no cron needed).
 //!
+//! **Scoped caps (issue #1658)**
+//! A cap may carry an optional scope key (a provider id or route scope encoded
+//! as a `Symbol`, e.g. `inference`, `storage`).  `can_transact_scoped` debits
+//! every cap of the `(principal, agent)` pair that matches the request: the
+//! cap scoped to the requested key AND any unscoped cap (which acts as an
+//! overall ceiling).  All matching caps must have headroom or nothing is
+//! debited.  An agent that exhausted its `inference` cap can therefore still
+//! spend under its `storage` cap.  `can_transact(cap_id, ..)` is unchanged and
+//! debits exactly the named cap, so unscoped caps behave as before.
+//!
 //! **Suspend / resume**
 //! A principal may suspend a cap at any time; suspended caps fail admission
 //! with a distinct `CapSuspended` error, separate from `CapExceeded`.
@@ -29,7 +39,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env,
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec,
 };
 
 // ============================================================================
@@ -40,6 +50,9 @@ use soroban_sdk::{
 pub const MIN_PERIOD_SECS: u64 = 3_600;
 /// Maximum challenge / period length: 1 year in seconds.
 pub const MAX_PERIOD_SECS: u64 = 365 * 24 * 3_600;
+/// Maximum number of caps one principal may issue to one agent.  Bounds the
+/// work `can_transact_scoped` does per call.
+pub const MAX_CAPS_PER_PAIR: u32 = 32;
 
 // ============================================================================
 // Error types
@@ -65,6 +78,10 @@ pub enum SpendCapError {
     DuplicateCap = 7,
     /// The period length is outside the contract-enforced bounds.
     InvalidPeriod = 8,
+    /// No cap of the (principal, agent) pair matches the requested scope.
+    NoMatchingCap = 9,
+    /// The (principal, agent) pair already has `MAX_CAPS_PER_PAIR` caps.
+    TooManyCaps = 10,
 }
 
 // ============================================================================
@@ -78,6 +95,13 @@ pub enum DataKey {
     Cap(u64),
     /// Global cap counter.
     CapCounter,
+    /// Optional scope key of a cap (`Symbol`).  Key absent => unscoped cap.
+    /// Kept in its own entry so caps stored before issue #1658 still decode:
+    /// the `SpendCap` struct layout is unchanged.
+    CapScope(u64),
+    /// Ids of every cap issued for a (principal, agent) pair, in issue order.
+    /// Caps issued before issue #1658 are not in this index.
+    PairCaps(Address, Address),
 }
 
 // ============================================================================
@@ -167,6 +191,26 @@ impl AgentSpendCapContract {
         allowance: i128,
         period_secs: u64,
     ) -> Result<u64, SpendCapError> {
+        Self::issue_scoped_cap(env, principal, agent, allowance, period_secs, None)
+    }
+
+    /// Issue a spend cap limited to one provider / route scope.
+    ///
+    /// `scope` is an opaque key (e.g. `inference`, `storage`, or an id the
+    /// gateway maps a provider to), at most 32 chars of `[A-Za-z0-9_]`.
+    /// `None` issues an unscoped cap, identical to `issue_cap`.
+    ///
+    /// # Errors
+    /// Same as `issue_cap`, plus `TooManyCaps` when the pair already holds
+    /// `MAX_CAPS_PER_PAIR` caps.
+    pub fn issue_scoped_cap(
+        env: Env,
+        principal: Address,
+        agent: Address,
+        allowance: i128,
+        period_secs: u64,
+        scope: Option<Symbol>,
+    ) -> Result<u64, SpendCapError> {
         principal.require_auth();
 
         if allowance <= 0 {
@@ -174,6 +218,16 @@ impl AgentSpendCapContract {
         }
         if period_secs < MIN_PERIOD_SECS || period_secs > MAX_PERIOD_SECS {
             return Err(SpendCapError::InvalidPeriod);
+        }
+
+        let pair_key = DataKey::PairCaps(principal.clone(), agent.clone());
+        let mut pair_caps: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&pair_key)
+            .unwrap_or(Vec::new(&env));
+        if pair_caps.len() >= MAX_CAPS_PER_PAIR {
+            return Err(SpendCapError::TooManyCaps);
         }
 
         let cap_id = Self::next_id(&env)?;
@@ -191,6 +245,19 @@ impl AgentSpendCapContract {
         };
 
         env.storage().persistent().set(&DataKey::Cap(cap_id), &cap);
+
+        pair_caps.push_back(cap_id);
+        env.storage().persistent().set(&pair_key, &pair_caps);
+
+        if let Some(scope_key) = scope {
+            env.storage()
+                .persistent()
+                .set(&DataKey::CapScope(cap_id), &scope_key);
+            env.events().publish(
+                (symbol_short!("cap"), symbol_short!("scoped")),
+                (cap_id, scope_key),
+            );
+        }
 
         env.events().publish(
             (symbol_short!("cap"), symbol_short!("issued")),
@@ -259,6 +326,117 @@ impl AgentSpendCapContract {
         );
 
         Ok(cap.remaining())
+    }
+
+    /// Scoped admission query (issue #1658).
+    ///
+    /// Debits `amount` from EVERY cap of the `(principal, agent)` pair that
+    /// matches `scope`:
+    ///
+    /// * a cap scoped to the same key matches;
+    /// * an unscoped cap matches every request (overall ceiling);
+    /// * a cap scoped to a different key never matches;
+    /// * when `scope` is `None`, only unscoped caps match.
+    ///
+    /// All matching caps are checked first and debited together, so a failure
+    /// on one cap leaves every cap untouched.  Returns the smallest headroom
+    /// left across the matched caps (the binding constraint).
+    ///
+    /// # Errors
+    /// * `NoMatchingCap` — nothing matches the scope
+    /// * `CapSuspended`  — a matching cap is suspended
+    /// * `CapExceeded`   — a matching cap lacks headroom
+    pub fn can_transact_scoped(
+        env: Env,
+        principal: Address,
+        agent: Address,
+        scope: Option<Symbol>,
+        amount: i128,
+    ) -> Result<i128, SpendCapError> {
+        if amount <= 0 {
+            return Err(SpendCapError::InvalidInput);
+        }
+
+        let pair_caps: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PairCaps(principal, agent))
+            .unwrap_or(Vec::new(&env));
+        let now = env.ledger().timestamp();
+
+        // Pass 1: find matching caps and make sure ALL of them can pay.
+        let mut matched: Vec<SpendCap> = Vec::new(&env);
+        for cap_id in pair_caps.iter() {
+            let cap_scope: Option<Symbol> =
+                env.storage().persistent().get(&DataKey::CapScope(cap_id));
+            let matches = match (&cap_scope, &scope) {
+                (None, _) => true,
+                (Some(have), Some(want)) => have == want,
+                (Some(_), None) => false,
+            };
+            if !matches {
+                continue;
+            }
+
+            let mut cap: SpendCap = env
+                .storage()
+                .persistent()
+                .get(&DataKey::Cap(cap_id))
+                .ok_or(SpendCapError::CapNotFound)?;
+            cap.roll_period(now);
+
+            if cap.status == CapStatus::Suspended {
+                return Err(SpendCapError::CapSuspended);
+            }
+            let new_consumed = cap
+                .consumed
+                .checked_add(amount)
+                .ok_or(SpendCapError::InvalidInput)?;
+            if new_consumed > cap.allowance {
+                env.events().publish(
+                    (symbol_short!("cap"), symbol_short!("exceeded")),
+                    (cap_id, amount, cap.consumed, cap.allowance),
+                );
+                return Err(SpendCapError::CapExceeded);
+            }
+            matched.push_back(cap);
+        }
+
+        if matched.is_empty() {
+            return Err(SpendCapError::NoMatchingCap);
+        }
+
+        // Pass 2: debit every matching cap.
+        let mut min_remaining = i128::MAX;
+        for matched_cap in matched.iter() {
+            let mut cap = matched_cap;
+            cap.consumed += amount; // cannot overflow: checked in pass 1
+            env.storage().persistent().set(&DataKey::Cap(cap.id), &cap);
+            env.events().publish(
+                (symbol_short!("cap"), symbol_short!("debited")),
+                (cap.id, amount, cap.consumed, cap.allowance),
+            );
+            let remaining = cap.remaining();
+            if remaining < min_remaining {
+                min_remaining = remaining;
+            }
+        }
+
+        Ok(min_remaining)
+    }
+
+    /// Scope key of a cap, or `None` for an unscoped cap.
+    pub fn get_cap_scope(env: Env, cap_id: u64) -> Option<Symbol> {
+        env.storage().persistent().get(&DataKey::CapScope(cap_id))
+    }
+
+    /// Ids of the caps issued by `principal` to `agent` (issue order).
+    /// Caps issued before issue #1658 are not listed.
+    pub fn get_pair_caps(env: Env, principal: Address, agent: Address) -> Vec<u64> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::PairCaps(principal, agent))
+            .unwrap_or(Vec::new(&env))
     }
 
     // ── Queries ───────────────────────────────────────────────────────────────
@@ -773,6 +951,264 @@ mod tests {
         let id = env.register(AgentSpendCapContract, ());
         let client = AgentSpendCapContractClient::new(&env, &id);
         assert_eq!(client.version(), 3_u32);
+    }
+
+    // ── Scoped caps (issue #1658) ────────────────────────────────────────────
+
+    fn issue_scoped(
+        client: &AgentSpendCapContractClient,
+        principal: &Address,
+        agent: &Address,
+        allowance: i128,
+        scope: Option<Symbol>,
+    ) -> u64 {
+        client.issue_scoped_cap(principal, agent, &allowance, &MIN_PERIOD_SECS, &scope)
+    }
+
+    #[test]
+    fn test_scoped_cap_exhausted_does_not_block_other_scope() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        let inference = Some(symbol_short!("inference"));
+        let storage = Some(symbol_short!("storage"));
+        let inf_cap = issue_scoped(&client, &principal, &agent, 5, inference.clone());
+        let sto_cap = issue_scoped(&client, &principal, &agent, 1, storage.clone());
+
+        // Exhaust the inference cap.
+        assert_eq!(
+            client.can_transact_scoped(&principal, &agent, &inference, &5_i128),
+            0_i128
+        );
+        assert_eq!(
+            client.try_can_transact_scoped(&principal, &agent, &inference, &1_i128),
+            Err(Ok(SpendCapError::CapExceeded))
+        );
+
+        // The storage cap is untouched and still spendable.
+        assert_eq!(client.get_balance(&sto_cap), 1_i128);
+        assert_eq!(
+            client.can_transact_scoped(&principal, &agent, &storage, &1_i128),
+            0_i128
+        );
+        assert_eq!(client.get_balance(&inf_cap), 0_i128);
+    }
+
+    #[test]
+    fn test_scoped_request_without_matching_cap_is_rejected() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        issue_scoped(&client, &principal, &agent, 100, Some(symbol_short!("inference")));
+
+        assert_eq!(
+            client.try_can_transact_scoped(
+                &principal,
+                &agent,
+                &Some(symbol_short!("compute")),
+                &1_i128
+            ),
+            Err(Ok(SpendCapError::NoMatchingCap))
+        );
+        // A request with no scope only matches unscoped caps.
+        assert_eq!(
+            client.try_can_transact_scoped(&principal, &agent, &None, &1_i128),
+            Err(Ok(SpendCapError::NoMatchingCap))
+        );
+    }
+
+    #[test]
+    fn test_unscoped_cap_is_overall_ceiling_and_debit_is_atomic() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        let inference = Some(symbol_short!("inference"));
+        let storage = Some(symbol_short!("storage"));
+        let global = issue_scoped(&client, &principal, &agent, 10, None);
+        let inf_cap = issue_scoped(&client, &principal, &agent, 8, inference.clone());
+        let sto_cap = issue_scoped(&client, &principal, &agent, 8, storage.clone());
+
+        // 8 on inference: debits the inference cap AND the global cap.
+        assert_eq!(
+            client.can_transact_scoped(&principal, &agent, &inference, &8_i128),
+            0_i128
+        );
+        assert_eq!(client.get_balance(&global), 2_i128);
+
+        // 3 on storage fits its own cap (8) but not the global ceiling (2 left).
+        assert_eq!(
+            client.try_can_transact_scoped(&principal, &agent, &storage, &3_i128),
+            Err(Ok(SpendCapError::CapExceeded))
+        );
+        // Nothing was debited by the failed call.
+        assert_eq!(client.get_balance(&sto_cap), 8_i128);
+        assert_eq!(client.get_balance(&global), 2_i128);
+        assert_eq!(client.get_balance(&inf_cap), 0_i128);
+
+        // 2 on storage still fits both.
+        assert_eq!(
+            client.can_transact_scoped(&principal, &agent, &storage, &2_i128),
+            0_i128
+        );
+    }
+
+    #[test]
+    fn test_returns_smallest_remaining_headroom() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        let inference = Some(symbol_short!("inference"));
+        issue_scoped(&client, &principal, &agent, 100, None);
+        issue_scoped(&client, &principal, &agent, 30, inference.clone());
+
+        // global would have 90 left, scoped 20 -> binding constraint is 20.
+        assert_eq!(
+            client.can_transact_scoped(&principal, &agent, &inference, &10_i128),
+            20_i128
+        );
+    }
+
+    #[test]
+    fn test_unscoped_caps_keep_current_behaviour() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        // issue_cap + can_transact(cap_id) work exactly as before.
+        let cap_id = issue_default(&client, &principal, &agent);
+        assert_eq!(client.get_cap_scope(&cap_id), None);
+        assert_eq!(client.can_transact(&cap_id, &300_i128), 700_i128);
+
+        // And the unscoped cap is also reachable through the scoped path.
+        assert_eq!(
+            client.can_transact_scoped(&principal, &agent, &None, &100_i128),
+            600_i128
+        );
+        assert_eq!(client.get_balance(&cap_id), 600_i128);
+    }
+
+    #[test]
+    fn test_can_transact_on_scoped_cap_debits_only_that_cap() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        let global = issue_scoped(&client, &principal, &agent, 10, None);
+        let inf_cap = issue_scoped(&client, &principal, &agent, 5, Some(symbol_short!("inference")));
+
+        // Naming the cap explicitly bypasses matching.
+        assert_eq!(client.can_transact(&inf_cap, &2_i128), 3_i128);
+        assert_eq!(client.get_balance(&global), 10_i128);
+    }
+
+    #[test]
+    fn test_suspended_scoped_cap_only_blocks_its_own_scope() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        let inference = Some(symbol_short!("inference"));
+        let storage = Some(symbol_short!("storage"));
+        let inf_cap = issue_scoped(&client, &principal, &agent, 5, inference.clone());
+        issue_scoped(&client, &principal, &agent, 5, storage.clone());
+
+        client.suspend_cap(&inf_cap, &principal);
+
+        assert_eq!(
+            client.try_can_transact_scoped(&principal, &agent, &inference, &1_i128),
+            Err(Ok(SpendCapError::CapSuspended))
+        );
+        assert_eq!(
+            client.can_transact_scoped(&principal, &agent, &storage, &1_i128),
+            4_i128
+        );
+    }
+
+    #[test]
+    fn test_scoped_caps_roll_over_independently() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        let inference = Some(symbol_short!("inference"));
+        let cap_id = issue_scoped(&client, &principal, &agent, 5, inference.clone());
+        client.can_transact_scoped(&principal, &agent, &inference, &5_i128);
+
+        let now = env.ledger().timestamp();
+        env.ledger().set_timestamp(now + MIN_PERIOD_SECS + 1);
+
+        assert_eq!(client.get_balance(&cap_id), 5_i128);
+        assert_eq!(
+            client.can_transact_scoped(&principal, &agent, &inference, &5_i128),
+            0_i128
+        );
+    }
+
+    #[test]
+    fn test_scope_and_index_are_recorded() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        let scoped = issue_scoped(&client, &principal, &agent, 5, Some(symbol_short!("storage")));
+        let unscoped = issue_scoped(&client, &principal, &agent, 5, None);
+
+        assert_eq!(client.get_cap_scope(&scoped), Some(symbol_short!("storage")));
+        assert_eq!(client.get_cap_scope(&unscoped), None);
+
+        let ids = client.get_pair_caps(&principal, &agent);
+        assert_eq!(ids.len(), 2);
+        assert_eq!(ids.get(0), Some(scoped));
+        assert_eq!(ids.get(1), Some(unscoped));
+    }
+
+    #[test]
+    fn test_too_many_caps_per_pair_rejected() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        for _ in 0..MAX_CAPS_PER_PAIR {
+            issue_default(&client, &principal, &agent);
+        }
+        let res = client.try_issue_scoped_cap(&principal, &agent, &10_i128, &MIN_PERIOD_SECS, &None);
+        assert_eq!(res, Err(Ok(SpendCapError::TooManyCaps)));
+
+        // A different agent is unaffected.
+        let other = Address::generate(&env);
+        issue_default(&client, &principal, &other);
+    }
+
+    /// Migration check: a cap stored before #1658 has no scope entry and no
+    /// index entry.  It must still be readable and spendable by id.
+    #[test]
+    fn test_legacy_cap_without_scope_entry_still_works() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        env.as_contract(&id, || {
+            let legacy = SpendCap {
+                id: 99,
+                principal: principal.clone(),
+                agent: agent.clone(),
+                allowance: 50,
+                consumed: 0,
+                period_secs: MIN_PERIOD_SECS,
+                period_started_at: 0,
+                status: CapStatus::Active,
+            };
+            env.storage().persistent().set(&DataKey::Cap(99), &legacy);
+        });
+
+        assert_eq!(client.get_cap_scope(&99_u64), None);
+        assert_eq!(client.can_transact(&99_u64, &20_i128), 30_i128);
+        // Not indexed, so the scoped path does not see it.
+        assert_eq!(client.get_pair_caps(&principal, &agent).len(), 0);
     }
 }
 
