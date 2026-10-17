@@ -15,25 +15,64 @@ export interface SyncroReceipt {
 
 export type FailureMode = 'serve-free' | 'reject';
 
-export type FailureHandler = (error: Error, req: any, res: any, next: any) => void;
-
-export interface MeteredOptions {
-  apiKey?: string;
-  baseURL?: string;
-  onFailure?: FailureMode | FailureHandler;
-  headerName?: string;
-  receiptHeaderName?: string;
-  verifyProof?: (proof: string, cost: RoutePricingRule, req: any) => Promise<boolean> | boolean;
-  meterCall?: (receipt: SyncroReceipt, req: any) => Promise<void> | void;
+/** Minimal HTTP request surface the metering core needs. Framework adapters map their own types onto this. */
+export interface MeteredRequest {
+  method?: string;
+  path?: string;
+  url?: string;
+  originalUrl?: string;
+  headers?: Record<string, string | string[] | undefined>;
+  locals?: Record<string, unknown>;
 }
 
-export function metered(
+/** Minimal HTTP response surface the metering core needs. */
+export interface MeteredResponse {
+  locals?: Record<string, unknown>;
+  setHeader?: (name: string, value: string) => void;
+  status?: (code: number) => { json: (body: unknown) => unknown };
+}
+
+export type MeteredNext = (err?: unknown) => unknown;
+
+export type FailureHandler<Req extends MeteredRequest = MeteredRequest, Res extends MeteredResponse = MeteredResponse> = (
+  error: Error,
+  req: Req,
+  res: Res,
+  next: MeteredNext,
+) => void;
+
+export interface MeteredOptions<Req extends MeteredRequest = MeteredRequest, Res extends MeteredResponse = MeteredResponse> {
+  apiKey?: string;
+  baseURL?: string;
+  onFailure?: FailureMode | FailureHandler<Req, Res>;
+  headerName?: string;
+  receiptHeaderName?: string;
+  verifyProof?: (proof: string | undefined, cost: RoutePricingRule, req: Req) => Promise<boolean> | boolean;
+  meterCall?: (receipt: SyncroReceipt, req: Req) => Promise<void> | void;
+}
+
+function headerValue(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function errorMessage(err: unknown): string | undefined {
+  return err instanceof Error ? err.message : undefined;
+}
+
+function toError(err: unknown): Error {
+  return err instanceof Error ? err : new Error(String(err));
+}
+
+export function metered<
+  Req extends MeteredRequest = MeteredRequest,
+  Res extends MeteredResponse = MeteredResponse,
+>(
   pricingInput: RoutePricing | PricingDeclarationInput,
-  options: MeteredOptions = {}
-): (req: any, res: any, next: any) => Promise<any> {
+  options: MeteredOptions<Req, Res> = {},
+): (req: Req, res: Res, next: MeteredNext) => Promise<unknown> {
   const routePricing = typeof pricingInput === 'object' && pricingInput !== null && 'match' in pricingInput
     ? (pricingInput as RoutePricing)
-    : pricing(pricingInput as any);
+    : pricing(pricingInput as PricingDeclarationInput);
 
   const failureMode: FailureMode = typeof options.onFailure === 'string'
     ? options.onFailure
@@ -42,8 +81,8 @@ export function metered(
   const headerName = options.headerName || 'X-Syncro-Payment-Proof';
   const receiptHeaderName = options.receiptHeaderName || 'X-Syncro-Receipt';
 
-  return async (req: any, res: any, next: any) => {
-    const method = req.method;
+  return async (req: Req, res: Res, next: MeteredNext) => {
+    const method = req.method ?? '';
     const path = req.path || req.url?.split('?')[0] || '/';
     const costRule = routePricing.match(method, path);
 
@@ -65,10 +104,11 @@ export function metered(
       return next();
     }
 
-    const proof = req.headers?.[headerName.toLowerCase()] ||
-                  req.headers?.[headerName] ||
-                  req.headers?.['authorization']?.replace(/^Bearer\s+/i, '') ||
-                  req.headers?.['payment-signature'];
+    const headers = req.headers ?? {};
+    const proof = headerValue(headers[headerName.toLowerCase()]) ||
+                  headerValue(headers[headerName]) ||
+                  headerValue(headers['authorization'])?.replace(/^Bearer\s+/i, '') ||
+                  headerValue(headers['payment-signature']);
 
     try {
       let isVerified = false;
@@ -102,7 +142,7 @@ export function metered(
           res.setHeader('PAYMENT-REQUIRED', Buffer.from(JSON.stringify(paymentRequiredPayload)).toString('base64'));
         }
 
-        if (typeof res.status === 'function' && typeof res.json === 'function') {
+        if (typeof res.status === 'function') {
           return res.status(402).json({
             error: 'Payment Required',
             message: 'Valid payment proof (X-Syncro-Payment-Proof or PAYMENT-SIGNATURE) is required',
@@ -119,7 +159,7 @@ export function metered(
         method,
         amount: costRule.price,
         currency: costRule.currency || routePricing.currency,
-        payer: proof,
+        ...(proof === undefined ? {} : { payer: proof }),
         status: 'settled',
       };
 
@@ -134,13 +174,13 @@ export function metered(
       }
 
       return next();
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (typeof options.onFailure === 'function') {
-        return options.onFailure(err, req, res, next);
+        return options.onFailure(toError(err), req, res, next);
       }
 
       if (failureMode === 'serve-free') {
-        console.warn('[SyncroSDK] SYNCRO verification/metering unreachable, serving free per failure mode:', err?.message);
+        console.warn('[SyncroSDK] SYNCRO verification/metering unreachable, serving free per failure mode:', errorMessage(err));
         const freeReceipt: SyncroReceipt = {
           id: `rcpt_free_${Math.random().toString(36).substring(2, 11)}_${Date.now()}`,
           timestamp: new Date().toISOString(),
@@ -157,11 +197,11 @@ export function metered(
         res.locals.syncroReceipt = freeReceipt;
         return next();
       } else {
-        if (typeof res.status === 'function' && typeof res.json === 'function') {
+        if (typeof res.status === 'function') {
           return res.status(503).json({
             error: 'Service Unavailable',
             message: 'SYNCRO payment verification gateway unreachable',
-            details: err?.message,
+            details: errorMessage(err),
           });
         }
         return next(err);

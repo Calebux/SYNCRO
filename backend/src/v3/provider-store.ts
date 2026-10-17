@@ -64,11 +64,36 @@ function buildScopeKey(method: string, pathPattern: string): string {
   return `${normalizeMethod(method)}:${pathPattern}`;
 }
 
+/** A route lifecycle change observed by the store (issue #1700). */
+export interface ProviderRouteChangeEvent {
+  kind: 'created' | 'updated' | 'deleted';
+  oldRoute: RegisteredRoute | null;
+  newRoute: RegisteredRoute | null;
+  /** `versionId` of the rate-card version taking effect (updates only). */
+  rateCardVersion?: string;
+}
+
+/**
+ * Sink for route change events. Wire it to `auditProviderRouteEvent` so every
+ * create, update, and delete lands in the hash-chained audit log with the old
+ * and new price and extractor.
+ */
+export type ProviderRouteAuditSink = (event: ProviderRouteChangeEvent) => void;
+
 export class InMemoryProviderStore {
   private readonly providers = new Map<string, ProviderRegistration>();
   private readonly routes = new Map<string, RegisteredRoute>();
   private readonly rateCards = new Map<string, RateCardVersion>();
   private readonly settlements = new Map<string, ProviderSettlement>();
+  private readonly auditSink?: ProviderRouteAuditSink;
+
+  constructor(auditSink?: ProviderRouteAuditSink) {
+    this.auditSink = auditSink;
+  }
+
+  private emitRouteChange(event: ProviderRouteChangeEvent): void {
+    this.auditSink?.(event);
+  }
 
   registerProvider(input: RegisterProviderInput): ProviderRegistration {
     const providerId = randomUUID();
@@ -132,6 +157,7 @@ export class InMemoryProviderStore {
     };
     this.routes.set(routeId, route);
     this.appendVersion(route);
+    this.emitRouteChange({ kind: 'created', oldRoute: null, newRoute: { ...route } });
     return route;
   }
 
@@ -188,7 +214,27 @@ export class InMemoryProviderStore {
 
     this.routes.set(routeId, next);
     const version = this.appendVersion(next);
+    this.emitRouteChange({
+      kind: 'updated',
+      oldRoute: { ...existing },
+      newRoute: { ...next },
+      rateCardVersion: version.versionId,
+    });
     return { route: { ...next }, version: { ...version } };
+  }
+
+  /**
+   * Remove a route. The rate-card history is left untouched so past calls can
+   * still be billed at the price that applied at the time.
+   */
+  deleteRoute(providerId: string, routeId: string): RegisteredRoute {
+    const existing = this.routes.get(routeId);
+    if (!existing || existing.providerId !== providerId) {
+      throw new Error('route not found');
+    }
+    this.routes.delete(routeId);
+    this.emitRouteChange({ kind: 'deleted', oldRoute: { ...existing }, newRoute: null });
+    return { ...existing };
   }
 
   listRateCards(providerId: string): RateCardVersion[] {

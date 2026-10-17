@@ -6,6 +6,7 @@ version = 4
 name = "agent-registry"
 version = "0.1.0"
 dependencies = [
+ "proptest",
  "soroban-sdk",
  "syncro-contract-common",
 ]
@@ -1127,7 +1128,11 @@ dependencies = [
 name = "payment-channel"
 version = "0.1.0"
 dependencies = [
+ "hmac",
  "proptest",
+ "serde",
+ "serde_json",
+ "sha2",
  "soroban-sdk",
  "syncro-contract-common",
 ]

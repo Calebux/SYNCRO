@@ -11,6 +11,7 @@
 use soroban_sdk::{Env, Symbol};
 
 pub mod ttl;
+pub mod admin;
 
 // ============================================================================
 // Version Management

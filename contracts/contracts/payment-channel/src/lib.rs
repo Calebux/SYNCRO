@@ -93,6 +93,9 @@ pub const PROOF_FRESHNESS_WINDOW_SECS: u64 = 5 * 60; // 300 s
 #[derive(Clone)]
 enum DataKey {
     Admin,
+    /// Address nominated to become admin; absent when no transfer is active.
+    /// Shared two-step handover (issue #1659, cf. agent-registry).
+    PendingAdmin,
     Channel(u64),
     ChannelCount,
     /// Unix timestamp at which the contract entered the paused state.
@@ -214,6 +217,10 @@ pub enum Error {
     ContractNotPaused = 1622,
     /// The escape-hatch grace period has not elapsed yet.
     GracePeriodNotElapsed = 1623,
+    /// No admin transfer is in progress.
+    NoPendingAdmin = 1624,
+    /// The caller is not the nominated pending admin.
+    NotPendingAdmin = 1625,
 }
 
 #[contract]
@@ -240,6 +247,63 @@ impl PaymentChannelContract {
         // Every admin call keeps the instance storage (admin, counters) alive.
         syncro_common::ttl::extend_instance(env);
         Ok(admin)
+    }
+
+    /// Read the current admin address.
+    pub fn get_admin(env: Env) -> Result<Address, Error> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)
+    }
+
+    /// Read the pending admin address, if a transfer is in progress.
+    pub fn get_pending_admin(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::PendingAdmin)
+    }
+
+    /// Step 1 of admin handover: the current admin nominates `new_admin`.
+    /// Shared two-step pattern (issue #1659); see `syncro_common::admin`.
+    pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        Self::require_admin(&env)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingAdmin, &new_admin);
+        env.events()
+            .publish(syncro_common::admin::topic_init(), new_admin);
+        Ok(())
+    }
+
+    /// Cancel an in-progress admin handover. Current admin only.
+    pub fn cancel_transfer_admin(env: Env) -> Result<(), Error> {
+        Self::require_admin(&env)?;
+        if !env.storage().instance().has(&DataKey::PendingAdmin) {
+            return Err(Error::NoPendingAdmin);
+        }
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.events()
+            .publish(syncro_common::admin::topic_cancel(), ());
+        Ok(())
+    }
+
+    /// Step 2: the nominated address accepts and becomes admin.
+    ///
+    /// Only the nominee may accept (`pending.require_auth()`), matching the
+    /// rule specified by `syncro_common::admin::can_accept`.
+    pub fn accept_admin(env: Env) -> Result<(), Error> {
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingAdmin)
+            .ok_or(Error::NoPendingAdmin)?;
+        // Only the nominee may accept.
+        pending.require_auth();
+        syncro_common::ttl::extend_instance(&env);
+        env.storage().instance().set(&DataKey::Admin, &pending);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.events()
+            .publish(syncro_common::admin::topic_accept(), pending);
+        Ok(())
     }
 
     /// Open a new payment channel.
@@ -925,6 +989,9 @@ impl PaymentChannelContract {
         syncro_common::interface_version_call(&_env)
     }
 }
+
+#[cfg(test)]
+mod admin_transfer;
 
 #[cfg(test)]
 mod adversarial;

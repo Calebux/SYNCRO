@@ -165,6 +165,11 @@ export class V3GatewayService {
     return this.providers.registerRoute(input);
   }
 
+  deleteRoute(providerId: string, routeId: string): RegisteredRoute {
+    this.getProviderOrThrow(providerId);
+    return this.providers.deleteRoute(providerId, routeId);
+  }
+
   async processPaidCall(input: PaidCallInput): Promise<{
     upstream: UpstreamResult;
     receipt: PaidReceipt;
