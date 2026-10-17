@@ -1,0 +1,2 @@
+# Network-specific deployment manifests
+# Each file contains contract IDs, WASM hashes, versions, and deployment metadata

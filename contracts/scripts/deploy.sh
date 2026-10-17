@@ -50,3 +50,52 @@ SOROBAN_UPGRADE_ADDRESS=$UPGRADE_ID
 EOF
 echo ""
 echo "Addresses saved to $OUTPUT_FILE"
+
+# Generate deployment manifest JSON
+echo ""
+echo "==> Generating deployment manifest..."
+
+# Get WASM hashes
+ZK_VERIFIER_HASH=$(sha256sum "$WASM_DIR/zk_payment_verifier.wasm" | awk '{print $1}')
+UPGRADE_HASH=$(sha256sum "$WASM_DIR/contract_upgrade.wasm" | awk '{print $1}')
+
+# Get version from Cargo.toml
+VERSION=$(grep '^version = ' "$(dirname "$0")/../Cargo.toml" | head -1 | sed 's/version = "\(.*\)"/\1/')
+
+# Get commit SHA
+COMMIT_SHA=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+
+# Get current timestamp
+DEPLOYED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+# Note: deployed_ledger would require querying the network, setting to null for now
+MANIFEST_FILE="$(dirname "$0")/../../deployments/${NETWORK}.json"
+
+cat > "$MANIFEST_FILE" <<EOF
+{
+  "network": "$NETWORK",
+  "deployed_at": "$DEPLOYED_AT",
+  "deployed_ledger": null,
+  "deployer_address": "$ADMIN_ADDRESS",
+  "commit_sha": "$COMMIT_SHA",
+  "contracts": {
+    "zk_payment_verifier": {
+      "contract_id": "$ZK_VERIFIER_ID",
+      "wasm_hash": "$ZK_VERIFIER_HASH",
+      "version": "$VERSION"
+    },
+    "contract_upgrade": {
+      "contract_id": "$UPGRADE_ID",
+      "wasm_hash": "$UPGRADE_HASH",
+      "version": "$VERSION"
+    }
+  }
+}
+EOF
+
+echo "Deployment manifest saved to $MANIFEST_FILE"
+echo ""
+echo "Next steps:"
+echo "  1. Commit the deployment manifest: git add deployments/${NETWORK}.json"
+echo "  2. Backend can now load contract IDs from: deployments/${NETWORK}.json"
+echo "  3. SDK can export deployment info for clients"
