@@ -23,7 +23,6 @@ The contracts folder contains Soroban smart contracts that will enable:
 
 ```
 contracts/
-├── common/                      # syncro-common: shared counter/ID helpers (rlib)
 ├── contracts/
 │   ├── common/                  # syncro-contract-common: versioning + global error-code helpers (rlib)
 │   ├── agent-registry/          # Authorized agents registry contract
@@ -34,39 +33,35 @@ contracts/
 │   ├── fee-collector/           # Protocol fee collection
 │   ├── fx-oracle/               # FX rate oracle
 │   ├── guardian/                # Guardian / emergency controls
-│   ├── loyalty-rewards/         # Loyalty points accrual and redemption
 │   ├── payment-adapter/         # Multi-token renewal settlement adapter
 │   ├── payment-channel/         # Off-chain renewal payment channels
 │   ├── payment-splitter/        # Split a renewal across N payers
-│   ├── recurring-allowance/     # Capped recurring pull authority (legacy)
 │   ├── resolver-registry/       # Dispute arbitration / resolver registry
 │   ├── stealth-announcement/    # Stealth address announcement registry
-│   ├── subscription-logging/    # On-chain audit trail logging contract
-│   ├── subscription-nft/        # Subscription NFT contract
-│   ├── subscription-refund/     # Subscription refund logic
-│   ├── subscription-registry/   # SubscriptionRegistry contract (register/renew/cancel + encrypted metadata)
-│   ├── subscription-renewal/    # Main subscription renewal logic contract
-│   ├── voucher-ledger/          # Gift-card voucher mint / redeem / void ledger
 │   ├── virtual-card/            # Non-custodial virtual card contract
 │   └── zk-payment-verifier/     # ZK payment proof verifier
-├── integration-tests/           # Cross-contract integration suite (renewal ↔ logging, registry ↔ virtual-card, error registry)
-├── scripts/                     # Deployment and initialization scripts
+├── scripts/                     # Build, deploy and verification scripts
 ├── docs/                        # Event schema and contract hardening notes
 └── Cargo.toml                   # Cargo workspace configuration
 ```
 
 **Crate naming:** every workspace package and its directory use kebab-case
-(`subscription-renewal`, `payment-channel`). Rust still imports them in
-snake_case (`use subscription_renewal::...`), and the built WASM artifacts keep
-Cargo's snake_case file names (`subscription_renewal.wasm`). Unit tests live in
-each crate's `src/`; per-crate integration tests live in that crate's `tests/`;
-cross-contract tests live in `integration-tests/`.
+(`payment-channel`, `virtual-card`). Rust still imports them in snake_case
+(`use payment_channel::...`), and the built WASM artifacts keep Cargo's
+snake_case file names (`payment_channel.wasm`). Unit tests live in each crate's
+`src/`; per-crate integration tests live in that crate's `tests/`.
+
+**Retired contracts:** the subscription-product crates (`subscription-registry`,
+`subscription-renewal`, `subscription-logging`, `subscription-nft`,
+`subscription-refund`, `recurring-allowance`, `loyalty-rewards`,
+`voucher-ledger`) and the subscription-only `integration-tests` crate were
+removed from the workspace (issue #1660). See
+[docs/retired-contracts.md](docs/retired-contracts.md).
 
 ## Current State (July 2026)
 
 ### ✅ Implemented
-- **Core Contracts**: Functional renewal, escrow, and registry contracts.
-- **On-chain Logging**: Structured audit trail for subscription events.
+- **Core Contracts**: Functional payment-channel, virtual-card, escrow, and agent-registry contracts.
 - **Stellar SDK 26**: Built on the latest Soroban stable release.
 - **Test Infrastructure**: Automated snapshots and delegated execution tests.
 
@@ -114,25 +109,7 @@ cargo test
 
 ## Implemented Contracts
 
-### 1. Subscription Registry Contract (`contracts/contracts/subscription-registry/`)
-**Purpose**: Store and manage subscription metadata on-chain.
-- `create_subscription` - Create a new subscription with billing interval, expected amount, and next renewal.
-- `update_subscription` - Update existing subscription metadata.
-- `cancel_subscription` - Deactivate a subscription.
-- `get_subscription` - Retrieve subscription metadata by ID.
-- `get_user_subscriptions` - Retrieve all subscription IDs for a user.
-
-### 2. Subscription Renewal Contract (`contracts/contracts/subscription-renewal/`)
-**Purpose**: Handle subscription renewal payments, cooldown periods, spending caps, and authorization.
-- `renew` - Processes subscription renewal.
-- `approve_renewal` - Owner approves a renewal with a max spend and expiry.
-- `cancel_sub` - Explicitly cancel a subscription.
-- `set_executor` / `remove_executor` / `get_executor` - Manage authorized execution agents.
-- `set_window` / `get_window` - Manage billing window start/end times.
-- `acquire_renewal_lock` / `release_renewal_lock` - Prevent race conditions during concurrent execution.
-- `set_user_cap` / `get_user_cap` / `get_user_spent` - Enforce global user spending limits.
-
-### 3. Virtual Card Contract (`contracts/contracts/virtual-card/`)
+### 1. Virtual Card Contract (`contracts/contracts/virtual-card/`)
 **Purpose**: Non-custodial virtual card for subscription payments.
 - `issue_card` - Issues a new virtual card with initial balance.
 - `process_payment` - Debits balance from a card, with auto-close for disposable cards.
@@ -140,7 +117,7 @@ cargo test
 - `verify_ownership` - Asserts if claimant is card holder.
 - `can_transact` - Verifies eligibility (active state, expiry, balance).
 
-### 4. Escrow Contract (`contracts/contracts/escrow/`)
+### 2. Escrow Contract (`contracts/contracts/escrow/`)
 **Purpose**: Secure holding of funds with dispute resolution capability.
 - `create_escrow` - Initialize escrow agreement.
 - `deposit` - Fund the escrow.
@@ -149,18 +126,13 @@ cargo test
 - `refund` - Payer claims refund (either before approval or after expiry).
 - `raise_dispute` / `resolve_dispute` - Dispute resolution workflow.
 
-### 5. Agent Registry Contract (`contracts/contracts/agent-registry/`)
+### 3. Agent Registry Contract (`contracts/contracts/agent-registry/`)
 **Purpose**: Manage authorized execution agents and their permission scopes.
 - `register` / `revoke_agent` - Add or remove agents.
 - `update_scopes` - Grant specific scopes (Renewals, GiftCards, Approvals).
 - `is_authorized` / `require_authorized` - Verify agent authorization.
 
-### 6. Subscription Logging Contract (`contracts/contracts/subscription-logging/`)
-**Purpose**: Maintain an on-chain audit trail of subscription events.
-- `record_log` - Appends a log entry (Reminder, Approval, Renewal, Failure, Retry, Cancellation).
-- `get_logs` - Query logs for a specific subscription.
-
-### 7. Allowance Contract (`contracts/contracts/allowance/`)
+### 4. Allowance Contract (`contracts/contracts/allowance/`)
 **Purpose**: Standalone recurring allowance / spending-limit authority. Lets an owner pre-authorize a merchant for capped recurring pulls, enforcing both a per-period cap and an absolute (lifetime) cap. Decoupled from subscription renewal.
 - `grant_allowance` - Owner authorizes a merchant with a per-period cap, absolute cap, and period length.
 - `revoke_allowance` - Owner revokes the authority, immediately blocking further pulls.
@@ -169,18 +141,12 @@ cargo test
 - `available` - Query the amount still pullable right now (min of remaining per-period and lifetime budgets).
 - `pause` / `unpause` / `is_paused` - Admin circuit-breaker over all consumption.
 
-### 8. Payment Adapter Contract (`contracts/contracts/payment-adapter/`)
+### 5. Payment Adapter Contract (`contracts/contracts/payment-adapter/`)
 **Purpose**: Allowlisted multi-token settlement wrapper for renewal flows.
 - `allow_token` - Admin allowlists a Stellar Asset Contract and stores its decimals and cap.
 - `revoke_token` - Admin disables a token without deleting historical state.
 - `settle_renewal` - Payer-authorized transfer that scales display units into raw token units using the token's decimals.
 - `get_policy` / `available` / `is_allowed` - Read the current token policy and remaining cap.
-
-### 9. Voucher Ledger Contract (`contracts/contracts/voucher-ledger/`)
-**Purpose**: Gift-card voucher mint / redeem / void ledger with double-spend protection.
-- `mint_voucher` - Admin creates a voucher with a unique code hash and face value.
-- `redeem_voucher` - Voucher recipient redeems part or all of the balance.
-- `void_voucher` - Admin voids an active voucher and clears any remaining balance.
 
 ## Global Error Code Registry (#1225)
 
@@ -192,8 +158,8 @@ To prevent ambiguity when errors are surfaced across contract boundaries (e.g., 
 
 | Contract                  | Range      | Description |
 |---------------------------|-----------|-------------|
-| subscription-renewal      | 1000-1099 | Subscription renewal logic |
-| subscription-logging      | 1100-1199 | Event logging |
+| subscription-renewal      | 1000-1099 | **Retired (#1660), range reserved.** Subscription renewal logic |
+| subscription-logging      | 1100-1199 | **Retired (#1660), range reserved.** Event logging |
 | virtual-card              | 1200-1299 | Virtual card management |
 | escrow                    | 1300-1399 | Escrow agreement handling |
 | agent-registry            | 1400-1499 | Agent registry & permissions |
@@ -202,20 +168,20 @@ To prevent ambiguity when errors are surfaced across contract boundaries (e.g., 
 | contract-upgrade          | 1700-1799 | Contract upgrade governance |
 | allowance                 | 1800-1899 | Recurring allowance management |
 | payment-adapter           | 1900-1999 | Payment adapter |
-| voucher-ledger            | 2000-2099 | Voucher ledger |
+| voucher-ledger            | 2000-2099 | **Retired (#1660), range reserved.** Voucher ledger |
 | fee-collector             | 2100-2199 | Fee collection |
 | resolver-registry         | 2200-2299 | Resolver registry |
-| subscription-refund       | 2300-2399 | Subscription refund logic |
-| recurring-allowance       | 2400-2499 | Recurring allowance (legacy) |
-| loyalty-rewards           | 2500-2599 | Loyalty rewards |
-| subscription-nft          | 2600-2699 | Subscription NFT |
+| subscription-refund       | 2300-2399 | **Retired (#1660), range reserved.** Subscription refund logic |
+| recurring-allowance       | 2400-2499 | **Retired (#1660), range reserved.** Recurring allowance (legacy) |
+| loyalty-rewards           | 2500-2599 | **Retired (#1660), range reserved.** Loyalty rewards |
+| subscription-nft          | 2600-2699 | **Retired (#1660), range reserved.** Subscription NFT |
 | attestation               | 2700-2799 | Attestation service |
 | guardian                  | 2800-2899 | Guardian authority |
 | fx-oracle                 | 2900-2999 | FX oracle |
 | payment-splitter          | 3000-3099 | Payment splitter |
 | stealth-announcement      | 3100-3199 | Stealth payment announcements |
 
-**Total Capacity**: 22 contracts × 100 codes = 2200 codes (range: 1000-3199)
+**Total Capacity**: 22 ranges × 100 codes = 2200 codes (range: 1000-3199). Ranges of retired contracts stay reserved and must not be reused, because their codes may still appear in on-chain history and backend logs.
 
 ### Error Code Conversion
 
@@ -261,17 +227,18 @@ All error codes are documented in `contracts/errors.json`:
 
 ### Testing Error Code Overlaps
 
-Verify that no two contracts use the same error code:
+Each contract owns one 100-code block (see the table above), so two contracts
+cannot collide as long as a new contract takes the next free block. The
+registry generator reads each contract's `#[contracterror]` enum and reports
+any variant that falls outside its block:
 
 ```bash
-cd contracts/integration-tests
-cargo test --test error_registry_tests -- --nocapture
+cd contracts
+python3 scripts/generate-error-registry.py
 ```
 
-Tests validate:
-- No discriminant overlaps between contracts
-- All error codes fit within allocated ranges
-- Round-trip encode/decode correctness
+Blocks of retired contracts stay reserved and are skipped by the generator once
+their source is gone.
 
 ## Contract Version Metadata (#1226)
 
@@ -317,7 +284,7 @@ await initializeContractVersioning();
 // ============================================================
 // Deployed Contract Versions
 // ============================================================
-// subscription_renewal: v1.0 (interface v1)
+// payment-channel: v1.0 (interface v1)
 // escrow: v1.0 (interface v1)
 // virtual-card: v1.0 (interface v1)
 // ⚠ version mismatch: SDK expects v1, deployed is v1.1
@@ -342,8 +309,7 @@ This indicates:
 - **#1225**: Global unique contract error-code registry
 - **#1226**: Add version() and interface_version() to every contract
 
-- `get_voucher` / `balance` / `is_active` - Read voucher state and remaining balance.
-### 10. Resolver Registry Contract (`contracts/contracts/resolver-registry/`)
+### 6. Resolver Registry Contract (`contracts/contracts/resolver-registry/`)
 **Purpose**: Decentralize escrow dispute resolution from a single admin arbiter to a voting set of arbiters. When a configurable quorum agrees on an outcome, the registry issues a binding `resolve_dispute` cross-contract call into the escrow. (Wire it up by setting the escrow's `arbiter` to the registry's contract address.)
 - `init` - Initialize with an admin and an initial quorum.
 - `add_arbiter` / `remove_arbiter` - Admin manages the arbiter voting set.
@@ -351,26 +317,14 @@ This indicates:
 - `open_case` - An arbiter or admin opens a dispute case bound to an escrow agreement.
 - `vote` - An arbiter votes to release (1) or refund (2); reaching quorum fires the binding escrow callback.
 - `get_case` / `get_case_count` / `get_quorum` / `get_arbiters` / `is_arbiter` / `get_vote` - Queries.
-### 11. Recurring Allowance Contract (`contracts/contracts/recurring-allowance/`)
-**Purpose**: Standalone authority contract letting users pre-authorize merchants for capped recurring pulls.
-- `grant_allowance` - Grant capped recurring pull authorization with per-period and absolute limits.
-- `revoke_allowance` - Revoke an active recurring allowance.
-- `consume_allowance` - Merchant pulls authorized tokens within per-period and lifetime caps.
-- `update_allowance` - Update parameters for an active allowance.
-- `get_allowance` / `get_remaining_period_allowance` / `get_remaining_absolute_allowance` - Query allowance status and remaining capacity.
-
 ## Contract Development Roadmap
 
 ### Completed (MVP Stage)
-- [x] On-chain subscription registry and tracking
 - [x] Multi-agent renewal registry with scope controls
 - [x] Secure escrow agreements with arbiter-mediated dispute resolution
 - [x] Decentralized dispute arbitration via a quorum-voting resolver registry
 - [x] Non-custodial virtual cards with disposable/auto-close behavior
-- [x] On-chain audit logging system
-- [x] Recurring allowance authority with per-period and absolute spending caps
 - [x] Multi-token settlement adapter with token allowlists and per-token caps
-- [x] On-chain voucher ledger for gift-card balances
 
 ### Phase 3: Mainnet Hardening
 - [ ] Complete external security audits
@@ -400,25 +354,6 @@ calling contract's own identity** (the contract self-authenticates).
   self-authenticates via `require_auth` on its own address; the callee verifies
   that address against its allowlist.
 
-### Consumers of the audit trail (`subscription_logging`)
-
-| Entrypoint | Approved caller | Authority | Auth forwarded? |
-|---|---|---|---|
-| `record_log(sub_id, event, data)` | Any registered **writer** (e.g. `subscription_renewal`) | Writer allowlist (`add_writer`/`remove_writer`, admin-managed) | No — acts as contract identity |
-| `record_commitment(commitment_hash)` | Any registered **writer** (e.g. `subscription_renewal`) | Writer allowlist | No — acts as contract identity |
-| `anchor_merkle_root` / `anchor_log_merkle_root` / `prune_logs` | Logging **admin** only | Admin role | No |
-| `add_writer` / `remove_writer` | Logging **admin** only | Admin role | No |
-| `get_logs` / `get_commitment*` / `get_merkle_root*` / `is_writer` / `get_writers` | Anyone (read-only) | — | — |
-
-### `subscription_renewal` cross-contract calls
-
-| Callee | Entrypoint | Caller identity | Auth forwarded? | Required grant on callee |
-|---|---|---|---|---|
-| `subscription-logging` | `record_commitment(hash)` → from `init_sub`, `cancel_sub`, `renew` (success/failure/retry) | Renewal **contract** | No — renewal acts as its own identity | Register renewal as a **writer** |
-| SAC (token) | `transfer(owner → renewal)` — escrow lock in `renew` | Owner (holder of funds) | Yes — forwards **owner** auth | None (owner auths the transfer) |
-| SAC (token) | `transfer(renewal → merchant)` — escrow claim in `claim_escrow` | Merchant (recipient) | Yes — forwards **merchant** auth | None (merchant auths the claim) |
-| `virtual-card` *(intended)* | `issue_card` / `process_payment` | Card holder | Yes — forwards **holder** auth | None (holder auths) |
-
 ### `virtual-card` cross-contract / entrypoint auth
 
 | Entrypoint | Approved caller | Authority |
@@ -427,18 +362,6 @@ calling contract's own identity** (the contract self-authenticates).
 | `process_payment(card_id, …)` | The card **holder** | `card.holder.require_auth()` |
 | `set_merchant_allowlist` / `blocklist`, `activate_card`, `deactivate_card`, `suspend_card` | The card **holder** | `caller == holder` + `caller.require_auth()` |
 | `verify_ownership` / `can_transact` / `get_*` / `remaining_*` | Anyone (read-only) | — |
-
-`subscription_renewal` is **intended** to call `virtual-card` (card funding on
-renewal), matching the auth-forwarding model above: the card holder's auth is
-required, so `virtual-card` never needs `subscription_renewal` to be its admin.
-
-### Audit trail of this model (Issue #1233)
-
-- `record_log` and `record_commitment` are now gated by a **writer allowlist**
-  distinct from admin, so `subscription_renewal` is a *writer*, never an admin.
-- Negative tests (`subscription-logging/src/test.rs`, `integration-tests`)
-  prove that an unregistered contract and a direct end-user call are rejected
-  for every cross-contract write entrypoint.
 
 ## Development Guidelines
 
@@ -592,16 +515,6 @@ new entrypoint is added without those tests or when this table drifts from
 | `guardian` | `get_registered_contracts` | `neg_get_registered_contracts_unauthorized` | `neg_get_registered_contracts_wrong_state` | n/a |
 | `guardian` | `get_contract_count` | `neg_get_contract_count_unauthorized` | `neg_get_contract_count_wrong_state` | n/a |
 | `guardian` | `is_contract_registered` | `neg_is_contract_registered_unauthorized` | `neg_is_contract_registered_wrong_state` | n/a |
-| `loyalty-rewards` | `init` | `neg_init_unauthorized` | `neg_init_wrong_state` | n/a |
-| `loyalty-rewards` | `set_paused` | `neg_set_paused_unauthorized` | `neg_set_paused_wrong_state` | n/a |
-| `loyalty-rewards` | `set_renewal_caller` | `neg_set_renewal_caller_unauthorized` | `neg_set_renewal_caller_wrong_state` | n/a |
-| `loyalty-rewards` | `accrue` | `neg_accrue_unauthorized` | `neg_accrue_wrong_state` | n/a |
-| `loyalty-rewards` | `miss` | `neg_miss_unauthorized` | `neg_miss_wrong_state` | n/a |
-| `loyalty-rewards` | `redeem` | `neg_redeem_unauthorized` | `neg_redeem_wrong_state` | n/a |
-| `loyalty-rewards` | `balance` | `neg_balance_unauthorized` | `neg_balance_wrong_state` | n/a |
-| `loyalty-rewards` | `account` | `neg_account_unauthorized` | `neg_account_wrong_state` | n/a |
-| `loyalty-rewards` | `streak` | `neg_streak_unauthorized` | `neg_streak_wrong_state` | n/a |
-| `loyalty-rewards` | `is_paused` | `neg_is_paused_unauthorized` | `neg_is_paused_wrong_state` | n/a |
 | `payment-adapter` | `init` | `neg_init_unauthorized` | `neg_init_wrong_state` | required |
 | `payment-adapter` | `allow_token` | `neg_allow_token_unauthorized` | `neg_allow_token_wrong_state` | required |
 | `payment-adapter` | `revoke_token` | `neg_revoke_token_unauthorized` | `neg_revoke_token_wrong_state` | required |
@@ -629,13 +542,6 @@ new entrypoint is added without those tests or when this table drifts from
 | `payment-splitter` | `get_split` | `neg_get_split_unauthorized` | `neg_get_split_wrong_state` | required |
 | `payment-splitter` | `split_count` | `neg_split_count_unauthorized` | `neg_split_count_wrong_state` | required |
 | `payment-splitter` | `admin` | `neg_admin_unauthorized` | `neg_admin_wrong_state` | required |
-| `recurring-allowance` | `grant_allowance` | `neg_grant_allowance_unauthorized` | `neg_grant_allowance_wrong_state` | required |
-| `recurring-allowance` | `revoke_allowance` | `neg_revoke_allowance_unauthorized` | `neg_revoke_allowance_wrong_state` | required |
-| `recurring-allowance` | `consume_allowance` | `neg_consume_allowance_unauthorized` | `neg_consume_allowance_wrong_state` | required |
-| `recurring-allowance` | `update_allowance` | `neg_update_allowance_unauthorized` | `neg_update_allowance_wrong_state` | required |
-| `recurring-allowance` | `get_allowance` | `neg_get_allowance_unauthorized` | `neg_get_allowance_wrong_state` | required |
-| `recurring-allowance` | `get_remaining_period_allowance` | `neg_get_remaining_period_allowance_unauthorized` | `neg_get_remaining_period_allowance_wrong_state` | required |
-| `recurring-allowance` | `get_remaining_absolute_allowance` | `neg_get_remaining_absolute_allowance_unauthorized` | `neg_get_remaining_absolute_allowance_wrong_state` | required |
 | `resolver-registry` | `init` | `neg_init_unauthorized` | `neg_init_wrong_state` | n/a |
 | `resolver-registry` | `add_arbiter` | `neg_add_arbiter_unauthorized` | `neg_add_arbiter_wrong_state` | n/a |
 | `resolver-registry` | `remove_arbiter` | `neg_remove_arbiter_unauthorized` | `neg_remove_arbiter_wrong_state` | n/a |
@@ -655,76 +561,6 @@ new entrypoint is added without those tests or when this table drifts from
 | `stealth-announcement` | `get_announcement_count` | `neg_get_announcement_count_unauthorized` | `neg_get_announcement_count_wrong_state` | n/a |
 | `stealth-announcement` | `get_announcements_range` | `neg_get_announcements_range_unauthorized` | `neg_get_announcements_range_wrong_state` | n/a |
 | `stealth-announcement` | `get_latest_announcements` | `neg_get_latest_announcements_unauthorized` | `neg_get_latest_announcements_wrong_state` | n/a |
-| `subscription-logging` | `init` | `neg_init_unauthorized` | `neg_init_wrong_state` | n/a |
-| `subscription-logging` | `record_log` | `neg_record_log_unauthorized` | `neg_record_log_wrong_state` | n/a |
-| `subscription-logging` | `get_logs` | `neg_get_logs_unauthorized` | `neg_get_logs_wrong_state` | n/a |
-| `subscription-logging` | `record_commitment` | `neg_record_commitment_unauthorized` | `neg_record_commitment_wrong_state` | n/a |
-| `subscription-logging` | `get_commitment` | `neg_get_commitment_unauthorized` | `neg_get_commitment_wrong_state` | n/a |
-| `subscription-logging` | `get_commitment_count` | `neg_get_commitment_count_unauthorized` | `neg_get_commitment_count_wrong_state` | n/a |
-| `subscription-logging` | `get_commitments_range` | `neg_get_commitments_range_unauthorized` | `neg_get_commitments_range_wrong_state` | n/a |
-| `subscription-logging` | `anchor_merkle_root` | `neg_anchor_merkle_root_unauthorized` | `neg_anchor_merkle_root_wrong_state` | n/a |
-| `subscription-logging` | `get_merkle_root` | `neg_get_merkle_root_unauthorized` | `neg_get_merkle_root_wrong_state` | n/a |
-| `subscription-logging` | `get_merkle_root_count` | `neg_get_merkle_root_count_unauthorized` | `neg_get_merkle_root_count_wrong_state` | n/a |
-| `subscription-logging` | `verify_merkle_membership` | `neg_verify_merkle_membership_unauthorized` | `neg_verify_merkle_membership_wrong_state` | n/a |
-| `subscription-nft` | `init` | `neg_init_unauthorized` | `neg_init_wrong_state` | n/a |
-| `subscription-nft` | `set_paused` | `neg_set_paused_unauthorized` | `neg_set_paused_wrong_state` | n/a |
-| `subscription-nft` | `set_mint_authority` | `neg_set_mint_authority_unauthorized` | `neg_set_mint_authority_wrong_state` | n/a |
-| `subscription-nft` | `mint` | `neg_mint_unauthorized` | `neg_mint_wrong_state` | n/a |
-| `subscription-nft` | `transfer` | `neg_transfer_unauthorized` | `neg_transfer_wrong_state` | n/a |
-| `subscription-nft` | `approve` | `neg_approve_unauthorized` | `neg_approve_wrong_state` | n/a |
-| `subscription-nft` | `revoke_approval` | `neg_revoke_approval_unauthorized` | `neg_revoke_approval_wrong_state` | n/a |
-| `subscription-nft` | `burn` | `neg_burn_unauthorized` | `neg_burn_wrong_state` | n/a |
-| `subscription-nft` | `update_renewal_state` | `neg_update_renewal_state_unauthorized` | `neg_update_renewal_state_wrong_state` | n/a |
-| `subscription-nft` | `get_token` | `neg_get_token_unauthorized` | `neg_get_token_wrong_state` | n/a |
-| `subscription-nft` | `owner_of` | `neg_owner_of_unauthorized` | `neg_owner_of_wrong_state` | n/a |
-| `subscription-nft` | `balance_of` | `neg_balance_of_unauthorized` | `neg_balance_of_wrong_state` | n/a |
-| `subscription-nft` | `get_approval` | `neg_get_approval_unauthorized` | `neg_get_approval_wrong_state` | n/a |
-| `subscription-nft` | `token_for_sub` | `neg_token_for_sub_unauthorized` | `neg_token_for_sub_wrong_state` | n/a |
-| `subscription-nft` | `total_minted` | `neg_total_minted_unauthorized` | `neg_total_minted_wrong_state` | n/a |
-| `subscription-nft` | `is_paused` | `neg_is_paused_unauthorized` | `neg_is_paused_wrong_state` | n/a |
-| `subscription-refund` | `init` | `neg_init_unauthorized` | `neg_init_wrong_state` | required |
-| `subscription-refund` | `record_charge` | `neg_record_charge_unauthorized` | `neg_record_charge_wrong_state` | required |
-| `subscription-refund` | `open_dispute` | `neg_open_dispute_unauthorized` | `neg_open_dispute_wrong_state` | required |
-| `subscription-refund` | `authorize_dispute` | `neg_authorize_dispute_unauthorized` | `neg_authorize_dispute_wrong_state` | required |
-| `subscription-refund` | `process_refund` | `neg_process_refund_unauthorized` | `neg_process_refund_wrong_state` | required |
-| `subscription-refund` | `is_refunded` | `neg_is_refunded_unauthorized` | `neg_is_refunded_wrong_state` | required |
-| `subscription-refund` | `get_charge` | `neg_get_charge_unauthorized` | `neg_get_charge_wrong_state` | required |
-| `subscription-refund` | `get_dispute` | `neg_get_dispute_unauthorized` | `neg_get_dispute_wrong_state` | required |
-| `subscription-refund` | `set_admin` | `neg_set_admin_unauthorized` | `neg_set_admin_wrong_state` | required |
-| `subscription-refund` | `set_dispute_admin` | `neg_set_dispute_admin_unauthorized` | `neg_set_dispute_admin_wrong_state` | required |
-| `subscription-refund` | `set_paused` | `neg_set_paused_unauthorized` | `neg_set_paused_wrong_state` | required |
-| `subscription-renewal` | `init` | `neg_init_unauthorized` | `neg_init_wrong_state` | required |
-| `subscription-renewal` | `set_paused` | `neg_set_paused_unauthorized` | `neg_set_paused_wrong_state` | required |
-| `subscription-renewal` | `is_paused` | `neg_is_paused_unauthorized` | `neg_is_paused_wrong_state` | required |
-| `subscription-renewal` | `set_logging_contract` | `neg_set_logging_contract_unauthorized` | `neg_set_logging_contract_wrong_state` | required |
-| `subscription-renewal` | `set_token_contract` | `neg_set_token_contract_unauthorized` | `neg_set_token_contract_wrong_state` | required |
-| `subscription-renewal` | `get_token_contract` | `neg_get_token_contract_unauthorized` | `neg_get_token_contract_wrong_state` | required |
-| `subscription-renewal` | `acquire_renewal_lock` | `neg_acquire_renewal_lock_unauthorized` | `neg_acquire_renewal_lock_wrong_state` | required |
-| `subscription-renewal` | `release_renewal_lock` | `neg_release_renewal_lock_unauthorized` | `neg_release_renewal_lock_wrong_state` | required |
-| `subscription-renewal` | `get_renewal_lock` | `neg_get_renewal_lock_unauthorized` | `neg_get_renewal_lock_wrong_state` | required |
-| `subscription-renewal` | `init_sub` | `neg_init_sub_unauthorized` | `neg_init_sub_wrong_state` | required |
-| `subscription-renewal` | `cancel_sub` | `neg_cancel_sub_unauthorized` | `neg_cancel_sub_wrong_state` | required |
-| `subscription-renewal` | `approve_renewal` | `neg_approve_renewal_unauthorized` | `neg_approve_renewal_wrong_state` | required |
-| `subscription-renewal` | `renew` | `neg_renew_unauthorized` | `neg_renew_wrong_state` | required |
-| `subscription-renewal` | `get_escrow_balance` | `neg_get_escrow_balance_unauthorized` | `neg_get_escrow_balance_wrong_state` | required |
-| `subscription-renewal` | `claim_escrow` | `neg_claim_escrow_unauthorized` | `neg_claim_escrow_wrong_state` | required |
-| `subscription-renewal` | `get_sub` | `neg_get_sub_unauthorized` | `neg_get_sub_wrong_state` | required |
-| `subscription-renewal` | `get_lifecycle` | `neg_get_lifecycle_unauthorized` | `neg_get_lifecycle_wrong_state` | required |
-| `subscription-renewal` | `set_window` | `neg_set_window_unauthorized` | `neg_set_window_wrong_state` | required |
-| `subscription-renewal` | `get_window` | `neg_get_window_unauthorized` | `neg_get_window_wrong_state` | required |
-| `subscription-renewal` | `set_user_cap` | `neg_set_user_cap_unauthorized` | `neg_set_user_cap_wrong_state` | required |
-| `subscription-renewal` | `get_user_cap` | `neg_get_user_cap_unauthorized` | `neg_get_user_cap_wrong_state` | required |
-| `subscription-renewal` | `get_user_spent` | `neg_get_user_spent_unauthorized` | `neg_get_user_spent_wrong_state` | required |
-| `subscription-renewal` | `set_team_threshold` | `neg_set_team_threshold_unauthorized` | `neg_set_team_threshold_wrong_state` | required |
-| `subscription-renewal` | `get_team_threshold` | `neg_get_team_threshold_unauthorized` | `neg_get_team_threshold_wrong_state` | required |
-| `subscription-renewal` | `set_signing_window` | `neg_set_signing_window_unauthorized` | `neg_set_signing_window_wrong_state` | required |
-| `subscription-renewal` | `get_signing_window` | `neg_get_signing_window_unauthorized` | `neg_get_signing_window_wrong_state` | required |
-| `subscription-renewal` | `request_multisig_renewal` | `neg_request_multisig_renewal_unauthorized` | `neg_request_multisig_renewal_wrong_state` | required |
-| `subscription-renewal` | `sign_multisig_renewal` | `neg_sign_multisig_renewal_unauthorized` | `neg_sign_multisig_renewal_wrong_state` | required |
-| `subscription-renewal` | `cancel_multisig_renewal` | `neg_cancel_multisig_renewal_unauthorized` | `neg_cancel_multisig_renewal_wrong_state` | required |
-| `subscription-renewal` | `expire_multisig_renewal` | `neg_expire_multisig_renewal_unauthorized` | `neg_expire_multisig_renewal_wrong_state` | required |
-| `subscription-renewal` | `get_multisig_request` | `neg_get_multisig_request_unauthorized` | `neg_get_multisig_request_wrong_state` | required |
-| `subscription-renewal` | `requires_multisig` | `neg_requires_multisig_unauthorized` | `neg_requires_multisig_wrong_state` | required |
 | `virtual-card` | `issue_card` | `neg_issue_card_unauthorized` | `neg_issue_card_wrong_state` | n/a |
 | `virtual-card` | `process_payment` | `neg_process_payment_unauthorized` | `neg_process_payment_wrong_state` | n/a |
 | `virtual-card` | `get_balance` | `neg_get_balance_unauthorized` | `neg_get_balance_wrong_state` | n/a |
@@ -735,13 +571,6 @@ new entrypoint is added without those tests or when this table drifts from
 | `virtual-card` | `verify_ownership` | `neg_verify_ownership_unauthorized` | `neg_verify_ownership_wrong_state` | n/a |
 | `virtual-card` | `can_transact` | `neg_can_transact_unauthorized` | `neg_can_transact_wrong_state` | n/a |
 | `virtual-card` | `version` | `neg_version_unauthorized` | `neg_version_wrong_state` | n/a |
-| `voucher-ledger` | `init` | `neg_init_unauthorized` | `neg_init_wrong_state` | n/a |
-| `voucher-ledger` | `mint_voucher` | `neg_mint_voucher_unauthorized` | `neg_mint_voucher_wrong_state` | n/a |
-| `voucher-ledger` | `redeem_voucher` | `neg_redeem_voucher_unauthorized` | `neg_redeem_voucher_wrong_state` | n/a |
-| `voucher-ledger` | `void_voucher` | `neg_void_voucher_unauthorized` | `neg_void_voucher_wrong_state` | n/a |
-| `voucher-ledger` | `get_voucher` | `neg_get_voucher_unauthorized` | `neg_get_voucher_wrong_state` | n/a |
-| `voucher-ledger` | `balance` | `neg_balance_unauthorized` | `neg_balance_wrong_state` | n/a |
-| `voucher-ledger` | `is_active` | `neg_is_active_unauthorized` | `neg_is_active_wrong_state` | n/a |
 | `zk-payment-verifier` | `verify_and_record` | `neg_verify_and_record_unauthorized` | `neg_verify_and_record_wrong_state` | n/a |
 | `zk-payment-verifier` | `is_nullifier_used` | `neg_is_nullifier_used_unauthorized` | `neg_is_nullifier_used_wrong_state` | n/a |
 

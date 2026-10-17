@@ -1,106 +1,6 @@
 {
   "budgets": [
     {
-      "contract": "subscription-renewal",
-      "entrypoint": "renew",
-      "scenario": "worst_case",
-      "description": "Renewal with max cap checks, logging enabled, cross-contract calls",
-      "cpu_instructions": 268000,
-      "memory_bytes": 32768,
-      "measured_at": "2026-08-30T23:25:00Z",
-      "notes": "268 lines of renewal logic, cross-contract logging, cap validation, token transfer"
-    },
-    {
-      "contract": "subscription-renewal",
-      "entrypoint": "init_sub",
-      "scenario": "average",
-      "description": "Initialize subscription",
-      "cpu_instructions": 45000,
-      "memory_bytes": 8192,
-      "measured_at": "2026-08-30T23:25:00Z",
-      "notes": "Basic subscription initialization, no cross-contract calls"
-    },
-    {
-      "contract": "subscription-renewal",
-      "entrypoint": "cancel_sub",
-      "scenario": "average",
-      "description": "Cancel subscription",
-      "cpu_instructions": 35000,
-      "memory_bytes": 4096,
-      "measured_at": "2026-08-30T23:25:00Z",
-      "notes": "State transition and cleanup"
-    },
-    {
-      "contract": "subscription-renewal",
-      "entrypoint": "approve_renewal",
-      "scenario": "average",
-      "description": "Approve renewal payment",
-      "cpu_instructions": 32000,
-      "memory_bytes": 6144,
-      "measured_at": "2026-08-30T23:25:00Z",
-      "notes": "Signature verification and approval storage"
-    },
-    {
-      "contract": "subscription-renewal",
-      "entrypoint": "set_paused",
-      "scenario": "average",
-      "description": "Pause/unpause protocol",
-      "cpu_instructions": 8000,
-      "memory_bytes": 1024,
-      "measured_at": "2026-08-30T23:25:00Z",
-      "notes": "Single boolean storage write, fast path"
-    },
-    {
-      "contract": "subscription-renewal",
-      "entrypoint": "propose_set_paused",
-      "scenario": "average",
-      "description": "Propose pause operation (multisig)",
-      "cpu_instructions": 38000,
-      "memory_bytes": 12288,
-      "measured_at": "2026-08-30T23:25:00Z",
-      "notes": "Proposal creation, guardian validation"
-    },
-    {
-      "contract": "subscription-renewal",
-      "entrypoint": "execute_set_paused",
-      "scenario": "average",
-      "description": "Execute pause after multisig approval",
-      "cpu_instructions": 12000,
-      "memory_bytes": 2048,
-      "measured_at": "2026-08-30T23:25:00Z",
-      "notes": "Proposal state check, boolean write"
-    },
-    {
-      "contract": "subscription-renewal",
-      "entrypoint": "set_user_cap",
-      "scenario": "average",
-      "description": "Set user spending cap",
-      "cpu_instructions": 15000,
-      "memory_bytes": 2048,
-      "measured_at": "2026-08-30T23:25:00Z",
-      "notes": "Cap storage write, fast path"
-    },
-    {
-      "contract": "subscription-renewal",
-      "entrypoint": "propose_set_user_cap",
-      "scenario": "average",
-      "description": "Propose user cap change (multisig)",
-      "cpu_instructions": 42000,
-      "memory_bytes": 14336,
-      "measured_at": "2026-08-30T23:25:00Z",
-      "notes": "Proposal creation with address encoding"
-    },
-    {
-      "contract": "subscription-renewal",
-      "entrypoint": "migrate_admin_to_multisig",
-      "scenario": "average",
-      "description": "Migrate from single admin to multisig",
-      "cpu_instructions": 68000,
-      "memory_bytes": 24576,
-      "measured_at": "2026-08-30T23:25:00Z",
-      "notes": "Guardian set initialization, duplicate checking"
-    },
-    {
       "contract": "escrow",
       "entrypoint": "create_escrow",
       "scenario": "average",
@@ -139,26 +39,6 @@
       "memory_bytes": 16384,
       "measured_at": "2026-08-30T23:25:00Z",
       "notes": "Token transfer cross-contract call"
-    },
-    {
-      "contract": "subscription-logging",
-      "entrypoint": "record_log",
-      "scenario": "average",
-      "description": "Record subscription event log",
-      "cpu_instructions": 25000,
-      "memory_bytes": 4096,
-      "measured_at": "2026-08-30T23:25:00Z",
-      "notes": "Event publication, commitment hash verification"
-    },
-    {
-      "contract": "subscription-logging",
-      "entrypoint": "audit_log",
-      "scenario": "average",
-      "description": "Query audit log entry",
-      "cpu_instructions": 8000,
-      "memory_bytes": 2048,
-      "measured_at": "2026-08-30T23:25:00Z",
-      "notes": "Simple storage read"
     },
     {
       "contract": "virtual_card",
