@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { DEFAULT_DEGRADED_POLICY } from '../../../packages/metering/src/degraded-admission';
 import {
+  DegradedModePolicy,
   ProviderMode,
   ProviderRegistration,
   ProviderRevenue,
@@ -16,6 +18,14 @@ export interface RegisterProviderInput {
   upstreamBaseUrl: string;
   agreementTerms: string;
   mode: ProviderMode;
+  /** Optional override of the platform degraded-mode default (#1444). */
+  degradedMode?: Partial<DegradedModePolicy>;
+}
+
+/** Patch for the per-provider degraded-mode policy (#1444). */
+export interface UpdateDegradedModePolicyInput {
+  failMode?: DegradedModePolicy['failMode'];
+  exposureCeiling?: number;
 }
 
 export interface RegisterRouteInput {
@@ -64,6 +74,25 @@ function buildScopeKey(method: string, pathPattern: string): string {
   return `${normalizeMethod(method)}:${pathPattern}`;
 }
 
+/**
+ * Validate a degraded-mode policy and fill in the platform default (#1444).
+ *
+ * Invalid values are rejected rather than coerced: a typo'd ceiling is a
+ * revenue-integrity bug, and silently falling back to the default would hide
+ * it until the next outage.
+ */
+function normalizeDegradedMode(input: Partial<DegradedModePolicy> | undefined): DegradedModePolicy {
+  const policy: DegradedModePolicy = { ...DEFAULT_DEGRADED_POLICY, ...(input ?? {}) };
+
+  if (policy.failMode !== 'fail_open' && policy.failMode !== 'fail_closed') {
+    throw new Error('degradedMode.failMode must be fail_open or fail_closed');
+  }
+  if (typeof policy.exposureCeiling !== 'number' || !Number.isFinite(policy.exposureCeiling) || policy.exposureCeiling < 0) {
+    throw new Error('degradedMode.exposureCeiling must be a finite number greater than or equal to 0');
+  }
+  return policy;
+}
+
 export class InMemoryProviderStore {
   private readonly providers = new Map<string, ProviderRegistration>();
   private readonly routes = new Map<string, RegisteredRoute>();
@@ -82,6 +111,7 @@ export class InMemoryProviderStore {
       mode: input.mode,
       payoutVerified: false,
       payoutChallenge: null,
+      degradedMode: normalizeDegradedMode(input.degradedMode),
       createdAt,
       updatedAt: createdAt,
     };
@@ -113,6 +143,31 @@ export class InMemoryProviderStore {
     provider.payoutAddress = nextAddress;
     provider.payoutVerified = false;
     provider.payoutChallenge = null;
+    this.saveProvider(provider);
+    return provider;
+  }
+
+  /**
+   * Change how this provider behaves while the counter store is unavailable
+   * (#1444): switch between fail-open and fail-closed, or re-budget the
+   * maximum value it is willing to serve unbilled during one outage.
+   */
+  updateDegradedModePolicy(
+    providerId: string,
+    patch: UpdateDegradedModePolicyInput,
+  ): ProviderRegistration {
+    const provider = this.getProvider(providerId);
+    if (!provider) {
+      throw new Error('provider not found');
+    }
+    const next = normalizeDegradedMode({ ...provider.degradedMode, ...patch });
+    if (
+      next.failMode === provider.degradedMode.failMode &&
+      next.exposureCeiling === provider.degradedMode.exposureCeiling
+    ) {
+      throw new Error('no degraded mode changes');
+    }
+    provider.degradedMode = next;
     this.saveProvider(provider);
     return provider;
   }

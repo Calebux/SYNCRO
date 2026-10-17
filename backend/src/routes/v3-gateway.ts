@@ -1,9 +1,21 @@
 import { Router, Request, Response } from 'express';
+import { join } from 'node:path';
 import { z } from 'zod';
 import { InMemoryProviderStore } from '../v3/provider-store';
 import { ReceiptService } from '../v3/receipt-service';
 import { ScopeEnforcer } from '../v3/scope-enforcer';
 import { InMemoryAgentRegistryReader, UpstreamCaller, V3GatewayService } from '../v3/gateway-service';
+import { counterStoreHealth } from '../v3/counter-store-health';
+import { createDegradedAlertHandler } from '../v3/degraded-alerts';
+import { InMemoryMeter } from '../../../packages/metering/src/meter';
+import { DegradedAdmissionController } from '../../../packages/metering/src/degraded-admission';
+import { FileDegradedUsageLog } from '../../../packages/metering/src/degraded-log';
+
+const degradedModeFields = {
+  failMode: z.enum(['fail_open', 'fail_closed']).optional(),
+  /** Value the provider may serve unbilled during one outage (#1444). */
+  exposureCeiling: z.number().finite().min(0).optional(),
+};
 
 const registerProviderSchema = z.object({
   identity: z.string().min(1),
@@ -11,6 +23,7 @@ const registerProviderSchema = z.object({
   upstreamBaseUrl: z.string().url(),
   agreementTerms: z.string().min(1),
   mode: z.enum(['staging', 'production']).default('staging'),
+  degradedMode: z.object(degradedModeFields).optional(),
 });
 
 const registerRouteSchema = z.object({
@@ -67,6 +80,12 @@ const grantSchema = z.object({
   revokedAt: z.string().datetime().nullable().optional(),
 });
 
+const degradedModePolicySchema = z
+  .object(degradedModeFields)
+  .refine((value) => value.failMode !== undefined || value.exposureCeiling !== undefined, {
+    message: 'at least one policy field is required',
+  });
+
 const registryReader = new InMemoryAgentRegistryReader();
 const providerStore = new InMemoryProviderStore();
 const scopeEnforcer = new ScopeEnforcer(registryReader, {
@@ -100,11 +119,34 @@ const upstreamCaller: UpstreamCaller = {
   },
 };
 
+/**
+ * Everything served unbilled while the counter store was down lands here
+ * (#1444). The path is configurable because reconciliation runs from wherever
+ * the gateway runs; the default keeps it next to the other local state.
+ */
+const degradedUsageLog = new FileDegradedUsageLog(
+  process.env.METER_DEGRADED_LOG_PATH ??
+    join(process.cwd(), 'data', 'metering', 'degraded-usage.jsonl'),
+);
+
+/**
+ * Counter-store outage admission (#1444). The policy is per provider — cheap
+ * high-volume routes fail open within a budget, expensive ones fail closed —
+ * and every transition pages the operator.
+ */
+const degradedAdmission = new DegradedAdmissionController({
+  isCounterStoreAvailable: () => counterStoreHealth.isAvailable(),
+  log: degradedUsageLog,
+  onEvent: createDegradedAlertHandler(),
+});
+
 const service = new V3GatewayService(
   providerStore,
   scopeEnforcer,
   receiptService,
   upstreamCaller,
+  new InMemoryMeter(),
+  degradedAdmission,
 );
 
 const router = Router();
@@ -137,6 +179,46 @@ router.patch('/providers/:providerId/payout-address', (req: Request, res: Respon
   } catch (error) {
     return sendServiceError(res, error);
   }
+});
+
+/**
+ * Re-policy what this provider does while the counter store is down (#1444):
+ * fail open (serve unbilled) or fail closed (refuse), and how much value it
+ * may serve unbilled during a single outage.
+ */
+router.patch('/providers/:providerId/degraded-mode-policy', (req: Request, res: Response) => {
+  const parsed = degradedModePolicySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  try {
+    const provider = service.updateDegradedModePolicy(
+      routeParam(req.params.providerId),
+      parsed.data,
+    );
+    return res.json({ data: provider.degradedMode });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'update failed';
+    if (message === 'no degraded mode changes') {
+      return res.status(400).json({ error: message });
+    }
+    return sendServiceError(res, error);
+  }
+});
+
+/**
+ * Current degraded posture (#1444): whether the counter store is down, which
+ * providers are refusing, and how much unbilled exposure each has spent.
+ * This is the endpoint the console reads.
+ */
+router.get('/gateway/degraded', (_req: Request, res: Response) => {
+  return res.json({
+    data: {
+      ...degradedAdmission.snapshot(),
+      counterStoreAvailable: counterStoreHealth.isAvailable(),
+      logPath: degradedUsageLog.filePath,
+    },
+  });
 });
 
 router.get('/providers/:providerId/routes', (req: Request, res: Response) => {
@@ -253,6 +335,11 @@ router.post('/gateway/paid', async (req: Request, res: Response) => {
       res.setHeader('X-SYNCRO-RECEIPT', result.inlineReceiptHeader);
     }
     res.setHeader('X-SYNCRO-RECEIPT-URL', receiptUrl);
+    // The call was served while the counter store was down: tell the agent so
+    // it can decide whether to keep going on a meter it cannot see (#1444).
+    if (result.meterDegraded) {
+      res.setHeader('X-Meter-Degraded', '1');
+    }
     return res.status(result.upstream.status).json(result.upstream.body);
   } catch (error) {
     if (service.isScopeError(error)) {
@@ -260,6 +347,21 @@ router.post('/gateway/paid', async (req: Request, res: Response) => {
         error: error.code,
         message: error.message,
       });
+    }
+
+    // Counter store down and the provider's policy refuses this call (#1444).
+    // 503 + Retry-After is the taxonomy's GATEWAY_METER_DEGRADED contract, so
+    // the SDK retries it instead of surfacing a hard failure.
+    if (service.isMeterDegradedError(error)) {
+      return res
+        .status(error.status)
+        .set('Retry-After', String(error.retryAfterSeconds))
+        .json({
+          error: error.code,
+          code: error.code,
+          message: error.message,
+          reason: error.reason,
+        });
     }
 
     const message = error instanceof Error ? error.message : 'paid request failed';
@@ -298,5 +400,10 @@ router.get('/receipts/:receiptId', (req: Request, res: Response) => {
 });
 
 export default router;
-export { registryReader, service as v3GatewayService };
+export {
+  registryReader,
+  service as v3GatewayService,
+  degradedAdmission,
+  degradedUsageLog,
+};
 

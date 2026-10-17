@@ -69,6 +69,32 @@ export type {
 } from './degraded';
 export { DefaultDegradedModeEvaluator, StaticDegradedModeEvaluator } from './degraded';
 
+// Degraded-mode admission: fail-open / fail-closed policy while the counter
+// store is unavailable (Issue #1444)
+export {
+  DegradedAdmissionController,
+  DEFAULT_DEGRADED_POLICY,
+  type DegradedPolicy,
+  type DegradedFailMode,
+  type DegradedEvent,
+  type DegradedEventType,
+  type DegradedEventListener,
+  type DegradedAdmissionDecision,
+  type DegradedAdmissionReason,
+  type DegradedAdmissionOptions,
+  type DegradedSnapshot,
+  type DegradedProviderStatus,
+} from './degraded-admission';
+
+// Durable local log of calls served while degraded
+export {
+  FileDegradedUsageLog,
+  InMemoryDegradedUsageLog,
+  dedupeDegradedUsage,
+  type DegradedUsageRecord,
+  type DegradedUsageStore,
+} from './degraded-log';
+
 // Window / aggregation primitives
 export {
   WindowStore,
