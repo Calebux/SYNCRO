@@ -34,6 +34,7 @@
     "check:migrations": "node scripts/check-migration-drift.js",
     "check:migrations:verify-db": "node scripts/check-migration-drift.js --verify-db --strict",
     "check:migrations:verify-schema": "node scripts/check-migration-drift.js --verify-schema --strict",
+    "verify:deployment": "node scripts/verify-deployment-manifest.mjs",
     "schema:snapshot": "bash scripts/generate-schema-snapshot.sh",
     "cleanup:migrations": "node scripts/cleanup-duplicate-migrations.js",
     "bootstrap": "node scripts/bootstrap.mjs",
