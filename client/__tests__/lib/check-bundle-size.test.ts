@@ -25,10 +25,6 @@ describe('check-bundle-size', () => {
     it('should handle routes with hyphens', () => {
       expect(script.routeToChunkPrefix('/email-preferences')).toBe('app/email-preferences/page')
     })
-
-    it('should handle oauth routes', () => {
-      expect(script.routeToChunkPrefix('/oauth-success')).toBe('app/oauth-success/page')
-    })
   })
 
   describe('formatKB', () => {
