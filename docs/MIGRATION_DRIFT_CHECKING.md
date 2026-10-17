@@ -288,7 +288,7 @@ See [MIGRATION_REMEDIATION.md](./MIGRATION_REMEDIATION.md#comprehensive-troubles
 
 - [MIGRATION_REMEDIATION.md](./MIGRATION_REMEDIATION.md) — Detailed fix procedures
 - [backend/README.md](../backend/README.md) — Backend setup
-- [supabase/README.md](../supabase/README.md) — Supabase setup
+- [supabase/README.md](../README.md) — Supabase setup
 
 ## Environment Variables
 

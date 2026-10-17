@@ -119,9 +119,9 @@ If issues arise:
 3. Re-enable smoke tests
 
 ## Documentation
-- [Complete Guide](./docs/SMOKE_TESTS.md)
-- [Quick Reference](./docs/SMOKE_TESTS_QUICK_REFERENCE.md)
-- [Test Directory README](./backend/tests/smoke/README.md)
+- [Complete Guide](../SMOKE_TESTS.md)
+- [Quick Reference](../SMOKE_TESTS_QUICK_REFERENCE.md)
+- [Test Directory README](../../README.md)
 - [Implementation Summary](./ISSUE_101_IMPLEMENTATION_SUMMARY.md)
 
 ## Screenshots/Evidence
@@ -198,7 +198,7 @@ Smoke tests use `bail: true` to stop on first failure because:
 - Indicates deployment should be investigated immediately
 
 ## Questions?
-- Check [SMOKE_TESTS.md](./docs/SMOKE_TESTS.md) for detailed documentation
+- Check [SMOKE_TESTS.md](../SMOKE_TESTS.md) for detailed documentation
 - Review [Implementation Summary](./ISSUE_101_IMPLEMENTATION_SUMMARY.md)
 - Ask in PR comments
 ```

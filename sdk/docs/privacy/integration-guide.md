@@ -580,8 +580,8 @@ For 1000s of subscriptions, use pagination or batching.
 
 1. Review [Security Considerations](./security-considerations.md) before going live
 2. Read [Migration Guide](./migration-guide.md) if integrating into existing app
-3. Test with [Test Vectors](./test-vectors.md)
-4. Deploy following [Deployment Guide](./deployment-guide.md)
+3. Test with Test Vectors
+4. Deploy following Deployment Guide
 
 ## Support
 

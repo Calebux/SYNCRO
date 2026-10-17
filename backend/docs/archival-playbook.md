@@ -644,5 +644,5 @@ After resolving a TTL/archival incident:
 
 - **Slack:** #oncall or #engineering
 - **PagerDuty:** Search "TTL" or "Archival"
-- **Ops Handbook:** See [Runbook Index](./README.md)
+- **Ops Handbook:** See [Runbook Index](../README.md)
 - **Emergency:** Page on-call lead (+1-555-XXX-XXXX)
