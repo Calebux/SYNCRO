@@ -41,6 +41,9 @@ pids/
 *.seed
 *.pid.lock
 
+# Local degraded-mode usage log (Issue #1444) — reconciled, never committed
+data/metering/
+
 # Coverage directory used by tools like istanbul
 coverage/
 *.lcov

@@ -11,6 +11,7 @@
  */
 
 import type { Principal } from './policy';
+import { OverageError } from './errors';
 
 export type ReservationState = 'held' | 'committed' | 'released' | 'expired';
 
@@ -59,7 +60,14 @@ export class ReservationLedger {
     this.sweep();
     const available = this.availableFor(principal);
     if (upperBound > available) {
-      throw new Error(`Insufficient allowance: needed ${upperBound}, ${available} available`);
+      // OverageError, not a bare Error, so the gateway can map this to an
+      // out-of-funds rejection — distinguishable from "slow down" (#1447).
+      throw new OverageError(
+        `Insufficient allowance: needed ${upperBound}, ${available} available`,
+        available,
+        upperBound,
+        this.store.limitFor(principal),
+      );
     }
     const r: Reservation = {
       id: `rsv_${(counter += 1).toString(36)}`,
