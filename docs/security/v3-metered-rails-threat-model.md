@@ -117,6 +117,30 @@ Residual risk accepted:
 | Unauthorized key use | Key revocation and response runbook (backend/ops) |
 | Settlement submission abuse | Contract validity checks + backend signer controls |
 
+## Trusted Inputs on the Paid Path
+
+Every header or body field the gateway trusts on `POST /api/v3/gateway/paid`
+must be verified before use. Past admission gaps (stub signature check,
+header-based agent id, client-supplied quantity) came from trusting these
+inputs directly.
+
+| Field | Source (who controls it) | Verification (how it is checked) |
+|---|---|---|
+| `x-syncro-agent-id` header | Consumer (untrusted) | Required; looked up in the agent registry and scope-checked via `ScopeEnforcer` before `processPaidCall`; never trusted as identity proof on its own |
+| `providerId` (body) | Consumer (untrusted) | Must match a registered provider; route lookup fails closed when unknown |
+| `path` (body) | Consumer (untrusted) | Must match a registered route for the provider; otherwise rejected (`route not registered`) |
+| `upstreamMethod` (body) | Consumer (untrusted) | Default `POST`; constrained to the route's registered method |
+| `quantity` (body) | Consumer (untrusted) | Optional; when present must be positive and is validated against the route's `quantityExtractor`/metering rule server-side — never billed blindly |
+| `channelId` (body) | Consumer (untrusted) | Must reference an existing channel owned by the caller; state transitions checked on-chain by sequence |
+| `stateNonce` (body) | Consumer (untrusted) | Must be a non-negative integer greater than the last committed nonce; stale values rejected |
+| `rateCardVersion` (body) | Consumer (untrusted) | Must match the provider's active rate-card version; mismatches rejected |
+| `exchangeRate` (body) | Consumer (untrusted) | Optional; when present must be positive and within the accepted quote window; otherwise the server rate applies |
+| `body` (body) | Consumer (untrusted) | Opaque upstream payload; forwarded only after admission checks pass, never interpreted for billing |
+| `signature` (payout-verify body) | Provider (partially trusted) | Verified against the payout challenge via `verifyPayoutChallenge`; payout address stays unverified until this passes |
+
+Rule: any change that adds a new trusted input (header, body field, or query
+param) on the paid path must extend this table and state its verifier.
+
 ## Mitigation Tracker
 
 Every mitigation called out above is either already implemented or tracked:
