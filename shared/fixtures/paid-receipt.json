@@ -1,0 +1,15 @@
+{
+  "receiptId": "receipt-contract-fixture-001",
+  "requestHash": "a7da1bf41840ab399180d88adcbe7087198c476582206d78b750848b5a041b44",
+  "route": "/echo/*",
+  "unit": "request",
+  "quantity": 2,
+  "amount": 600,
+  "rateCardVersion": "rc-v3-fixture",
+  "exchangeRate": 1.25,
+  "channelId": "channel-fixture-42",
+  "stateNonce": 17,
+  "timestamp": "2026-10-18T12:00:00.000Z",
+  "signerPublicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAA6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg=\n-----END PUBLIC KEY-----\n",
+  "signature": "y6G7fb3qgvk2ptAOkZCK2uir+QCjcGUKrv0sZeiPuSh1XWujw4ZdZ5bWzGO98Q7zkswqkhKgAp290a7xg5NKDA=="
+}
