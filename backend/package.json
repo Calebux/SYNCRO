@@ -78,7 +78,7 @@
     "rate-limit-redis": "^6.0.1",
     "redis": "^6.3.0",
     "speakeasy": "^2.0.0",
-    "stripe": "^22.6.2",
+    "stripe": "^23.0.0",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
     "telegraf": "^4.16.3",
