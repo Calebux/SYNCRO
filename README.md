@@ -114,3 +114,6 @@ setup instructions.
 
 <!-- handsoff-issue-1627 -->
 - #1627: [v3][gateway] Build the provider router from a factory with injected dependencies
+
+<!-- handsoff-issue-1628 -->
+- #1628: [v3][gateway] Do not charge for upstream 5xx and timeouts
