@@ -1,12 +1,12 @@
 /**
- * @handsoff/metering — public exports
+ * @syncro/metering — public exports
  *
  * Issue #1440: quota_guard promoted from Python sidecar to metering core.
  *
  * ## Quick start
  *
  * ```ts
- * import { InMemoryMeter } from '@handsoff/metering';
+ * import { InMemoryMeter } from '@syncro/metering';
  *
  * const meter = new InMemoryMeter({ limits: { 'agent-1': 1000 } });
  *
@@ -26,7 +26,7 @@
  * ## Degraded mode
  *
  * ```ts
- * import { InMemoryMeter, DefaultDegradedModeEvaluator } from '@handsoff/metering';
+ * import { InMemoryMeter, DefaultDegradedModeEvaluator } from '@syncro/metering';
  *
  * const evaluator = new DefaultDegradedModeEvaluator(() => myCounters.snapshots());
  * const meter = new InMemoryMeter({ degradedEvaluator: evaluator });
