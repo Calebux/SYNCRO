@@ -49,6 +49,39 @@ export class AgentConsoleError extends Error {
   }
 }
 
+/** Durable state for the agent console (database row mirror). */
+export interface AgentConsolePersistedState {
+  agents: AgentRecord[];
+  challenges: ChallengeRecord[];
+  usedReauthJtis: string[];
+}
+
+/** Database adapter. Chain writes always happen before store writes. */
+export interface AgentConsoleStore {
+  load(): AgentConsolePersistedState | null;
+  save(state: AgentConsolePersistedState): void;
+  clear(): void;
+}
+
+/** On-chain registry adapter. Throws on chain failure so no DB row is written. */
+export interface AgentChainRegistry {
+  registerAgent(publicKey: string): void;
+  closeAgent(publicKey: string): void;
+}
+
+export class InMemoryAgentConsoleStore implements AgentConsoleStore {
+  private state: AgentConsolePersistedState | null = null;
+  load(): AgentConsolePersistedState | null {
+    return this.state;
+  }
+  save(state: AgentConsolePersistedState): void {
+    this.state = state;
+  }
+  clear(): void {
+    this.state = null;
+  }
+}
+
 export interface SpendAndLimitView {
   spentPlain: string;
   limitPlain: string;
@@ -206,8 +239,25 @@ export class AgentConsoleService {
   private readonly agents = new Map<string, AgentRecord>();
   private readonly challenges = new Map<string, ChallengeRecord>();
   private readonly usedReauth = new Set<string>();
+  private readonly store: AgentConsoleStore;
+  private readonly chainRegistry: AgentChainRegistry;
 
-  constructor(private readonly now: () => number = () => Date.now()) {}
+  constructor(
+    private readonly now: () => number = () => Date.now(),
+    deps?: { store?: AgentConsoleStore; chainRegistry?: AgentChainRegistry },
+  ) {
+    this.store = deps?.store ?? new InMemoryAgentConsoleStore();
+    this.chainRegistry =
+      deps?.chainRegistry ??
+      ({
+        registerAgent: () => {},
+        closeAgent: (publicKey: string) => {
+          const cap = spendCapService.getCap(publicKey);
+          if (cap) spendCapService.setCap({ ...cap, status: 'closed' });
+        },
+      } satisfies AgentChainRegistry);
+    this.restore();
+  }
 
   reset(): void {
     for (const agent of this.agents.values()) {
@@ -216,6 +266,28 @@ export class AgentConsoleService {
     this.agents.clear();
     this.challenges.clear();
     this.usedReauth.clear();
+    this.store.clear();
+  }
+
+  private restore(): void {
+    let saved: AgentConsolePersistedState | null = null;
+    try {
+      saved = this.store.load();
+    } catch {
+      saved = null;
+    }
+    if (!saved) return;
+    for (const agent of saved.agents) this.agents.set(agent.agentId, agent);
+    for (const challenge of saved.challenges) this.challenges.set(challenge.id, challenge);
+    for (const jti of saved.usedReauthJtis) this.usedReauth.add(jti);
+  }
+
+  private persist(): void {
+    this.store.save({
+      agents: [...this.agents.values()],
+      challenges: [...this.challenges.values()],
+      usedReauthJtis: [...this.usedReauth],
+    });
   }
 
   createSessionChallenge(publicKeyInput: string): { challengeId: string; message: string; expiresAt: string } {
@@ -277,7 +349,21 @@ export class AgentConsoleService {
       spentCents: 0,
       periodStartedAt: null,
     };
+    // Defined order: on-chain registry first, then the database row.
+    // A chain failure throws before any row exists, so no orphan row remains.
+    this.chainRegistry.registerAgent(publicKey);
     this.agents.set(record.agentId, record);
+    try {
+      this.persist();
+    } catch (error) {
+      this.agents.delete(record.agentId);
+      try {
+        this.chainRegistry.closeAgent(publicKey);
+      } catch {
+        // Best-effort compensation; the original error carries the failure.
+      }
+      throw error;
+    }
     return this.toView(record, 0);
   }
 
@@ -355,6 +441,7 @@ export class AgentConsoleService {
       agent.periodStartedAt = this.now();
     }
     this.writeSpendCap(agent);
+    this.persist();
     return this.toView(agent, inFlightCount(agent.publicKey));
   }
 
@@ -365,10 +452,8 @@ export class AgentConsoleService {
     }
     agent.status = 'revoked';
     agent.revokedAt = new Date(this.now()).toISOString();
-    const cap = spendCapService.getCap(agent.publicKey);
-    if (cap) {
-      spendCapService.setCap({ ...cap, status: 'closed' });
-    }
+    this.chainRegistry.closeAgent(agent.publicKey);
+    this.persist();
     return this.toView(agent, inFlightCount(agent.publicKey));
   }
 
@@ -528,6 +613,7 @@ export class AgentConsoleService {
       expiresAt,
       used: false,
     });
+    this.persist();
     return { challengeId, message, expiresAt: new Date(expiresAt).toISOString() };
   }
 
@@ -540,6 +626,7 @@ export class AgentConsoleService {
       throw new AgentConsoleError(400, 'challenge_expired', 'This confirmation expired. Start again.');
     }
     challenge.used = true;
+    this.persist();
     return challenge;
   }
 
