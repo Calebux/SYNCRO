@@ -36,6 +36,9 @@ export interface CapCheck {
   remaining: number;
   withinCap: boolean;
   resolvedAt: number;
+  /** Start of the next cap period ( mirrors virtual-card period roll ). */
+  periodResetAt: string | null;
+  retryAfterSeconds: number | null;
 }
 
 export interface MeterReserve {
@@ -70,6 +73,8 @@ export interface AdmissionError {
   latencyMs: number;
   fatal: boolean;
   code?: string;
+  retryAfterSeconds?: number;
+  resetAt?: string;
 }
 
 export interface AdmissionStepResult<T> {
@@ -366,6 +371,8 @@ export class AdmissionService {
         remaining: 0,
         withinCap: false,
         resolvedAt: Date.now(),
+        periodResetAt: null,
+        retryAfterSeconds: null,
       };
     }
 
@@ -389,6 +396,17 @@ export class AdmissionService {
     const remaining = capCeiling - currentUsage;
     const withinCap = remaining > 0;
 
+    // Next cap period reset (mirrors virtual-card period_has_rolled semantics:
+    // when the period rolls, consumption resets). Daily periods reset at UTC midnight.
+    const now = Date.now();
+    const nextMidnight = Date.UTC(
+      new Date(now).getUTCFullYear(),
+      new Date(now).getUTCMonth(),
+      new Date(now).getUTCDate() + 1,
+    );
+    const periodResetAt = new Date(nextMidnight).toISOString();
+    const retryAfterSeconds = Math.max(1, Math.ceil((nextMidnight - now) / 1000));
+
     const capCheck: CapCheck = {
       userId,
       capCeiling,
@@ -396,6 +414,8 @@ export class AdmissionService {
       remaining,
       withinCap,
       resolvedAt: Date.now(),
+      periodResetAt,
+      retryAfterSeconds,
     };
 
     // Cache with version for revocation
@@ -516,6 +536,8 @@ export class AdmissionService {
         latencyMs: cap.latencyMs,
         fatal: true,
         code: 'GATEWAY_CAP_EXCEEDED',
+        retryAfterSeconds: cap.data.retryAfterSeconds ?? undefined,
+        resetAt: cap.data.periodResetAt ?? undefined,
       });
     }
 

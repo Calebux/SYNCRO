@@ -51,8 +51,9 @@ export function createAdmissionMiddleware(options: Partial<AdmissionMiddlewareOp
             errors: result.errors.map(e => e.message),
             totalLatencyMs: result.totalLatencyMs,
           });
-          if (definition.retryAfterSeconds !== undefined) {
-            res.setHeader('Retry-After', String(definition.retryAfterSeconds));
+          const retryAfterSeconds = deniedError?.retryAfterSeconds ?? definition.retryAfterSeconds;
+          if (retryAfterSeconds !== undefined) {
+            res.setHeader('Retry-After', String(retryAfterSeconds));
           }
           res.status(definition.httpStatus).json({
             code: definition.code,
@@ -60,8 +61,11 @@ export function createAdmissionMiddleware(options: Partial<AdmissionMiddlewareOp
             detail: deniedError?.message || definition.defaultMessage,
             action: definition.action,
             retryable: definition.retryable,
-            ...(definition.retryAfterSeconds !== undefined
-              ? { retryAfterSeconds: definition.retryAfterSeconds }
+            ...(retryAfterSeconds !== undefined
+              ? { retryAfterSeconds }
+              : {}),
+            ...(deniedError?.resetAt !== undefined
+              ? { capResetAt: deniedError.resetAt }
               : {}),
           });
           return;
