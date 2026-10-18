@@ -30,6 +30,82 @@ export interface ReceiptPublicKeyEntry {
 
 export type ReceiptVerifyReason = 'ok' | 'unknown_key' | 'revoked_key' | 'bad_signature';
 
+/**
+ * Persistence contract for receipts. Implementations must durably store the
+ * signed payload, hashes, and channel state reference so receipts survive
+ * restarts and are readable from any instance.
+ */
+export interface ReceiptStore {
+  save(receipt: PaidReceipt): Promise<void>;
+  get(receiptId: string): Promise<PaidReceipt | null>;
+}
+
+/**
+ * Minimal Postgres client surface used by the receipt store. Kept structural so
+ * any pg-compatible pool/query function can be injected without a hard dep.
+ */
+export interface ReceiptPgClient {
+  query(text: string, values?: unknown[]): Promise<{ rows: Array<Record<string, unknown>> }>;
+}
+
+const RECEIPT_TABLE = 'v3_receipts';
+
+/**
+ * Postgres-backed receipt store. Persists the full signed receipt (payload +
+ * signature) plus denormalized columns for indexing by receipt id, agent,
+ * provider, and channel. Write failures reject so the paid call fails rather
+ * than returning an unrecorded receipt.
+ */
+export class PostgresReceiptStore implements ReceiptStore {
+  constructor(private readonly client: ReceiptPgClient) {}
+
+  async save(receipt: PaidReceipt): Promise<void> {
+    await this.client.query(
+      `INSERT INTO ${RECEIPT_TABLE}
+         (receipt_id, agent_id, provider_id, channel_id, state_nonce,
+          request_hash, route, unit, quantity, amount, rate_card_version,
+          exchange_rate, key_id, signer_public_key, signature, payload, issued_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+       ON CONFLICT (receipt_id) DO NOTHING`,
+      [
+        receipt.receiptId,
+        (receipt as { agentId?: string }).agentId ?? null,
+        (receipt as { providerId?: string }).providerId ?? null,
+        receipt.channelId,
+        receipt.stateNonce,
+        receipt.requestHash,
+        receipt.route,
+        receipt.unit,
+        receipt.quantity,
+        receipt.amount,
+        receipt.rateCardVersion,
+        receipt.exchangeRate,
+        receipt.keyId,
+        receipt.signerPublicKey,
+        receipt.signature,
+        JSON.stringify(receipt),
+        receipt.timestamp,
+      ],
+    );
+  }
+
+  async get(receiptId: string): Promise<PaidReceipt | null> {
+    const result = await this.client.query(
+      `SELECT payload FROM ${RECEIPT_TABLE} WHERE receipt_id = $1 LIMIT 1`,
+      [receiptId],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      return null;
+    }
+    const payload = row.payload;
+    if (typeof payload === 'string') {
+      return JSON.parse(payload) as PaidReceipt;
+    }
+    return (payload as PaidReceipt) ?? null;
+  }
+}
+
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== 'object') {
     return JSON.stringify(value);
@@ -79,9 +155,10 @@ function loadKeyMaterial(): KeyMaterial {
 
 export class ReceiptService {
   private readonly keys = loadKeyMaterial();
-  private readonly receipts = new Map<string, PaidReceipt>();
 
-  issueReceipt(input: ReceiptIssueInput): PaidReceipt {
+  constructor(private readonly store: ReceiptStore) {}
+
+  async issueReceipt(input: ReceiptIssueInput): Promise<PaidReceipt> {
     const payload: PaidReceiptPayload = {
       receiptId: input.receiptId,
       requestHash: requestHash(input.requestMethod, input.requestPath, input.requestQuery),
@@ -109,7 +186,9 @@ export class ReceiptService {
       ...payload,
       signature,
     };
-    this.receipts.set(receipt.receiptId, receipt);
+    // Persist before returning: a write failure must fail the paid call rather
+    // than hand back a receipt that cannot be recovered after a restart.
+    await this.store.save(receipt);
     return receipt;
   }
 
@@ -173,8 +252,8 @@ export class ReceiptService {
     }
   }
 
-  getReceipt(receiptId: string): PaidReceipt | null {
-    return this.receipts.get(receiptId) ?? null;
+  async getReceipt(receiptId: string): Promise<PaidReceipt | null> {
+    return this.store.get(receiptId);
   }
 
   encodeHeaderValue(receipt: PaidReceipt): string {
