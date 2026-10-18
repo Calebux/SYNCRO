@@ -99,7 +99,8 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "syncro-verify-receipt": "./dist/cli/verify-receipt.js"
+    "syncro-verify-receipt": "./dist/cli/verify-receipt.js",
+    "syncro-receipt-verify": "./dist/cli/receipt-verify.js"
   },
   "engines": {
     "node": ">=18"

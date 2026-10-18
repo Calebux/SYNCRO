@@ -97,6 +97,8 @@ const gateway = hostedGateway({
 
 ## Receipt Verification
 
+### Programmatic Verification
+
 ```typescript
 import { verifyReceipt, decodeReceiptHeader } from "@syncro/sdk";
 
@@ -104,6 +106,58 @@ const receipt = decodeReceiptHeader(headers["x-syncro-receipt"]);
 const ok = verifyReceipt(receipt);
 if (!ok) throw new Error("Invalid receipt");
 ```
+
+### CLI Verification
+
+The SDK includes a command-line tool to verify receipts from files or URLs:
+
+```bash
+# Verify a receipt from a file
+syncro-receipt-verify \
+  --file receipt.json \
+  --public-key provider-key.pem \
+  --channel ch_abc123 \
+  --nonce n_xyz789
+
+# Verify a receipt from a URL
+syncro-receipt-verify \
+  --url https://api.syncro.example.com/api/v3/receipts/rcpt_123 \
+  --public-key provider-key.pem \
+  --channel ch_abc123 \
+  --nonce n_xyz789
+
+# Get machine-readable JSON output
+syncro-receipt-verify \
+  --file receipt.json \
+  --public-key provider-key.pem \
+  --channel ch_abc123 \
+  --nonce n_xyz789 \
+  --json
+```
+
+**Exit codes:**
+- `0`: Receipt is valid (all checks passed)
+- `1`: Receipt is invalid or an error occurred
+
+**Output format:**
+
+By default, the command prints a human-readable summary showing pass/fail for each verification check:
+
+```
+Receipt Verification Result:
+══════════════════════════════════════════════════
+✓ PASS Receipt Shape
+✓ PASS Signature
+✓ PASS Amount
+✓ PASS Channel
+✓ PASS Nonce
+══════════════════════════════════════════════════
+Overall: ✓ VALID
+
+Derived Amount: 1000 (minor units)
+```
+
+With `--json`, the output is machine-readable JSON matching the `VerifyReceiptResult` type.
 
 ## Webhook Verification
 
