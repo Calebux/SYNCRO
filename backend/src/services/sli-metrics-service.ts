@@ -2,6 +2,7 @@ import { supabase } from '../config/database';
 import logger from '../config/logger';
 import { notificationQueue } from '../jobs/notification-queue';
 import { settlementReconciliationService } from './settlement-reconciliation-service';
+import { settlementSignerBalanceService } from './settlement-signer-balance-service';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -93,6 +94,8 @@ export interface SliMetrics {
     webhook_dlq_24h: number;
     total_dlq_24h: number;
   };
+  /** Settlement signer XLM balance (null when signer is not configured) */
+  settlement_signer_balance: number | null;
   /** Paid-call path metrics (admission, metering, settlement, indexer, reconciliation) */
   paid_call_metrics: PaidCallMetrics;
   /** Timestamp when metrics were calculated (ISO-8601) */
@@ -113,12 +116,14 @@ export class SliMetricsService {
       queueDepthMetrics,
       dlqMetrics,
       paidCallMetrics,
+      signerBalance,
     ] = await Promise.all([
       this.fetchRenewalSuccessRate(since24h),
       this.fetchWebhookProcessingLag(since24h),
       this.fetchNotificationQueueDepth(),
       this.fetchDeadLetterCounts(since24h),
       this.fetchPaidCallMetrics(),
+      this.fetchSettlementSignerBalance(),
     ]);
 
     return {
@@ -126,6 +131,7 @@ export class SliMetricsService {
       webhook_processing_lag_ms: webhookLagMetrics,
       notification_queue_depth: queueDepthMetrics,
       dead_letter_counts: dlqMetrics,
+      settlement_signer_balance: signerBalance,
       paid_call_metrics: paidCallMetrics,
       calculated_at: new Date(now).toISOString(),
     };
@@ -241,6 +247,11 @@ export class SliMetricsService {
       '# HELP syncro_reconciliation_blocked Whether settlement batching is currently blocked due to reconciliation delta',
       '# TYPE syncro_reconciliation_blocked gauge',
       `syncro_reconciliation_blocked ${sli.paid_call_metrics.reconciliation_delta.blocked ? 1 : 0}`,
+      '',
+      // ── Settlement signer balance ──────────────────────────────
+      '# HELP syncro_settlement_signer_balance Settlement signer XLM balance',
+      '# TYPE syncro_settlement_signer_balance gauge',
+      `syncro_settlement_signer_balance ${sli.settlement_signer_balance ?? 'NaN'}`,
       '',
     ];
 
@@ -649,6 +660,16 @@ export class SliMetricsService {
     if (sorted.length === 0) return 0;
     const idx = Math.ceil((p / 100) * sorted.length) - 1;
     return sorted[Math.max(0, Math.min(idx, sorted.length - 1))];
+  }
+
+  private async fetchSettlementSignerBalance(): Promise<number | null> {
+    try {
+      const result = await settlementSignerBalanceService.getSignerBalance();
+      return result.balance;
+    } catch (err) {
+      logger.error('[SliMetrics] Failed to fetch settlement signer balance', { err });
+      return null;
+    }
   }
 }
 
