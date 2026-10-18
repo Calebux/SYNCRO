@@ -15,6 +15,7 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "load": "tsx load/run.ts",
     "load:budget": "tsx load/run.ts --budget --report load/budget.json",
     "load:ci": "tsx load/run.ts --budget --report load/budget.json --ci"

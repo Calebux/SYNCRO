@@ -9,6 +9,7 @@
     "sdk",
     "shared",
     "packages/ui",
+    "packages/metering",
     "packages/settlement",
     "contracts"
   ],
