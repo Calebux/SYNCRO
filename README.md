@@ -109,3 +109,8 @@ the CI enforcement model, and how to add a new variable.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution guidelines and development
 setup instructions.
+
+## Handsoff notes
+
+<!-- handsoff-issue-1627 -->
+- #1627: [v3][gateway] Build the provider router from a factory with injected dependencies
