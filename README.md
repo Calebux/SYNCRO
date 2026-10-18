@@ -62,7 +62,7 @@ SYNCRO bills what actually happened:
 | Component | Source | Role |
 |---|---|---|
 | **Gateway** | `backend/src/routes` | 402 challenge, key → identity, scope + cap admission |
-| **Meter** | `quota_guard/` | usage counting, aggregation windows, idempotency, degraded mode |
+| **Meter** | `packages/metering` | usage counting, aggregation windows, idempotency, degraded mode |
 | **Settlement engine** | `backend/src/services` | channel lifecycle, state signing, batching, reconciliation |
 | **Registry** | `contracts/agent-registry` | agent identity and scoped delegated authority |
 | **Channels** | `contracts/payment-channel` | open, submit_state, initiate_close, dispute, finalize, top_up |
