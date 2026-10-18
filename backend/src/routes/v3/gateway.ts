@@ -41,6 +41,12 @@ export function createV3GatewayRouter(customUpstream?: UpstreamProvider): Router
   router.post('/compute', ...middlewareStack);
 
   /**
+   * Paid-Request Gateway Endpoint (legacy path previously served by routes/v3-gateway.ts)
+   * Consolidated here so /api/v3/gateway/* is served by a single router.
+   */
+  router.post('/paid', ...middlewareStack);
+
+  /**
    * Explicit Challenge endpoint (402 generation)
    */
   router.get('/challenge', (req, res: Response) => {
