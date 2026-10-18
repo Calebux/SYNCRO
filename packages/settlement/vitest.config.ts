@@ -1,15 +1,39 @@
 import { defineConfig } from 'vitest/config';
-import { resolve } from 'node:path';
-
-export type { defineConfig };
 
 export default defineConfig({
-  root: resolve(__dirname),
-  css: {
-    postcss: {},
-  },
   test: {
-    include: ['src/**/*.test.ts'],
+    globals: true,
     environment: 'node',
-  },
+    include: ['src/**/*.test.ts'],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'lcov'],
+      include: ['src/**/*.ts'],
+      exclude: ['src/**/*.test.ts', 'src/**/index.ts'],
+      thresholds: {
+        lines: 80,
+        functions: 80,
+        branches: 70,
+        statements: 80,
+        'src/signing.ts': {
+          lines: 80,
+          functions: 80,
+          branches: 70,
+          statements: 80
+        },
+        'src/close.ts': {
+          lines: 80,
+          functions: 80,
+          branches: 70,
+          statements: 80
+        },
+        'src/dispute.ts': {
+          lines: 80,
+          functions: 80,
+          branches: 70,
+          statements: 80
+        }
+      }
+    }
+  }
 });
