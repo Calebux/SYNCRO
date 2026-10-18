@@ -109,3 +109,8 @@ the CI enforcement model, and how to add a new variable.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution guidelines and development
 setup instructions.
+
+## Handsoff notes
+
+<!-- handsoff-issue-1630 -->
+- #1630: [v3][gateway] Specify canonical request hashing for receipt binding
