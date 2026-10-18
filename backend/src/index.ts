@@ -110,6 +110,7 @@ import metricsRoutes from './routes/metrics';
 import analyticsV3Routes from './routes/analytics-v3';
 import v3GatewayRoutes from './routes/v3/gateway';
 import v3ProviderRoutes from './routes/v3-gateway';
+import receiptKeysRoutes from './routes/v3/receipt-keys';
 
 
 const app = express();
@@ -276,6 +277,8 @@ app.use('/api/v1', v1Router);
 app.use('/api/v2', v2Router);
 app.use('/api/v3/gateway', v3GatewayRoutes);
 app.use('/api/v3', v3ProviderRoutes);
+app.use('/.well-known/syncro-receipt-keys', receiptKeysRoutes);
+app.use('/api/v3/receipt-keys', receiptKeysRoutes);
 
 // API Routes
 app.use('/api/keys', apiKeysRoutes);

@@ -1,4 +1,4 @@
-import { createHash, createPrivateKey, generateKeyPairSync, sign as edSign } from 'node:crypto';
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign as edSign, verify as edVerify } from 'node:crypto';
 import { PaidReceipt, PaidReceiptPayload } from './types';
 
 export interface ReceiptIssueInput {
@@ -17,9 +17,18 @@ export interface ReceiptIssueInput {
 }
 
 interface KeyMaterial {
+  keyId: string;
   privateKeyPem: string;
   publicKeyPem: string;
 }
+
+export interface ReceiptPublicKeyEntry {
+  keyId: string;
+  status: 'current' | 'previous';
+  publicKeyPem: string;
+}
+
+export type ReceiptVerifyReason = 'ok' | 'unknown_key' | 'revoked_key' | 'bad_signature';
 
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== 'object') {
@@ -47,15 +56,22 @@ function payloadMessage(payload: PaidReceiptPayload): string {
   return stableStringify(payload);
 }
 
+function revokedKeyIds(): Set<string> {
+  const raw = process.env.SYNCRO_RECEIPT_REVOKED_KEY_IDS ?? '';
+  return new Set(raw.split(',').map((s) => s.trim()).filter(Boolean));
+}
+
 function loadKeyMaterial(): KeyMaterial {
+  const keyId = process.env.SYNCRO_RECEIPT_KEY_ID?.trim() || 'primary-1';
   const envPrivate = process.env.SYNCRO_RECEIPT_PRIVATE_KEY_PEM;
   const envPublic = process.env.SYNCRO_RECEIPT_PUBLIC_KEY_PEM;
   if (envPrivate && envPublic) {
-    return { privateKeyPem: envPrivate, publicKeyPem: envPublic };
+    return { keyId, privateKeyPem: envPrivate, publicKeyPem: envPublic };
   }
 
   const pair = generateKeyPairSync('ed25519');
   return {
+    keyId,
     privateKeyPem: pair.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
     publicKeyPem: pair.publicKey.export({ type: 'spki', format: 'pem' }).toString(),
   };
@@ -79,6 +95,7 @@ export class ReceiptService {
       stateNonce: input.stateNonce,
       timestamp: new Date().toISOString(),
       signerPublicKey: this.keys.publicKeyPem,
+      keyId: this.keys.keyId,
     };
 
     const message = payloadMessage(payload);
@@ -96,6 +113,66 @@ export class ReceiptService {
     return receipt;
   }
 
+  /** Current + previous public keys for the well-known endpoint. Previous stays valid during the dispute window. */
+  getReceiptPublicKeys(): ReceiptPublicKeyEntry[] {
+    const entries: ReceiptPublicKeyEntry[] = [
+      { keyId: this.keys.keyId, status: 'current', publicKeyPem: this.keys.publicKeyPem },
+    ];
+    const prevPem = process.env.SYNCRO_RECEIPT_PREVIOUS_PUBLIC_KEY_PEM;
+    const prevId = process.env.SYNCRO_RECEIPT_PREVIOUS_KEY_ID?.trim();
+    if (prevPem && prevId && prevId !== this.keys.keyId && !revokedKeyIds().has(prevId)) {
+      entries.push({ keyId: prevId, status: 'previous', publicKeyPem: prevPem });
+    }
+    return entries;
+  }
+
+  /** Resolve the signing key by receipt key id; revoked keys fail with a specific reason. */
+  verifyReceipt(receipt: PaidReceipt): { ok: boolean; reason: ReceiptVerifyReason } {
+    const keyId = (receipt as { keyId?: string }).keyId ?? this.keys.keyId;
+    if (revokedKeyIds().has(keyId)) {
+      return { ok: false, reason: 'revoked_key' };
+    }
+    const candidates = new Map<string, string>();
+    for (const entry of this.getReceiptPublicKeys()) {
+      candidates.set(entry.keyId, entry.publicKeyPem);
+    }
+    // Self-contained receipts carry their own PEM; trust it only when the key id is known and not revoked.
+    if (!candidates.has(keyId)) {
+      if (keyId === this.keys.keyId || (receipt.signerPublicKey && keyId && receipt.signerPublicKey === this.keys.publicKeyPem)) {
+        candidates.set(keyId, receipt.signerPublicKey);
+      } else {
+        return { ok: false, reason: 'unknown_key' };
+      }
+    }
+    const publicPem = candidates.get(keyId)!;
+    const payload: PaidReceiptPayload = {
+      receiptId: receipt.receiptId,
+      requestHash: receipt.requestHash,
+      route: receipt.route,
+      unit: receipt.unit,
+      quantity: receipt.quantity,
+      amount: receipt.amount,
+      rateCardVersion: receipt.rateCardVersion,
+      exchangeRate: receipt.exchangeRate,
+      channelId: receipt.channelId,
+      stateNonce: receipt.stateNonce,
+      timestamp: receipt.timestamp,
+      signerPublicKey: receipt.signerPublicKey,
+      keyId,
+    };
+    try {
+      const ok = edVerify(
+        null,
+        Buffer.from(payloadMessage(payload)),
+        createPublicKey(publicPem),
+        Buffer.from(receipt.signature, 'base64'),
+      );
+      return ok ? { ok: true, reason: 'ok' } : { ok: false, reason: 'bad_signature' };
+    } catch {
+      return { ok: false, reason: 'bad_signature' };
+    }
+  }
+
   getReceipt(receiptId: string): PaidReceipt | null {
     return this.receipts.get(receiptId) ?? null;
   }
@@ -110,4 +187,3 @@ export class ReceiptService {
 }
 
 export { payloadMessage };
-
