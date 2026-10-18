@@ -109,3 +109,8 @@ the CI enforcement model, and how to add a new variable.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution guidelines and development
 setup instructions.
+
+## Handsoff notes
+
+<!-- handsoff-issue-1633 -->
+- #1633: [v3][backend] Remove the retired subscription services still in `backend/src/services`
