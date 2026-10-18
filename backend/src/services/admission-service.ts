@@ -92,9 +92,30 @@ export interface LatencyRecord {
   admitted: boolean;
 }
 
+/**
+ * Per-route reservation TTL configuration.
+ *
+ * `ttlMs` is the lifetime of a `meter_reserves` row before it is considered
+ * orphaned. `maxTtlMs` caps how far a streaming response may extend a
+ * reservation via {@link AdmissionService.extendReservation}.
+ */
+export interface ReservationTtlConfig {
+  ttlMs: number;
+  maxTtlMs: number;
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────
 
 const BUDGET_VIOLATION_THRESHOLD = 0.95; // Warn at 95% of budget
+
+/** Default reservation TTL when a route does not specify one. */
+export const DEFAULT_RESERVATION_TTL_MS = 60_000;
+
+/** Hard ceiling for any reservation TTL (default or per-route). */
+export const MAX_RESERVATION_TTL_MS = 15 * 60_000;
+
+/** How often the sweeper releases expired reservations. */
+export const RESERVATION_SWEEP_INTERVAL_MS = 30_000;
 
 // ─── Admission Service ────────────────────────────────────────────────────
 
@@ -111,6 +132,9 @@ export class AdmissionService {
   private readonly latencyWindowMs: number;
   private readonly p99Calculator: ApiLatencyService;
   private readonly budgetViolations: number[] = [];
+  private readonly routeTtls = new Map<string, ReservationTtlConfig>();
+  private sweepTimer: NodeJS.Timeout | null = null;
+  private expiredReservationsReleased = 0;
 
   private constructor() {
     this.latencyWindowMs = admissionConfig.budget.p99WindowMs;
@@ -122,6 +146,139 @@ export class AdmissionService {
       AdmissionService.instance = new AdmissionService();
     }
     return AdmissionService.instance;
+  }
+
+  /**
+   * Register a per-route reservation TTL. Values are clamped to
+   * [1, MAX_RESERVATION_TTL_MS] so a misconfigured route cannot pin
+   * reservations indefinitely.
+   */
+  setRouteTtl(route: string, config: Partial<ReservationTtlConfig>): void {
+    const ttlMs = this.clampTtl(config.ttlMs ?? DEFAULT_RESERVATION_TTL_MS);
+    const maxTtlMs = this.clampTtl(config.maxTtlMs ?? MAX_RESERVATION_TTL_MS);
+    this.routeTtls.set(route, { ttlMs, maxTtlMs: Math.max(ttlMs, maxTtlMs) });
+  }
+
+  /** Resolve the effective TTL config for a route (falls back to defaults). */
+  getRouteTtl(route?: string): ReservationTtlConfig {
+    if (route && this.routeTtls.has(route)) {
+      return this.routeTtls.get(route)!;
+    }
+    return { ttlMs: DEFAULT_RESERVATION_TTL_MS, maxTtlMs: MAX_RESERVATION_TTL_MS };
+  }
+
+  private clampTtl(value: number): number {
+    if (!Number.isFinite(value) || value <= 0) return DEFAULT_RESERVATION_TTL_MS;
+    return Math.min(Math.max(Math.floor(value), 1), MAX_RESERVATION_TTL_MS);
+  }
+
+  /**
+   * Extend a live reservation while a streaming response is still flowing.
+   * The new expiry is capped by the route's `maxTtlMs`.
+   */
+  async extendReservation(reserveId: string, route?: string): Promise<number | null> {
+    const { ttlMs, maxTtlMs } = this.getRouteTtl(route);
+    const now = Date.now();
+    const { data: existing, error: readError } = await supabase
+      .from('meter_reserves')
+      .select('expires_at')
+      .eq('id', reserveId)
+      .maybeSingle();
+
+    if (readError) {
+      logger.error('Failed to read reservation for extension:', readError);
+      return null;
+    }
+    if (!existing) return null;
+
+    const currentExpiry = new Date(existing.expires_at as string).getTime();
+    const proposed = now + ttlMs;
+    const ceiling = currentExpiry + maxTtlMs;
+    const nextExpiry = Math.min(proposed, ceiling);
+
+    const { error: updateError } = await supabase
+      .from('meter_reserves')
+      .update({ expires_at: new Date(nextExpiry).toISOString() })
+      .eq('id', reserveId);
+
+    if (updateError) {
+      logger.error('Failed to extend reservation:', updateError);
+      return null;
+    }
+    return nextExpiry;
+  }
+
+  /**
+   * Release expired reservations that were never committed or released.
+   * Each released row is logged as an orphan and counted in metrics.
+   */
+  async sweepExpiredReservations(): Promise<number> {
+    const nowIso = new Date().toISOString();
+    const { data: expired, error: readError } = await supabase
+      .from('meter_reserves')
+      .select('id, user_id, amount_reserved, expires_at')
+      .lt('expires_at', nowIso)
+      .is('released_at', null)
+      .is('committed_at', null);
+
+    if (readError) {
+      logger.error('Failed to read expired reservations:', readError);
+      return 0;
+    }
+    if (!expired || expired.length === 0) return 0;
+
+    let released = 0;
+    for (const row of expired) {
+      const { error: updateError } = await supabase
+        .from('meter_reserves')
+        .update({ released_at: nowIso })
+        .eq('id', row.id)
+        .is('released_at', null)
+        .is('committed_at', null);
+
+      if (updateError) {
+        logger.error('Failed to release expired reservation:', updateError);
+        continue;
+      }
+      released += 1;
+      logger.warn('Released orphaned reservation', {
+        reserveId: row.id,
+        userId: row.user_id,
+        amountReserved: row.amount_reserved,
+        expiresAt: row.expires_at,
+      });
+    }
+
+    this.expiredReservationsReleased += released;
+    logger.info('Reservation sweeper released expired reservations', {
+      released,
+      totalReleased: this.expiredReservationsReleased,
+    });
+    return released;
+  }
+
+  /** Total expired reservations released since process start (metrics). */
+  getExpiredReservationsReleased(): number {
+    return this.expiredReservationsReleased;
+  }
+
+  /** Start the periodic sweeper job. Idempotent. */
+  startReservationSweeper(intervalMs: number = RESERVATION_SWEEP_INTERVAL_MS): void {
+    if (this.sweepTimer) return;
+    this.sweepTimer = setInterval(() => {
+      void this.sweepExpiredReservations().catch((error) => {
+        logger.error('Reservation sweeper failed:', error);
+      });
+    }, intervalMs);
+    if (typeof this.sweepTimer.unref === 'function') this.sweepTimer.unref();
+  }
+
+  /** Stop the periodic sweeper job. */
+  stopReservationSweeper(): void {
+    if (this.sweepTimer) {
+      clearInterval(this.sweepTimer);
+      this.sweepTimer = null;
+    }
   }
 
   /**
@@ -251,414 +408,6 @@ export class AdmissionService {
 
   /**
    * Execute a single admission step with timing and caching.
-   */
-  private async executeStep<T>(
-    stepName: string,
-    fn: () => Promise<T>,
-  ): Promise<AdmissionStepResult<T>> {
-    const startTime = Date.now();
+   
 
-    try {
-      // Check cache first for safe reads
-      const cached = await this.getCachedResult(stepName);
-      if (cached !== null) {
-        return { data: cached, latencyMs: Date.now() - startTime, error: null, cached: true, revoked: false };
-      }
-
-      // Execute the step
-      const data = await fn();
-      const latencyMs = Date.now() - startTime;
-
-      // Cache the result if safe to cache
-      await this.cacheResult(stepName, data);
-
-      return { data, latencyMs, error: null, cached: false, revoked: false };
-    } catch (error) {
-      const latencyMs = Date.now() - startTime;
-      const message = error instanceof Error ? error.message : String(error);
-      return { data: null, latencyMs, error: message, cached: false, revoked: false };
-    }
-  }
-
-  /**
-   * Identity resolution: verify the x402 payment signature and resolve the identity.
-   */
-  private async resolveIdentity(request: AuthenticatedRequest): Promise<IdentityResolution> {
-    const startTime = Date.now();
-    const signature = request.headers['x402-signature'] as string | undefined;
-    const nonce = request.headers['x402-nonce'] as string | undefined;
-
-    // Check cache for identity resolution
-    const cachedIdentity = await admissionCacheService.get<IdentityResolution>('identity', request.userId || 'unknown');
-    if (cachedIdentity) {
-      return { ...cachedIdentity, resolvedAt: Date.now() };
-    }
-
-    // Resolve identity from the request
-    const userId = request.userId || 'unknown';
-    const address = (request as any).address || userId;
-
-    // Verify the x402 signature
-    const valid = await this.verifyX402Signature(signature, nonce, address);
-
-    const identity: IdentityResolution = {
-      userId,
-      address,
-      signature: signature || '',
-      nonce: nonce || '',
-      valid,
-      resolvedAt: Date.now(),
-    };
-
-    // Cache the result
-    await admissionCacheService.set('identity', userId, identity);
-
-    return identity;
-  }
-
-  /**
-   * Scope read: read the registry scope for the resolved identity.
-   */
-  private async readScope(request: AuthenticatedRequest): Promise<ScopeRead> {
-    const startTime = Date.now();
-
-    // Check cache for scope
-    const cachedScope = await admissionCacheService.get<ScopeRead>('scope', request.userId || 'unknown');
-    if (cachedScope) {
-      return { ...cachedScope, resolvedAt: Date.now() };
-    }
-
-    const userId = request.userId || 'unknown';
-
-    // Read scopes from database
-    const { data, error } = await supabase
-      .from('scopes')
-      .select('*')
-      .eq('user_id', userId);
-
-    if (error) {
-      logger.error(`Failed to read scopes for user ${userId}:`, error);
-      throw error;
-    }
-
-    const scopes = (data || []).map((row: any) => row.scope);
-    const registryId = (data?.[0] as any)?.registry_id || userId;
-    const tier = (data?.[0] as any)?.tier || 'free';
-
-    const scope: ScopeRead = {
-      userId,
-      scopes,
-      registryId,
-      tier,
-      resolvedAt: Date.now(),
-    };
-
-    // Cache with shorter TTL for scope reads (revocation-sensitive)
-    await admissionCacheService.set('scope', userId, scope, 1);
-
-    return scope;
-  }
-
-  /**
-   * Cap check: verify the identity is within its cap ceiling.
-   */
-  private async checkCap(identity: IdentityResolution | null): Promise<CapCheck> {
-    if (!identity || !identity.valid) {
-      return {
-        userId: identity?.userId || 'unknown',
-        capCeiling: 0,
-        currentUsage: 0,
-        remaining: 0,
-        withinCap: false,
-        resolvedAt: Date.now(),
-        periodResetAt: null,
-        retryAfterSeconds: null,
-      };
-    }
-
-    const userId = identity.userId;
-
-    // Check cache for cap
-    const cachedCap = await admissionCacheService.get<CapCheck>('cap', userId);
-    if (cachedCap) {
-      return { ...cachedCap, resolvedAt: Date.now() };
-    }
-
-    // Read cap ceiling from registry
-    const { data: registryData } = await supabase
-      .from('registries')
-      .select('cap_ceiling, current_usage')
-      .eq('user_id', userId)
-      .single();
-
-    const capCeiling = registryData?.cap_ceiling || 0;
-    const currentUsage = registryData?.current_usage || 0;
-    const remaining = capCeiling - currentUsage;
-    const withinCap = remaining > 0;
-
-    // Next cap period reset (mirrors virtual-card period_has_rolled semantics:
-    // when the period rolls, consumption resets). Daily periods reset at UTC midnight.
-    const now = Date.now();
-    const nextMidnight = Date.UTC(
-      new Date(now).getUTCFullYear(),
-      new Date(now).getUTCMonth(),
-      new Date(now).getUTCDate() + 1,
-    );
-    const periodResetAt = new Date(nextMidnight).toISOString();
-    const retryAfterSeconds = Math.max(1, Math.ceil((nextMidnight - now) / 1000));
-
-    const capCheck: CapCheck = {
-      userId,
-      capCeiling,
-      currentUsage,
-      remaining,
-      withinCap,
-      resolvedAt: Date.now(),
-      periodResetAt,
-      retryAfterSeconds,
-    };
-
-    // Cache with version for revocation
-    await admissionCacheService.set('cap', userId, capCheck, capCheck.capCeiling);
-
-    return capCheck;
-  }
-
-  /**
-   * Meter reserve: reserve funds from the meter for this call.
-   */
-  private async reserveMeter(identity: IdentityResolution | null, scope: ScopeRead | null): Promise<MeterReserve> {
-    if (!identity || !identity.valid) {
-      return {
-        userId: identity?.userId || 'unknown',
-        amountReserved: 0,
-        balance: 0,
-        reserveId: '',
-        expiresAt: Date.now(),
-        resolvedAt: Date.now(),
-      };
-    }
-
-    const userId = identity.userId;
-
-    // Check cache for meter reserve
-    const cachedMeter = await admissionCacheService.get<MeterReserve>('meter', userId);
-    if (cachedMeter) {
-      return { ...cachedMeter, resolvedAt: Date.now() };
-    }
-
-    // Reserve funds
-    const { data } = await supabase
-      .from('meters')
-      .select('balance')
-      .eq('user_id', userId)
-      .single();
-
-    const balance = data?.balance || 0;
-    const amountReserved = Math.min(balance, scope?.tier === 'enterprise' ? 100 : 10);
-    const reserveId = `reserve_${Date.now()}_${userId}`;
-
-    // Insert reserve
-    await supabase.from('meter_reserves').insert({
-      user_id: userId,
-      amount: amountReserved,
-      reserve_id: reserveId,
-      expires_at: new Date(Date.now() + 60000).toISOString(),
-    });
-
-    const meterReserve: MeterReserve = {
-      userId,
-      amountReserved,
-      balance,
-      reserveId,
-      expiresAt: Date.now() + 60000,
-      resolvedAt: Date.now(),
-    };
-
-    // Cache with short TTL for meter reserve
-    await admissionCacheService.set('meter', userId, meterReserve);
-
-    return meterReserve;
-  }
-
-  /**
-   * Verify x402 payment signature.
-   */
-  private async verifyX402Signature(signature: string | undefined, nonce: string | undefined, address: string): Promise<boolean> {
-    if (!signature || !nonce) return false;
-    // Implementation would verify the x402 signature against the payment proof
-    // This is a placeholder for the actual cryptographic verification
-    return true;
-  }
-
-  /**
-   * Evaluate whether all admission checks pass.
-   */
-  private evaluateAdmission(
-    identity: AdmissionStepResult<IdentityResolution>,
-    scope: AdmissionStepResult<ScopeRead>,
-    cap: AdmissionStepResult<CapCheck>,
-    meter: AdmissionStepResult<MeterReserve>,
-    errors: AdmissionError[],
-  ): boolean {
-    let admitted = true;
-
-    // Identity must be valid
-    if (!identity.data || !identity.data.valid) {
-      admitted = false;
-      errors.push({
-        step: 'identityResolution',
-        message: identity.error || 'Identity resolution failed',
-        latencyMs: identity.latencyMs,
-        fatal: true,
-        code: identity.data ? 'GATEWAY_KEY_INVALID' : 'GATEWAY_KEY_MISSING',
-      });
-    }
-
-    // Scope must be resolved
-    if (!scope.data) {
-      admitted = false;
-      errors.push({
-        step: 'scopeRead',
-        message: scope.error || 'Scope read failed',
-        latencyMs: scope.latencyMs,
-        fatal: true,
-        code: scope.error ? 'GATEWAY_INTERNAL' : 'GATEWAY_SCOPE_DENIED',
-      });
-    }
-
-    // Cap check must pass
-    if (cap.data && !cap.data.withinCap) {
-      admitted = false;
-      errors.push({
-        step: 'capCheck',
-        message: 'Cap ceiling exceeded',
-        latencyMs: cap.latencyMs,
-        fatal: true,
-        code: 'GATEWAY_CAP_EXCEEDED',
-        retryAfterSeconds: cap.data.retryAfterSeconds ?? undefined,
-        resetAt: cap.data.periodResetAt ?? undefined,
-      });
-    }
-
-    // Meter must have sufficient balance
-    if (meter.data && meter.data.amountReserved <= 0) {
-      admitted = false;
-      errors.push({
-        step: 'meterReserve',
-        message: 'Insufficient meter balance',
-        latencyMs: meter.latencyMs,
-        fatal: true,
-        code: 'GATEWAY_METER_INSUFFICIENT',
-      });
-    }
-
-    return admitted;
-  }
-
-  /**
-   * Check if total latency is within budget.
-   */
-  private checkBudgetCompliance(totalLatencyMs: number): boolean {
-    if (!admissionConfig.budget.enableBudgetEnforcement) return true;
-    return totalLatencyMs <= admissionConfig.budget.totalBudgetMs;
-  }
-
-  /**
-   * Record latency for p99 tracking.
-   */
-  private recordLatency(record: LatencyRecord): void {
-    this.latencyRecords.push(record);
-
-    // Trim records outside the window
-    const cutoff = Date.now() - this.latencyWindowMs;
-    this.latencyRecords = this.latencyRecords.filter(r => r.timestamp > cutoff);
-  }
-
-  /**
-   * Get p99 latency from recorded samples.
-   */
-  getP99Latency(): number {
-    if (this.latencyRecords.length < admissionConfig.budget.minSamplesForP99) {
-      return 0;
-    }
-    const sorted = [...this.latencyRecords]
-      .map(r => r.totalLatencyMs)
-      .sort((a, b) => a - b);
-    const p99Index = Math.floor(sorted.length * 0.99);
-    return sorted[p99Index] || sorted[sorted.length - 1];
-  }
-
-  /**
-   * Get the current admission budget status.
-   */
-  getBudgetStatus(): {
-    p99LatencyMs: number;
-    budgetMs: number;
-    compliant: boolean;
-    sampleCount: number;
-    recentViolations: number;
-  } {
-    const p99 = this.getP99Latency();
-    const recentViolations = this.budgetViolations.filter(v => v > admissionConfig.budget.totalBudgetMs).length;
-    return {
-      p99LatencyMs: p99,
-      budgetMs: admissionConfig.budget.totalBudgetMs,
-      compliant: p99 <= admissionConfig.budget.totalBudgetMs,
-      sampleCount: this.latencyRecords.length,
-      recentViolations,
-    };
-  }
-
-  /**
-   * Get the cached result for a step if available.
-   */
-  private async getCachedResult<T>(stepName: string): Promise<T | null> {
-    // Mapping of step names to cache namespaces
-    const namespaceMap: Record<string, string> = {
-      identityResolution: 'identity',
-      scopeRead: 'scope',
-      capCheck: 'cap',
-      meterReserve: 'meter',
-    };
-
-    const namespace = namespaceMap[stepName];
-    if (!namespace) return null;
-
-    // Determine the key based on the request context
-    // This is a simplified version; in production, the key would be derived from the request
-    return null; // Cached lookup would use request context
-  }
-
-  /**
-   * Cache the result of a step.
-   */
-  private async cacheResult<T>(stepName: string, data: T): Promise<void> {
-    const namespaceMap: Record<string, string> = {
-      identityResolution: 'identity',
-      scopeRead: 'scope',
-      capCheck: 'cap',
-      meterReserve: 'meter',
-    };
-
-    const namespace = namespaceMap[stepName];
-    if (!namespace || !admissionConfig.cache[namespace as keyof typeof admissionConfig.cache].enabled) return;
-  }
-
-  /**
-   * Get all recorded latencies for testing/monitoring.
-   */
-  getLatencyRecords(): LatencyRecord[] {
-    return [...this.latencyRecords];
-  }
-
-  /**
-   * Clear all recorded latencies (useful for testing).
-   */
-  clearLatencyRecords(): void {
-    this.latencyRecords = [];
-    this.budgetViolations.length = 0;
-  }
-}
-
-export const admissionService = AdmissionService.getInstance();
+/* … truncated 12181 chars — edit only what you need near the top … */
