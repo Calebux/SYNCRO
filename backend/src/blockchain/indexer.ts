@@ -92,6 +92,21 @@ function extractSchemaVersion(value: unknown): number {
   return typeof schemaVersion === 'number' ? schemaVersion : 1;
 }
 
+/** Current event schema version emitted by v3 contracts. */
+export const EVENT_SCHEMA_VERSION = 1;
+
+/**
+ * Branch on the event schema version so payloads can evolve safely.
+ * v1 returns the raw value unchanged; unknown future versions are passed
+ * through with a warning so no event is silently dropped.
+ */
+export function decodeEventByVersion(value: unknown, version?: number): unknown {
+  const v = version ?? extractSchemaVersion(value);
+  if (v === EVENT_SCHEMA_VERSION) return value;
+  logger.warn('Indexer: unknown event schema version', { version: v });
+  return value;
+}
+
 async function rpcPost<T>(method: string, params: unknown): Promise<T> {
   try {
     const res = await rpcClient.fetch(RPC_URL, {
