@@ -34,6 +34,7 @@ export interface MeterRates {
 export interface UnsettledValuePerChannel {
   channelId: string;
   userId: string;
+  providerId: string;
   unsettledValue: number;
   lastSettledAt: string | null;
   channelAgeHours: number;
@@ -65,6 +66,7 @@ export interface PaidCallMetrics {
   admission_rejections_by_reason: AdmissionRejectionsByReason;
   meter_reserve_and_commit: MeterRates;
   unsettled_value_per_channel: UnsettledValuePerChannel[];
+  unsettled_value_total: number;
   settlement_submission: SettlementSubmissionMetrics;
   indexer_lag_ms: IndexerLagMs;
   reconciliation_delta: ReconciliationDelta;
@@ -215,8 +217,12 @@ export class SliMetricsService {
       '# HELP syncro_unsettled_value_per_channel Unsettled value (in cents) per active payment channel',
       '# TYPE syncro_unsettled_value_per_channel gauge',
       ...sli.paid_call_metrics.unsettled_value_per_channel.map(
-        (c) => `syncro_unsettled_value_per_channel{channel_id="${c.channelId}",user_id="${c.userId}"} ${c.unsettledValue}`,
+        (c) => `syncro_unsettled_value_per_channel{channel_id="${c.channelId}",user_id="${c.userId}",provider="${c.providerId}"} ${c.unsettledValue}`,
       ),
+      '',
+      '# HELP syncro_unsettled_value_total Total unsettled value (in cents) across all active payment channels',
+      '# TYPE syncro_unsettled_value_total gauge',
+      `syncro_unsettled_value_total ${sli.paid_call_metrics.unsettled_value_total}`,
       '',
       '# HELP syncro_settlement_submission_success_rate_pct Settlement submission success rate percentage (24h window)',
       '# TYPE syncro_settlement_submission_success_rate_pct gauge',
@@ -404,6 +410,7 @@ export class SliMetricsService {
       admission_rejections_by_reason: admissionRejections,
       meter_reserve_and_commit: meterRates,
       unsettled_value_per_channel: unsettledValue,
+      unsettled_value_total: unsettledValue.reduce((sum, c) => sum + c.unsettledValue, 0),
       settlement_submission: settlementSubmission,
       indexer_lag_ms: indexerLag,
       reconciliation_delta: reconciliationDelta,
@@ -527,7 +534,7 @@ export class SliMetricsService {
     try {
       const { data, error } = await supabase
         .from('payment_channels')
-        .select('id, user_id, balance, state, created_at, last_settled_at')
+        .select('id, user_id, provider_id, balance, state, created_at, last_settled_at')
         .in('state', ['active', 'closing'])
         .limit(100);
 
@@ -546,6 +553,7 @@ export class SliMetricsService {
         return {
           channelId: c.id,
           userId: c.user_id,
+          providerId: (c as { provider_id?: string }).provider_id ?? c.user_id,
           unsettledValue: balance,
           lastSettledAt: lastSettledAt,
           channelAgeHours: Math.round(channelAgeHours * 100) / 100,
