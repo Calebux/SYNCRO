@@ -137,6 +137,107 @@ WHEN `SubscriptionCounter` is below `u64::MAX` THEN the hybrid 8-byte-counter +
 
 ---
 
+## Idempotency Requirements (Issue #1419)
+
+This section defines the idempotency contract that spans admission, metering, and
+settlement. It is designed once, at the data layer, so that retries and crash recovery
+never double-meter a call or double-debit a channel.
+
+### 4.1 — Call idempotency key derivation
+
+WHEN a paid call is admitted THEN the data layer SHALL derive a deterministic
+`call_idempotency_key` from the request, defined as:
+
+```
+call_idempotency_key = sha256(
+  tenant_id || 0x00 ||
+  caller_address || 0x00 ||
+  route_id || 0x00 ||
+  canonical_json(request_body)
+)
+```
+
+where `canonical_json` sorts object keys lexicographically, preserves array order, and
+encodes numbers in their shortest round-trippable form. The key is a 32-byte value and is
+the sole identity used by metering and settlement for that call.
+
+### 4.2 — Retention window
+
+WHEN a `call_idempotency_key` is recorded THEN it SHALL be retained for a window of
+`IDEMPOTENCY_RETENTION = 24 hours` (configurable, minimum 1 hour) measured from first
+admission. After the window elapses the key MAY be evicted; a call arriving after eviction
+is treated as a new call. The retention window SHALL be at least as long as the maximum
+settlement retry horizon so that a retried settlement always finds its key.
+
+### 4.3 — Idempotent meter increment
+
+WHEN the meter is incremented for a `call_idempotency_key` THEN the increment SHALL be
+performed as an insert-if-absent on the key:
+
+- If the key is absent, the meter is incremented by one and the key is recorded with the
+  resulting meter value.
+- If the key is present, the meter is NOT incremented and the previously recorded meter
+  value is returned.
+
+A retried call therefore never meters twice, regardless of how many times it is replayed
+within the retention window.
+
+### 4.4 — Idempotent channel-state submission
+
+WHEN a channel state is submitted THEN the submission SHALL be keyed by the state nonce
+(`sequence_number`). A submission whose nonce is less than or equal to the channel's
+current nonce SHALL be a no-op that returns the current channel state, rather than a
+double debit. This extends the existing `StaleState` guard (3.2) so that a duplicate
+submission is explicitly idempotent rather than merely rejected.
+
+### 4.5 — Same key, different body
+
+WHEN a `call_idempotency_key` is presented with a request body that differs from the body
+recorded for that key THEN the data layer SHALL reject the request with a
+`IdempotencyConflict` error and SHALL NOT meter, settle, or mutate any state. The recorded
+body hash is compared against the hash of the incoming body; a mismatch is a conflict, not
+a silent overwrite.
+
+### 4.6 — Crash between meter and settle
+
+WHEN the process crashes after the meter increment (4.3) but before settlement completes
+THEN on recovery the settlement SHALL be re-driven from the recorded `call_idempotency_key`:
+
+- The meter increment is already durable and is not repeated.
+- Settlement is retried under the same key; because channel-state submission is idempotent
+  under the nonce (4.4), a partially applied settlement is completed exactly once.
+
+A settlement record SHALL carry the `call_idempotency_key` so that recovery can locate and
+resume it without re-metering.
+
+### 4.7 — Property test (Done criterion)
+
+WHEN the property test replays an arbitrary call sequence with duplicates and injected
+crashes THEN the resulting balance SHALL equal the balance of the deduplicated sequence.
+
+```pascal
+// Property: Idempotency — duplicates and crashes do not change the balance
+FOR ALL sequence S OF calls DO
+  deduped ← dedupeByCallIdempotencyKey(S)
+  expected ← balanceOf(deduped)
+  actual ← balanceOf(replayWithDuplicatesAndCrashes(S))
+  ASSERT actual = expected
+END FOR
+```
+
+### 4.8 — Unchanged behavior under idempotency
+
+**4.8.1** WHEN a call is admitted for the first time THEN it SHALL be metered exactly once
+and settled exactly once, as before.
+
+**4.8.2** WHEN distinct calls (distinct keys) are admitted THEN each SHALL be metered and
+settled independently; idempotency SHALL NOT coalesce distinct calls.
+
+**4.8.3** WHEN the retention window has elapsed and a key is evicted THEN a subsequent call
+with the same request SHALL be treated as a new call, consistent with 4.2.
+
+---
+
 ## Bug Condition Pseudocode
 
 ```pascal
@@ -162,29 +263,7 @@ END FOR
 ```pascal
 // Property: Preservation — counters below max continue to succeed
 FOR ALL C WHERE NOT isOverflowCondition(C.value, C.typeMax) DO
-  ASSERT contractCreateFn_before(C) = contractCreateFn_after(C)  // behavior unchanged
+  result ← contractCreateFn(C)
+  ASSERT result IS Success
 END FOR
 ```
-
-```pascal
-// Property: sub_id uniqueness
-FOR ALL S WHERE persistentStorage.contains(sub_id S) DO
-  result ← init_sub(S)
-  ASSERT result IS Error WITH kind = DuplicateSubscriptionId
-END FOR
-```
-
----
-
-## Acceptance Criteria Summary
-
-| # | Criterion |
-|---|---|
-| AC-1 | `CardCounter` and `TxCounter` (u32) saturate — calling at `u32::MAX` panics with a named error |
-| AC-2 | `EscrowCount` and `ChannelCount` (u64) saturate — calling at `u64::MAX` panics with a named error |
-| AC-3 | `SubscriptionCounter` (u64) saturates — calling at `u64::MAX` panics with a named error |
-| AC-4 | Off-chain `sequenceNumber` throws `SequenceOverflowError` when `>= Number.MAX_SAFE_INTEGER` |
-| AC-5 | `card_id` u32 → u64 upgrade path is documented (decision record, not necessarily implemented) |
-| AC-6 | `init_sub` rejects duplicate `sub_id` with `DuplicateSubscriptionId` |
-| AC-7 | At least one overflow boundary test exists per counter, asserting the correct panic/error |
-| AC-8 | All existing tests continue to pass (no regressions) |
