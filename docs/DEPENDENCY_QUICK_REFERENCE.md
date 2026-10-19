@@ -211,7 +211,7 @@ npm install
 ## 📚 Documentation
 
 - [Full Policy](./DEPENDENCY_MANAGEMENT.md) - Complete documentation
-- [Implementation Summary](../ISSUE_499_IMPLEMENTATION_SUMMARY.md) - Technical details
+- [Implementation Summary](archive/ISSUE_499_IMPLEMENTATION_SUMMARY.md) - Technical details
 
 ## 🆘 Need Help?
 

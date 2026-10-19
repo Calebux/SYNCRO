@@ -61,7 +61,7 @@
       "httpStatus": 403,
       "action": "request_cap_increase",
       "retryable": false,
-      "supportsRetryAfterHeader": false,
+      "supportsRetryAfterHeader": true,
       "defaultMessage": "The credential spending cap has been exceeded."
     },
     {

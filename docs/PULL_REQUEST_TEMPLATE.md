@@ -239,13 +239,13 @@ Existing users:
 ## 📸 Screenshots
 
 ### Wallet Management Page
-![Wallet Management](docs/screenshots/wallet-management.png)
+!Wallet Management
 
 ### Warning Modal
-![Warning Modal](docs/screenshots/warning-modal.png)
+!Warning Modal
 
 ### Re-encryption Progress
-![Progress Bar](docs/screenshots/progress-bar.png)
+!Progress Bar
 
 ## 🐛 Known Limitations
 
@@ -257,8 +257,8 @@ Existing users:
 
 Does this PR alter a **system boundary**, a **data model**, or a **trust assumption**?
 - [ ] **No** — This PR does not alter architectural boundaries, database schemas/ledgers, or trust assumptions.
-- [ ] **Yes** — An ADR is required per the [ADR Governance Guide](docs/adr/README.md).
-  - [ ] New or updated ADR included under `docs/adr/` created from [docs/adr/template.md](docs/adr/template.md).
+- [ ] **Yes** — An ADR is required per the [ADR Governance Guide](../README.md).
+  - [ ] New or updated ADR included under `docs/adr/` created from [docs/adr/template.md](adr/template.md).
   - **ADR Reference:** `docs/adr/ADR-XXX-title.md`
 
 ## 📚 Documentation
@@ -271,7 +271,7 @@ Complete documentation available:
 ## ✔️ Checklist
 
 - [x] Code follows project style guidelines
-- [x] Naming of domain entities, tables, and API resources adheres to [docs/DOMAIN_GLOSSARY_AND_DATA_MODEL.md](docs/DOMAIN_GLOSSARY_AND_DATA_MODEL.md)
+- [x] Naming of domain entities, tables, and API resources adheres to [docs/DOMAIN_GLOSSARY_AND_DATA_MODEL.md](DOMAIN_GLOSSARY_AND_DATA_MODEL.md)
 - [x] Self-review completed
 - [x] Comments added for complex logic
 - [x] Documentation updated

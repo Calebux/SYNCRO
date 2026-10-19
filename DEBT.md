@@ -25,13 +25,16 @@ pull request that adds an untracked `TODO`/`FIXME` to a critical path.
 Untracked TODO/FIXME here fails CI:
 
 - `backend/`
+- `backend/src/v3/` (v3 gateway / provider / receipt services)
+- `packages/metering/` (v3 metering — quota, reservations, degraded mode)
+- `packages/settlement/` (v3 settlement — channel balances, payouts)
 - `sdk/`
 - `shared/`
 - `quota_guard/`
 - `client/app/api/` (API routes — auth, payments, webhooks, CSP report)
 - `client/lib/`
 - `app/api/`
-- `contracts/` (Soroban smart contracts — subscription renewal, escrow, virtual card)
+- `contracts/` (Soroban smart contracts — escrow, virtual card, payment channels; the subscription stack was retired, see `contracts/docs/retired-contracts.md`)
 
 Adjust this list in `scripts/check-todos.mjs` (`CRITICAL_PATHS`) and here together.
 

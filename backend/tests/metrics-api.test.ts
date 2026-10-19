@@ -45,6 +45,7 @@ describe('GET /metrics Endpoint', () => {
       webhook_dlq_24h: 2,
       total_dlq_24h: 3,
     },
+    settlement_signer_balance: 85,
     calculated_at: '2026-07-25T12:00:00.000Z',
   };
 
@@ -65,6 +66,10 @@ syncro_notification_queue_depth{state="total"} 10
 # HELP syncro_dead_letter_count Dead-letter queue item counts by pipeline
 # TYPE syncro_dead_letter_count gauge
 syncro_dead_letter_count{pipeline="total"} 3
+
+# HELP syncro_settlement_signer_balance Settlement signer XLM balance
+# TYPE syncro_settlement_signer_balance gauge
+syncro_settlement_signer_balance 85
 `.trim();
 
   beforeEach(() => {
@@ -82,6 +87,7 @@ syncro_dead_letter_count{pipeline="total"} 3
     expect(res.text).toContain('syncro_webhook_processing_lag_ms');
     expect(res.text).toContain('syncro_notification_queue_depth');
     expect(res.text).toContain('syncro_dead_letter_count');
+    expect(res.text).toContain('syncro_settlement_signer_balance');
     expect(sliMetricsService.formatPrometheusMetrics).toHaveBeenCalledTimes(1);
   });
 
@@ -96,6 +102,7 @@ syncro_dead_letter_count{pipeline="total"} 3
     expect(res.body.webhook_processing_lag_ms.avg_ms).toBe(120);
     expect(res.body.notification_queue_depth.total).toBe(10);
     expect(res.body.dead_letter_counts.total_dlq_24h).toBe(3);
+    expect(res.body.settlement_signer_balance).toBe(85);
     expect(sliMetricsService.getSliMetrics).toHaveBeenCalledTimes(1);
   });
 

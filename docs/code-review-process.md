@@ -5,8 +5,8 @@
 SYNCRO uses a `.github/CODEOWNERS` file to enforce required reviews based on code ownership boundaries. This document outlines the review process, escalation paths, and handoff procedures.
 
 **Related Documentation**:
-- [Directory Ownership Matrix](../DIRECTORY_OWNERSHIP_MATRIX.md) - Detailed ownership information
-- [Ownership Quick Reference](../OWNERSHIP_QUICK_REFERENCE.md) - Quick lookup guide
+- Directory Ownership Matrix - Detailed ownership information
+- Ownership Quick Reference - Quick lookup guide
 - [CODEOWNERS](../.github/CODEOWNERS) - GitHub enforcement
 
 ## Ownership Boundaries
@@ -23,7 +23,7 @@ SYNCRO uses a `.github/CODEOWNERS` file to enforce required reviews based on cod
 | **scripts/** | DevOps Team | Automation scripts, utilities |
 | **.github/** | DevOps/Maintainer | CI/CD workflows, branch protection, automation |
 
-**For detailed ownership information**, see [Directory Ownership Matrix](../DIRECTORY_OWNERSHIP_MATRIX.md).
+**For detailed ownership information**, see Directory Ownership Matrix.
 
 ## Review Requirements
 
@@ -184,8 +184,8 @@ A: No. Even maintainers require at least 1 peer review. Merge only after approva
 
 ## Related Documentation
 
-- [Directory Ownership Matrix](../DIRECTORY_OWNERSHIP_MATRIX.md) - Detailed ownership for all directories
-- [Ownership Quick Reference](../OWNERSHIP_QUICK_REFERENCE.md) - Quick lookup guide
+- Directory Ownership Matrix - Detailed ownership for all directories
+- Ownership Quick Reference - Quick lookup guide
 - [CODEOWNERS](../.github/CODEOWNERS) - GitHub enforcement file
 - [Contributing Guide](../CONTRIBUTING.md) - Contribution guidelines
 

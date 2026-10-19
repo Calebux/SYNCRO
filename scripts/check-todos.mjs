@@ -25,13 +25,16 @@ import { pathToFileURL } from "node:url";
 // prefer specific subdirs over whole app trees so the rule stays meaningful.
 const CRITICAL_PATHS = [
   "backend",
+  "backend/src/v3",       // v3 gateway / provider / receipt services
   "sdk",
   "shared",
+  "packages/metering",    // v3 metering — quota, reservations, degraded mode
+  "packages/settlement",  // v3 settlement — channel balances, payouts
   "quota_guard",
   "client/app/api",   // API routes (auth, payments, CSP report, webhooks)
   "client/lib",       // shared client logic
   "app/api",
-  "contracts",        // Soroban smart contracts — subscription/escrow/card logic
+  "contracts",        // Soroban smart contracts — escrow, virtual card, payment channels
 ];
 
 // File extensions we treat as source code.

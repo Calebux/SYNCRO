@@ -61,6 +61,10 @@ export interface LedgerDbRow {
   actual_units?: unknown;
   actual_amount?: unknown;
   fallback_used?: unknown;
+  rate_card_version?: unknown;
+  unit_price?: unknown;
+  fx_rate?: unknown;
+  fx_source?: unknown;
   release_reason?: unknown;
   metered_at?: unknown;
   meter_idempotency_key?: unknown;
@@ -87,6 +91,10 @@ export function toLedgerRow(row: LedgerDbRow): MeterUsageLedgerRow {
     actualUnits: row.actual_units === null || row.actual_units === undefined ? null : num(row.actual_units),
     actualAmount: row.actual_amount === null || row.actual_amount === undefined ? null : num(row.actual_amount),
     fallbackUsed: bool(row.fallback_used),
+    rateCardVersion: str(row.rate_card_version) ?? 'v1',
+    unitPrice: num(row.unit_price),
+    fxRate: row.fx_rate === null || row.fx_rate === undefined || row.fx_rate === '' ? 1 : num(row.fx_rate),
+    fxSource: str(row.fx_source) ?? 'none',
     releaseReason: str(row.release_reason),
     meteredAt: str(row.metered_at),
     meterIdempotencyKey: str(row.meter_idempotency_key),
@@ -103,6 +111,20 @@ export function toLedgerRow(row: LedgerDbRow): MeterUsageLedgerRow {
 
 export function toLedgerRows(rows: LedgerDbRow[] | null | undefined): MeterUsageLedgerRow[] {
   return (rows ?? []).map(toLedgerRow);
+}
+
+/**
+ * Recompute the priced total of a usage row from its rate fields alone
+ * (issue #1697): `actual_units * unit_price * fx_rate`, rounded to cents.
+ *
+ * The reconciliation job compares this against the stored `actual_amount` so
+ * any total can be re-derived — and audited — from the row itself.
+ */
+export function recomputeUsageAmount(
+  row: Pick<MeterUsageLedgerRow, 'actualUnits' | 'unitPrice' | 'fxRate'>,
+): number {
+  const units = row.actualUnits ?? 0;
+  return Math.round(units * row.unitPrice * row.fxRate * 100) / 100;
 }
 
 // ─── degraded_usage_log ──────────────────────────────────────────────────────

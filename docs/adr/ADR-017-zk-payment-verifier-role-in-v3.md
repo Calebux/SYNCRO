@@ -4,7 +4,7 @@
 **Date:** 2026-09-28
 **Deciders:** Contracts and Backend teams
 **Issue:** [#1437](https://github.com/Calebux/SYNCRO/issues/1437)
-**Related ADRs:** [ADR-005](./ADR-005-payment-channels-for-renewals.md), [ADR-016](./ADR-016-upgrade-policy-for-settlement-contracts.md)
+**Related ADRs:** [ADR-005](./ADR-005-payment-channels-for-renewals.md), ADR-016
 
 ---
 

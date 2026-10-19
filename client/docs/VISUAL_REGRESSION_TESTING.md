@@ -200,4 +200,4 @@ When adding new visual regression tests:
 
 - [Playwright Visual Comparisons](https://playwright.dev/docs/test-snapshots)
 - [E2E Testing Guide](./TEST_INFRASTRUCTURE.md)
-- [Accessibility Testing](./accessibility.spec.ts)
+- [Accessibility Testing](../e2e/accessibility.spec.ts)

@@ -83,6 +83,14 @@ pub enum SpendCapError {
     NoMatchingCap = 9,
     /// The (principal, agent) pair already has `MAX_CAPS_PER_PAIR` caps.
     TooManyCaps = 10,
+    /// The contract is already initialized.
+    AlreadyInitialized = 11,
+    /// The contract has no admin yet (init not called).
+    NotInitialized = 12,
+    /// No admin transfer is in progress.
+    NoPendingAdmin = 13,
+    /// The caller is not the nominated pending admin.
+    NotPendingAdmin = 14,
 }
 
 // ============================================================================
@@ -92,6 +100,11 @@ pub enum SpendCapError {
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
+    /// Contract admin (issue #1659: enables admin-key rotation without
+    /// redeploying). Unset until `init` is called.
+    Admin,
+    /// Address nominated to become admin; absent when no transfer is active.
+    PendingAdmin,
     /// Spend cap record keyed by its numeric cap_id.
     Cap(u64),
     /// Global cap counter.
@@ -173,6 +186,86 @@ pub struct AgentSpendCapContract;
 
 #[contractimpl]
 impl AgentSpendCapContract {
+    // ── Admin (two-step transfer, issue #1659) ────────────────────────────────
+
+    /// Initialize the contract with an admin address. Required before any
+    /// admin transfer; cap issuance itself stays principal-gated.
+    pub fn init(env: Env, admin: Address) -> Result<(), SpendCapError> {
+        if env.storage().instance().has(&DataKey::Admin) {
+            return Err(SpendCapError::AlreadyInitialized);
+        }
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        syncro_common::ttl::extend_instance(&env);
+        Ok(())
+    }
+
+    fn require_admin(env: &Env) -> Result<Address, SpendCapError> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(SpendCapError::NotInitialized)?;
+        admin.require_auth();
+        syncro_common::ttl::extend_instance(env);
+        Ok(admin)
+    }
+
+    /// Read the current admin address.
+    pub fn get_admin(env: Env) -> Result<Address, SpendCapError> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(SpendCapError::NotInitialized)
+    }
+
+    /// Read the pending admin address, if a transfer is in progress.
+    pub fn get_pending_admin(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::PendingAdmin)
+    }
+
+    /// Step 1 of admin handover: the current admin nominates `new_admin`.
+    /// Shared two-step pattern (issue #1659); see `syncro_common::admin`.
+    pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), SpendCapError> {
+        Self::require_admin(&env)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingAdmin, &new_admin);
+        env.events()
+            .publish(syncro_common::admin::topic_init(), new_admin);
+        Ok(())
+    }
+
+    /// Cancel an in-progress admin handover. Current admin only.
+    pub fn cancel_transfer_admin(env: Env) -> Result<(), SpendCapError> {
+        Self::require_admin(&env)?;
+        if !env.storage().instance().has(&DataKey::PendingAdmin) {
+            return Err(SpendCapError::NoPendingAdmin);
+        }
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.events()
+            .publish(syncro_common::admin::topic_cancel(), ());
+        Ok(())
+    }
+
+    /// Step 2: the nominated address accepts and becomes admin.
+    ///
+    /// Only the nominee may accept (`pending.require_auth()`), matching the
+    /// rule specified by `syncro_common::admin::can_accept`.
+    pub fn accept_admin(env: Env) -> Result<(), SpendCapError> {
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingAdmin)
+            .ok_or(SpendCapError::NoPendingAdmin)?;
+        pending.require_auth();
+        syncro_common::ttl::extend_instance(&env);
+        env.storage().instance().set(&DataKey::Admin, &pending);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.events()
+            .publish(syncro_common::admin::topic_accept(), pending);
+        Ok(())
+    }
+
     // ── Issuance ─────────────────────────────────────────────────────────────
 
     /// Issue a new spend cap.
@@ -1187,6 +1280,9 @@ mod tests {
 
 #[cfg(test)]
 mod fuzz;
+
+#[cfg(test)]
+mod admin_transfer;
 
 #[cfg(test)]
 mod negative;

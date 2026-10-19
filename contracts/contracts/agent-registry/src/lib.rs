@@ -385,3 +385,5 @@ impl AgentRegistry {
 mod test;
 #[cfg(test)]
 mod negative;
+#[cfg(test)]
+mod scope_proptests;

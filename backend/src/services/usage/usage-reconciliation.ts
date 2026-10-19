@@ -37,6 +37,7 @@ import {
   UsageReconciliationReport,
 } from '../../types/usage-reconciliation';
 import { DegradedUsageReplayService, degradedUsageReplayService } from './degraded-usage-replay';
+import { recomputeUsageAmount } from './row-mappers';
 import {
   OrphanDetectionService,
   isBillingAffecting,
@@ -135,6 +136,7 @@ export class UsageReconciliationService {
         served: postRepair.served,
         metered: postRepair.metered,
         settled: postRepair.settled,
+        rateMismatches: postRepair.rateMismatches,
         deltas: postRepair.deltas,
         preRepairDeltas: preRepair.deltas,
         replay: replayOutcome,
@@ -173,6 +175,7 @@ export class UsageReconciliationService {
         served: emptyAmount(),
         metered: emptyAmount(),
         settled: emptyAmount(),
+        rateMismatches: emptyAmount(),
         deltas: { servedMinusMetered: 0, meteredMinusSettled: 0, servedMinusSettled: 0 },
         preRepairDeltas: { servedMinusMetered: 0, meteredMinusSettled: 0, servedMinusSettled: 0 },
         replay: { attempted: 0, replayed: 0, replayedAmount: 0, failed: 0, abandoned: 0, alreadyApplied: 0 },
@@ -198,13 +201,14 @@ export class UsageReconciliationService {
   private async measure(
     windowStart: Date,
     windowEnd: Date,
-  ): Promise<{ served: ReconciliationAmount; metered: ReconciliationAmount; settled: ReconciliationAmount; deltas: UsageDeltas }> {
-    const { served, metered, settled } = await this.aggregate(windowStart, windowEnd);
+  ): Promise<{ served: ReconciliationAmount; metered: ReconciliationAmount; settled: ReconciliationAmount; rateMismatches: ReconciliationAmount; deltas: UsageDeltas }> {
+    const { served, metered, settled, rateMismatches } = await this.aggregate(windowStart, windowEnd);
 
     return {
       served,
       metered,
       settled,
+      rateMismatches,
       deltas: {
         servedMinusMetered: subtract(served.amount, metered.amount),
         meteredMinusSettled: subtract(metered.amount, settled.amount),
@@ -232,10 +236,10 @@ export class UsageReconciliationService {
   private async aggregate(
     windowStart: Date,
     windowEnd: Date,
-  ): Promise<{ served: ReconciliationAmount; metered: ReconciliationAmount; settled: ReconciliationAmount }> {
+  ): Promise<{ served: ReconciliationAmount; metered: ReconciliationAmount; settled: ReconciliationAmount; rateMismatches: ReconciliationAmount }> {
     const { data, error } = await supabase
       .from('meter_usage_ledger')
-      .select('actual_amount, metered_at, settled_at')
+      .select('actual_amount, actual_units, unit_price, fx_rate, metered_at, settled_at')
       .not('committed_at', 'is', null)
       .gte('committed_at', windowStart.toISOString())
       .lte('committed_at', windowEnd.toISOString());
@@ -249,8 +253,9 @@ export class UsageReconciliationService {
     const served = emptyAmount();
     const metered = emptyAmount();
     const settled = emptyAmount();
+    const rateMismatches = emptyAmount();
 
-    for (const row of (data as Array<{ actual_amount: number | string | null; metered_at: string | null; settled_at: string | null }> | null) ?? []) {
+    for (const row of (data as Array<{ actual_amount: number | string | null; actual_units: number | string | null; unit_price: number | string | null; fx_rate: number | string | null; metered_at: string | null; settled_at: string | null }> | null) ?? []) {
       const amount = Number(row.actual_amount ?? 0);
       served.count += 1;
       served.amount = round2(served.amount + amount);
@@ -262,9 +267,21 @@ export class UsageReconciliationService {
         settled.count += 1;
         settled.amount = round2(settled.amount + amount);
       }
+      // Recompute the total from the row's own rate fields (issue #1697).
+      // A mismatch means the stored total cannot be explained by the price
+      // that allegedly applied — exactly what a dispute needs to surface.
+      const recomputed = recomputeUsageAmount({
+        actualUnits: row.actual_units === null ? null : Number(row.actual_units ?? 0),
+        unitPrice: Number(row.unit_price ?? 0),
+        fxRate: Number(row.fx_rate ?? 1),
+      });
+      if (recomputed !== round2(amount)) {
+        rateMismatches.count += 1;
+        rateMismatches.amount = round2(rateMismatches.amount + Math.abs(round2(amount) - recomputed));
+      }
     }
 
-    return { served, metered, settled };
+    return { served, metered, settled, rateMismatches };
   }
 
   /**
@@ -322,6 +339,8 @@ export class UsageReconciliationService {
       },
       orphan_total_count: report.orphans.length,
       orphan_total_amount: round2(report.orphans.reduce((sum, f) => sum + f.amount, 0)),
+      rate_mismatch_count: report.rateMismatches.count,
+      rate_mismatch_amount: report.rateMismatches.amount,
       orphan_breakdown: report.orphanBreakdown,
       findings: report.orphans,
       healthy: report.healthy,

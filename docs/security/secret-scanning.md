@@ -35,7 +35,7 @@ Order matters. Removing the code does not un-leak the credential.
    scanners crawl public repos within seconds of a push.
 2. **Remove it from the code** and read it from an environment variable
    instead. See [`SECRET_ROTATION_POLICY.md`](../SECRET_ROTATION_POLICY.md) and
-   [`GITHUB_SECRETS_CHECKLIST.md`](../../GITHUB_SECRETS_CHECKLIST.md).
+   [`GITHUB_SECRETS_CHECKLIST.md`](../archive/GITHUB_SECRETS_CHECKLIST.md).
 3. **If it was already pushed**, rotation is the fix. Rewriting history with
    `git filter-repo` or BFG is optional cleanup, requires a force-push and
    coordination with everyone who has a clone, and does *not* remove the value

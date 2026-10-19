@@ -649,7 +649,7 @@ See [Archival Playbook](archival-playbook.md) for detailed troubleshooting steps
 
 - [Archival Playbook](archival-playbook.md): On-call operator guide and troubleshooting procedures.
 - [TTL Configuration Reference](../config/ttl.json): Complete configuration schema.
-- [Audit Service](../src/audit/README.md): Hash-chain audit logging implementation.
+- [Audit Service](../README.md): Hash-chain audit logging implementation.
 - [BlockchainService](../src/services/blockchain-service.ts): On-chain contract interaction patterns.
 
 ---

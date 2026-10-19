@@ -87,6 +87,21 @@ updates:
           - "patch"
 
   # ──────────────────────────────────────────────
+  # Docker images (docker-compose.yml)
+  # ──────────────────────────────────────────────
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:15"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "docker"
+
+  # ──────────────────────────────────────────────
   # GitHub Actions
   # ──────────────────────────────────────────────
   - package-ecosystem: "github-actions"

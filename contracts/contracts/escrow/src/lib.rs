@@ -24,6 +24,9 @@ pub const ESCAPE_HATCH_GRACE_PERIOD_SECS: u64 = 7 * 24 * 60 * 60; // 604 800 s
 enum DataKey {
     Escrow(u64),
     Admin,
+    /// Address nominated to become admin; absent when no transfer is active.
+    /// Shared two-step handover (issue #1659, cf. agent-registry).
+    PendingAdmin,
     /// Unix timestamp at which the contract entered the paused state.
     /// `None` (key absent) means the contract is not paused.
     PausedSince,
@@ -207,6 +210,10 @@ pub enum EscrowError {
     ChannelMismatch = 1326,
     /// Arithmetic underflow while updating the channel-level escrow hold.
     HoldUnderflow = 1327,
+    /// No admin transfer is in progress.
+    NoPendingAdmin = 1328,
+    /// The caller is not the nominated pending admin.
+    NotPendingAdmin = 1329,
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
@@ -321,6 +328,61 @@ impl EscrowContract {
             .get(&DataKey::Admin)
             .expect("not initialized");
         admin.require_auth();
+    }
+
+    /// Read the current admin address.
+    pub fn get_admin(env: Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("not initialized")
+    }
+
+    /// Read the pending admin address, if a transfer is in progress.
+    pub fn get_pending_admin(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::PendingAdmin)
+    }
+
+    /// Step 1 of admin handover: the current admin nominates `new_admin`.
+    /// Shared two-step pattern (issue #1659); see `syncro_common::admin`.
+    pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), EscrowError> {
+        Self::require_admin(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingAdmin, &new_admin);
+        env.events()
+            .publish(syncro_common::admin::topic_init(), new_admin);
+        Ok(())
+    }
+
+    /// Cancel an in-progress admin handover. Current admin only.
+    pub fn cancel_transfer_admin(env: Env) -> Result<(), EscrowError> {
+        Self::require_admin(&env);
+        if !env.storage().instance().has(&DataKey::PendingAdmin) {
+            return Err(EscrowError::NoPendingAdmin);
+        }
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.events()
+            .publish(syncro_common::admin::topic_cancel(), ());
+        Ok(())
+    }
+
+    /// Step 2: the nominated address accepts and becomes admin.
+    ///
+    /// Only the nominee may accept (`pending.require_auth()`), matching the
+    /// rule specified by `syncro_common::admin::can_accept`.
+    pub fn accept_admin(env: Env) -> Result<(), EscrowError> {
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingAdmin)
+            .ok_or(EscrowError::NoPendingAdmin)?;
+        pending.require_auth();
+        env.storage().instance().set(&DataKey::Admin, &pending);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.events()
+            .publish(syncro_common::admin::topic_accept(), pending);
+        Ok(())
     }
 
     // ── Escrow lifecycle ──────────────────────────────────────────
@@ -1265,6 +1327,9 @@ impl EscrowContract {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
+
+#[cfg(test)]
+mod admin_transfer;
 
 #[cfg(test)]
 mod negative;

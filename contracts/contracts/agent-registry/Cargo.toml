@@ -14,3 +14,4 @@ syncro-contract-common = { package = "syncro-contract-common", path = "../common
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+proptest = { workspace = true }

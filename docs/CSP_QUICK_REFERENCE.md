@@ -153,7 +153,7 @@ WHERE created_at < NOW() - INTERVAL '90 days';
 | [CSP Monitoring README](./CSP_MONITORING_README.md) | Quick start guide |
 | [Policy Tuning Workflow](./CSP_POLICY_TUNING.md) | Complete workflow |
 | [Incident Response](./CSP_INCIDENT_RESPONSE.md) | Response procedures |
-| [Implementation Summary](../ISSUE_498_IMPLEMENTATION_SUMMARY.md) | Technical details |
+| Implementation Summary | Technical details |
 
 ## 🔗 Useful Links
 

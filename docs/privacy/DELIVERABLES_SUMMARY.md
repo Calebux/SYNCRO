@@ -604,9 +604,9 @@ cargo test
 
 ## Documentation
 
-- [Architecture Review](docs/privacy/AUDIT_COMMITMENT_ARCHITECTURE_REVIEW.md)
-- [Security Analysis](docs/privacy/COMMITMENT_SECURITY_ANALYSIS.md)
-- [Implementation Progress](docs/privacy/IMPLEMENTATION_PROGRESS.md)
+- [Architecture Review](AUDIT_COMMITMENT_ARCHITECTURE_REVIEW.md)
+- [Security Analysis](COMMITMENT_SECURITY_ANALYSIS.md)
+- [Implementation Progress](IMPLEMENTATION_PROGRESS.md)
 
 ## Breaking Changes
 

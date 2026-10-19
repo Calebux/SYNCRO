@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { DEFAULT_DEGRADED_POLICY } from '../../../packages/metering/src/degraded-admission';
+import { normalizeRateLimitPolicy, type RateLimitPolicy } from '../../../packages/metering/src/rate-limit';
 import {
+  DegradedModePolicy,
   ProviderMode,
   ProviderRegistration,
   ProviderRevenue,
@@ -16,6 +19,23 @@ export interface RegisterProviderInput {
   upstreamBaseUrl: string;
   agreementTerms: string;
   mode: ProviderMode;
+  /** Optional override of the platform degraded-mode default (#1444). */
+  degradedMode?: Partial<DegradedModePolicy>;
+  /** Optional override of the platform per-route rate-limit default (#1447). */
+  rateLimit?: Partial<RateLimitPolicy>;
+}
+
+/** Patch for the per-provider degraded-mode policy (#1444). */
+export interface UpdateDegradedModePolicyInput {
+  failMode?: DegradedModePolicy['failMode'];
+  exposureCeiling?: number;
+}
+
+/** Patch for the per-provider rate-limit policy (#1447). */
+export interface UpdateRateLimitInput {
+  requestsPerInterval?: number;
+  intervalMs?: number;
+  burstAllowance?: number;
 }
 
 export interface RegisterRouteInput {
@@ -25,6 +45,8 @@ export interface RegisterRouteInput {
   unit: string;
   price: number;
   quantityExtractor: string;
+  /** Optional per-route rate-limit override; inherits the provider default (#1447). */
+  rateLimit?: Partial<RateLimitPolicy>;
 }
 
 export interface ReviseRouteInput {
@@ -33,6 +55,8 @@ export interface ReviseRouteInput {
   unit?: string;
   price?: number;
   quantityExtractor?: string;
+  /** Replaces the route's rate-limit override; omit to keep it (#1447). */
+  rateLimit?: Partial<RateLimitPolicy>;
 }
 
 export interface RecordSettlementInput {
@@ -64,11 +88,55 @@ function buildScopeKey(method: string, pathPattern: string): string {
   return `${normalizeMethod(method)}:${pathPattern}`;
 }
 
+/**
+ * Validate a degraded-mode policy and fill in the platform default (#1444).
+ *
+ * Invalid values are rejected rather than coerced: a typo'd ceiling is a
+ * revenue-integrity bug, and silently falling back to the default would hide
+ * it until the next outage.
+ */
+function normalizeDegradedMode(input: Partial<DegradedModePolicy> | undefined): DegradedModePolicy {
+  const policy: DegradedModePolicy = { ...DEFAULT_DEGRADED_POLICY, ...(input ?? {}) };
+
+  if (policy.failMode !== 'fail_open' && policy.failMode !== 'fail_closed') {
+    throw new Error('degradedMode.failMode must be fail_open or fail_closed');
+  }
+  if (typeof policy.exposureCeiling !== 'number' || !Number.isFinite(policy.exposureCeiling) || policy.exposureCeiling < 0) {
+    throw new Error('degradedMode.exposureCeiling must be a finite number greater than or equal to 0');
+  }
+  return policy;
+}
+
+/** A route lifecycle change observed by the store (issue #1700). */
+export interface ProviderRouteChangeEvent {
+  kind: 'created' | 'updated' | 'deleted';
+  oldRoute: RegisteredRoute | null;
+  newRoute: RegisteredRoute | null;
+  /** `versionId` of the rate-card version taking effect (updates only). */
+  rateCardVersion?: string;
+}
+
+/**
+ * Sink for route change events. Wire it to `auditProviderRouteEvent` so every
+ * create, update, and delete lands in the hash-chained audit log with the old
+ * and new price and extractor.
+ */
+export type ProviderRouteAuditSink = (event: ProviderRouteChangeEvent) => void;
+
 export class InMemoryProviderStore {
   private readonly providers = new Map<string, ProviderRegistration>();
   private readonly routes = new Map<string, RegisteredRoute>();
   private readonly rateCards = new Map<string, RateCardVersion>();
   private readonly settlements = new Map<string, ProviderSettlement>();
+  private readonly auditSink?: ProviderRouteAuditSink;
+
+  constructor(auditSink?: ProviderRouteAuditSink) {
+    this.auditSink = auditSink;
+  }
+
+  private emitRouteChange(event: ProviderRouteChangeEvent): void {
+    this.auditSink?.(event);
+  }
 
   registerProvider(input: RegisterProviderInput): ProviderRegistration {
     const providerId = randomUUID();
@@ -82,6 +150,8 @@ export class InMemoryProviderStore {
       mode: input.mode,
       payoutVerified: false,
       payoutChallenge: null,
+      degradedMode: normalizeDegradedMode(input.degradedMode),
+      rateLimit: normalizeRateLimitPolicy(input.rateLimit),
       createdAt,
       updatedAt: createdAt,
     };
@@ -117,21 +187,79 @@ export class InMemoryProviderStore {
     return provider;
   }
 
+  /**
+   * Change how this provider behaves while the counter store is unavailable
+   * (#1444): switch between fail-open and fail-closed, or re-budget the
+   * maximum value it is willing to serve unbilled during one outage.
+   */
+  updateDegradedModePolicy(
+    providerId: string,
+    patch: UpdateDegradedModePolicyInput,
+  ): ProviderRegistration {
+    const provider = this.getProvider(providerId);
+    if (!provider) {
+      throw new Error('provider not found');
+    }
+    const next = normalizeDegradedMode({ ...provider.degradedMode, ...patch });
+    if (
+      next.failMode === provider.degradedMode.failMode &&
+      next.exposureCeiling === provider.degradedMode.exposureCeiling
+    ) {
+      throw new Error('no degraded mode changes');
+    }
+    provider.degradedMode = next;
+    this.saveProvider(provider);
+    return provider;
+  }
+
+  /**
+   * Change the per-agent x route burst budget for every route this provider
+   * registers (#1447). Existing per-route overrides stand; routes without an
+   * override inherit the new provider value immediately.
+   */
+  updateRateLimit(providerId: string, patch: UpdateRateLimitInput): ProviderRegistration {
+    const provider = this.getProvider(providerId);
+    if (!provider) {
+      throw new Error('provider not found');
+    }
+    const next = normalizeRateLimitPolicy({ ...provider.rateLimit, ...patch });
+    if (
+      next.requestsPerInterval === provider.rateLimit.requestsPerInterval &&
+      next.intervalMs === provider.rateLimit.intervalMs &&
+      next.burstAllowance === provider.rateLimit.burstAllowance
+    ) {
+      throw new Error('no rate limit changes');
+    }
+    provider.rateLimit = next;
+    this.saveProvider(provider);
+    return provider;
+  }
+
   registerRoute(input: RegisterRouteInput): RegisteredRoute {
+    const method = normalizeMethod(input.method);
+    const pattern = input.pathPattern.trim();
+    const duplicate = [...this.routes.values()].find(
+      (route) => route.providerId === input.providerId && route.method === method && route.pathPattern === pattern,
+    );
+    if (duplicate) {
+      throw new Error('route already registered for provider');
+    }
     const routeId = randomUUID();
     const route: RegisteredRoute = {
       routeId,
       providerId: input.providerId,
-      pathPattern: input.pathPattern,
-      method: normalizeMethod(input.method),
+      pathPattern: pattern,
+      method,
       unit: input.unit,
       price: input.price,
       quantityExtractor: input.quantityExtractor,
-      scopeKey: buildScopeKey(input.method, input.pathPattern),
+      scopeKey: buildScopeKey(input.method, pattern),
+      rateLimit: input.rateLimit !== undefined ? normalizeRateLimitPolicy(input.rateLimit) : undefined,
       createdAt: nowIso(),
     };
     this.routes.set(routeId, route);
     this.appendVersion(route);
+    this.emitRouteChange({ kind: 'created', oldRoute: null, newRoute: { ...route } });
     return route;
   }
 
@@ -166,6 +294,10 @@ export class InMemoryProviderStore {
       unit: patch.unit?.trim() || existing.unit,
       price: patch.price !== undefined ? patch.price : existing.price,
       quantityExtractor: patch.quantityExtractor?.trim() || existing.quantityExtractor,
+      rateLimit:
+        patch.rateLimit !== undefined
+          ? normalizeRateLimitPolicy(patch.rateLimit)
+          : existing.rateLimit,
     };
     next.scopeKey = buildScopeKey(next.method, next.pathPattern);
 
@@ -176,19 +308,53 @@ export class InMemoryProviderStore {
       throw new Error('route fields must not be empty');
     }
 
+    const duplicate = [...this.routes.values()].find(
+      (route) =>
+        route.routeId !== existing.routeId &&
+        route.providerId === providerId &&
+        route.method === next.method &&
+        route.pathPattern === next.pathPattern,
+    );
+    if (duplicate) {
+      throw new Error('route already registered for provider');
+    }
+
     const unchanged =
       next.pathPattern === existing.pathPattern &&
       next.method === existing.method &&
       next.unit === existing.unit &&
       next.price === existing.price &&
-      next.quantityExtractor === existing.quantityExtractor;
+      next.quantityExtractor === existing.quantityExtractor &&
+      next.rateLimit?.requestsPerInterval === existing.rateLimit?.requestsPerInterval &&
+      next.rateLimit?.intervalMs === existing.rateLimit?.intervalMs &&
+      next.rateLimit?.burstAllowance === existing.rateLimit?.burstAllowance;
     if (unchanged) {
       throw new Error('no route changes');
     }
 
     this.routes.set(routeId, next);
     const version = this.appendVersion(next);
+    this.emitRouteChange({
+      kind: 'updated',
+      oldRoute: { ...existing },
+      newRoute: { ...next },
+      rateCardVersion: version.versionId,
+    });
     return { route: { ...next }, version: { ...version } };
+  }
+
+  /**
+   * Remove a route. The rate-card history is left untouched so past calls can
+   * still be billed at the price that applied at the time.
+   */
+  deleteRoute(providerId: string, routeId: string): RegisteredRoute {
+    const existing = this.routes.get(routeId);
+    if (!existing || existing.providerId !== providerId) {
+      throw new Error('route not found');
+    }
+    this.routes.delete(routeId);
+    this.emitRouteChange({ kind: 'deleted', oldRoute: { ...existing }, newRoute: null });
+    return { ...existing };
   }
 
   listRateCards(providerId: string): RateCardVersion[] {
@@ -252,15 +418,43 @@ export class InMemoryProviderStore {
     };
   }
 
+  /**
+   * Route precedence: most specific pattern wins, independent of
+   * registration order (issue #1698).
+   *
+   * Specificity order, comparing `/`-separated segments left to right:
+   *   1. at the first differing segment, a static segment beats one
+   *      containing `*` (`/v1/chat` and `/v1/chat/*` both beat `/v1/*`
+   *      and `/v1/*/summary` for the path `/v1/chat/summary`);
+   *   2. when all shared segments agree, the longer pattern wins;
+   *   3. lexicographic pattern order as a final deterministic tie-break
+   *      (two identical patterns cannot coexist — registration rejects them).
+   */
   findRoute(providerId: string, method: string, requestPath: string): RegisteredRoute | null {
     const normalized = normalizeMethod(method);
-    const routeList = [...this.routes.values()].filter((route) => route.providerId === providerId && route.method === normalized);
-    for (const route of routeList) {
-      if (pathMatchesPattern(requestPath, route.pathPattern)) {
-        return route;
-      }
-    }
-    return null;
+    const matches = [...this.routes.values()].filter(
+      (route) =>
+        route.providerId === providerId &&
+        route.method === normalized &&
+        pathMatchesPattern(requestPath, route.pathPattern),
+    );
+    matches.sort((a, b) => compareSpecificity(a.pathPattern, b.pathPattern));
+    return matches[0] ?? null;
+  }
+
+  /**
+   * Dry-run match: shows which route (and price) would apply to a request
+   * without serving it. Backs the `POST .../routes/dry-run` endpoint.
+   */
+  dryRunRoute(
+    providerId: string,
+    method: string,
+    requestPath: string,
+    atIso: string = nowIso(),
+  ): { route: RegisteredRoute; applicableVersion: RateCardVersion | null } | null {
+    const route = this.findRoute(providerId, method, requestPath);
+    if (!route) return null;
+    return { route: { ...route }, applicableVersion: this.applicableVersion(route.routeId, atIso) };
   }
 
   private versionsFor(routeId: string): RateCardVersion[] {
@@ -294,6 +488,49 @@ export class InMemoryProviderStore {
   }
 }
 
+/**
+ * Sandbox rule (#1699): staging providers are testnet-only with separate
+ * keys and data; they must never serve mainnet traffic. Production
+ * providers require the mainnet runtime.
+ *
+ * Pure helper (no Stellar SDK dependency) so it can be unit-tested
+ * anywhere; `V3GatewayService.processPaidCall` enforces it at admission.
+ */
+export type ProviderNetwork = 'mainnet' | 'testnet' | string | undefined;
+
+export function assertNetworkForMode(mode: ProviderMode, network: ProviderNetwork): void {
+  if (mode === 'production' && network !== 'mainnet') {
+    throw new Error('production providers require mainnet runtime');
+  }
+  if (mode === 'staging' && network === 'mainnet') {
+    throw new Error(
+      'staging providers cannot serve mainnet traffic (staging_mainnet_forbidden): use testnet credentials and the test asset only',
+    );
+  }
+}
+
+/**
+ * Order two path patterns by specificity (most specific first).
+ * See `findRoute` for the documented precedence rules.
+ */
+function compareSpecificity(a: string, b: string): number {
+  if (a === b) return 0;
+  const segA = a.split('/');
+  const segB = b.split('/');
+  const shared = Math.min(segA.length, segB.length);
+  for (let i = 0; i < shared; i += 1) {
+    if (segA[i] === segB[i]) continue;
+    // At the first differing segment, a static segment beats a wildcard.
+    const wildA = segA[i].includes('*');
+    const wildB = segB[i].includes('*');
+    if (wildA !== wildB) return wildA ? 1 : -1;
+    return segA[i] < segB[i] ? -1 : 1;
+  }
+  // All shared segments equal: the longer pattern is more specific.
+  if (segA.length !== segB.length) return segB.length - segA.length;
+  return a < b ? -1 : 1;
+}
+
 function pathMatchesPattern(path: string, pattern: string): boolean {
   const regex = new RegExp(
     `^${pattern
@@ -302,4 +539,3 @@ function pathMatchesPattern(path: string, pattern: string): boolean {
   );
   return regex.test(path);
 }
-

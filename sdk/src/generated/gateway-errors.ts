@@ -27,6 +27,7 @@ export interface GatewayErrorDetails {
   status?: number;
   retryAfterMs?: number;
   retryAfterSeconds?: number;
+  capResetAt?: string;
   cause?: unknown;
 }
 
@@ -35,6 +36,7 @@ export class GatewaySdkError extends Error {
   readonly status: number;
   readonly retryable: boolean;
   readonly retryAfterMs?: number;
+  readonly capResetAt?: string;
   readonly action: string;
 
   constructor(input: {
@@ -43,6 +45,7 @@ export class GatewaySdkError extends Error {
     status: number;
     retryable: boolean;
     retryAfterMs?: number;
+    capResetAt?: string;
     action: string;
     cause?: unknown;
   }) {
@@ -52,6 +55,7 @@ export class GatewaySdkError extends Error {
     this.status = input.status;
     this.retryable = input.retryable;
     this.retryAfterMs = input.retryAfterMs;
+    this.capResetAt = input.capResetAt;
     this.action = input.action;
     if (input.cause !== undefined) (this as Error & { cause?: unknown }).cause = input.cause;
   }
@@ -131,7 +135,7 @@ const RETRY_DEFAULTS = {
   GATEWAY_KEY_REVOKED: { retryable: false, supportsRetryAfter: false },
   GATEWAY_SCOPE_DENIED: { retryable: false, supportsRetryAfter: false },
   GATEWAY_GRANT_EXPIRED: { retryable: false, supportsRetryAfter: false },
-  GATEWAY_CAP_EXCEEDED: { retryable: false, supportsRetryAfter: false },
+  GATEWAY_CAP_EXCEEDED: { retryable: false, supportsRetryAfter: true },
   GATEWAY_CHANNEL_EXHAUSTED: { retryable: false, supportsRetryAfter: false },
   GATEWAY_METER_INSUFFICIENT: { retryable: false, supportsRetryAfter: false },
   GATEWAY_RATE_LIMITED: { retryable: true, supportsRetryAfter: true },

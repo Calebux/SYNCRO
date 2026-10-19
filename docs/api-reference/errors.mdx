@@ -1,0 +1,21 @@
+# Gateway Error Reference
+
+This page is generated from `backend/src/errors/gateway-taxonomy.json`. Do not edit manually.
+
+| Code | HTTP Status | Cause | Client Remedy |
+| --- | ---: | --- | --- |
+| `GATEWAY_PAYMENT_REQUIRED` | 402 | Valid payment authorization is required. | provide_payment |
+| `GATEWAY_KEY_MISSING` | 401 | Gateway credentials are required. | provide_credentials |
+| `GATEWAY_KEY_INVALID` | 401 | Gateway credentials are invalid. | refresh_credentials |
+| `GATEWAY_KEY_REVOKED` | 403 | Provider key has been revoked. | refresh_credentials |
+| `GATEWAY_SCOPE_DENIED` | 403 | The credential is not authorized for this scope. | request_access |
+| `GATEWAY_GRANT_EXPIRED` | 403 | The payment grant has expired. | refresh_grant |
+| `GATEWAY_CAP_EXCEEDED` | 403 | The credential spending cap has been exceeded. | request_cap_increase |
+| `GATEWAY_CHANNEL_EXHAUSTED` | 402 | Payment channel balance is exhausted. | fund_channel |
+| `GATEWAY_METER_INSUFFICIENT` | 402 | Meter balance is insufficient for this request. | fund_meter |
+| `GATEWAY_RATE_LIMITED` | 429 | Gateway rate limit exceeded. | wait |
+| `GATEWAY_UPSTREAM_UNAVAILABLE` | 503 | Gateway upstream is unavailable. | retry |
+| `GATEWAY_METER_DEGRADED` | 503 | Gateway metering is temporarily degraded. | retry |
+| `GATEWAY_BAD_REQUEST` | 400 | Gateway request is invalid. | fix_request |
+| `GATEWAY_UNAUTHORIZED` | 401 | Gateway credentials are invalid. | provide_credentials |
+| `GATEWAY_INTERNAL` | 500 | Gateway internal error. | retry |

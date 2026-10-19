@@ -98,6 +98,7 @@ Breadcrumb `data` payloads are scrubbed with the same body-field rules.
 ### Medium-priority alerts (P2)
 - **`category:database` errors** — Supabase / Postgres issues.
 - **`category:network` errors** — upstream API failures.
+- **`alertClass:settlement-signer-balance`** — settlement signer XLM balance is low. Warning-level alerts indicate the balance is below the warning threshold; critical-level alerts indicate the balance is below the critical threshold and settlement may stall. See [settlement-signer-balance-runbook.md](./ops/settlement-signer-balance-runbook.md).
 - **New issue in current release** — catch regressions early.
 - **Job failures with `paging_severity:alert`** — expiry processing, auto-resume, webhook retries.
 

@@ -97,6 +97,7 @@ This index catalogs all documentation in the SYNCRO repository, organized by cat
 - [ops/](ops/) - Operations documentation
 - [performance/](performance/) - Performance documentation
 - [privacy/](privacy/) - Privacy documentation
+- [metering/](metering/) - Metering policy documentation
 - [superpowers/](superpowers/) - Advanced features
 
 ## Archived Documentation

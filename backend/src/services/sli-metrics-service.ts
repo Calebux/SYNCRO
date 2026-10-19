@@ -2,6 +2,7 @@ import { supabase } from '../config/database';
 import logger from '../config/logger';
 import { notificationQueue } from '../jobs/notification-queue';
 import { settlementReconciliationService } from './settlement-reconciliation-service';
+import { settlementSignerBalanceService } from './settlement-signer-balance-service';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -34,6 +35,7 @@ export interface MeterRates {
 export interface UnsettledValuePerChannel {
   channelId: string;
   userId: string;
+  providerId: string;
   unsettledValue: number;
   lastSettledAt: string | null;
   channelAgeHours: number;
@@ -65,6 +67,7 @@ export interface PaidCallMetrics {
   admission_rejections_by_reason: AdmissionRejectionsByReason;
   meter_reserve_and_commit: MeterRates;
   unsettled_value_per_channel: UnsettledValuePerChannel[];
+  unsettled_value_total: number;
   settlement_submission: SettlementSubmissionMetrics;
   indexer_lag_ms: IndexerLagMs;
   reconciliation_delta: ReconciliationDelta;
@@ -93,6 +96,8 @@ export interface SliMetrics {
     webhook_dlq_24h: number;
     total_dlq_24h: number;
   };
+  /** Settlement signer XLM balance (null when signer is not configured) */
+  settlement_signer_balance: number | null;
   /** Paid-call path metrics (admission, metering, settlement, indexer, reconciliation) */
   paid_call_metrics: PaidCallMetrics;
   /** Timestamp when metrics were calculated (ISO-8601) */
@@ -113,12 +118,14 @@ export class SliMetricsService {
       queueDepthMetrics,
       dlqMetrics,
       paidCallMetrics,
+      signerBalance,
     ] = await Promise.all([
       this.fetchRenewalSuccessRate(since24h),
       this.fetchWebhookProcessingLag(since24h),
       this.fetchNotificationQueueDepth(),
       this.fetchDeadLetterCounts(since24h),
       this.fetchPaidCallMetrics(),
+      this.fetchSettlementSignerBalance(),
     ]);
 
     return {
@@ -126,6 +133,7 @@ export class SliMetricsService {
       webhook_processing_lag_ms: webhookLagMetrics,
       notification_queue_depth: queueDepthMetrics,
       dead_letter_counts: dlqMetrics,
+      settlement_signer_balance: signerBalance,
       paid_call_metrics: paidCallMetrics,
       calculated_at: new Date(now).toISOString(),
     };
@@ -215,8 +223,12 @@ export class SliMetricsService {
       '# HELP syncro_unsettled_value_per_channel Unsettled value (in cents) per active payment channel',
       '# TYPE syncro_unsettled_value_per_channel gauge',
       ...sli.paid_call_metrics.unsettled_value_per_channel.map(
-        (c) => `syncro_unsettled_value_per_channel{channel_id="${c.channelId}",user_id="${c.userId}"} ${c.unsettledValue}`,
+        (c) => `syncro_unsettled_value_per_channel{channel_id="${c.channelId}",user_id="${c.userId}",provider="${c.providerId}"} ${c.unsettledValue}`,
       ),
+      '',
+      '# HELP syncro_unsettled_value_total Total unsettled value (in cents) across all active payment channels',
+      '# TYPE syncro_unsettled_value_total gauge',
+      `syncro_unsettled_value_total ${sli.paid_call_metrics.unsettled_value_total}`,
       '',
       '# HELP syncro_settlement_submission_success_rate_pct Settlement submission success rate percentage (24h window)',
       '# TYPE syncro_settlement_submission_success_rate_pct gauge',
@@ -241,6 +253,11 @@ export class SliMetricsService {
       '# HELP syncro_reconciliation_blocked Whether settlement batching is currently blocked due to reconciliation delta',
       '# TYPE syncro_reconciliation_blocked gauge',
       `syncro_reconciliation_blocked ${sli.paid_call_metrics.reconciliation_delta.blocked ? 1 : 0}`,
+      '',
+      // ── Settlement signer balance ──────────────────────────────
+      '# HELP syncro_settlement_signer_balance Settlement signer XLM balance',
+      '# TYPE syncro_settlement_signer_balance gauge',
+      `syncro_settlement_signer_balance ${sli.settlement_signer_balance ?? 'NaN'}`,
       '',
     ];
 
@@ -404,6 +421,7 @@ export class SliMetricsService {
       admission_rejections_by_reason: admissionRejections,
       meter_reserve_and_commit: meterRates,
       unsettled_value_per_channel: unsettledValue,
+      unsettled_value_total: unsettledValue.reduce((sum, c) => sum + c.unsettledValue, 0),
       settlement_submission: settlementSubmission,
       indexer_lag_ms: indexerLag,
       reconciliation_delta: reconciliationDelta,
@@ -527,7 +545,7 @@ export class SliMetricsService {
     try {
       const { data, error } = await supabase
         .from('payment_channels')
-        .select('id, user_id, balance, state, created_at, last_settled_at')
+        .select('id, user_id, provider_id, balance, state, created_at, last_settled_at')
         .in('state', ['active', 'closing'])
         .limit(100);
 
@@ -546,6 +564,7 @@ export class SliMetricsService {
         return {
           channelId: c.id,
           userId: c.user_id,
+          providerId: (c as { provider_id?: string }).provider_id ?? c.user_id,
           unsettledValue: balance,
           lastSettledAt: lastSettledAt,
           channelAgeHours: Math.round(channelAgeHours * 100) / 100,
@@ -649,6 +668,16 @@ export class SliMetricsService {
     if (sorted.length === 0) return 0;
     const idx = Math.ceil((p / 100) * sorted.length) - 1;
     return sorted[Math.max(0, Math.min(idx, sorted.length - 1))];
+  }
+
+  private async fetchSettlementSignerBalance(): Promise<number | null> {
+    try {
+      const result = await settlementSignerBalanceService.getSignerBalance();
+      return result.balance;
+    } catch (err) {
+      logger.error('[SliMetrics] Failed to fetch settlement signer balance', { err });
+      return null;
+    }
   }
 }
 

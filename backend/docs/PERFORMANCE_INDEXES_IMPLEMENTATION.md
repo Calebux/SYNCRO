@@ -226,7 +226,7 @@ DROP INDEX IF EXISTS idx_monthly_budgets_user_category;
 
 - [Query Plans Documentation](./PERFORMANCE_INDEXES_QUERY_PLANS.md)
 - [Analytics Service](../src/services/analytics-service.ts)
-- [Backend Architecture](./ARCHITECTURE.md)
+- [Backend Architecture](../ARCHITECTURE.md)
 
 ## Acceptance Criteria Status
 

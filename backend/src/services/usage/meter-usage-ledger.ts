@@ -59,6 +59,14 @@ interface ReserveInput {
   reservedAmount: number;
   ttlMs?: number;
   correlationId?: string | null;
+  /** Rate-card version pricing the call (issue #1697). */
+  rateCardVersion?: string;
+  /** Cost per integer unit at serve time. */
+  unitPrice?: number;
+  /** FX multiplier applied to the priced amount. */
+  fxRate?: number;
+  /** Where the FX rate came from. */
+  fxSource?: string;
 }
 
 interface CommitInput {
@@ -67,6 +75,11 @@ interface CommitInput {
   actualAmount: number;
   fallbackUsed: boolean;
   correlationId?: string | null;
+  /** Rate fields may be refined at commit time (issue #1697). */
+  rateCardVersion?: string;
+  unitPrice?: number;
+  fxRate?: number;
+  fxSource?: string;
 }
 
 /**
@@ -123,6 +136,10 @@ export class MeterUsageLedgerService {
       status: 'reserved',
       reserved_units: input.reservedUnits,
       reserved_amount: input.reservedAmount,
+      rate_card_version: input.rateCardVersion ?? 'v1',
+      unit_price: input.unitPrice ?? 0,
+      fx_rate: input.fxRate ?? 1,
+      fx_source: input.fxSource ?? 'none',
       expires_at: new Date(now + ttlMs).toISOString(),
       correlation_id: input.correlationId ?? getRequestId() ?? null,
     });
@@ -170,6 +187,10 @@ export class MeterUsageLedgerService {
         actual_amount: input.actualAmount,
         fallback_used: input.fallbackUsed,
         committed_at: committedAt,
+        ...(input.rateCardVersion !== undefined ? { rate_card_version: input.rateCardVersion } : {}),
+        ...(input.unitPrice !== undefined ? { unit_price: input.unitPrice } : {}),
+        ...(input.fxRate !== undefined ? { fx_rate: input.fxRate } : {}),
+        ...(input.fxSource !== undefined ? { fx_source: input.fxSource } : {}),
         ...meterFields,
       })
       .eq('reservation_id', input.reservationId)

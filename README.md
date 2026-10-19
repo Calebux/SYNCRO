@@ -15,7 +15,7 @@ the request.
 > That product is being retired. The settlement primitives it produced — payment
 > channels, scoped agent authority, on-chain spend caps, and an escrow dispute path
 > — are the foundation of the current direction. See
-> [`docs/architecture/v3-metered-rails.md`](./docs/architecture/v3-metered-rails.md)
+> [`docs/architecture.md`](./docs/architecture.md)
 > for the target architecture and the migration plan.
 
 ## Why metering instead of subscriptions

@@ -7,7 +7,7 @@
 
 - 📋 [Full Audit Report](./SECRET_HANDLING_AUDIT_REPORT.md)
 - 📝 [Action Items](./SECRET_HANDLING_ACTION_ITEMS.md)
-- 🔄 [Rotation Policy](./docs/SECRET_ROTATION_POLICY.md)
+- 🔄 [Rotation Policy](../SECRET_ROTATION_POLICY.md)
 - ✅ [GitHub Secrets Checklist](./GITHUB_SECRETS_CHECKLIST.md)
 
 ## TL;DR - Key Findings

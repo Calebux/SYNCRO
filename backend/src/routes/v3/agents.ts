@@ -169,6 +169,28 @@ export function createAgentConsoleRouter(service: AgentConsoleService = agentCon
     }
   });
 
+  router.get('/principal-budget', requireSession, (req: PrincipalRequest, res) => {
+    try {
+      return res.json({ data: service.principalBudget(req.principalPublicKey!) });
+    } catch (error) {
+      return sendError(res, error);
+    }
+  });
+
+  const principalBudgetSchema = z.object({
+    amount: z.number().positive().max(1_000_000),
+  });
+
+  router.post('/principal-budget', requireSession, (req: PrincipalRequest, res) => {
+    const parsed = principalBudgetSchema.safeParse(req.body);
+    if (!parsed.success) return sendValidation(res, parsed.error);
+    try {
+      return res.json({ data: service.setPrincipalDailyLimit(req.principalPublicKey!, parsed.data.amount) });
+    } catch (error) {
+      return sendError(res, error);
+    }
+  });
+
   return router;
 }
 

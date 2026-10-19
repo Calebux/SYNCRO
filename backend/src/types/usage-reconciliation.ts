@@ -47,6 +47,14 @@ export interface MeterUsageLedgerRow {
   actualUnits: number | null;
   actualAmount: number | null;
   fallbackUsed: boolean;
+  /** Rate-card version that priced the call (issue #1697). */
+  rateCardVersion: string;
+  /** Cost per integer unit at serve time (issue #1697). */
+  unitPrice: number;
+  /** FX multiplier applied to the priced amount; 1 when no FX applied. */
+  fxRate: number;
+  /** Where the FX rate came from; 'none' when no FX applied. */
+  fxSource: string;
   releaseReason: string | null;
   meteredAt: string | null;
   meterIdempotencyKey: string | null;
@@ -187,6 +195,13 @@ export interface UsageReconciliationReport {
   metered: ReconciliationAmount;
   /** Usage that reached channel state in the window. */
   settled: ReconciliationAmount;
+
+  /**
+   * Committed rows whose stored total does not equal
+   * `actual_units * unit_price * fx_rate` recomputed from the row alone
+   * (issue #1697). A dispute can re-derive every total from these fields.
+   */
+  rateMismatches: ReconciliationAmount;
 
   deltas: UsageDeltas;
   preRepairDeltas: UsageDeltas;

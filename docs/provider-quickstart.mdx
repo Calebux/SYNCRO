@@ -1,0 +1,93 @@
+# Provider Quickstart: From Pricing Declaration to First Payout
+
+Get from zero to first payout on testnet as a SYNCRO v3 provider.
+
+> Testnet only. Illustrative values are marked; replace `PG_TEST_*` placeholders
+> with your own test credentials.
+
+## 1. Install the SDK
+
+```bash
+npm install @syncro/sdk
+```
+
+## 2. Declare pricing for a route
+
+```ts
+import { pricing, metered } from "@syncro/sdk/v3";
+
+// Flat price for a route…
+const chatPricing = pricing({ defaultPrice: "0.02", currency: "USD" });
+
+// …or metered billing per unit.
+const embedMeter = metered({ unit: "1k-tokens", pricePerUnit: "0.001" });
+```
+
+## 3. Wrap a route with the gateway
+
+```ts
+import express from "express";
+import { createPaidRoute } from "@syncro/sdk/v3";
+
+const app = express();
+app.post(
+  "/v1/chat",
+  createPaidRoute({ providerId: process.env.PROVIDER_ID!, pricing: chatPricing }),
+  (req, res) => res.json({ reply: "hello" }),
+);
+app.listen(3000);
+```
+
+## 4. Register on testnet
+
+```bash
+# Illustrative — points at the testnet gateway.
+curl -X POST https://api-testnet.syncro.app/api/v3/providers \
+  -H 'content-type: application/json' \
+  -d '{"name":"acme","payoutAddress":"GTEST…","upstreamBaseUrl":"https://acme.test","mode":"testnet"}'
+# → {"data":{"id":"<PROVIDER_ID>"}}
+```
+
+Register the priced route, then verify the payout address (challenge → sign →
+verify):
+
+```bash
+curl -X POST https://api-testnet.syncro.app/api/v3/providers/<PROVIDER_ID>/routes \
+  -H 'content-type: application/json' \
+  -d '{"pathPattern":"/v1/chat","method":"POST","unit":"call","price":"0.02"}'
+
+curl -X POST https://api-testnet.syncro.app/api/v3/providers/<PROVIDER_ID>/payout-challenge
+# sign the challenge with the payout key, then:
+curl -X POST https://api-testnet.syncro.app/api/v3/providers/<PROVIDER_ID>/payout-verify \
+  -H 'content-type: application/json' \
+  -d '{"signature":"<SIGNATURE>"}'
+```
+
+Routes require a verified payout address before registration succeeds.
+
+## 5. Make a test paid call
+
+```bash
+# Illustrative consumer call through the gateway.
+curl -X POST https://api-testnet.syncro.app/api/v3/gateway/paid \
+  -H 'content-type: application/json' \
+  -H 'x-syncro-agent-id: agent-test-1' \
+  -d '{"providerId":"<PROVIDER_ID>","path":"/v1/chat","upstreamMethod":"POST","channelId":"chan-test-1","stateNonce":1,"rateCardVersion":"v1"}'
+```
+
+## 6. See revenue and receive the payout
+
+```bash
+curl https://api-testnet.syncro.app/api/v3/providers/<PROVIDER_ID>/revenue
+curl https://api-testnet.syncro.app/api/v3/providers/<PROVIDER_ID>/settlements
+```
+
+Settlements pay out to the verified payout address. The Provider Console
+(`Register → verify payout → price routes → settlement history`) shows the
+same flow in the UI.
+
+## Next steps
+
+- See `docs/sdk-reference.mdx` for `pricing()` / `metered()` options.
+- See `docs/security/v3-metered-rails-threat-model.md` (Trusted Inputs) before
+  adding new paid-path fields.
