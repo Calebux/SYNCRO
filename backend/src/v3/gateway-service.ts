@@ -193,7 +193,7 @@ export class V3GatewayService {
       routeScope: route.scopeKey,
     });
 
-    const quantity = input.quantity ?? 1;
+    const quantity = 1;
     // upperBound: reserve for the worst-case quantity (may exceed actual).
     const upperBound = quantity;
 
