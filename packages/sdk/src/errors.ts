@@ -9,7 +9,8 @@ export type SdkErrorCode =
   | "CONTRACT_MISMATCH"
   | "NETWORK_MISMATCH"
   | "CHANNEL_MISMATCH"
-  | "PRICE_EXCEEDS_MAX";
+  | "PRICE_EXCEEDS_MAX"
+  | "BUDGET_EXCEEDED";
 
 /** Base class for all typed SDK errors. */
 export class SdkError extends Error {
@@ -105,5 +106,29 @@ export class PriceExceedsMaxError extends SdkError {
     this.name = "PriceExceedsMaxError";
     this.maxPricePerCall = maxPricePerCall;
     this.actualPrice = actualPrice;
+  }
+}
+
+/**
+ * Signing the next state would push cumulative spend past the caller-set
+ * local `budget`. Raised before any signature is produced.
+ */
+export class BudgetExceededError extends SdkError {
+  readonly budget: bigint;
+  readonly spent: bigint;
+  readonly nextSpend: bigint;
+  readonly asset: string;
+
+  constructor(budget: bigint, spent: bigint, nextSpend: bigint, asset: string) {
+    super(
+      "BUDGET_EXCEEDED",
+      `next spend ${nextSpend.toString()} would exceed budget ${budget.toString()} ` +
+        `(already spent ${spent.toString()} ${asset})`,
+    );
+    this.name = "BudgetExceededError";
+    this.budget = budget;
+    this.spent = spent;
+    this.nextSpend = nextSpend;
+    this.asset = asset;
   }
 }
