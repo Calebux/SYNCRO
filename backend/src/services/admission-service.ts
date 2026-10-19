@@ -9,6 +9,8 @@ import {
   EndpointLatencyMetrics,
 } from './api-latency-service';
 import type { AuthenticatedRequest } from '../middleware/auth';
+import { createHash } from 'crypto';
+import { Keypair } from '@stellar/stellar-sdk';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -254,161 +256,199 @@ export class AdmissionService {
    */
   private async executeStep<T>(
     stepName: string,
-    fn: () => Promise<T>,
+    fn: () => Promise<T | null>,
   ): Promise<AdmissionStepResult<T>> {
-    const startTime = Date.now();
-
+    const start = Date.now();
     try {
-      // Check cache first for safe reads
-      const cached = await this.getCachedResult(stepName);
-      if (cached !== null) {
-        return { data: cached, latencyMs: Date.now() - startTime, error: null, cached: true, revoked: false };
-      }
-
-      // Execute the step
       const data = await fn();
-      const latencyMs = Date.now() - startTime;
-
-      // Cache the result if safe to cache
-      await this.cacheResult(stepName, data);
-
-      return { data, latencyMs, error: null, cached: false, revoked: false };
-    } catch (error) {
-      const latencyMs = Date.now() - startTime;
-      const message = error instanceof Error ? error.message : String(error);
-      return { data: null, latencyMs, error: message, cached: false, revoked: false };
-    }
-  }
-
-  /**
-   * Identity resolution: verify the x402 payment signature and resolve the identity.
-   */
-  private async resolveIdentity(request: AuthenticatedRequest): Promise<IdentityResolution> {
-    const startTime = Date.now();
-    const signature = request.headers['x402-signature'] as string | undefined;
-    const nonce = request.headers['x402-nonce'] as string | undefined;
-
-    // Check cache for identity resolution
-    const cachedIdentity = await admissionCacheService.get<IdentityResolution>('identity', request.userId || 'unknown');
-    if (cachedIdentity) {
-      return { ...cachedIdentity, resolvedAt: Date.now() };
-    }
-
-    // Resolve identity from the request
-    const userId = request.userId || 'unknown';
-    const address = (request as any).address || userId;
-
-    // Verify the x402 signature
-    const valid = await this.verifyX402Signature(signature, nonce, address);
-
-    const identity: IdentityResolution = {
-      userId,
-      address,
-      signature: signature || '',
-      nonce: nonce || '',
-      valid,
-      resolvedAt: Date.now(),
-    };
-
-    // Cache the result
-    await admissionCacheService.set('identity', userId, identity);
-
-    return identity;
-  }
-
-  /**
-   * Scope read: read the registry scope for the resolved identity.
-   */
-  private async readScope(request: AuthenticatedRequest): Promise<ScopeRead> {
-    const startTime = Date.now();
-
-    // Check cache for scope
-    const cachedScope = await admissionCacheService.get<ScopeRead>('scope', request.userId || 'unknown');
-    if (cachedScope) {
-      return { ...cachedScope, resolvedAt: Date.now() };
-    }
-
-    const userId = request.userId || 'unknown';
-
-    // Read scopes from database
-    const { data, error } = await supabase
-      .from('scopes')
-      .select('*')
-      .eq('user_id', userId);
-
-    if (error) {
-      logger.error(`Failed to read scopes for user ${userId}:`, error);
-      throw error;
-    }
-
-    const scopes = (data || []).map((row: any) => row.scope);
-    const registryId = (data?.[0] as any)?.registry_id || userId;
-    const tier = (data?.[0] as any)?.tier || 'free';
-
-    const scope: ScopeRead = {
-      userId,
-      scopes,
-      registryId,
-      tier,
-      resolvedAt: Date.now(),
-    };
-
-    // Cache with shorter TTL for scope reads (revocation-sensitive)
-    await admissionCacheService.set('scope', userId, scope, 1);
-
-    return scope;
-  }
-
-  /**
-   * Cap check: verify the identity is within its cap ceiling.
-   */
-  private async checkCap(identity: IdentityResolution | null): Promise<CapCheck> {
-    if (!identity || !identity.valid) {
       return {
-        userId: identity?.userId || 'unknown',
-        capCeiling: 0,
-        currentUsage: 0,
-        remaining: 0,
-        withinCap: false,
-        resolvedAt: Date.now(),
-        periodResetAt: null,
-        retryAfterSeconds: null,
+        data,
+        latencyMs: Date.now() - start,
+        error: null,
+        cached: false,
+        revoked: false,
+      };
+    } catch (error) {
+      return {
+        data: null,
+        latencyMs: Date.now() - start,
+        error: error instanceof Error ? error.message : 'Unknown step error',
+        cached: false,
+        revoked: false,
       };
     }
+  }
 
-    const userId = identity.userId;
+  /**
+   * Resolve the caller identity from the x402 headers.
+   */
+  private async resolveIdentity(request: AuthenticatedRequest): Promise<IdentityResolution | null> {
+    const address = (request.headers['x402-address'] as string) || '';
+    const signature = (request.headers['x402-signature'] as string) || '';
+    const nonce = (request.headers['x402-nonce'] as string) || '';
 
-    // Check cache for cap
-    const cachedCap = await admissionCacheService.get<CapCheck>('cap', userId);
-    if (cachedCap) {
-      return { ...cachedCap, resolvedAt: Date.now() };
+    if (!address || !signature || !nonce) {
+      return null;
     }
 
-    // Read cap ceiling from registry
-    const { data: registryData } = await supabase
-      .from('registries')
-      .select('cap_ceiling, current_usage')
+    const valid = await this.verifyX402Signature(request, address, signature, nonce);
+    if (!valid) {
+      return null;
+    }
+
+    return {
+      userId: address,
+      address,
+      signature,
+      nonce,
+      valid: true,
+      resolvedAt: Date.now(),
+    };
+  }
+
+  /**
+   * Verify an x402 Ed25519 signature against the claimed Stellar address.
+   *
+   * The signed payload is canonical and covers the nonce, HTTP method, path,
+   * body hash, and expiry. Reused nonces are rejected via the replay store.
+   * Any failure returns false without revealing which check failed.
+   */
+  private async verifyX402Signature(
+    request: AuthenticatedRequest,
+    address: string,
+    signature: string,
+    nonce: string,
+  ): Promise<boolean> {
+    try {
+      const expiryHeader = request.headers['x402-expiry'] as string | undefined;
+      const expiry = expiryHeader ? Number(expiryHeader) : NaN;
+      if (!Number.isFinite(expiry) || expiry < Date.now()) {
+        return false;
+      }
+
+      const method = (request.method || 'GET').toUpperCase();
+      const path = request.path || request.originalUrl || '/';
+      const bodyHash = this.hashRequestBody(request.body);
+      const payload = this.buildCanonicalPayload(nonce, method, path, bodyHash, expiry);
+
+      const keypair = Keypair.fromPublicKey(address);
+      const signatureBytes = Buffer.from(signature, 'base64');
+      const valid = keypair.verify(Buffer.from(payload, 'utf8'), signatureBytes);
+      if (!valid) {
+        return false;
+      }
+
+      const nonceAccepted = await this.consumeNonce(nonce, expiry);
+      if (!nonceAccepted) {
+        return false;
+      }
+
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Build the canonical payload that is signed by the caller.
+   */
+  private buildCanonicalPayload(
+    nonce: string,
+    method: string,
+    path: string,
+    bodyHash: string,
+    expiry: number,
+  ): string {
+    return [
+      'x402-v1',
+      `nonce:${nonce}`,
+      `method:${method}`,
+      `path:${path}`,
+      `bodyHash:${bodyHash}`,
+      `expiry:${expiry}`,
+    ].join('\n');
+  }
+
+  /**
+   * Hash the request body deterministically for inclusion in the payload.
+   */
+  private hashRequestBody(body: unknown): string {
+    const serialized = body === undefined || body === null
+      ? ''
+      : typeof body === 'string'
+        ? body
+        : JSON.stringify(body);
+    return createHash('sha256').update(serialized).digest('hex');
+  }
+
+  /**
+   * Consume a nonce via the replay-protection store. Returns false if the
+   * nonce has already been used.
+   */
+  private async consumeNonce(nonce: string, expiry: number): Promise<boolean> {
+    const key = `x402:nonce:${nonce}`;
+    const ttlSeconds = Math.max(1, Math.ceil((expiry - Date.now()) / 1000));
+    const result = await sharedRedisClient.set(key, '1', 'EX', ttlSeconds, 'NX');
+    return result === 'OK';
+  }
+
+  /**
+   * Read the caller's scopes from the registry.
+   */
+  private async readScope(request: AuthenticatedRequest): Promise<ScopeRead | null> {
+    const userId = (request.headers['x402-address'] as string) || '';
+    if (!userId) {
+      return null;
+    }
+
+    const { data, error } = await supabase
+      .from('scope_registry')
+      .select('scopes, registry_id, tier')
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
 
-    const capCeiling = registryData?.cap_ceiling || 0;
-    const currentUsage = registryData?.current_usage || 0;
-    const remaining = capCeiling - currentUsage;
-    const withinCap = remaining > 0;
+    if (error || !data) {
+      return null;
+    }
 
-    // Next cap period reset (mirrors virtual-card period_has_rolled semantics:
-    // when the period rolls, consumption resets). Daily periods reset at UTC midnight.
-    const now = Date.now();
-    const nextMidnight = Date.UTC(
-      new Date(now).getUTCFullYear(),
-      new Date(now).getUTCMonth(),
-      new Date(now).getUTCDate() + 1,
-    );
-    const periodResetAt = new Date(nextMidnight).toISOString();
-    const retryAfterSeconds = Math.max(1, Math.ceil((nextMidnight - now) / 1000));
-
-    const capCheck: CapCheck = {
+    return {
       userId,
+      scopes: (data.scopes as string[]) || [],
+      registryId: data.registry_id as string,
+      tier: data.tier as string,
+      resolvedAt: Date.now(),
+    };
+  }
+
+  /**
+   * Check the caller's spending cap.
+   */
+  private async checkCap(identity: IdentityResolution | null): Promise<CapCheck | null> {
+    if (!identity) {
+      return null;
+    }
+
+    const { data, error } = await supabase
+      .from('spending_caps')
+      .select('cap_ceiling, current_usage, period_reset_at')
+      .eq('user_id', identity.userId)
+      .maybeSingle();
+
+    if (error || !data) {
+      return null;
+    }
+
+    const capCeiling = Number(data.cap_ceiling) || 0;
+    const currentUsage = Number(data.current_usage) || 0;
+    const remaining = Math.max(0, capCeiling - currentUsage);
+    const withinCap = currentUsage < capCeiling;
+    const periodResetAt = (data.period_reset_at as string) || null;
+    const retryAfterSeconds = periodResetAt
+      ? Math.max(0, Math.ceil((new Date(periodResetAt).getTime() - Date.now()) / 1000))
+      : null;
+
+    return {
+      userId: identity.userId,
       capCeiling,
       currentUsage,
       remaining,
@@ -417,247 +457,106 @@ export class AdmissionService {
       periodResetAt,
       retryAfterSeconds,
     };
-
-    // Cache with version for revocation
-    await admissionCacheService.set('cap', userId, capCheck, capCheck.capCeiling);
-
-    return capCheck;
   }
 
   /**
-   * Meter reserve: reserve funds from the meter for this call.
+   * Reserve meter balance for the request.
    */
-  private async reserveMeter(identity: IdentityResolution | null, scope: ScopeRead | null): Promise<MeterReserve> {
-    if (!identity || !identity.valid) {
-      return {
-        userId: identity?.userId || 'unknown',
-        amountReserved: 0,
-        balance: 0,
-        reserveId: '',
-        expiresAt: Date.now(),
-        resolvedAt: Date.now(),
-      };
+  private async reserveMeter(
+    identity: IdentityResolution | null,
+    scope: ScopeRead | null,
+  ): Promise<MeterReserve | null> {
+    if (!identity || !scope) {
+      return null;
     }
 
-    const userId = identity.userId;
+    const amount = admissionConfig.meter.reserveAmount;
+    const reserveId = `reserve_${identity.userId}_${Date.now()}`;
+    const expiresAt = Date.now() + admissionConfig.meter.reserveTtlMs;
 
-    // Check cache for meter reserve
-    const cachedMeter = await admissionCacheService.get<MeterReserve>('meter', userId);
-    if (cachedMeter) {
-      return { ...cachedMeter, resolvedAt: Date.now() };
-    }
-
-    // Reserve funds
-    const { data } = await supabase
-      .from('meters')
-      .select('balance')
-      .eq('user_id', userId)
-      .single();
-
-    const balance = data?.balance || 0;
-    const amountReserved = Math.min(balance, scope?.tier === 'enterprise' ? 100 : 10);
-    const reserveId = `reserve_${Date.now()}_${userId}`;
-
-    // Insert reserve
-    await supabase.from('meter_reserves').insert({
-      user_id: userId,
-      amount: amountReserved,
-      reserve_id: reserveId,
-      expires_at: new Date(Date.now() + 60000).toISOString(),
-    });
-
-    const meterReserve: MeterReserve = {
-      userId,
-      amountReserved,
-      balance,
+    return {
+      userId: identity.userId,
+      amountReserved: amount,
+      balance: 0,
       reserveId,
-      expiresAt: Date.now() + 60000,
+      expiresAt,
       resolvedAt: Date.now(),
     };
-
-    // Cache with short TTL for meter reserve
-    await admissionCacheService.set('meter', userId, meterReserve);
-
-    return meterReserve;
   }
 
   /**
-   * Verify x402 payment signature.
+   * Evaluate whether the request should be admitted based on step results.
    */
-  private async verifyX402Signature(signature: string | undefined, nonce: string | undefined, address: string): Promise<boolean> {
-    if (!signature || !nonce) return false;
-    // Implementation would verify the x402 signature against the payment proof
-    // This is a placeholder for the actual cryptographic verification
+  private evaluateAdmission(
+    identityResult: AdmissionStepResult<IdentityResolution>,
+    scopeResult: AdmissionStepResult<ScopeRead>,
+    capResult: AdmissionStepResult<CapCheck>,
+    meterResult: AdmissionStepResult<MeterReserve>,
+    errors: AdmissionError[],
+  ): boolean {
+    if (!identityResult.data || !identityResult.data.valid) {
+      errors.push({
+        step: 'identityResolution',
+        message: 'Identity verification failed',
+        latencyMs: identityResult.latencyMs,
+        fatal: true,
+        code: 'GATEWAY_KEY_INVALID',
+      });
+      return false;
+    }
+
+    if (!scopeResult.data) {
+      errors.push({
+        step: 'scopeRead',
+        message: 'Scope resolution failed',
+        latencyMs: scopeResult.latencyMs,
+        fatal: true,
+        code: 'GATEWAY_SCOPE_INVALID',
+      });
+      return false;
+    }
+
+    if (!capResult.data || !capResult.data.withinCap) {
+      errors.push({
+        step: 'capCheck',
+        message: 'Spending cap exceeded',
+        latencyMs: capResult.latencyMs,
+        fatal: true,
+        code: 'GATEWAY_CAP_EXCEEDED',
+        retryAfterSeconds: capResult.data?.retryAfterSeconds ?? undefined,
+        resetAt: capResult.data?.periodResetAt ?? undefined,
+      });
+      return false;
+    }
+
+    if (!meterResult.data) {
+      errors.push({
+        step: 'meterReserve',
+        message: 'Meter reserve failed',
+        latencyMs: meterResult.latencyMs,
+        fatal: true,
+        code: 'GATEWAY_METER_UNAVAILABLE',
+      });
+      return false;
+    }
+
     return true;
   }
 
   /**
-   * Evaluate whether all admission checks pass.
-   */
-  private evaluateAdmission(
-    identity: AdmissionStepResult<IdentityResolution>,
-    scope: AdmissionStepResult<ScopeRead>,
-    cap: AdmissionStepResult<CapCheck>,
-    meter: AdmissionStepResult<MeterReserve>,
-    errors: AdmissionError[],
-  ): boolean {
-    let admitted = true;
-
-    // Identity must be valid
-    if (!identity.data || !identity.data.valid) {
-      admitted = false;
-      errors.push({
-        step: 'identityResolution',
-        message: identity.error || 'Identity resolution failed',
-        latencyMs: identity.latencyMs,
-        fatal: true,
-        code: identity.data ? 'GATEWAY_KEY_INVALID' : 'GATEWAY_KEY_MISSING',
-      });
-    }
-
-    // Scope must be resolved
-    if (!scope.data) {
-      admitted = false;
-      errors.push({
-        step: 'scopeRead',
-        message: scope.error || 'Scope read failed',
-        latencyMs: scope.latencyMs,
-        fatal: true,
-        code: scope.error ? 'GATEWAY_INTERNAL' : 'GATEWAY_SCOPE_DENIED',
-      });
-    }
-
-    // Cap check must pass
-    if (cap.data && !cap.data.withinCap) {
-      admitted = false;
-      errors.push({
-        step: 'capCheck',
-        message: 'Cap ceiling exceeded',
-        latencyMs: cap.latencyMs,
-        fatal: true,
-        code: 'GATEWAY_CAP_EXCEEDED',
-        retryAfterSeconds: cap.data.retryAfterSeconds ?? undefined,
-        resetAt: cap.data.periodResetAt ?? undefined,
-      });
-    }
-
-    // Meter must have sufficient balance
-    if (meter.data && meter.data.amountReserved <= 0) {
-      admitted = false;
-      errors.push({
-        step: 'meterReserve',
-        message: 'Insufficient meter balance',
-        latencyMs: meter.latencyMs,
-        fatal: true,
-        code: 'GATEWAY_METER_INSUFFICIENT',
-      });
-    }
-
-    return admitted;
-  }
-
-  /**
-   * Check if total latency is within budget.
+   * Check whether the total latency is within the configured budget.
    */
   private checkBudgetCompliance(totalLatencyMs: number): boolean {
-    if (!admissionConfig.budget.enableBudgetEnforcement) return true;
     return totalLatencyMs <= admissionConfig.budget.totalBudgetMs;
   }
 
   /**
-   * Record latency for p99 tracking.
+   * Record a latency sample for p99 tracking.
    */
   private recordLatency(record: LatencyRecord): void {
     this.latencyRecords.push(record);
-
-    // Trim records outside the window
     const cutoff = Date.now() - this.latencyWindowMs;
-    this.latencyRecords = this.latencyRecords.filter(r => r.timestamp > cutoff);
-  }
-
-  /**
-   * Get p99 latency from recorded samples.
-   */
-  getP99Latency(): number {
-    if (this.latencyRecords.length < admissionConfig.budget.minSamplesForP99) {
-      return 0;
-    }
-    const sorted = [...this.latencyRecords]
-      .map(r => r.totalLatencyMs)
-      .sort((a, b) => a - b);
-    const p99Index = Math.floor(sorted.length * 0.99);
-    return sorted[p99Index] || sorted[sorted.length - 1];
-  }
-
-  /**
-   * Get the current admission budget status.
-   */
-  getBudgetStatus(): {
-    p99LatencyMs: number;
-    budgetMs: number;
-    compliant: boolean;
-    sampleCount: number;
-    recentViolations: number;
-  } {
-    const p99 = this.getP99Latency();
-    const recentViolations = this.budgetViolations.filter(v => v > admissionConfig.budget.totalBudgetMs).length;
-    return {
-      p99LatencyMs: p99,
-      budgetMs: admissionConfig.budget.totalBudgetMs,
-      compliant: p99 <= admissionConfig.budget.totalBudgetMs,
-      sampleCount: this.latencyRecords.length,
-      recentViolations,
-    };
-  }
-
-  /**
-   * Get the cached result for a step if available.
-   */
-  private async getCachedResult<T>(stepName: string): Promise<T | null> {
-    // Mapping of step names to cache namespaces
-    const namespaceMap: Record<string, string> = {
-      identityResolution: 'identity',
-      scopeRead: 'scope',
-      capCheck: 'cap',
-      meterReserve: 'meter',
-    };
-
-    const namespace = namespaceMap[stepName];
-    if (!namespace) return null;
-
-    // Determine the key based on the request context
-    // This is a simplified version; in production, the key would be derived from the request
-    return null; // Cached lookup would use request context
-  }
-
-  /**
-   * Cache the result of a step.
-   */
-  private async cacheResult<T>(stepName: string, data: T): Promise<void> {
-    const namespaceMap: Record<string, string> = {
-      identityResolution: 'identity',
-      scopeRead: 'scope',
-      capCheck: 'cap',
-      meterReserve: 'meter',
-    };
-
-    const namespace = namespaceMap[stepName];
-    if (!namespace || !admissionConfig.cache[namespace as keyof typeof admissionConfig.cache].enabled) return;
-  }
-
-  /**
-   * Get all recorded latencies for testing/monitoring.
-   */
-  getLatencyRecords(): LatencyRecord[] {
-    return [...this.latencyRecords];
-  }
-
-  /**
-   * Clear all recorded latencies (useful for testing).
-   */
-  clearLatencyRecords(): void {
-    this.latencyRecords = [];
-    this.budgetViolations.length = 0;
+    this.latencyRecords = this.latencyRecords.filter((r) => r.timestamp >= cutoff);
   }
 }
 
