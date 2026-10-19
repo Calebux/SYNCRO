@@ -34,6 +34,10 @@ export function createV3GatewayRouter(customUpstream?: UpstreamProvider): Router
    *  - Token-billed route (/inference)
    *  - Byte-billed route (/storage)
    *  - Compute/seconds-billed route (/compute)
+   *
+   * The agent identity is resolved from the authenticated credential by
+   * `lifecycle.resolveIdentity`; the `x-syncro-agent-id` header is only a hint
+   * and must match the authenticated identity (enforced in resolveIdentity).
    */
   router.post('/proxy', ...middlewareStack);
   router.post('/inference', ...middlewareStack);
