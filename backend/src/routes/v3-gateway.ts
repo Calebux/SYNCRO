@@ -192,6 +192,12 @@ function sendRouteRegistrationError(res: Response, error: unknown) {
   return sendServiceError(res, error);
 }
 
+/**
+ * Paid-call request body (#1613). The exchange rate is deliberately NOT part of
+ * the request: it is sourced server-side from the gateway FX boundary (#1418)
+ * so a payer cannot choose their own price conversion. Any client-supplied
+ * `exchangeRate` is stripped by the schema and ignored.
+ */
 const paidCallSchema = z.object({
   providerId: z.string().uuid(),
   path: z.string().min(1),
@@ -200,150 +206,43 @@ const paidCallSchema = z.object({
   channelId: z.string().min(1),
   stateNonce: z.number().int().nonnegative(),
   rateCardVersion: z.string().min(1),
-  exchangeRate: z.number().positive().optional().nullable(),
   body: z.unknown().optional(),
 });
+
+/**
+ * FX boundary (#1418). The gateway owns the rate; callers never supply it.
+ * Returns the rate plus provenance so the receipt can record which rate was
+ * used and when it was observed (#1613).
+ */
+export interface FxRateQuote {
+  rate: number;
+  source: string;
+  observedAt: string;
+}
+
+export type FxRateProvider = () => Promise<FxRateQuote> | FxRateQuote;
+
+/**
+ * Default FX boundary used when no provider is injected. Reads the rate from
+ * the gateway's own configuration (rate card / FX oracle), never from the
+ * request. Fails closed if no rate is configured.
+ */
+export const defaultFxRateProvider: FxRateProvider = () => {
+  const raw = process.env.GATEWAY_FX_RATE;
+  const rate = raw === undefined ? NaN : Number(raw);
+  if (!Number.isFinite(rate) || rate <= 0) {
+    throw new Error('gateway FX rate is not configured');
+  }
+  return {
+    rate,
+    source: process.env.GATEWAY_FX_RATE_SOURCE ?? 'gateway-config',
+    observedAt: new Date().toISOString(),
+  };
+};
 
 const grantSchema = z.object({
   agentId: z.string().min(1),
   scopes: z.array(z.string().min(1)).min(1),
-  expiresAt: z.string().datetime().nullable().optional(),
-  revokedAt: z.string().datetime().nullable().optional(),
-});
+  expiresAt: z.string().datetime().nullable().
 
-const degradedModePolicySchema = z
-  .object(degradedModeFields)
-  .refine((value) => value.failMode !== undefined || value.exposureCeiling !== undefined, {
-    message: 'at least one policy field is required',
-  });
-
-const rateLimitPolicySchema = z
-  .object(rateLimitFields)
-  .refine(
-    (value) =>
-      value.requestsPerInterval !== undefined ||
-      value.intervalMs !== undefined ||
-      value.burstAllowance !== undefined,
-    {
-      message: 'at least one policy field is required',
-    },
-  );
-
-const registryReader = new InMemoryAgentRegistryReader();
-const providerStore = new InMemoryProviderStore();
-const scopeEnforcer = new ScopeEnforcer(registryReader, {
-  cacheTtlMs: 5_000,
-  cacheSoftTtlMs: 2_500,
-});
-const receiptService = new ReceiptService();
-const upstreamCaller: UpstreamCaller = {
-  async call({ upstreamBaseUrl, method, path, body }) {
-    const runtimeFetch = (globalThis as unknown as { fetch?: (...args: any[]) => Promise<any> }).fetch;
-    if (!runtimeFetch) {
-      throw new Error('fetch is not available in this runtime');
-    }
-    const target = new URL(path, upstreamBaseUrl).toString();
-    // Re-check at call time to defeat DNS rebinding (#1612).
-    await assertSafeUpstream(target);
-    const response = await runtimeFetch(target, {
-      method: method.toUpperCase(),
-      headers: { 'content-type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      // Never follow redirects — a public host could 302 to a private one.
-      redirect: 'manual',
-    });
-
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers?.get?.('location');
-      if (location) {
-        const redirectTarget = new URL(location, target).toString();
-        await assertSafeUpstream(redirectTarget);
-      }
-      throw new Error('upstream redirects are not followed');
-    }
-
-    let payload: unknown = null;
-    try {
-      payload = await response.json();
-    } catch {
-      payload = await response.text();
-    }
-    return {
-      status: response.status,
-      body: payload,
-    };
-  },
-};
-
-/**
- * Everything served unbilled while the counter store was down lands here
- * (#1444). The path is configurable because reconciliation runs from wherever
- * the gateway runs; the default keeps it next to the other local state.
- */
-const degradedUsageLog = new FileDegradedUsageLog(
-  process.env.METER_DEGRADED_LOG_PATH ??
-    join(process.cwd(), 'data', 'metering', 'degraded-usage.jsonl'),
-);
-
-/**
- * Counter-store outage admission (#1444). The policy is per provider — cheap
- * high-volume routes fail open within a budget, expensive ones fail closed —
- * and every transition pages the operator.
- */
-const degradedAdmission = new DegradedAdmissionController({
-  isCounterStoreAvailable: () => counterStoreHealth.isAvailable(),
-  log: degradedUsageLog,
-  onEvent: createDegradedAlertHandler(),
-});
-
-/**
- * Per-agent x route burst rate limiting (#1447). The service installs each
- * route's effective policy (route override ?? provider default) the moment a
- * provider registers or revises a route, so nothing is ever served unlimited.
- */
-const rateLimiter = new RateLimiter();
-const meter = new InMemoryMeter();
-
-const service = new V3GatewayService(
-  providerStore,
-  scopeEnforcer,
-  receiptService,
-  upstreamCaller,
-  meter,
-  degradedAdmission,
-  rateLimiter,
-);
-
-const router = Router();
-
-router.post('/providers', async (req: Request, res: Response) => {
-  const parsed = registerProviderSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.flatten() });
-  }
-  try {
-    await assertSafeUpstream(parsed.data.upstreamBaseUrl);
-  } catch (error) {
-    return res.status(400).json({ error: error instanceof Error ? error.message : 'invalid upstreamBaseUrl' });
-  }
-  const provider = service.registerProvider(parsed.data);
-  return res.status(201).json({ data: provider });
-});
-
-router.get('/providers/:providerId', (req: Request, res: Response) => {
-  try {
-    return res.json({ data: service.readProvider(routeParam(req.params.providerId)) });
-  } catch (error) {
-    return sendServiceError(res, error);
-  }
-});
-
-router.patch('/providers/:providerId/payout-address', (req: Request, res: Response) => {
-  const parsed = payoutAddressSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.flatten() });
-  }
-  try {
-    const provider =
-
-/* … truncated 10376 chars — edit only what you need near the top … */
+/* … truncated 4612 chars — edit only what you need near the top … */
