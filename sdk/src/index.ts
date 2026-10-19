@@ -5,6 +5,10 @@
 // verification, Stellar memo utilities, Soroban contract bindings,
 // route pricing, and channel management.  Subscription APIs have been
 // removed in this major version; see the deprecation note in the README.
+//
+// ZK payment proofs are out of v3 scope (the zk-payment-verifier contract
+// is not part of the v3 component list), so `sdk/src/zk` is no longer part
+// of the public export surface.  See docs/adr for the recorded decision.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export {
