@@ -34,7 +34,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: backend
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v3
@@ -83,7 +83,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: backend
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Validate RLS on Production Database
         env:

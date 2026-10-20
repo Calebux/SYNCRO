@@ -88,11 +88,19 @@ console.log(`▶ Running npm audit in ${workspaceName} (${absDir})…`);
 // or broken `node_modules`. Wrap defensively and fall back to its stdout
 // (which is usually valid JSON with a top-level `error` key in those cases).
 let stdout;
+const auditArgs = ['audit', '--json', '--audit-level=none'];
+const auditCwd = fs.existsSync(path.join(absDir, 'package-lock.json'))
+  ? absDir
+  : ROOT;
+if (auditCwd === ROOT) {
+  const workspacePackage = JSON.parse(fs.readFileSync(path.join(absDir, 'package.json'), 'utf8'));
+  auditArgs.push(`--workspace=${workspacePackage.name}`);
+}
 try {
   stdout = execFileSync(
     'npm',
-    ['audit', '--json', '--audit-level=none'],
-    { cwd: absDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }
+    auditArgs,
+    { cwd: auditCwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }
   );
 } catch (err) {
   if (err && err.stdout) {
