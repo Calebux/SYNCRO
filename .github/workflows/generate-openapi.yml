@@ -25,7 +25,7 @@ jobs:
 
       - name: Install backend dependencies
         working-directory: backend
-        run: npm ci --legacy-peer-deps
+        run: npm ci --legacy-peer-deps --workspaces=false
 
       - name: Generate OpenAPI JSON
         working-directory: backend

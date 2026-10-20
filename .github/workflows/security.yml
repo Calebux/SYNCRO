@@ -173,15 +173,6 @@ jobs:
           cache: "npm"
           cache-dependency-path: ${{ contains(fromJSON('["sdk","shared"]'), matrix.workspace) && 'package-lock.json' || format('{0}/package-lock.json', matrix.workspace) }}
 
-      - name: Install ${{ matrix.workspace }} dependencies
-        if: matrix.workspace == 'backend' || matrix.workspace == 'client'
-        working-directory: ${{ matrix.workspace }}
-        run: npm ci --ignore-scripts --legacy-peer-deps
-
-      - name: Install ${{ matrix.workspace }} workspace dependencies
-        if: matrix.workspace == 'sdk' || matrix.workspace == 'shared'
-        run: npm ci --workspace=@syncro/${{ matrix.workspace }} --ignore-scripts --legacy-peer-deps
-
       - name: Run dependency audit gate
         run: node scripts/security-audit-gate.js ${{ matrix.workspace }} ${{ matrix.workspace }}
 
