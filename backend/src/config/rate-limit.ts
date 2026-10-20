@@ -78,6 +78,10 @@ export interface RateLimitSettings {
   simulation: RateLimitConfig & {
     windowHours: number;
   };
+  /** Session challenge endpoints (IP-keyed). */
+  sessionChallenge: RateLimitConfig & {
+    windowMinutes: number;
+  };
   privacy: PrivacyRateLimitConfig;
 }
 
@@ -149,6 +153,10 @@ export function loadRateLimitConfig(): RateLimitSettings {
   // Simulation limits
   const simulationMax = parseIntEnv(env.RATE_LIMIT_SIMULATION_MAX, 5);
   const simulationWindowHours = parseIntEnv(env.RATE_LIMIT_SIMULATION_WINDOW_HOURS, 1);
+
+  // Session challenge limits (IP-keyed, for unauthenticated endpoints)
+  const sessionChallengeMax = parseIntEnv(env.RATE_LIMIT_SESSION_CHALLENGE_MAX, 5);
+  const sessionChallengeWindowMinutes = parseIntEnv(env.RATE_LIMIT_SESSION_CHALLENGE_WINDOW_MINUTES, 15);
 
   // Privacy feature rate limits
   const stealthAddressMax = parseIntEnv(env.RATE_LIMIT_STEALTH_ADDRESS_MAX, 100);
@@ -262,6 +270,16 @@ export function loadRateLimitConfig(): RateLimitSettings {
       standardHeaders: true,
       legacyHeaders: false,
     },
+    sessionChallenge: {
+      windowMs: sessionChallengeWindowMinutes * 60 * 1000,
+      windowMinutes: sessionChallengeWindowMinutes,
+      max: sessionChallengeMax,
+      message: {
+        error: `Too many session challenge requests. You can make up to ${sessionChallengeMax} attempts per ${sessionChallengeWindowMinutes} minute${sessionChallengeWindowMinutes > 1 ? 's' : ''}. Please try again later.`,
+      },
+      standardHeaders: true,
+      legacyHeaders: false,
+    },
     privacy: {
       stealthAddress: {
         windowMs: stealthAddressWindowHours * 60 * 60 * 1000,
@@ -329,6 +347,7 @@ export function loadRateLimitConfig(): RateLimitSettings {
       apiKey: `${config.apiKey.max}/${config.apiKey.windowHours}h`,
       admin: `${config.admin.max}/${config.admin.windowHours}h`,
       simulation: `${config.simulation.max}/${config.simulation.windowHours}h`,
+      sessionChallenge: `${config.sessionChallenge.max}/${config.sessionChallenge.windowMinutes}m`,
     },
     privacy: {
       stealthAddress: `${config.privacy.stealthAddress.max}/${config.privacy.stealthAddress.windowHours}h`,
