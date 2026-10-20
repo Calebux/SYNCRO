@@ -72,6 +72,12 @@ for (const [k, v] of Object.entries(source)) {
 }
 
 const today = new Date();
+const today_match = (entry) => new Date(entry.expires_at) >= today;
+const matchesWorkspace = (entry) => {
+  if (!entry.workspace) return true;
+  const allowed = Array.isArray(entry.workspace) ? entry.workspace : [entry.workspace];
+  return allowed.includes(workspaceName);
+};
 
 // Expired entries for THIS workspace go straight to blockers so a forgotten
 // accept cannot silently outlive its promised review date even after the
@@ -202,12 +208,6 @@ for (const [pkgName, finding] of Object.entries(vulnerabilities)) {
 // Most existing entries omit `workspace`; a future entry can opt-in to a
 // narrower scope by listing specific workspaces.
 
-const today_match = (entry) => new Date(entry.expires_at) >= today;
-const matchesWorkspace = (entry) => {
-  if (!entry.workspace) return true;
-  const allowed = Array.isArray(entry.workspace) ? entry.workspace : [entry.workspace];
-  return allowed.includes(workspaceName);
-};
 const matchedGhsa = ghsas.find((ghsa) => {
   const entry = allowlist[ghsa];
   return entry && today_match(entry) && matchesWorkspace(entry);
