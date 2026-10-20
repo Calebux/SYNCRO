@@ -1,6 +1,7 @@
 import request from 'supertest';
 import express from 'express';
-import { createV3GatewayRouter } from '../src/routes/v3/gateway';
+import { Keypair } from '@stellar/stellar-sdk';
+import { createV3GatewayRouter, ProviderDirectory } from '../src/routes/v3/gateway';
 import {
   generatePaymentChallenge,
   parsePaymentProof,
@@ -15,6 +16,8 @@ import crypto from 'crypto';
 
 describe('V3 Gateway & Ops Tests', () => {
   let app: express.Express;
+  let providerKeypair: Keypair;
+  let providerDirectory: ProviderDirectory;
 
   beforeEach(() => {
     challengeNonceStore.clear();
@@ -23,10 +26,28 @@ describe('V3 Gateway & Ops Tests', () => {
     unitEconomicsService.clear();
     meterReservationTracker.clear();
 
+    // #1619: the economics endpoint now requires ownership; back the router
+    // with a directory whose payout address the test controls.
+    providerKeypair = Keypair.random();
+    providerDirectory = {
+      payoutAddressOf: (providerId: string) =>
+        providerId === 'provider_test' ? providerKeypair.publicKey() : null,
+    };
+
     app = express();
     app.use(express.json());
-    app.use('/api/v3/gateway', createV3GatewayRouter());
+    app.use('/api/v3/gateway', createV3GatewayRouter(undefined, { providers: providerDirectory }));
   });
+
+  function signProviderChallenge(providerId: string): Record<string, string> {
+    const challenge = `syncro-provider-economics:${providerId}:test-nonce`;
+    const signature = Buffer.from(providerKeypair.sign(Buffer.from(challenge))).toString('base64');
+    return {
+      'x-syncro-provider-challenge': challenge,
+      'x-syncro-provider-signature': signature,
+    };
+  }
+
 
   describe('Issue #1466: HTTP 402 challenge and payment-proof verification', () => {
     it('returns 402 Payment Required with machine-readable challenge on unfunded/unauthenticated request', async () => {
@@ -319,11 +340,51 @@ describe('V3 Gateway & Ops Tests', () => {
         totalRevenue: 30,
       });
 
-      const res = await request(app).get('/api/v3/gateway/economics/provider_test?targetPrice=5');
+      const res = await request(app)
+        .get('/api/v3/gateway/economics/provider_test?targetPrice=5')
+        .set(signProviderChallenge('provider_test'));
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.recommendation).toBeDefined();
       expect(res.body.data.recommendation.optimalBatchThreshold).toBeDefined();
+    });
+
+    // ── Issue #1619: economics endpoint must be authorized ──────────────────
+
+    it('rejects an unauthenticated request without a provider proof', async () => {
+      const res = await request(app).get('/api/v3/gateway/economics/provider_test?targetPrice=5');
+      expect(res.status).toBe(403);
+      expect(res.body.success).toBeUndefined();
+    });
+
+    it('rejects a cross-provider signature (proof bound to another provider)', async () => {
+      const res = await request(app)
+        .get('/api/v3/gateway/economics/provider_test?targetPrice=5')
+        .set(signProviderChallenge('provider_other'));
+      expect(res.status).toBe(403);
+    });
+
+    it('rejects an invalid provider signature', async () => {
+      const challenge = 'syncro-provider-economics:provider_test:test-nonce';
+      const res = await request(app)
+        .get('/api/v3/gateway/economics/provider_test?targetPrice=5')
+        .set('x-syncro-provider-challenge', challenge)
+        .set('x-syncro-provider-signature', Buffer.from('not-a-signature').toString('base64'));
+      expect(res.status).toBe(403);
+    });
+
+    it('rejects a non-numeric targetPrice with 400', async () => {
+      const res = await request(app)
+        .get('/api/v3/gateway/economics/provider_test?targetPrice=abc')
+        .set(signProviderChallenge('provider_test'));
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects a non-positive targetPrice with 400', async () => {
+      const res = await request(app)
+        .get('/api/v3/gateway/economics/provider_test?targetPrice=-3')
+        .set(signProviderChallenge('provider_test'));
+      expect(res.status).toBe(400);
     });
   });
 
