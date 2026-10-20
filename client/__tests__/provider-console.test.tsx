@@ -245,4 +245,117 @@ describe('ProviderConsole', () => {
     expect(screen.queryByText(/total revenue/i)).toBeNull();
     expect(screen.queryByText('15.000000 USDC')).toBeNull();
   });
+
+  it('walks a payout address change through cooling-off and verification (happy path)', async () => {
+    sessionStorage.setItem(PROVIDER_SESSION_KEY, 'provider-1');
+    const unverified = {
+      ...snapshot().provider,
+      payoutAddress: 'GNEWADDRESS',
+      payoutVerified: false,
+    };
+    const api = client({
+      loadConsole: vi
+        .fn()
+        .mockResolvedValueOnce(snapshot())
+        .mockResolvedValueOnce(snapshot({ provider: unverified }))
+        .mockResolvedValueOnce(snapshot({ provider: { ...unverified, payoutVerified: true } })),
+      updatePayoutAddress: vi.fn().mockResolvedValue(unverified),
+      createPayoutChallenge: vi.fn().mockResolvedValue({ challenge: 'syncro-payout:new-challenge' }),
+      verifyPayout: vi.fn().mockResolvedValue({ ...unverified, payoutVerified: true }),
+    });
+
+    render(<ProviderConsole client={api} />);
+    await screen.findByLabelText('Stellar payout address');
+
+    fireEvent.change(screen.getByLabelText('Stellar payout address'), { target: { value: 'GNEWADDRESS' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Change payout address' }));
+
+    await waitFor(() => {
+      expect(api.updatePayoutAddress).toHaveBeenCalledWith('provider-1', 'GNEWADDRESS');
+    });
+    expect(await screen.findByTestId('payout-pending-change')).toHaveTextContent('GADDRESS');
+    expect(screen.getByTestId('payout-cooling-off')).toHaveTextContent('remaining');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start verification' }));
+    expect(await screen.findByTestId('payout-challenge')).toHaveTextContent('syncro-payout:new-challenge');
+
+    fireEvent.change(screen.getByLabelText('Signature'), { target: { value: 'bmV3' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit signature' }));
+
+    await waitFor(() => {
+      expect(api.verifyPayout).toHaveBeenCalledWith('provider-1', 'bmV3');
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId('payout-pending-change')).toBeNull();
+    });
+  });
+
+  it('keeps the change pending and unverified when the signature is wrong', async () => {
+    sessionStorage.setItem(PROVIDER_SESSION_KEY, 'provider-1');
+    const unverified = {
+      ...snapshot().provider,
+      payoutAddress: 'GNEWADDRESS',
+      payoutVerified: false,
+    };
+    const api = client({
+      loadConsole: vi
+        .fn()
+        .mockResolvedValueOnce(snapshot())
+        .mockResolvedValueOnce(snapshot({ provider: unverified })),
+      updatePayoutAddress: vi.fn().mockResolvedValue(unverified),
+      createPayoutChallenge: vi.fn().mockResolvedValue({ challenge: 'syncro-payout:new-challenge' }),
+      verifyPayout: vi.fn().mockRejectedValue(new Error('Signature does not match the payout address.')),
+    });
+
+    render(<ProviderConsole client={api} />);
+    await screen.findByLabelText('Stellar payout address');
+
+    fireEvent.change(screen.getByLabelText('Stellar payout address'), { target: { value: 'GNEWADDRESS' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Change payout address' }));
+    await screen.findByTestId('payout-pending-change');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start verification' }));
+    await screen.findByTestId('payout-challenge');
+
+    fireEvent.change(screen.getByLabelText('Signature'), { target: { value: 'd3Jvbmc=' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit signature' }));
+
+    expect(await screen.findByText('Signature does not match the payout address.')).toBeInTheDocument();
+    expect(screen.getByTestId('payout-pending-change')).toBeInTheDocument();
+    expect(screen.getByTestId('payout-verification')).toBeInTheDocument();
+  });
+
+  it('cancels a pending change and restores the previous payout address', async () => {
+    sessionStorage.setItem(PROVIDER_SESSION_KEY, 'provider-1');
+    const unverified = {
+      ...snapshot().provider,
+      payoutAddress: 'GNEWADDRESS',
+      payoutVerified: false,
+    };
+    const restored = snapshot().provider;
+    const api = client({
+      loadConsole: vi
+        .fn()
+        .mockResolvedValueOnce(snapshot())
+        .mockResolvedValueOnce(snapshot({ provider: unverified }))
+        .mockResolvedValueOnce(snapshot({ provider: restored })),
+      updatePayoutAddress: vi.fn().mockResolvedValueOnce(unverified).mockResolvedValueOnce(restored),
+    });
+
+    render(<ProviderConsole client={api} />);
+    await screen.findByLabelText('Stellar payout address');
+
+    fireEvent.change(screen.getByLabelText('Stellar payout address'), { target: { value: 'GNEWADDRESS' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Change payout address' }));
+    await screen.findByTestId('payout-pending-change');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel change' }));
+
+    await waitFor(() => {
+      expect(api.updatePayoutAddress).toHaveBeenCalledWith('provider-1', 'GADDRESS');
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId('payout-pending-change')).toBeNull();
+    });
+  });
 });

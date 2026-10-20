@@ -105,6 +105,43 @@ export const RATE_CARD_NON_RETROACTIVE_NOTICE =
 export const SEPARATE_REVENUE_NOTICE =
   'Settled, unsettled, and in-dispute amounts are shown separately and are not combined into one figure.';
 
+export const PAYOUT_CHANGE_COOLING_OFF_MS = 30_000;
+
+export interface PayoutChange {
+  previousAddress: string;
+  newAddress: string;
+  startedAt: number;
+}
+
+export interface PayoutChangeCountdown {
+  elapsedMs: number;
+  remainingMs: number;
+  complete: boolean;
+  label: string;
+}
+
+/**
+ * Count down a pending payout change. The new address is applied immediately
+ * (and left unverified) but the provider has a cooling-off window to cancel and
+ * get the previous address back before ownership is proven with a signature.
+ */
+export function payoutChangeCountdown(
+  change: PayoutChange,
+  now: number,
+  coolingOffMs: number = PAYOUT_CHANGE_COOLING_OFF_MS,
+): PayoutChangeCountdown {
+  const elapsedMs = Math.max(0, now - change.startedAt);
+  const remainingMs = Math.max(0, coolingOffMs - elapsedMs);
+  const complete = remainingMs === 0;
+  const seconds = Math.ceil(remainingMs / 1000);
+  return {
+    elapsedMs,
+    remainingMs,
+    complete,
+    label: complete ? 'Cooling-off complete' : `Cooling-off: ${seconds}s remaining`,
+  };
+}
+
 export class ProviderConsoleError extends Error {
   readonly status: number;
 
