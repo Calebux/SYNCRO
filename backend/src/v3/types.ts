@@ -26,6 +26,8 @@ export interface ProviderRegistration {
    * overridden — nothing is exempt silently.
    */
   rateLimit: RateLimitPolicy;
+  /** Secret key used for provider authentication (bound to this provider). */
+  providerSecret: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { InMemoryProviderStore } from '../v3/provider-store';
@@ -11,6 +11,7 @@ import { InMemoryMeter } from '../../../packages/metering/src/meter';
 import { DegradedAdmissionController } from '../../../packages/metering/src/degraded-admission';
 import { FileDegradedUsageLog } from '../../../packages/metering/src/degraded-log';
 import { RateLimiter } from '../../../packages/metering/src/rate-limit';
+import { authenticateProvider } from '../middleware/provider-auth';
 
 const degradedModeFields = {
   failMode: z.enum(['fail_open', 'fail_closed']).optional(),
@@ -87,6 +88,40 @@ function sendRouteRegistrationError(res: Response, error: unknown) {
     return res.status(409).json({ error: message });
   }
   return sendServiceError(res, error);
+}
+
+/**
+ * Provider auth + authorization middleware for `:providerId` routes.
+ *
+ * - 401 when no `x-provider-key` header is present or the key is invalid.
+ * - 403 when the authenticated provider does not own the `:providerId` in the route.
+ *
+ * The gateway's own paid-call endpoint (`POST /gateway/paid`) and
+ * challenge endpoints are excluded from this guard because they use
+ * agent-level auth / are intentionally public.
+ */
+function requireProviderAuth(req: Request, res: Response, next: NextFunction): void {
+  const providerId = routeParam(req.params.providerId);
+  if (!providerId) {
+    return res.status(400).json({ error: 'providerId is required' });
+  }
+
+  const authenticatedProviderId = (req as any).provider?.providerId;
+  if (!authenticatedProviderId) {
+    return res.status(401).json({
+      error: 'Unauthorized',
+      message: 'Provider authentication required',
+    });
+  }
+
+  if (authenticatedProviderId !== providerId) {
+    return res.status(403).json({
+      error: 'Forbidden',
+      message: 'Provider does not own the requested resource',
+    });
+  }
+
+  next();
 }
 
 const paidCallSchema = z.object({
@@ -200,6 +235,13 @@ const service = new V3GatewayService(
 
 const router = Router();
 
+// Provider auth middleware applied to all :providerId routes below.
+// POST /providers (registration) is intentionally excluded — providers
+// don't have a providerId yet.
+router.use('/providers/:providerId', authenticateProvider(providerStore));
+
+// ── Provider registration (public — no providerId yet) ──────────────
+
 router.post('/providers', (req: Request, res: Response) => {
   const parsed = registerProviderSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -209,7 +251,9 @@ router.post('/providers', (req: Request, res: Response) => {
   return res.status(201).json({ data: provider });
 });
 
-router.get('/providers/:providerId', (req: Request, res: Response) => {
+// ── Provider read (owner only) ──────────────────────────────────────
+
+router.get('/providers/:providerId', requireProviderAuth, (req: Request, res: Response) => {
   try {
     return res.json({ data: service.readProvider(routeParam(req.params.providerId)) });
   } catch (error) {
@@ -217,7 +261,9 @@ router.get('/providers/:providerId', (req: Request, res: Response) => {
   }
 });
 
-router.patch('/providers/:providerId/payout-address', (req: Request, res: Response) => {
+// ── Mutating provider routes (owner only) ──────────────────────────
+
+router.patch('/providers/:providerId/payout-address', requireProviderAuth, (req: Request, res: Response) => {
   const parsed = payoutAddressSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -235,7 +281,7 @@ router.patch('/providers/:providerId/payout-address', (req: Request, res: Respon
  * fail open (serve unbilled) or fail closed (refuse), and how much value it
  * may serve unbilled during a single outage.
  */
-router.patch('/providers/:providerId/degraded-mode-policy', (req: Request, res: Response) => {
+router.patch('/providers/:providerId/degraded-mode-policy', requireProviderAuth, (req: Request, res: Response) => {
   const parsed = degradedModePolicySchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -260,7 +306,7 @@ router.patch('/providers/:providerId/degraded-mode-policy', (req: Request, res: 
  * own override keep it; routes inheriting the provider default pick up the
  * change immediately.
  */
-router.patch('/providers/:providerId/rate-limit', (req: Request, res: Response) => {
+router.patch('/providers/:providerId/rate-limit', requireProviderAuth, (req: Request, res: Response) => {
   const parsed = rateLimitPolicySchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -295,7 +341,9 @@ router.get('/gateway/degraded', (_req: Request, res: Response) => {
   });
 });
 
-router.get('/providers/:providerId/routes', (req: Request, res: Response) => {
+// ── Provider-scoped read routes (owner only) ───────────────────────
+
+router.get('/providers/:providerId/routes', requireProviderAuth, (req: Request, res: Response) => {
   try {
     return res.json({ data: service.listRoutes(routeParam(req.params.providerId)) });
   } catch (error) {
@@ -303,7 +351,7 @@ router.get('/providers/:providerId/routes', (req: Request, res: Response) => {
   }
 });
 
-router.patch('/providers/:providerId/routes/:routeId', (req: Request, res: Response) => {
+router.patch('/providers/:providerId/routes/:routeId', requireProviderAuth, (req: Request, res: Response) => {
   const parsed = reviseRouteSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -316,7 +364,7 @@ router.patch('/providers/:providerId/routes/:routeId', (req: Request, res: Respo
   }
 });
 
-router.get('/providers/:providerId/rate-cards', (req: Request, res: Response) => {
+router.get('/providers/:providerId/rate-cards', requireProviderAuth, (req: Request, res: Response) => {
   try {
     return res.json({ data: service.listRateCards(routeParam(req.params.providerId)) });
   } catch (error) {
@@ -324,7 +372,7 @@ router.get('/providers/:providerId/rate-cards', (req: Request, res: Response) =>
   }
 });
 
-router.get('/providers/:providerId/settlements', (req: Request, res: Response) => {
+router.get('/providers/:providerId/settlements', requireProviderAuth, (req: Request, res: Response) => {
   try {
     return res.json({ data: service.listSettlements(routeParam(req.params.providerId)) });
   } catch (error) {
@@ -332,13 +380,15 @@ router.get('/providers/:providerId/settlements', (req: Request, res: Response) =
   }
 });
 
-router.get('/providers/:providerId/revenue', (req: Request, res: Response) => {
+router.get('/providers/:providerId/revenue', requireProviderAuth, (req: Request, res: Response) => {
   try {
     return res.json({ data: service.revenue(routeParam(req.params.providerId)) });
   } catch (error) {
     return sendServiceError(res, error);
   }
 });
+
+// ── Challenge endpoints (public — deliberate decision, documented in route registry) ──
 
 router.post('/providers/:providerId/payout-challenge', (req: Request, res: Response) => {
   try {
@@ -362,7 +412,9 @@ router.post('/providers/:providerId/payout-verify', (req: Request, res: Response
   }
 });
 
-router.post('/providers/:providerId/routes', (req: Request, res: Response) => {
+// ── Mutating route registration (owner only) ────────────────────────
+
+router.post('/providers/:providerId/routes', requireProviderAuth, (req: Request, res: Response) => {
   const parsed = registerRouteSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -378,7 +430,7 @@ router.post('/providers/:providerId/routes', (req: Request, res: Response) => {
   }
 });
 
-router.post('/providers/:providerId/routes/dry-run', (req: Request, res: Response) => {
+router.post('/providers/:providerId/routes/dry-run', requireProviderAuth, (req: Request, res: Response) => {
   const parsed = dryRunRouteSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -397,6 +449,8 @@ router.post('/providers/:providerId/routes/dry-run', (req: Request, res: Respons
     return sendServiceError(res, error);
   }
 });
+
+// ── Gateway paid call (agent auth, not provider auth) ──────────────
 
 router.post('/gateway/paid', async (req: Request, res: Response) => {
   const parsed = paidCallSchema.safeParse(req.body);
@@ -517,6 +571,7 @@ router.post('/registry/grants', (req: Request, res: Response) => {
   return res.status(201).json({ data: parsed.data });
 });
 
+// Receipt lookup stays public (deliberate decision, documented in route registry)
 router.get('/receipts/:receiptId', (req: Request, res: Response) => {
   const receipt = service.getReceipt(routeParam(req.params.receiptId));
   if (!receipt) {
@@ -533,4 +588,5 @@ export {
   degradedUsageLog,
   rateLimiter,
   meter,
+  providerStore,
 };

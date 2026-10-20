@@ -45,6 +45,13 @@ export function resolveAuthMiddleware(auth: AuthPolicy): RequestHandler | null {
       return authenticate;
     case 'admin':
       return adminAuth;
+    case 'provider':
+      // Provider auth is applied at the router level (not here) because
+      // it requires a reference to the InMemoryProviderStore which is
+      // created in v3-gateway.ts.  The router itself applies
+      // authenticateProvider + requireProviderAuth before delegating to
+      // the route handlers.
+      return null;
     case 'public':
       return null;
   }

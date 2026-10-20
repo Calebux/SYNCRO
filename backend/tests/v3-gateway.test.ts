@@ -36,6 +36,7 @@ describe('v3 gateway routes', () => {
       mode,
     });
     const providerId = registerRes.body.data.providerId as string;
+    const providerSecret = registerRes.body.data.providerSecret as string;
 
     const challengeRes = await request(app)
       .post(`/api/v3/providers/${providerId}/payout-challenge`)
@@ -48,7 +49,7 @@ describe('v3 gateway routes', () => {
       .send({ signature })
       .expect(200);
 
-    return { providerId };
+    return { providerId, providerSecret };
   }
 
   it('rejects out-of-scope before upstream call', async () => {
@@ -123,6 +124,175 @@ describe('v3 gateway routes', () => {
     expect(verifyReceipt(full.body.data)).toBe(true);
     expect(full.body.data).not.toHaveProperty('requestBody');
     expect(full.body.data).not.toHaveProperty('responseBody');
+  });
+
+  // ── Provider auth tests ──────────────────────────────────
+
+  describe('provider authentication', () => {
+    it('returns 401 for mutating routes without x-provider-key', async () => {
+      const app = buildApp();
+      const { providerId } = await onboardProvider(app);
+
+      // PATCH payout-address without provider key
+      await request(app)
+        .patch(`/api/v3/providers/${providerId}/payout-address`)
+        .send({ payoutAddress: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN' })
+        .expect(401);
+
+      // PATCH degraded-mode-policy without provider key
+      await request(app)
+        .patch(`/api/v3/providers/${providerId}/degraded-mode-policy`)
+        .send({ failMode: 'fail_closed' })
+        .expect(401);
+
+      // PATCH rate-limit without provider key
+      await request(app)
+        .patch(`/api/v3/providers/${providerId}/rate-limit`)
+        .send({ requestsPerInterval: 10 })
+        .expect(401);
+
+      // POST routes without provider key
+      await request(app)
+        .post(`/api/v3/providers/${providerId}/routes`)
+        .send({ pathPattern: '/echo/*', method: 'POST', unit: 'request', price: 1 })
+        .expect(401);
+
+      // PATCH routes without provider key
+      await request(app)
+        .patch(`/api/v3/providers/${providerId}/routes/some-route`)
+        .send({ price: 2 })
+        .expect(401);
+
+      // GET routes without provider key
+      await request(app)
+        .get(`/api/v3/providers/${providerId}/routes`)
+        .expect(401);
+
+      // GET rate-cards without provider key
+      await request(app)
+        .get(`/api/v3/providers/${providerId}/rate-cards`)
+        .expect(401);
+
+      // GET settlements without provider key
+      await request(app)
+        .get(`/api/v3/providers/${providerId}/settlements`)
+        .expect(401);
+
+      // GET revenue without provider key
+      await request(app)
+        .get(`/api/v3/providers/${providerId}/revenue`)
+        .expect(401);
+
+      // POST dry-run without provider key
+      await request(app)
+        .post(`/api/v3/providers/${providerId}/routes/dry-run`)
+        .send({ method: 'POST', path: '/echo/task' })
+        .expect(401);
+    });
+
+    it('returns 403 when a different provider tries to access another provider resources', async () => {
+      const app = buildApp();
+      const { providerId: providerAId, providerSecret: providerASecret } = await onboardProvider(app, 'staging');
+      const { providerId: providerBId, providerSecret: providerBSecret } = await onboardProvider(app, 'staging');
+
+      // Provider B tries to access Provider A's routes
+      await request(app)
+        .get(`/api/v3/providers/${providerAId}/routes`)
+        .set('x-provider-key', providerBSecret)
+        .expect(403);
+
+      // Provider B tries to mutate Provider A's payout address
+      await request(app)
+        .patch(`/api/v3/providers/${providerAId}/payout-address`)
+        .set('x-provider-key', providerBSecret)
+        .send({ payoutAddress: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN' })
+        .expect(403);
+
+      // Provider B tries to access Provider A's revenue
+      await request(app)
+        .get(`/api/v3/providers/${providerAId}/revenue`)
+        .set('x-provider-key', providerBSecret)
+        .expect(403);
+
+      // Provider B tries to access Provider A's settlements
+      await request(app)
+        .get(`/api/v3/providers/${providerAId}/settlements`)
+        .set('x-provider-key', providerBSecret)
+        .expect(403);
+
+      // Provider B tries to access Provider A's rate-cards
+      await request(app)
+        .get(`/api/v3/providers/${providerAId}/rate-cards`)
+        .set('x-provider-key', providerBSecret)
+        .expect(403);
+    });
+
+    it('allows the owning provider to access its own resources', async () => {
+      const app = buildApp();
+      const { providerId, providerSecret } = await onboardProvider(app);
+
+      // Register a route first
+      await request(app)
+        .post(`/api/v3/providers/${providerId}/routes`)
+        .set('x-provider-key', providerSecret)
+        .send({ pathPattern: '/echo/*', method: 'POST', unit: 'request', price: 1 })
+        .expect(201);
+
+      // GET routes as the owning provider
+      await request(app)
+        .get(`/api/v3/providers/${providerId}/routes`)
+        .set('x-provider-key', providerSecret)
+        .expect(200);
+
+      // GET revenue as the owning provider
+      await request(app)
+        .get(`/api/v3/providers/${providerId}/revenue`)
+        .set('x-provider-key', providerSecret)
+        .expect(200);
+
+      // GET settlements as the owning provider
+      await request(app)
+        .get(`/api/v3/providers/${providerId}/settlements`)
+        .set('x-provider-key', providerSecret)
+        .expect(200);
+
+      // PATCH payout-address as the owning provider
+      await request(app)
+        .patch(`/api/v3/providers/${providerId}/payout-address`)
+        .set('x-provider-key', providerSecret)
+        .send({ payoutAddress: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN' })
+        .expect(200);
+    });
+
+    it('keeps GET /receipts/:receiptId public', async () => {
+      const app = buildApp();
+      const { providerId, providerSecret } = await onboardProvider(app);
+
+      await request(app)
+        .post(`/api/v3/providers/${providerId}/routes`)
+        .set('x-provider-key', providerSecret)
+        .send({ pathPattern: '/echo/*', method: 'POST', unit: 'request', price: 1 })
+        .expect(201);
+
+      // Receipt lookup should work without provider key
+      await request(app)
+        .get('/api/v3/receipts/nonexistent')
+        .expect(404);
+    });
+
+    it('keeps POST /providers/:providerId/payout-challenge public', async () => {
+      const app = buildApp();
+      const { providerId } = await onboardProvider(app);
+
+      // Challenge endpoint should work without provider key
+      const res = await request(app)
+        .post(`/api/v3/providers/${providerId}/payout-challenge`)
+        .send({})
+        .expect(200);
+
+      expect(res.body.data).toHaveProperty('challenge');
+      expect(res.body.data).toHaveProperty('expiresAt');
+    });
   });
 });
 

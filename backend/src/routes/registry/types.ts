@@ -3,7 +3,7 @@ import { ZodType } from 'zod';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'ALL';
 
-export type AuthPolicy = 'public' | 'user' | 'admin';
+export type AuthPolicy = 'public' | 'user' | 'admin' | 'provider';
 
 export type RateLimitPolicy =
   | 'admin'

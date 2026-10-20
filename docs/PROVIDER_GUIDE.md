@@ -23,6 +23,53 @@ Providers register with `mode: 'staging' | 'production'`.
   with production keys, verify its payout address, and register production
   routes. Do not flip a staging provider into production.
 
+## Provider Authentication
+
+All provider management routes (`/api/v3/providers/:providerId/*`) require
+provider authentication via the `x-provider-key` header. The secret key is
+returned at registration time and must be kept confidential.
+
+```ts
+// 1. Register a staging provider with testnet keys.
+const { data: provider } = await service.registerProvider({
+  identity: 'acme-sandbox',
+  payoutAddress: '<TESTNET_G...>',
+  upstreamBaseUrl: 'https://sandbox.acme.example',
+  agreementTerms: 'sandbox terms',
+  mode: 'staging',
+});
+
+// provider.providerSecret is returned once — store it securely.
+const providerSecret = provider.providerSecret;
+
+// 2. Use the secret for all subsequent provider management requests.
+await fetch('/api/v3/providers/<providerId>/routes', {
+  method: 'POST',
+  headers: {
+    'content-type': 'application/json',
+    'x-provider-key': providerSecret,
+  },
+  body: JSON.stringify({ pathPattern: '/echo/*', method: 'POST', unit: 'request', price: 1 }),
+});
+```
+
+### Auth behaviour
+
+| Scenario | Response |
+|---|---|
+| No `x-provider-key` header | **401 Unauthorized** |
+| Invalid or unknown key | **401 Unauthorized** |
+| Valid key, wrong providerId in URL | **403 Forbidden** |
+| Valid key, matching providerId | **Proceeds normally** |
+
+### Public endpoints
+
+The following endpoints remain public (no `x-provider-key` required):
+
+- `POST /api/v3/providers` — registration
+- `POST /api/v3/providers/:providerId/payout-challenge` — generate a payout challenge
+- `GET /api/v3/receipts/:receiptId` — receipt lookup
+
 ## Example
 
 ```ts
