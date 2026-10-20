@@ -27,9 +27,9 @@ fn admin_transfer_happy_path() {
     client.transfer_admin(&next);
     assert_eq!(client.get_pending_admin(), Some(next.clone()));
     // Admin is unchanged until the nominee accepts.
-    assert_eq!(client.get_admin().unwrap(), admin);
+    assert_eq!(client.get_admin(), admin);
     client.accept_admin();
-    assert_eq!(client.get_admin().unwrap(), next);
+    assert_eq!(client.get_admin(), next);
     assert_eq!(client.get_pending_admin(), None);
 }
 
@@ -85,7 +85,7 @@ fn wrong_address_cannot_accept() {
     assert!(res.is_err(), "wrong address must not accept");
     // Admin is unchanged.
     env.mock_all_auths();
-    assert_eq!(client.get_admin().unwrap(), admin);
+    assert_eq!(client.get_admin(), admin);
 }
 
 #[test]
@@ -97,7 +97,7 @@ fn cancel_transfer_works() {
     assert!(client.get_pending_admin().is_some());
     client.cancel_transfer_admin();
     assert_eq!(client.get_pending_admin(), None);
-    assert_eq!(client.get_admin().unwrap(), admin);
+    assert_eq!(client.get_admin(), admin);
     // Accepting after cancel fails: nothing pending.
     assert!(client.try_accept_admin().is_err());
 }
