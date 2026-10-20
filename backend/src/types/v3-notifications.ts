@@ -5,7 +5,10 @@ export type V3NotificationEventType =
   | 'dispute_detected'
   | 'degraded_mode_entered'
   | 'degraded_mode_exited'
-  | 'reconciliation_delta_outside_tolerance';
+  | 'reconciliation_delta_outside_tolerance'
+  | 'payout_change_requested'
+  | 'payout_change_applied'
+  | 'payout_change_cancelled';
 
 export type AudienceClassification = 'principal' | 'operator';
 
@@ -61,6 +64,24 @@ export const V3_EVENT_CLASSIFICATIONS: Record<V3NotificationEventType, V3EventCl
     severity: 'critical',
     description: 'Blockchain reconciliation detected mismatches between on-chain events and backend records exceeding tolerance.',
   },
+  payout_change_requested: {
+    eventType: 'payout_change_requested',
+    audience: 'principal',
+    severity: 'warning',
+    description: 'A payout address change has been requested. The new address will take effect after the cooling-off window unless cancelled.',
+  },
+  payout_change_applied: {
+    eventType: 'payout_change_applied',
+    audience: 'principal',
+    severity: 'info',
+    description: 'A pending payout address change has been applied after the cooling-off window.',
+  },
+  payout_change_cancelled: {
+    eventType: 'payout_change_cancelled',
+    audience: 'principal',
+    severity: 'info',
+    description: 'A pending payout address change has been cancelled. Settlements continue to the old address.',
+  },
 };
 
 export type V3NotificationPreferences = Record<V3NotificationEventType, {
@@ -76,6 +97,9 @@ export const DEFAULT_V3_PRINCIPAL_PREFERENCES: V3NotificationPreferences = {
   degraded_mode_entered: { enabled: false, channels: [] },
   degraded_mode_exited: { enabled: false, channels: [] },
   reconciliation_delta_outside_tolerance: { enabled: false, channels: [] },
+  payout_change_requested: { enabled: true, channels: ['push', 'telegram'] },
+  payout_change_applied: { enabled: true, channels: ['push', 'telegram'] },
+  payout_change_cancelled: { enabled: true, channels: ['push', 'telegram'] },
 };
 
 export const DEFAULT_V3_OPERATOR_PREFERENCES: V3NotificationPreferences = {
@@ -86,6 +110,9 @@ export const DEFAULT_V3_OPERATOR_PREFERENCES: V3NotificationPreferences = {
   degraded_mode_entered: { enabled: true, channels: ['slack'] },
   degraded_mode_exited: { enabled: true, channels: ['slack'] },
   reconciliation_delta_outside_tolerance: { enabled: true, channels: ['slack'] },
+  payout_change_requested: { enabled: true, channels: ['slack'] },
+  payout_change_applied: { enabled: true, channels: ['slack'] },
+  payout_change_cancelled: { enabled: true, channels: ['slack'] },
 };
 
 export interface CapThresholdWarningPayload {
@@ -154,13 +181,43 @@ export interface ReconciliationDeltaPayload {
   tolerance: number;
 }
 
+export interface PayoutChangeRequestedPayload {
+  providerId: string;
+  oldAddress: string;
+  newAddress: string;
+  changeId: string;
+  challengeId: string;
+  requestedBy: string;
+  requestedAt: string;
+  coolsDownUntil: string;
+}
+
+export interface PayoutChangeAppliedPayload {
+  providerId: string;
+  oldAddress: string;
+  newAddress: string;
+  changeId: string;
+  appliedAt: string;
+}
+
+export interface PayoutChangeCancelledPayload {
+  providerId: string;
+  oldAddress: string;
+  newAddress: string;
+  changeId: string;
+  cancelledAt: string;
+}
+
 export type V3EventPayload =
   | CapThresholdWarningPayload
   | ChannelNearingExhaustionPayload
   | ChannelCloseInitiatedPayload
   | DisputeDetectedPayload
   | DegradedModePayload
-  | ReconciliationDeltaPayload;
+  | ReconciliationDeltaPayload
+  | PayoutChangeRequestedPayload
+  | PayoutChangeAppliedPayload
+  | PayoutChangeCancelledPayload;
 
 export interface V3NotificationDispatchInput {
   eventType: V3NotificationEventType;

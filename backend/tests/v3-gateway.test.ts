@@ -48,7 +48,7 @@ describe('v3 gateway routes', () => {
       .send({ signature })
       .expect(200);
 
-    return { providerId };
+    return { providerId, keypair: kp };
   }
 
   it('rejects out-of-scope before upstream call', async () => {
@@ -123,6 +123,190 @@ describe('v3 gateway routes', () => {
     expect(verifyReceipt(full.body.data)).toBe(true);
     expect(full.body.data).not.toHaveProperty('requestBody');
     expect(full.body.data).not.toHaveProperty('responseBody');
+  });
+
+  describe('payout address change security', () => {
+    it('rejects PATCH payout-address without a challengeId', async () => {
+      const app = buildApp();
+      const { providerId } = await onboardProvider(app);
+      const newKp = Keypair.random();
+
+      const res = await request(app)
+        .patch(`/api/v3/providers/${providerId}/payout-address`)
+        .send({ payoutAddress: newKp.publicKey() });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('challengeId');
+    });
+
+    it('creates a pending payout change with a verified challenge', async () => {
+      const app = buildApp();
+      const { providerId, keypair } = await onboardProvider(app);
+      const newKp = Keypair.random();
+
+      // Create a challenge and sign it with the new address
+      const challengeRes = await request(app)
+        .post(`/api/v3/providers/${providerId}/payout-challenge`)
+        .send({});
+      const challenge = challengeRes.body.data.challenge as string;
+
+      const signature = Buffer.from(newKp.sign(Buffer.from(challenge))).toString('base64');
+      await request(app)
+        .post(`/api/v3/providers/${providerId}/payout-verify`)
+        .send({ signature })
+        .expect(200);
+
+      // Now request the payout change with the verified challenge
+      const changeRes = await request(app)
+        .post(`/api/v3/providers/${providerId}/payout-change`)
+        .send({
+          newAddress: newKp.publicKey(),
+          challengeId: challenge,
+          coolingOffMs: 86400000,
+        })
+        .expect(201);
+
+      expect(changeRes.body.data).toBeDefined();
+      expect(changeRes.body.data.oldAddress).toBe(keypair.publicKey());
+      expect(changeRes.body.data.newAddress).toBe(newKp.publicKey());
+      expect(changeRes.body.data.status).toBe('pending');
+    });
+
+    it('rejects payout change without a verified challenge', async () => {
+      const app = buildApp();
+      const { providerId } = await onboardProvider(app);
+      const newKp = Keypair.random();
+
+      const res = await request(app)
+        .post(`/api/v3/providers/${providerId}/payout-change`)
+        .send({
+          newAddress: newKp.publicKey(),
+          challengeId: 'not-a-real-challenge',
+        });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('cancels a pending payout change during the cooling-off window', async () => {
+      const app = buildApp();
+      const { providerId, keypair } = await onboardProvider(app);
+      const newKp = Keypair.random();
+
+      // Create and verify a challenge
+      const challengeRes = await request(app)
+        .post(`/api/v3/providers/${providerId}/payout-challenge`)
+        .send({});
+      const challenge = challengeRes.body.data.challenge as string;
+
+      const signature = Buffer.from(newKp.sign(Buffer.from(challenge))).toString('base64');
+      await request(app)
+        .post(`/api/v3/providers/${providerId}/payout-verify`)
+        .send({ signature })
+        .expect(200);
+
+      // Create a pending change
+      const changeRes = await request(app)
+        .post(`/api/v3/providers/${providerId}/payout-change`)
+        .send({
+          newAddress: newKp.publicKey(),
+          challengeId: challenge,
+          coolingOffMs: 86400000,
+        })
+        .expect(201);
+
+      const changeId = changeRes.body.data.changeId as string;
+
+      // Cancel the pending change
+      const cancelRes = await request(app)
+        .post(`/api/v3/providers/${providerId}/payout-change/${changeId}/cancel`)
+        .send({})
+        .expect(200);
+
+      expect(cancelRes.body.data.status).toBe('cancelled');
+      expect(cancelRes.body.data.oldAddress).toBe(keypair.publicKey());
+      expect(cancelRes.body.data.newAddress).toBe(newKp.publicKey());
+    });
+
+    it('applies a pending payout change after the cooling-off window', async () => {
+      const app = buildApp();
+      const { providerId } = await onboardProvider(app);
+      const newKp = Keypair.random();
+
+      // Create and verify a challenge
+      const challengeRes = await request(app)
+        .post(`/api/v3/providers/${providerId}/payout-challenge`)
+        .send({});
+      const challenge = challengeRes.body.data.challenge as string;
+
+      const signature = Buffer.from(newKp.sign(Buffer.from(challenge))).toString('base64');
+      await request(app)
+        .post(`/api/v3/providers/${providerId}/payout-verify`)
+        .send({ signature })
+        .expect(200);
+
+      // Create a pending change with a very short cooling-off window
+      const changeRes = await request(app)
+        .post(`/api/v3/providers/${providerId}/payout-change`)
+        .send({
+          newAddress: newKp.publicKey(),
+          challengeId: challenge,
+          coolingOffMs: 0,
+        })
+        .expect(201);
+
+      const changeId = changeRes.body.data.changeId as string;
+
+      // Apply the pending change
+      const applyRes = await request(app)
+        .post(`/api/v3/providers/${providerId}/payout-change/${changeId}/apply`)
+        .send({})
+        .expect(200);
+
+      expect(applyRes.body.data.payoutAddress).toBe(newKp.publicKey());
+    });
+
+    it('settlements during the cooling-off window go to the old address', async () => {
+      const app = buildApp();
+      const { providerId, keypair } = await onboardProvider(app);
+      const newKp = Keypair.random();
+
+      // Create and verify a challenge
+      const challengeRes = await request(app)
+        .post(`/api/v3/providers/${providerId}/payout-challenge`)
+        .send({});
+      const challenge = challengeRes.body.data.challenge as string;
+
+      const signature = Buffer.from(newKp.sign(Buffer.from(challenge))).toString('base64');
+      await request(app)
+        .post(`/api/v3/providers/${providerId}/payout-verify`)
+        .send({ signature })
+        .expect(200);
+
+      // Create a pending change with a long cooling-off window
+      const changeRes = await request(app)
+        .post(`/api/v3/providers/${providerId}/payout-change`)
+        .send({
+          newAddress: newKp.publicKey(),
+          challengeId: challenge,
+          coolingOffMs: 86400000,
+        })
+        .expect(201);
+
+      const changeId = changeRes.body.data.changeId as string;
+
+      // Verify the provider still has the old payout address during the cooling-off window
+      const providerRes = await request(app)
+        .get(`/api/v3/providers/${providerId}`)
+        .expect(200);
+
+      expect(providerRes.body.data.payoutAddress).toBe(keypair.publicKey());
+      expect(providerRes.body.data.payoutAddress).not.toBe(newKp.publicKey());
+
+      // The pending change should exist
+      expect(changeRes.body.data.status).toBe('pending');
+      expect(changeRes.body.data.oldAddress).toBe(keypair.publicKey());
+      expect(changeRes.body.data.newAddress).toBe(newKp.publicKey());
+    });
   });
 });
 

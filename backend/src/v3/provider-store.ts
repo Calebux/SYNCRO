@@ -76,6 +76,28 @@ export interface RecordSettlementInput {
   channelId: string;
 }
 
+/** Input for creating a pending payout address change (requires verified challenge). */
+export interface CreatePayoutChangeInput {
+  providerId: string;
+  newAddress: string;
+  challengeId: string;
+  requestedBy: string;
+  coolingOffMs: number;
+}
+
+/** Input for cancelling a pending payout address change. */
+export interface CancelPayoutChangeInput {
+  providerId: string;
+  changeId: string;
+  requestedBy: string;
+}
+
+/** Input for applying a pending payout address change after the cooling-off window. */
+export interface ApplyPayoutChangeInput {
+  providerId: string;
+  changeId: string;
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -128,6 +150,7 @@ export class InMemoryProviderStore {
   private readonly routes = new Map<string, RegisteredRoute>();
   private readonly rateCards = new Map<string, RateCardVersion>();
   private readonly settlements = new Map<string, ProviderSettlement>();
+  private readonly pendingPayoutChanges = new Map<string, PendingPayoutChange>();
   private readonly auditSink?: ProviderRouteAuditSink;
 
   constructor(auditSink?: ProviderRouteAuditSink) {
@@ -185,6 +208,121 @@ export class InMemoryProviderStore {
     provider.payoutChallenge = null;
     this.saveProvider(provider);
     return provider;
+  }
+
+  /**
+   * Create a pending payout address change. Requires a verified
+   * challenge id so that a compromised session alone cannot
+   * redirect payouts. The change only takes effect after the
+   * cooling-off window, during which settlements continue to the
+   * old address.
+   */
+  createPendingPayoutChange(input: CreatePayoutChangeInput): PendingPayoutChange {
+    const provider = this.getProvider(input.providerId);
+    if (!provider) {
+      throw new Error('provider not found');
+    }
+    if (!provider.payoutVerified) {
+      throw new Error('payout address must be verified before a change can be requested');
+    }
+    const newAddress = input.newAddress.trim();
+    if (!newAddress) {
+      throw new Error('new payout address is required');
+    }
+    if (provider.payoutAddress === newAddress) {
+      throw new Error('new payout address must differ from the current address');
+    }
+    // Check for an existing pending change that hasn't been applied or cancelled yet
+    const existingPending = [...this.pendingPayoutChanges.values()].find(
+      (change) => change.providerId === input.providerId && change.status === 'pending',
+    );
+    if (existingPending) {
+      throw new Error('a pending payout change already exists; cancel it first or wait for the cooling-off window');
+    }
+
+    const changeId = randomUUID();
+    const now = new Date().toISOString();
+    const coolsDownUntil = new Date(Date.parse(now) + input.coolingOffMs).toISOString();
+    const change: PendingPayoutChange = {
+      changeId,
+      providerId: input.providerId,
+      oldAddress: provider.payoutAddress,
+      newAddress: newAddress,
+      challengeId: input.challengeId,
+      requestedBy: input.requestedBy,
+      requestedAt: now,
+      coolsDownUntil,
+      status: 'pending',
+    };
+    this.pendingPayoutChanges.set(changeId, change);
+    return change;
+  }
+
+  /**
+   * Cancel a pending payout address change during the cooling-off window.
+   * The old address keeps receiving settlements.
+   */
+  cancelPendingPayoutChange(input: CancelPayoutChangeInput): PendingPayoutChange {
+    const change = this.pendingPayoutChanges.get(input.changeId);
+    if (!change) {
+      throw new Error('pending payout change not found');
+    }
+    if (change.providerId !== input.providerId) {
+      throw new Error('pending payout change does not belong to this provider');
+    }
+    if (change.status !== 'pending') {
+      throw new Error('pending payout change is not in pending state');
+    }
+    change.status = 'cancelled';
+    this.pendingPayoutChanges.set(input.changeId, change);
+    return change;
+  }
+
+  /**
+   * Apply a pending payout address change after the cooling-off window.
+   * Settlements during the window went to the old address; after this
+   * call, new settlements go to the new address.
+   */
+  applyPendingPayoutChange(input: ApplyPayoutChangeInput): ProviderRegistration {
+    const change = this.pendingPayoutChanges.get(input.changeId);
+    if (!change) {
+      throw new Error('pending payout change not found');
+    }
+    if (change.status !== 'pending') {
+      throw new Error('pending payout change is not in pending state');
+    }
+    const provider = this.getProvider(change.providerId);
+    if (!provider) {
+      throw new Error('provider not found');
+    }
+    change.status = 'applied';
+    this.pendingPayoutChanges.set(input.changeId, change);
+    provider.payoutAddress = change.newAddress;
+    provider.payoutVerified = false;
+    provider.payoutChallenge = null;
+    this.saveProvider(provider);
+    return provider;
+  }
+
+  /**
+   * Return a pending payout change for a provider, or null if none
+   * exists or it is no longer pending.
+   */
+  getPendingPayoutChange(providerId: string): PendingPayoutChange | null {
+    return (
+      [...this.pendingPayoutChanges.values()].find(
+        (change) => change.providerId === providerId && change.status === 'pending',
+      ) ?? null
+    );
+  }
+
+  /**
+   * Return all pending payout changes for a provider.
+   */
+  listPendingPayoutChanges(providerId: string): PendingPayoutChange[] {
+    return [...this.pendingPayoutChanges.values()]
+      .filter((change) => change.providerId === providerId)
+      .sort((a, b) => b.requestedAt.localeCompare(a.requestedAt));
   }
 
   /**

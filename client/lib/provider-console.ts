@@ -21,6 +21,18 @@ export interface ProviderRegistration {
   updatedAt: string;
 }
 
+export interface PendingPayoutChange {
+  changeId: string;
+  providerId: string;
+  oldAddress: string;
+  newAddress: string;
+  challengeId: string;
+  requestedBy: string;
+  requestedAt: string;
+  coolsDownUntil: string;
+  status: 'pending' | 'applied' | 'cancelled';
+}
+
 export interface RateCardVersion {
   versionId: string;
   providerId: string;
@@ -202,6 +214,25 @@ export const providerConsoleClient: ProviderConsoleClient = {
     return request<ProviderRegistration>(`/api/v3/providers/${providerId}/payout-verify`, {
       method: 'POST',
       body: JSON.stringify({ signature }),
+    });
+  },
+  createPayoutChange(providerId, input) {
+    return request<{ changeId: string; oldAddress: string; newAddress: string; status: string; coolsDownUntil: string }>(
+      `/api/v3/providers/${providerId}/payout-change`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+  cancelPayoutChange(providerId, changeId) {
+    return request<{ changeId: string; status: string }>(
+      `/api/v3/providers/${providerId}/payout-change/${changeId}/cancel`, {
+      method: 'POST',
+    });
+  },
+  applyPayoutChange(providerId, changeId) {
+    return request<ProviderRegistration>(
+      `/api/v3/providers/${providerId}/payout-change/${changeId}/apply`, {
+      method: 'POST',
     });
   },
   registerRoute(providerId, input) {

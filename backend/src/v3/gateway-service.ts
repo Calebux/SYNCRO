@@ -12,15 +12,21 @@ import {
   ReviseRouteInput,
   UpdateDegradedModePolicyInput,
   UpdateRateLimitInput,
+  CreatePayoutChangeInput,
+  CancelPayoutChangeInput,
+  ApplyPayoutChangeInput,
 } from './provider-store';
 import { ReceiptService } from './receipt-service';
 import { AgentRegistryReader, ScopeEnforcer } from './scope-enforcer';
+import { auditProviderPayoutAddressChanged } from '../services/audit-service';
+import { v3NotificationDispatch } from '../services/v3-notification-dispatch';
 import {
   AgentRegistryGrant,
   MeterDegradedError,
   MeterInsufficientFundsError,
   MeterRateLimitedError,
   PaidReceipt,
+  PendingPayoutChange,
   ProviderRegistration,
   ProviderRevenue,
   ProviderRouteView,
@@ -150,6 +156,112 @@ export class V3GatewayService {
   updatePayoutAddress(providerId: string, payoutAddress: string): ProviderRegistration {
     this.getProviderOrThrow(providerId);
     return this.providers.updatePayoutAddress(providerId, payoutAddress);
+  }
+
+  /**
+   * Create a pending payout address change. Requires a verified
+   * challenge id so that a compromised session alone cannot
+   * redirect payouts. The change only takes effect after the
+   * cooling-off window, during which settlements continue to the
+   * old address.
+   */
+  async createPendingPayoutChange(input: CreatePayoutChangeInput): Promise<PendingPayoutChange> {
+    const change = this.providers.createPendingPayoutChange(input);
+    const provider = this.providers.readProvider(input.providerId);
+    await auditProviderPayoutAddressChanged(input.requestedBy, {
+      providerId: input.providerId,
+      before: { payoutAddress: change.oldAddress },
+      after: { payoutAddress: change.newAddress, challengeId: change.challengeId, status: 'pending', requestedAt: change.requestedAt, coolsDownUntil: change.coolsDownUntil },
+    });
+    await v3NotificationDispatch.dispatch({
+      eventType: 'payout_change_requested',
+      targetUserId: provider.identity,
+      payload: {
+        providerId: input.providerId,
+        oldAddress: change.oldAddress,
+        newAddress: change.newAddress,
+        changeId: change.changeId,
+        challengeId: change.challengeId,
+        requestedBy: input.requestedBy,
+        requestedAt: change.requestedAt,
+        coolsDownUntil: change.coolsDownUntil,
+      },
+    });
+    return change;
+  }
+
+  /**
+   * Cancel a pending payout address change during the cooling-off
+   * window. Settlements during the window continue to the old
+   * address.
+   */
+  async cancelPendingPayoutChange(input: CancelPayoutChangeInput): Promise<PendingPayoutChange> {
+    const change = this.providers.cancelPendingPayoutChange(input);
+    await auditProviderPayoutAddressChanged(input.requestedBy, {
+      providerId: input.providerId,
+      before: { payoutAddress: change.oldAddress, status: 'pending' },
+      after: { payoutAddress: change.newAddress, status: 'cancelled', cancelledAt: new Date().toISOString() },
+    });
+    const provider = this.providers.readProvider(input.providerId);
+    await v3NotificationDispatch.dispatch({
+      eventType: 'payout_change_cancelled',
+      targetUserId: provider.identity,
+      payload: {
+        providerId: input.providerId,
+        oldAddress: change.oldAddress,
+        newAddress: change.newAddress,
+        changeId: change.changeId,
+        cancelledAt: new Date().toISOString(),
+      },
+    });
+    return change;
+  }
+
+  /**
+   * Apply a pending payout address change after the cooling-off
+   * window. New settlements after this point go to the new address.
+   */
+  async applyPendingPayoutChange(input: ApplyPayoutChangeInput): Promise<ProviderRegistration> {
+    const change = this.providers.listPendingPayoutChanges(input.providerId).find(
+      (c) => c.changeId === input.changeId && c.status === 'pending',
+    );
+    if (!change) {
+      throw new Error('pending payout change not found');
+    }
+    const provider = this.providers.readProvider(input.providerId);
+    const appliedProvider = this.providers.applyPendingPayoutChange(input);
+    await auditProviderPayoutAddressChanged(input.providerId, {
+      providerId: input.providerId,
+      before: { payoutAddress: change.oldAddress },
+      after: { payoutAddress: change.newAddress, status: 'applied', appliedAt: new Date().toISOString() },
+    });
+    await v3NotificationDispatch.dispatch({
+      eventType: 'payout_change_applied',
+      targetUserId: provider.identity,
+      payload: {
+        providerId: input.providerId,
+        oldAddress: change.oldAddress,
+        newAddress: change.newAddress,
+        changeId: change.changeId,
+        appliedAt: new Date().toISOString(),
+      },
+    });
+    return appliedProvider;
+  }
+
+  /**
+   * Return a pending payout change for a provider, or null if none
+   * exists or it is no longer pending.
+   */
+  getPendingPayoutChange(providerId: string): PendingPayoutChange | null {
+    return this.providers.getPendingPayoutChange(providerId);
+  }
+
+  /**
+   * Return all pending payout changes for a provider.
+   */
+  listPendingPayoutChanges(providerId: string): PendingPayoutChange[] {
+    return this.providers.listPendingPayoutChanges(providerId);
   }
 
   listRoutes(providerId: string): ProviderRouteView[] {

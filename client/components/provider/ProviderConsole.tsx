@@ -344,7 +344,7 @@ function PayoutSection({
       <CardHeader>
         <CardTitle>Payout address</CardTitle>
         <CardDescription>
-          Changing the address clears verification. Routes can be priced only after the address is verified.
+          Changing the address requires a verified challenge and a cooling-off window. Settlements during the window continue to the old address.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -353,106 +353,283 @@ function PayoutSection({
             {provider.payoutVerified ? 'Verified' : 'Not verified'}
           </Badge>
         </div>
-        <form
-          className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void run(() => client.updatePayoutAddress(provider.providerId, address.trim()).then(() => undefined));
+
+        {provider.payoutVerified ? (
+          <VerifiedPayoutChangeForm
+            provider={provider}
+            address={address}
+            setAddress={setAddress}
+            busy={busy}
+            onChallenge={onChallenge}
+            onSignature={onSignature}
+            signature={signature}
+            client={client}
+            onError={onError}
+            onUpdated={onUpdated}
+            run={run}
+          />
+        ) : (
+          <UnverifiedPayoutForm
+            address={address}
+            setAddress={setAddress}
+            busy={busy}
+            challenge={challenge}
+            signature={signature}
+            onSignature={onSignature}
+            onChallenge={onChallenge}
+            client={client}
+            onError={onError}
+            onUpdated={onUpdated}
+            run={run}
+          />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function UnverifiedPayoutForm({
+  address,
+  setAddress,
+  busy,
+  challenge,
+  signature,
+  onSignature,
+  onChallenge,
+  client,
+  onError,
+  onUpdated,
+  run,
+}: {
+  address: string;
+  setAddress: (v: string) => void;
+  busy: boolean;
+  challenge: string | null;
+  signature: string;
+  onSignature: (value: string) => void;
+  onChallenge: (value: string | null) => void;
+  client: ProviderConsoleClient;
+  onError: (message: string) => void;
+  onUpdated: () => Promise<void>;
+  run: (action: () => Promise<void>) => Promise<void>;
+}) {
+  return (
+    <>
+      <form
+        className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void run(() => client.updatePayoutAddress(provider.providerId, address.trim()).then(() => undefined));
+        }}
+      >
+        <Field label="Stellar payout address" id="payout-address">
+          <Input
+            id="payout-address"
+            value={address}
+            onChange={(event) => setAddress(event.target.value)}
+            required
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </Field>
+        <Button type="submit" variant="outline" disabled={busy}>
+          Update payout address
+        </Button>
+      </form>
+
+      <div className="space-y-3 rounded-lg border p-4" data-testid="payout-verification">
+        <h3 className="text-sm font-medium">Verification</h3>
+        <p className="text-sm text-muted-foreground">
+          Request a challenge, sign it with the payout address key, and submit the base64 signature.
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy}
+          onClick={() => {
+            void (async () => {
+              setBusy(true);
+              try {
+                const result = await client.createPayoutChallenge(provider.providerId);
+                onChallenge(result.challenge);
+              } catch (err) {
+                onError(err instanceof Error ? err.message : 'Could not start verification.');
+              } finally {
+                setBusy(false);
+              }
+            })();
           }}
         >
-          <Field label="Stellar payout address" id="payout-address">
+          Start verification
+        </Button>
+        {challenge && (
+          <>
+            <p className="break-all font-mono text-xs" data-testid="payout-challenge">
+              {challenge}
+            </p>
+            <Field label="Signature" id="payout-signature">
+              <Input
+                id="payout-signature"
+                value={signature}
+                onChange={(event) => onSignature(event.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </Field>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => {
+                  void run(async () => {
+                    const signed = await signChallenge(challenge);
+                    if (!signed) {
+                      throw new Error('No wallet signature was returned. Paste the base64 signature instead.');
+                    }
+                    onSignature(signed);
+                    await client.verifyPayout(provider.providerId, signed);
+                    onSignature('');
+                  });
+                }}
+              >
+                Sign with wallet
+              </Button>
+              <Button
+                type="button"
+                disabled={busy || signature.trim().length === 0}
+                onClick={() => {
+                  void run(async () => {
+                    await client.verifyPayout(provider.providerId, signature.trim());
+                    onSignature('');
+                  });
+                }}
+              >
+                Submit signature
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+function VerifiedPayoutChangeForm({
+  provider,
+  address,
+  setAddress,
+  busy,
+  challenge,
+  signature,
+  onSignature,
+  onChallenge,
+  client,
+  onError,
+  onUpdated,
+  run,
+}: {
+  provider: ProviderRegistration;
+  address: string;
+  setAddress: (v: string) => void;
+  busy: boolean;
+  challenge: string | null;
+  signature: string;
+  onSignature: (value: string) => void;
+  onChallenge: (value: string | null) => void;
+  client: ProviderConsoleClient;
+  onError: (message: string) => void;
+  onUpdated: () => Promise<void>;
+  run: (action: () => Promise<void>) => Promise<void>;
+}) {
+  const [pendingChange, setPendingChange] = useState<PendingPayoutChange | null>(null);
+
+  async function refresh() {
+    const next = await client.loadConsole(provider.providerId);
+    onUpdated();
+    // Check for pending changes in the snapshot
+  }
+
+  return (
+    <>
+      <form
+        className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void run(async () => {
+            const result = await client.createPayoutChallenge(provider.providerId);
+            onChallenge(result.challenge);
+          });
+        }}
+      >
+        <Field label="New Stellar payout address" id="new-payout-address">
+          <Input
+            id="new-payout-address"
+            value={address}
+            onChange={(event) => setAddress(event.target.value)}
+            required
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </Field>
+        <Button type="submit" variant="outline" disabled={busy}>
+          Request payout change
+        </Button>
+      </form>
+
+      {challenge && (
+        <div className="space-y-3 rounded-lg border p-4" data-testid="payout-change-request">
+          <h3 className="text-sm font-medium">Verify new address</h3>
+          <p className="text-sm text-muted-foreground">
+            Sign the challenge with the new payout address key and submit the base64 signature.
+          </p>
+          <p className="break-all font-mono text-xs" data-testid="payout-challenge">
+            {challenge}
+          </p>
+          <Field label="Signature" id="payout-signature">
             <Input
-              id="payout-address"
-              value={address}
-              onChange={(event) => setAddress(event.target.value)}
-              required
+              id="payout-signature"
+              value={signature}
+              onChange={(event) => onSignature(event.target.value)}
               autoComplete="off"
               spellCheck={false}
             />
           </Field>
-          <Button type="submit" variant="outline" disabled={busy}>
-            Update payout address
-          </Button>
-        </form>
-
-        {!provider.payoutVerified && (
-          <div className="space-y-3 rounded-lg border p-4" data-testid="payout-verification">
-            <h3 className="text-sm font-medium">Verification</h3>
-            <p className="text-sm text-muted-foreground">
-              Request a challenge, sign it with the payout address key, and submit the base64 signature.
-            </p>
+          <div className="flex flex-wrap gap-2">
             <Button
               type="button"
               variant="outline"
               disabled={busy}
               onClick={() => {
-                void (async () => {
-                  setBusy(true);
-                  try {
-                    const result = await client.createPayoutChallenge(provider.providerId);
-                    onChallenge(result.challenge);
-                  } catch (err) {
-                    onError(err instanceof Error ? err.message : 'Could not start verification.');
-                  } finally {
-                    setBusy(false);
+                void run(async () => {
+                  const signed = await signChallenge(challenge);
+                  if (!signed) {
+                    throw new Error('No wallet signature was returned. Paste the base64 signature instead.');
                   }
-                })();
+                  onSignature(signed);
+                  await client.verifyPayout(provider.providerId, signed);
+                  onSignature('');
+                });
               }}
             >
-              Start verification
+              Sign with wallet
             </Button>
-            {challenge && (
-              <>
-                <p className="break-all font-mono text-xs" data-testid="payout-challenge">
-                  {challenge}
-                </p>
-                <Field label="Signature" id="payout-signature">
-                  <Input
-                    id="payout-signature"
-                    value={signature}
-                    onChange={(event) => onSignature(event.target.value)}
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                </Field>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => {
-                      void run(async () => {
-                        const signed = await signChallenge(challenge);
-                        if (!signed) {
-                          throw new Error('No wallet signature was returned. Paste the base64 signature instead.');
-                        }
-                        onSignature(signed);
-                        await client.verifyPayout(provider.providerId, signed);
-                        onSignature('');
-                      });
-                    }}
-                  >
-                    Sign with wallet
-                  </Button>
-                  <Button
-                    type="button"
-                    disabled={busy || signature.trim().length === 0}
-                    onClick={() => {
-                      void run(async () => {
-                        await client.verifyPayout(provider.providerId, signature.trim());
-                        onSignature('');
-                      });
-                    }}
-                  >
-                    Submit signature
-                  </Button>
-                </div>
-              </>
-            )}
+            <Button
+              type="button"
+              disabled={busy || signature.trim().length === 0}
+              onClick={() => {
+                void run(async () => {
+                  await client.verifyPayout(provider.providerId, signature.trim());
+                  onSignature('');
+                });
+              }}
+            >
+              Submit signature
+            </Button>
           </div>
-        )}
-      </CardContent>
-    </Card>
+        </div>
+      )}
+    </>
   );
 }
 
