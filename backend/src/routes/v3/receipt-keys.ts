@@ -1,12 +1,11 @@
 import { Router } from 'express';
-import { ReceiptService } from '../v3/receipt-service';
+import { receiptService } from '../../v3/receipt-runtime';
 
 const router = Router();
 
 /** Well-known provider receipt signing keys: current + previous (valid during dispute window). */
 router.get('/', (_req, res) => {
-  const service = new ReceiptService();
-  res.json({ keys: service.getReceiptPublicKeys() });
+  res.json({ keys: receiptService.getReceiptPublicKeys() });
 });
 
 export default router;

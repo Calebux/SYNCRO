@@ -96,6 +96,16 @@
         "default": "./dist/v3/index.cjs"
       }
     },
+    "./v3/receipt-browser": {
+      "import": {
+        "types": "./dist/v3/receipt-browser.d.ts",
+        "default": "./dist/v3/receipt-browser.js"
+      },
+      "require": {
+        "types": "./dist/v3/receipt-browser.d.cts",
+        "default": "./dist/v3/receipt-browser.cjs"
+      }
+    },
     "./package.json": "./package.json"
   },
   "bin": {

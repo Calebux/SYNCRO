@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { InMemoryProviderStore } from '../v3/provider-store';
-import { ReceiptService } from '../v3/receipt-service';
+import { receiptService } from '../v3/receipt-runtime';
 import { ScopeEnforcer } from '../v3/scope-enforcer';
 import { InMemoryAgentRegistryReader, UpstreamCaller, V3GatewayService } from '../v3/gateway-service';
 import { counterStoreHealth } from '../v3/counter-store-health';
@@ -132,7 +132,6 @@ const scopeEnforcer = new ScopeEnforcer(registryReader, {
   cacheTtlMs: 5_000,
   cacheSoftTtlMs: 2_500,
 });
-const receiptService = new ReceiptService();
 const upstreamCaller: UpstreamCaller = {
   async call({ upstreamBaseUrl, method, path, body }) {
     const runtimeFetch = (globalThis as unknown as { fetch?: (...args: any[]) => Promise<any> }).fetch;
@@ -517,12 +516,18 @@ router.post('/registry/grants', (req: Request, res: Response) => {
   return res.status(201).json({ data: parsed.data });
 });
 
-router.get('/receipts/:receiptId', (req: Request, res: Response) => {
-  const receipt = service.getReceipt(routeParam(req.params.receiptId));
-  if (!receipt) {
-    return res.status(404).json({ error: 'receipt not found' });
+router.get('/receipts/:receiptId', async (req: Request, res: Response) => {
+  try {
+    const receipt = await service.getReceipt(routeParam(req.params.receiptId));
+    if (!receipt) {
+      return res.status(404).json({ error: 'receipt not found' });
+    }
+    return res.json({ data: receipt });
+  } catch (error) {
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Failed to retrieve receipt',
+    });
   }
-  return res.json({ data: receipt });
 });
 
 export default router;

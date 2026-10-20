@@ -78,6 +78,7 @@ import { scheduleAutoResume, stopAutoResume } from './jobs/auto-resume';
 import { startSettlementBatchJob, stopSettlementBatchJob } from './jobs/settlement-batch-job';
 import { startStealthScanJob } from './jobs/stealth-scan-job';
 import { startChannelMonitorJob } from './jobs/channel-monitor-job';
+import { startUsageRetentionJob } from './jobs/usage-retention-job';
 import { startChannelSettlementJob, stopChannelSettlementJob } from './jobs/channel-settlement-job';
 import { startSettlementReconciliationJob, stopSettlementReconciliationJob } from './jobs/settlement-reconciliation-job';
 import { startSettlementSignerBalanceJob, stopSettlementSignerBalanceJob } from './jobs/settlement-signer-balance-job';
@@ -692,6 +693,7 @@ const server = app.listen(PORT, async () => {
   startSettlementBatchJob();
   startStealthScanJob();
   startChannelMonitorJob();
+  startUsageRetentionJob();
   startChannelSettlementJob();
   startSettlementReconciliationJob();
   startSettlementSignerBalanceJob();

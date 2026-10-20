@@ -15,6 +15,7 @@
  */
 
 import { RpcClient } from '@syncro/shared/rpc-client';
+import { toDecimalAmount } from '@syncro/shared/format-amount';
 
 export type CongestionLevel = "low" | "medium" | "high" | "severe";
 
@@ -78,7 +79,7 @@ export interface GasEstimate {
   exceedsThreshold: boolean;
 }
 
-const STROOPS_PER_XLM = 10_000_000;
+const XLM_ASSET = { symbol: 'XLM', decimals: 7 } as const;
 
 /** Default RPC endpoints by network. */
 const RPC_ENDPOINTS: Record<string, string> = {
@@ -287,9 +288,9 @@ class GasPredictorService {
     );
 
     const totalStroops = adjustedBaseFee + resourceFeeStroops;
-    const baseFeeXlm = adjustedBaseFee / STROOPS_PER_XLM;
-    const resourceFeeXlm = resourceFeeStroops / STROOPS_PER_XLM;
-    const totalXlm = totalStroops / STROOPS_PER_XLM;
+    const baseFeeXlm = toDecimalAmount(adjustedBaseFee, XLM_ASSET);
+    const resourceFeeXlm = toDecimalAmount(resourceFeeStroops, XLM_ASSET);
+    const totalXlm = toDecimalAmount(totalStroops, XLM_ASSET);
 
     const congestion = this.getCongestion(stats.ledgerCapacityUsage);
     const exceedsThreshold = totalXlm > this.thresholdXlm;
@@ -324,7 +325,7 @@ class GasPredictorService {
             : 1;
 
     const totalStroops = Math.round(baseFeeStroops * congestionMultiplier);
-    const totalXlm = totalStroops / STROOPS_PER_XLM;
+    const totalXlm = toDecimalAmount(totalStroops, XLM_ASSET);
     const congestion = this.getCongestion(stats.ledgerCapacityUsage);
     const exceedsThreshold = totalXlm > this.thresholdXlm;
     const warning = this.buildWarning(congestion, totalXlm, exceedsThreshold);

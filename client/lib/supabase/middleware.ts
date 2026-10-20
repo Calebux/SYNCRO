@@ -37,7 +37,8 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   const isAgentConsole = request.nextUrl.pathname === "/agents" || request.nextUrl.pathname.startsWith("/agents/");
-  if (!user && !request.nextUrl.pathname.startsWith("/auth") && request.nextUrl.pathname !== "/" && !isAgentConsole) {
+  const isPublicReceiptVerifier = request.nextUrl.pathname === "/receipts/verify";
+  if (!user && !request.nextUrl.pathname.startsWith("/auth") && request.nextUrl.pathname !== "/" && !isAgentConsole && !isPublicReceiptVerifier) {
     const url = request.nextUrl.clone()
     url.pathname = "/auth/login"
     return NextResponse.redirect(url)
@@ -86,6 +87,7 @@ export async function updateSession(request: NextRequest) {
  */
 function isProtectedRoute(pathname: string): boolean {
   if (pathname === "/") return false
+  if (pathname === "/receipts/verify") return false
   if (pathname.startsWith("/auth/")) return false
   if (pathname.startsWith("/api/")) return false
   if (pathname.startsWith("/_next/")) return false

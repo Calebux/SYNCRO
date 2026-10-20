@@ -106,6 +106,7 @@ export interface DeliveryResult {
 export interface UserPreferences {
   user_id: string;
   notification_channels: ('email' | 'push' | 'telegram' | 'slack')[];
+  spend_cap_alert_channels: ('email' | 'telegram')[];
   reminder_timing: number[]; // days before
   reminder_jitter_level: 'off' | 'low' | 'medium' | 'high'; // low=±2h, medium=±6h, high=±12h
   email_opt_ins: {

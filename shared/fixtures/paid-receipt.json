@@ -11,5 +11,6 @@
   "stateNonce": 17,
   "timestamp": "2026-10-18T12:00:00.000Z",
   "signerPublicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAA6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg=\n-----END PUBLIC KEY-----\n",
-  "signature": "y6G7fb3qgvk2ptAOkZCK2uir+QCjcGUKrv0sZeiPuSh1XWujw4ZdZ5bWzGO98Q7zkswqkhKgAp290a7xg5NKDA=="
+  "keyId": "primary-1",
+  "signature": "CWWoanirdoAZ71mDEKW/sZay6OioH7VmrzyM0r6FMNdS6vWtMBvGMn7YEpj4ZhO8T8v9DfYaQPKZHFf5ThF8AA=="
 }

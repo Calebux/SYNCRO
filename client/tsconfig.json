@@ -19,7 +19,8 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@syncro/sdk/v3/receipt-browser": ["../sdk/src/v3/receipt-browser.ts"]
     },
     "types": ["node", "react", "react-dom"]
   },

@@ -20,13 +20,13 @@ describe('receipt key rotation (issue #1702)', () => {
     process.env = { ...saved };
   });
 
-  it('receipts signed before rotation still verify after it', () => {
+  it('receipts signed before rotation still verify after it', async () => {
     const oldKeys = pemPair();
     process.env.SYNCRO_RECEIPT_KEY_ID = 'key-old-1';
     process.env.SYNCRO_RECEIPT_PRIVATE_KEY_PEM = oldKeys.privatePem;
     process.env.SYNCRO_RECEIPT_PUBLIC_KEY_PEM = oldKeys.publicPem;
     const before = new ReceiptService();
-    const receipt = before.issueReceipt({
+    const receipt = await before.issueReceipt({
       receiptId: 'r1', route: 'GET /x', unit: 'call', quantity: 1, amount: 1,
       rateCardVersion: 'v1', exchangeRate: null, channelId: 'c1', stateNonce: 1,
       requestMethod: 'GET', requestPath: '/x', requestQuery: {},
@@ -47,17 +47,19 @@ describe('receipt key rotation (issue #1702)', () => {
     expect(after.verifyReceipt(receipt)).toEqual({ ok: true, reason: 'ok' });
   });
 
-  it('receipts signed with a revoked key fail with revoked_key', () => {
+  it('receipts signed with a revoked key fail with revoked_key', async () => {
     const oldKeys = pemPair();
     process.env.SYNCRO_RECEIPT_KEY_ID = 'key-old-1';
     process.env.SYNCRO_RECEIPT_PRIVATE_KEY_PEM = oldKeys.privatePem;
     process.env.SYNCRO_RECEIPT_PUBLIC_KEY_PEM = oldKeys.publicPem;
-    const receipt = new ReceiptService().issueReceipt({
+    const receipt = await new ReceiptService().issueReceipt({
       receiptId: 'r2', route: 'GET /x', unit: 'call', quantity: 1, amount: 1,
       rateCardVersion: 'v1', exchangeRate: null, channelId: 'c1', stateNonce: 1,
       requestMethod: 'GET', requestPath: '/x', requestQuery: {},
     });
     process.env.SYNCRO_RECEIPT_REVOKED_KEY_IDS = 'key-old-1';
-    expect(new ReceiptService().verifyReceipt(receipt)).toEqual({ ok: false, reason: 'revoked_key' });
+    const service = new ReceiptService();
+    expect(service.verifyReceipt(receipt)).toEqual({ ok: false, reason: 'revoked_key' });
+    expect(service.getReceiptPublicKeys().map((key) => key.keyId)).not.toContain('key-old-1');
   });
 });

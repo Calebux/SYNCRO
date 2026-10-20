@@ -372,7 +372,7 @@ export class V3GatewayService {
     const applicable = this.providers.applicableVersion(route.routeId, meteredAt);
     const amount = route.price * charged;
 
-    const receipt = this.receipts.issueReceipt({
+    const receipt = await this.receipts.issueReceipt({
       receiptId: randomUUID(),
       route: route.scopeKey,
       unit: route.unit,
@@ -443,7 +443,7 @@ export class V3GatewayService {
     };
   }
 
-  getReceipt(receiptId: string): PaidReceipt | null {
+  getReceipt(receiptId: string): Promise<PaidReceipt | null> {
     return this.receipts.getReceipt(receiptId);
   }
 

@@ -36,12 +36,12 @@ describe('shared paid receipt contract', () => {
     }
   });
 
-  it('regenerates the shared receipt fixture identically', () => {
+  it('regenerates the shared receipt fixture identically', async () => {
     process.env.SYNCRO_RECEIPT_PRIVATE_KEY_PEM = privateKeyPem;
     process.env.SYNCRO_RECEIPT_PUBLIC_KEY_PEM = publicKeyPem;
     jest.useFakeTimers().setSystemTime(new Date(fixture.timestamp));
 
-    const receipt = new ReceiptService().issueReceipt({
+    const receipt = await new ReceiptService().issueReceipt({
       receiptId: fixture.receiptId,
       route: fixture.route,
       unit: fixture.unit,

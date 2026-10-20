@@ -5,6 +5,7 @@ import { UserPreferences, PartialUserPreferences } from '../types/reminder';
 export class UserPreferenceService {
     private readonly defaultPreferences: Omit<UserPreferences, 'user_id' | 'updated_at'> = {
         notification_channels: ['email'],
+        spend_cap_alert_channels: [],
         reminder_timing: [7, 3, 1],
         reminder_jitter_level: 'off', // default to no jitter
         email_opt_ins: {
