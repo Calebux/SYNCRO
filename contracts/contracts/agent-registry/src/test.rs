@@ -1,8 +1,10 @@
 #![cfg(test)]
 
+extern crate alloc;
+
 use super::*;
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::Env;
+use soroban_sdk::testutils::{Address as _, Events as _};
+use soroban_sdk::{Env, IntoVal};
 
 #[test]
 fn test_registration_and_revocation() {
@@ -22,11 +24,11 @@ fn test_registration_and_revocation() {
     assert!(!client.is_authorized(&agent));
 
     // Register
-    client.register(&agent);
+    client.register(&admin, &agent);
     assert!(client.is_authorized(&agent));
 
     // Revoke
-    client.revoke_agent(&agent);
+    client.revoke_agent(&admin, &agent);
     assert!(!client.is_authorized(&agent));
 }
 
@@ -89,14 +91,14 @@ fn test_register_then_grant_and_check_scopes() {
     let agent = Address::generate(&env);
 
     client.init(&admin);
-    client.register(&agent);
+    client.register(&admin, &agent);
 
     assert!(!client.has_scope(&agent, &ScopeSet(ScopeSet::RENEWALS)));
     assert!(!client.has_scope(&agent, &ScopeSet(ScopeSet::GIFTCARDS)));
 
     // Grant Renewals + Approvals.
     let mask = ScopeSet(ScopeSet::RENEWALS | ScopeSet::APPROVALS);
-    client.update_scopes(&agent, &mask);
+    client.update_scopes(&admin, &agent, &mask);
 
     assert!(client.has_scope(&agent, &ScopeSet(ScopeSet::RENEWALS)));
     assert!(client.has_scope(&agent, &ScopeSet(ScopeSet::APPROVALS)));
@@ -117,8 +119,8 @@ fn test_update_scopes_requires_registered_agent() {
     client.init(&admin);
 
     // Updating scopes for an unregistered agent is rejected.
-    let result = client.try_update_scopes(&agent, &ScopeSet(ScopeSet::RENEWALS));
-    assert_eq!(result, Err(Ok(Error::Unauthorized)));
+    let result = client.try_update_scopes(&admin, &agent, &ScopeSet(ScopeSet::RENEWALS));
+    assert_eq!(result, Err(Ok(Error::NotRegistered)));
 }
 
 #[test]
@@ -133,12 +135,13 @@ fn test_require_scope_succeeds_with_scope() {
     let agent = Address::generate(&env);
 
     client.init(&admin);
-    client.register(&agent);
-    client.update_scopes(&agent, &ScopeSet(ScopeSet::GIFTCARDS));
+    client.register(&admin, &agent);
+    client.update_scopes(&admin, &agent, &ScopeSet(ScopeSet::GIFTCARDS));
 
     // Should not panic.
-    let result = client.require_scope(&agent, &ScopeSet(ScopeSet::GIFTCARDS));
-    assert!(result.is_ok());
+    assert!(client
+        .try_require_scope(&agent, &ScopeSet(ScopeSet::GIFTCARDS))
+        .is_ok());
 }
 
 #[test]
@@ -152,8 +155,8 @@ fn test_require_scope_missing_scope() {
     let agent = Address::generate(&env);
 
     client.init(&admin);
-    client.register(&agent);
-    client.update_scopes(&agent, &ScopeSet(ScopeSet::RENEWALS));
+    client.register(&admin, &agent);
+    client.update_scopes(&admin, &agent, &ScopeSet(ScopeSet::RENEWALS));
 
     let result = client.try_require_scope(&agent, &ScopeSet(ScopeSet::GIFTCARDS));
     assert_eq!(result, Err(Ok(Error::MissingScope)));
@@ -192,8 +195,8 @@ fn test_fault_condition_scope_missing_bit() {
     let agent = Address::generate(&env);
 
     client.init(&admin);
-    client.register(&agent);
-    client.update_scopes(&agent, &ScopeSet(ScopeSet::RENEWALS));
+    client.register(&admin, &agent);
+    client.update_scopes(&admin, &agent, &ScopeSet(ScopeSet::RENEWALS));
 
     let result = client.try_require_scope(&agent, &ScopeSet(ScopeSet::GIFTCARDS));
     assert_eq!(result, Err(Ok(Error::MissingScope)));
@@ -232,7 +235,7 @@ fn test_preservation_authorized_ok() {
     let agent = Address::generate(&env);
 
     client.init(&admin);
-    client.register(&agent);
+    client.register(&admin, &agent);
 
     let result = client.try_require_authorized(&agent);
     assert!(result.is_ok(), "require_authorized should succeed for a registered agent");
@@ -251,8 +254,8 @@ fn test_preservation_scope_ok() {
     let agent = Address::generate(&env);
 
     client.init(&admin);
-    client.register(&agent);
-    client.update_scopes(&agent, &ScopeSet(ScopeSet::RENEWALS));
+    client.register(&admin, &agent);
+    client.update_scopes(&admin, &agent, &ScopeSet(ScopeSet::RENEWALS));
 
     let result = client.try_require_scope(&agent, &ScopeSet(ScopeSet::RENEWALS));
     assert!(result.is_ok(), "require_scope should succeed when the agent has the requested scope");
@@ -276,11 +279,11 @@ fn test_preservation_is_authorized() {
     assert!(!client.is_authorized(&agent));
 
     // After register → true.
-    client.register(&agent);
+    client.register(&admin, &agent);
     assert!(client.is_authorized(&agent));
 
     // After revoke → false again.
-    client.revoke_agent(&agent);
+    client.revoke_agent(&admin, &agent);
     assert!(!client.is_authorized(&agent));
 }
 
@@ -297,12 +300,12 @@ fn test_preservation_has_scope() {
     let agent = Address::generate(&env);
 
     client.init(&admin);
-    client.register(&agent);
+    client.register(&admin, &agent);
 
     assert!(!client.has_scope(&agent, &ScopeSet(ScopeSet::RENEWALS)));
     assert!(!client.has_scope(&agent, &ScopeSet(ScopeSet::GIFTCARDS)));
 
-    client.update_scopes(&agent, &ScopeSet(ScopeSet::RENEWALS));
+    client.update_scopes(&admin, &agent, &ScopeSet(ScopeSet::RENEWALS));
 
     assert!(client.has_scope(&agent, &ScopeSet(ScopeSet::RENEWALS)));
     assert!(!client.has_scope(&agent, &ScopeSet(ScopeSet::GIFTCARDS)));
@@ -380,11 +383,15 @@ fn test_new_admin_can_administer_after_transfer() {
     let agent = Address::generate(&env);
 
     client.init(&admin);
+    client.register(&admin, &agent);
+    assert!(client.is_authorized(&agent));
+
     client.transfer_admin(&new_admin);
     client.accept_admin();
 
-    client.register(&agent);
-    assert!(client.is_authorized(&agent));
+    // New admin can emergency-revoke (admin-only path).
+    client.emergency_revoke(&agent);
+    assert!(!client.is_authorized(&agent));
 }
 
 // ── Additional ScopeSet logic tests ──────────────────────────────────────────
@@ -416,10 +423,10 @@ fn test_update_scopes_invalid() {
     let admin = Address::generate(&env);
     let agent = Address::generate(&env);
     client.init(&admin);
-    client.register(&agent);
+    client.register(&admin, &agent);
 
     // Invalid scope bits
-    let res = client.try_update_scopes(&agent, &ScopeSet(1 << 5));
+    let res = client.try_update_scopes(&admin, &agent, &ScopeSet(1 << 5));
     assert_eq!(res, Err(Ok(Error::InvalidScope)));
 }
 
@@ -432,16 +439,16 @@ fn test_require_scopes() {
     let admin = Address::generate(&env);
     let agent = Address::generate(&env);
     client.init(&admin);
-    client.register(&agent);
+    client.register(&admin, &agent);
 
     let scope = ScopeSet(ScopeSet::RENEWALS | ScopeSet::GIFTCARDS);
-    client.update_scopes(&agent, &scope);
+    client.update_scopes(&admin, &agent, &scope);
 
     // Should succeed
-    let res1 = client.require_scopes(&agent, &scope);
-    assert!(res1.is_ok());
-    let res2 = client.require_scope(&agent, &ScopeSet(ScopeSet::RENEWALS));
-    assert!(res2.is_ok());
+    assert!(client.try_require_scopes(&agent, &scope).is_ok());
+    assert!(client
+        .try_require_scope(&agent, &ScopeSet(ScopeSet::RENEWALS))
+        .is_ok());
 }
 // ── Authority expiry (issue #1656) ──────────────────────────────────────────
 
@@ -454,18 +461,19 @@ fn expiry_setup() -> (Env, Address, Address, Address) {
 
     let contract_id = env.register_contract(None, AgentRegistry);
     let admin = Address::generate(&env);
+    let principal = Address::generate(&env);
     let agent = Address::generate(&env);
     AgentRegistryClient::new(&env, &contract_id).init(&admin);
-    (env, contract_id, admin, agent)
+    (env, contract_id, principal, agent)
 }
 
 #[test]
 fn test_authority_valid_before_expiry_invalid_after() {
-    let (env, contract_id, _admin, agent) = expiry_setup();
+    let (env, contract_id, principal, agent) = expiry_setup();
     let client = AgentRegistryClient::new(&env, &contract_id);
 
-    client.register_with_expiry(&agent, &Some(2_000u64));
-    client.update_scopes(&agent, &ScopeSet(ScopeSet::RENEWALS));
+    client.register_with_expiry(&principal, &agent, &Some(2_000u64));
+    client.update_scopes(&principal, &agent, &ScopeSet(ScopeSet::RENEWALS));
     assert_eq!(client.get_expiry(&agent), Some(2_000u64));
 
     // Before expiry: everything works.
@@ -494,11 +502,11 @@ fn test_authority_valid_before_expiry_invalid_after() {
 
 #[test]
 fn test_admin_can_extend_expiry() {
-    let (env, contract_id, _admin, agent) = expiry_setup();
+    let (env, contract_id, principal, agent) = expiry_setup();
     let client = AgentRegistryClient::new(&env, &contract_id);
 
-    client.register_with_expiry(&agent, &Some(2_000u64));
-    client.update_scopes(&agent, &ScopeSet(ScopeSet::GIFTCARDS));
+    client.register_with_expiry(&principal, &agent, &Some(2_000u64));
+    client.update_scopes(&principal, &agent, &ScopeSet(ScopeSet::GIFTCARDS));
 
     // Extend before it lapses.
     env.ledger().set_timestamp(1_500);
@@ -519,10 +527,10 @@ fn test_admin_can_extend_expiry() {
 
 #[test]
 fn test_set_expiry_none_clears_expiry() {
-    let (env, contract_id, _admin, agent) = expiry_setup();
+    let (env, contract_id, principal, agent) = expiry_setup();
     let client = AgentRegistryClient::new(&env, &contract_id);
 
-    client.register_with_expiry(&agent, &Some(2_000u64));
+    client.register_with_expiry(&principal, &agent, &Some(2_000u64));
     client.set_expiry(&agent, &None);
     assert_eq!(client.get_expiry(&agent), None);
 
@@ -532,15 +540,15 @@ fn test_set_expiry_none_clears_expiry() {
 
 #[test]
 fn test_expiry_must_be_in_the_future() {
-    let (env, contract_id, _admin, agent) = expiry_setup();
+    let (env, contract_id, principal, agent) = expiry_setup();
     let client = AgentRegistryClient::new(&env, &contract_id);
 
     // now == 1_000, so 1_000 and 999 are both rejected.
     assert_eq!(
-        client.try_register_with_expiry(&agent, &Some(1_000u64)),
+        client.try_register_with_expiry(&principal, &agent, &Some(1_000u64)),
         Err(Ok(Error::InvalidExpiry))
     );
-    client.register(&agent);
+    client.register(&principal, &agent);
     assert_eq!(
         client.try_set_expiry(&agent, &Some(999u64)),
         Err(Ok(Error::InvalidExpiry))
@@ -549,7 +557,7 @@ fn test_expiry_must_be_in_the_future() {
 
 #[test]
 fn test_set_expiry_requires_registered_agent() {
-    let (env, contract_id, _admin, agent) = expiry_setup();
+    let (env, contract_id, _principal, agent) = expiry_setup();
     let client = AgentRegistryClient::new(&env, &contract_id);
 
     assert_eq!(
@@ -560,36 +568,36 @@ fn test_set_expiry_requires_registered_agent() {
 
 #[test]
 fn test_set_expiry_emits_event() {
-    let (env, contract_id, _admin, agent) = expiry_setup();
+    let (env, contract_id, principal, agent) = expiry_setup();
     let client = AgentRegistryClient::new(&env, &contract_id);
 
-    client.register(&agent);
+    client.register(&principal, &agent);
     client.set_expiry(&agent, &Some(5_000u64));
-    assert!(env.events().all().into_iter().count() >= 1);
+    assert!(!env.events().all().events().is_empty());
 }
 
 #[test]
 fn test_register_with_expiry_emits_events() {
-    let (env, contract_id, _admin, agent) = expiry_setup();
+    let (env, contract_id, principal, agent) = expiry_setup();
     let client = AgentRegistryClient::new(&env, &contract_id);
 
-    client.register_with_expiry(&agent, &Some(5_000u64));
+    client.register_with_expiry(&principal, &agent, &Some(5_000u64));
     // agent/reg + agent/exp_set
-    assert!(env.events().all().into_iter().count() >= 2);
+    assert!(env.events().all().events().len() >= 2);
 }
 
 #[test]
 fn test_revoke_clears_expiry_and_reregister_starts_clean() {
-    let (env, contract_id, _admin, agent) = expiry_setup();
+    let (env, contract_id, principal, agent) = expiry_setup();
     let client = AgentRegistryClient::new(&env, &contract_id);
 
-    client.register_with_expiry(&agent, &Some(2_000u64));
-    client.revoke_agent(&agent);
+    client.register_with_expiry(&principal, &agent, &Some(2_000u64));
+    client.revoke_agent(&principal, &agent);
     assert_eq!(client.get_expiry(&agent), None);
 
     // Re-registering later must not inherit the old expiry.
     env.ledger().set_timestamp(3_000);
-    client.register(&agent);
+    client.register(&principal, &agent);
     assert!(client.is_authorized(&agent));
 }
 
@@ -597,7 +605,7 @@ fn test_revoke_clears_expiry_and_reregister_starts_clean() {
 /// `DataKey::Agent` with no expiry key. It must keep working and never expire.
 #[test]
 fn test_legacy_entry_without_expiry_never_expires() {
-    let (env, contract_id, _admin, agent) = expiry_setup();
+    let (env, contract_id, _principal, agent) = expiry_setup();
     let client = AgentRegistryClient::new(&env, &contract_id);
 
     env.as_contract(&contract_id, || {
@@ -618,4 +626,183 @@ fn test_legacy_entry_without_expiry_never_expires() {
     client.set_expiry(&agent, &Some(2_000u64));
     env.ledger().set_timestamp(2_000);
     assert!(!client.is_authorized(&agent));
+}
+
+// ── Principal-owned agents (v3) ─────────────────────────────────────────────
+
+use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
+use soroban_sdk::xdr::{ContractEventBody, ScVal, ScSymbol};
+use soroban_sdk::{TryFromVal, Val};
+
+fn last_event_topics(env: &Env) -> alloc::vec::Vec<alloc::string::String> {
+    let events = env.events().all();
+    let event = events.events().last().expect("expected an event");
+    match &event.body {
+        ContractEventBody::V0(v0) => v0
+            .topics
+            .iter()
+            .map(|t| match t {
+                ScVal::Symbol(ScSymbol(s)) => {
+                    alloc::string::String::from_utf8_lossy(s.as_slice()).into_owned()
+                }
+                other => alloc::format!("{:?}", other),
+            })
+            .collect(),
+    }
+}
+
+fn last_event_data(env: &Env) -> Val {
+    let events = env.events().all();
+    let event = events.events().last().expect("expected an event");
+    match &event.body {
+        ContractEventBody::V0(v0) => Val::try_from_val(env, &v0.data).unwrap(),
+    }
+}
+
+#[test]
+fn test_principal_registers_scopes_and_revokes_without_admin() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, AgentRegistry);
+    let client = AgentRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let principal = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    // init has no auth requirement.
+    client.init(&admin);
+
+    // Only the principal is authorized — admin key is never mocked.
+    env.mock_auths(&[MockAuth {
+        address: &principal,
+        invoke: &MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "register",
+            args: (principal.clone(), agent.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.register(&principal, &agent);
+    assert!(client.is_authorized(&agent));
+    assert_eq!(client.get_principal(&agent), Some(principal.clone()));
+
+    env.mock_auths(&[MockAuth {
+        address: &principal,
+        invoke: &MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "update_scopes",
+            args: (
+                principal.clone(),
+                agent.clone(),
+                ScopeSet(ScopeSet::RENEWALS),
+            )
+                .into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.update_scopes(&principal, &agent, &ScopeSet(ScopeSet::RENEWALS));
+    assert!(client.has_scope(&agent, &ScopeSet(ScopeSet::RENEWALS)));
+
+    env.mock_auths(&[MockAuth {
+        address: &principal,
+        invoke: &MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "revoke_agent",
+            args: (principal.clone(), agent.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.revoke_agent(&principal, &agent);
+    assert!(!client.is_authorized(&agent));
+    assert_eq!(client.get_principal(&agent), None);
+}
+
+#[test]
+fn test_principal_cannot_modify_another_principals_agent() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, AgentRegistry);
+    let client = AgentRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let stranger = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    client.init(&admin);
+    client.register(&owner, &agent);
+
+    assert_eq!(
+        client.try_update_scopes(&stranger, &agent, &ScopeSet(ScopeSet::GIFTCARDS)),
+        Err(Ok(Error::Unauthorized))
+    );
+    assert_eq!(
+        client.try_revoke_agent(&stranger, &agent),
+        Err(Ok(Error::Unauthorized))
+    );
+    // Owner still in control.
+    assert!(client.is_authorized(&agent));
+    assert_eq!(client.get_principal(&agent), Some(owner));
+}
+
+#[test]
+fn test_register_update_revoke_events_include_principal() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, AgentRegistry);
+    let client = AgentRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let principal = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    client.init(&admin);
+    client.register(&principal, &agent);
+    assert_eq!(last_event_topics(&env).as_slice(), ["agent", "reg"]);
+    let data = last_event_data(&env);
+    let (ev_principal, ev_agent): (Address, Address) = data.into_val(&env);
+    assert_eq!((ev_principal, ev_agent), (principal.clone(), agent.clone()));
+
+    client.update_scopes(&principal, &agent, &ScopeSet(ScopeSet::APPROVALS));
+    assert_eq!(last_event_topics(&env).as_slice(), ["agent", "scopes"]);
+    let data = last_event_data(&env);
+    let (ev_principal, ev_agent, mask): (Address, Address, u32) = data.into_val(&env);
+    assert_eq!(ev_principal, principal);
+    assert_eq!(ev_agent, agent);
+    assert_eq!(mask, ScopeSet::APPROVALS);
+
+    client.revoke_agent(&principal, &agent);
+    assert_eq!(last_event_topics(&env).as_slice(), ["agent", "revoke"]);
+    let data = last_event_data(&env);
+    let (ev_principal, ev_agent): (Address, Address) = data.into_val(&env);
+    assert_eq!((ev_principal, ev_agent), (principal, agent));
+}
+
+#[test]
+fn test_admin_emergency_revoke_emits_distinct_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, AgentRegistry);
+    let client = AgentRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let principal = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    client.init(&admin);
+    client.register(&principal, &agent);
+
+    client.emergency_revoke(&agent);
+    // events().all() only covers the last invocation — read before other calls.
+    assert_eq!(last_event_topics(&env).as_slice(), ["agent", "em_rev"]);
+    let data = last_event_data(&env);
+    let (ev_principal, ev_agent): (Option<Address>, Address) = data.into_val(&env);
+    assert_eq!(ev_principal, Some(principal));
+    assert_eq!(ev_agent, agent);
+
+    assert!(!client.is_authorized(&agent));
+    assert_eq!(client.get_principal(&agent), None);
 }

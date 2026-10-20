@@ -131,7 +131,7 @@ fn neg_register_unauthorized() {
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
-    let _ = client.try_register(&Address::generate(&env));
+    let _ = client.try_register(&Address::generate(&env), &Address::generate(&env));
 }
 
 #[test]
@@ -141,7 +141,7 @@ fn neg_register_wrong_state() {
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
     client.init(&Address::generate(&env));
-    let _ = client.try_register(&Address::generate(&env));
+    let _ = client.try_register(&Address::generate(&env), &Address::generate(&env));
 }
 
 #[test]
@@ -150,7 +150,11 @@ fn neg_update_scopes_unauthorized() {
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
-    let _ = client.try_update_scopes(&Address::generate(&env), &1u32);
+    let _ = client.try_update_scopes(
+        &Address::generate(&env),
+        &Address::generate(&env),
+        &ScopeSet(1u32),
+    );
 }
 
 #[test]
@@ -160,7 +164,11 @@ fn neg_update_scopes_wrong_state() {
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
     client.init(&Address::generate(&env));
-    let _ = client.try_update_scopes(&Address::generate(&env), &1u32);
+    let _ = client.try_update_scopes(
+        &Address::generate(&env),
+        &Address::generate(&env),
+        &ScopeSet(1u32),
+    );
 }
 
 #[test]
@@ -169,7 +177,7 @@ fn neg_revoke_agent_unauthorized() {
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
-    let _ = client.try_revoke_agent(&Address::generate(&env));
+    let _ = client.try_revoke_agent(&Address::generate(&env), &Address::generate(&env));
 }
 
 #[test]
@@ -179,7 +187,7 @@ fn neg_revoke_agent_wrong_state() {
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
     client.init(&Address::generate(&env));
-    let _ = client.try_revoke_agent(&Address::generate(&env));
+    let _ = client.try_revoke_agent(&Address::generate(&env), &Address::generate(&env));
 }
 
 #[test]
@@ -226,7 +234,7 @@ fn neg_has_scope_unauthorized() {
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
-    let _ = client.try_has_scope(&Address::generate(&env), &Scope::Renewals);
+    let _ = client.try_has_scope(&Address::generate(&env), &ScopeSet(ScopeSet::RENEWALS));
 }
 
 #[test]
@@ -236,7 +244,7 @@ fn neg_has_scope_wrong_state() {
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
     client.init(&Address::generate(&env));
-    let _ = client.try_has_scope(&Address::generate(&env), &Scope::Renewals);
+    let _ = client.try_has_scope(&Address::generate(&env), &ScopeSet(ScopeSet::RENEWALS));
 }
 
 #[test]
@@ -245,7 +253,7 @@ fn neg_require_scope_unauthorized() {
     env.mock_all_auths();
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
-    let _ = client.try_require_scope(&Address::generate(&env), &Scope::Renewals);
+    let _ = client.try_require_scope(&Address::generate(&env), &ScopeSet(ScopeSet::RENEWALS));
 }
 
 #[test]
@@ -255,6 +263,6 @@ fn neg_require_scope_wrong_state() {
     let id = env.register( AgentRegistry, ());
     let client = AgentRegistryClient::new(&env, &id);
     client.init(&Address::generate(&env));
-    let _ = client.try_require_scope(&Address::generate(&env), &Scope::Renewals);
+    let _ = client.try_require_scope(&Address::generate(&env), &ScopeSet(ScopeSet::RENEWALS));
 }
 
