@@ -11,6 +11,7 @@ import { InMemoryMeter } from '../../../packages/metering/src/meter';
 import { DegradedAdmissionController } from '../../../packages/metering/src/degraded-admission';
 import { FileDegradedUsageLog } from '../../../packages/metering/src/degraded-log';
 import { RateLimiter } from '../../../packages/metering/src/rate-limit';
+import { sendGatewayError } from '../errors/gateway-error-response';
 
 const degradedModeFields = {
   failMode: z.enum(['fail_open', 'fail_closed']).optional(),
@@ -436,62 +437,11 @@ router.post('/gateway/paid', async (req: Request, res: Response) => {
     }
     return res.status(result.upstream.status).json(result.upstream.body);
   } catch (error) {
-    if (service.isScopeError(error)) {
-      return res.status(403).json({
-        error: error.code,
-        message: error.message,
-      });
-    }
-
-    // Counter store down and the provider's policy refuses this call (#1444).
-    // 503 + Retry-After is the taxonomy's GATEWAY_METER_DEGRADED contract, so
-    // the SDK retries it instead of surfacing a hard failure.
-    if (service.isMeterDegradedError(error)) {
-      return res
-        .status(error.status)
-        .set('Retry-After', String(error.retryAfterSeconds))
-        .json({
-          error: error.code,
-          code: error.code,
-          message: error.message,
-          reason: error.reason,
-        });
-    }
-
-    // Per-agent rate limit exceeded (#1447). 429 + Retry-After is the
-    // taxonomy's GATEWAY_RATE_LIMITED contract: a back-off hint, not a
-    // rejection of the agent's funds.
-    if (service.isMeterRateLimitedError(error)) {
-      return res
-        .status(error.status)
-        .set('Retry-After', String(Math.max(1, Math.ceil(error.retryAfterMs / 1000))))
-        .json({
-          error: error.code,
-          code: error.code,
-          message: error.message,
-          route: error.route,
-          retryAfterMs: error.retryAfterMs,
-          action: error.action,
-        });
-    }
-
-    // Out of metering headroom (#1447). 402 GATEWAY_METER_INSUFFICIENT — the
-    // "fund me" rejection, deliberately distinct from the "slow down" above.
-    if (service.isMeterInsufficientFundsError(error)) {
-      return res.status(error.status).json({
-        error: error.code,
-        code: error.code,
-        message: error.message,
-        route: error.route,
-        available: error.available,
-        needed: error.needed,
-        limit: error.limit,
-        action: error.action,
-      });
-    }
-
-    const message = error instanceof Error ? error.message : 'paid request failed';
-    return res.status(400).json({ error: message });
+    // Everything that reaches here is classified against the shared gateway
+    // taxonomy (#1617): the client gets a stable `code`/status and the
+    // taxonomy's public message, while the internal `message` is logged with
+    // the request id and never echoed back.
+    return sendGatewayError(res, error);
   }
 });
 

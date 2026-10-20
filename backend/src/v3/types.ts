@@ -206,6 +206,36 @@ export class MeterInsufficientFundsError extends Error {
   }
 }
 
+/**
+ * The provider's upstream could not be reached or did not answer: an
+ * infrastructure failure on our side, not a bad request (#1617). Mapped to
+ * HTTP 503 `GATEWAY_UPSTREAM_UNAVAILABLE`, which the SDK retries.
+ */
+export class UpstreamUnavailableError extends Error {
+  readonly code = 'GATEWAY_UPSTREAM_UNAVAILABLE';
+  readonly status = 503;
+
+  constructor() {
+    super('upstream request failed');
+    this.name = 'UpstreamUnavailableError';
+  }
+}
+
+/**
+ * A request-shaped failure in the paid-call path (unknown provider, unregistered
+ * route): safe to report as `GATEWAY_BAD_REQUEST` without echoing which internal
+ * lookup value was missing (#1617).
+ */
+export class PaidCallRequestError extends Error {
+  readonly code = 'GATEWAY_BAD_REQUEST';
+  readonly status = 400;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'PaidCallRequestError';
+  }
+}
+
 export interface PaidReceiptPayload {
   receiptId: string;
   requestHash: string;

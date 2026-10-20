@@ -20,6 +20,7 @@ import {
   MeterDegradedError,
   MeterInsufficientFundsError,
   MeterRateLimitedError,
+  PaidCallRequestError,
   PaidReceipt,
   ProviderRegistration,
   ProviderRevenue,
@@ -28,6 +29,7 @@ import {
   RateCardVersion,
   RegisteredRoute,
   ScopeRejectionError,
+  UpstreamUnavailableError,
 } from './types';
 import type { Meter, MeterReservation, MeterReading } from '../../../packages/metering/src/meter';
 
@@ -263,7 +265,7 @@ export class V3GatewayService {
   }> {
     const provider = this.getProviderOrThrow(input.providerId);
     if (!provider.payoutVerified) {
-      throw new Error('provider payout address is not verified');
+      throw new PaidCallRequestError('provider payout address is not verified');
     }
     // Sandbox rule (#1699): staging is testnet-only (separate keys/data,
     // mainnet traffic refused); production requires the mainnet runtime.
@@ -271,7 +273,7 @@ export class V3GatewayService {
 
     const route = this.providers.findRoute(input.providerId, input.method, input.path);
     if (!route) {
-      throw new Error('route not registered for provider');
+      throw new PaidCallRequestError('route not registered for provider');
     }
 
     await this.enforcer.assertAllowed({
@@ -360,7 +362,9 @@ export class V3GatewayService {
       this.meter.release(reservation.id);
       // Nothing was served, so the unbilled headroom goes back to the pool.
       this.degraded?.rollback(admission?.holdId ?? null);
-      throw err;
+      // The provider's upstream is an external dependency we do not control:
+      // surface it as a retryable 503 (#1617), not as a client error.
+      throw new UpstreamUnavailableError();
     }
 
     // -----------------------------------------------------------------------
@@ -476,7 +480,7 @@ export class V3GatewayService {
   private getProviderOrThrow(providerId: string): ProviderRegistration {
     const provider = this.providers.getProvider(providerId);
     if (!provider) {
-      throw new Error('provider not found');
+      throw new PaidCallRequestError('provider not found');
     }
     return provider;
   }
