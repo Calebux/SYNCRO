@@ -36,6 +36,7 @@ describe('provider console reads', () => {
       mode: 'staging',
     });
     const providerId = registerRes.body.data.providerId as string;
+    const providerSecret = registerRes.body.data.providerSecret as string;
 
     const challengeRes = await request(app)
       .post(`/api/v3/providers/${providerId}/payout-challenge`)
@@ -47,15 +48,16 @@ describe('provider console reads', () => {
       .send({ signature })
       .expect(200);
 
-    return { providerId, keypair: kp };
+    return { providerId, providerSecret, keypair: kp };
   }
 
   it('keeps an earlier rate-card version after a price change', async () => {
     const app = buildApp();
-    const { providerId } = await onboardProvider(app);
+    const { providerId, providerSecret } = await onboardProvider(app);
 
     const created = await request(app)
       .post(`/api/v3/providers/${providerId}/routes`)
+      .set('x-provider-key', providerSecret)
       .send({
         pathPattern: '/echo/task',
         method: 'POST',
@@ -85,6 +87,7 @@ describe('provider console reads', () => {
 
     const revised = await request(app)
       .patch(`/api/v3/providers/${providerId}/routes/${routeId}`)
+      .set('x-provider-key', providerSecret)
       .send({ price: 9 })
       .expect(200);
 
@@ -92,7 +95,10 @@ describe('provider console reads', () => {
     expect(revised.body.data.version.price).toBe(9);
     expect(revised.body.data.route.price).toBe(9);
 
-    const cards = await request(app).get(`/api/v3/providers/${providerId}/rate-cards`).expect(200);
+    const cards = await request(app)
+      .get(`/api/v3/providers/${providerId}/rate-cards`)
+      .set('x-provider-key', providerSecret)
+      .expect(200);
     const v1 = cards.body.data.find((version: { label: string }) => version.label === 'v1');
     const v2 = cards.body.data.find((version: { label: string }) => version.label === 'v2');
     expect(v1.price).toBe(2);
@@ -101,6 +107,7 @@ describe('provider console reads', () => {
 
     const settlements = await request(app)
       .get(`/api/v3/providers/${providerId}/settlements`)
+      .set('x-provider-key', providerSecret)
       .expect(200);
     expect(settlements.body.data).toHaveLength(1);
     expect(settlements.body.data[0]).toMatchObject({
@@ -111,24 +118,29 @@ describe('provider console reads', () => {
       rateCardEffectiveFrom: v1.effectiveFrom,
     });
 
-    const revenue = await request(app).get(`/api/v3/providers/${providerId}/revenue`).expect(200);
+    const revenue = await request(app)
+      .get(`/api/v3/providers/${providerId}/revenue`)
+      .set('x-provider-key', providerSecret)
+      .expect(200);
     expect(revenue.body.data).toEqual({ settled: 0, unsettled: 2, inDispute: 0 });
     expect(revenue.body.data).not.toHaveProperty('total');
   });
 
   it('requires payout verification again after the address changes', async () => {
     const app = buildApp();
-    const { providerId } = await onboardProvider(app);
+    const { providerId, providerSecret } = await onboardProvider(app);
     const next = Keypair.random();
 
     const updated = await request(app)
       .patch(`/api/v3/providers/${providerId}/payout-address`)
+      .set('x-provider-key', providerSecret)
       .send({ payoutAddress: next.publicKey() })
       .expect(200);
     expect(updated.body.data.payoutVerified).toBe(false);
 
     await request(app)
       .post(`/api/v3/providers/${providerId}/routes`)
+      .set('x-provider-key', providerSecret)
       .send({
         pathPattern: '/echo/*',
         method: 'POST',

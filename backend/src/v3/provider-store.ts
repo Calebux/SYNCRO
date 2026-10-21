@@ -140,9 +140,11 @@ export class InMemoryProviderStore {
 
   registerProvider(input: RegisterProviderInput): ProviderRegistration {
     const providerId = randomUUID();
+    const providerSecret = randomUUID();
     const createdAt = nowIso();
     const record: ProviderRegistration = {
       providerId,
+      providerSecret,
       identity: input.identity,
       payoutAddress: input.payoutAddress,
       upstreamBaseUrl: input.upstreamBaseUrl,
@@ -161,6 +163,16 @@ export class InMemoryProviderStore {
 
   getProvider(providerId: string): ProviderRegistration | null {
     return this.providers.get(providerId) ?? null;
+  }
+
+  /** Look up a provider by its secret key (for provider auth). */
+  getProviderBySecret(secret: string): ProviderRegistration | null {
+    for (const provider of this.providers.values()) {
+      if (provider.providerSecret === secret) {
+        return provider;
+      }
+    }
+    return null;
   }
 
   saveProvider(provider: ProviderRegistration): void {
