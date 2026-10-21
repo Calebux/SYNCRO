@@ -12,7 +12,8 @@
     "start":"node dist/index.js"
   },
   "dependencies":{
-    "@therapotics/metering":"*"
+    "@therapotics/metering":"*",
+    "googleapis":"^186.0.0"
   },
   "devDependencies":{
     "typescript":"^5.4.0",
