@@ -15,12 +15,16 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:property": "vitest run src/window.property.test.ts",
+    "test:property:nightly": "cross-env FC_SEED=random vitest run src/window.property.test.ts",
     "load": "tsx load/run.ts",
     "load:budget": "tsx load/run.ts --budget --report load/budget.json",
     "load:ci": "tsx load/run.ts --budget --report load/budget.json --ci"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
+    "cross-env": "^7.0.3",
+    "fast-check": "^3.15.0",
     "tsx": "^4.7.0",
     "typescript": "^5.4.0",
     "vitest": "^1.4.0"
