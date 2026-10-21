@@ -61,6 +61,102 @@ export interface PaidCallInput {
   rateCardVersion: string;
 }
 
+// ========= On-chain agent registry (added by #1624) =========
+
+/**
+ * Minimal read surface of the `contracts/agent-registry` Soroban contract.
+ *
+ * Implementations are expected to invoke the contract's `has_scope` and
+ * `is_authorized` entrypoints; the gateway only depends on this interface so
+ * the on-chain reader and the in-memory test reader are interchangeable.
+ */
+export interface AgentRegistryContractClient {
+  hasScope(agentId: string, scope: string): Promise<boolean>;
+  isAuthorized(agentId: string): Promise<boolean>;
+}
+
+/**
+ * Default cache window for on-chain registry reads (#1624). Revoking an agent
+ * on-chain blocks its next paid call within this window.
+ */
+export const AGENT_REGISTRY_CACHE_TTL_MS = 30_000;
+
+export interface AgentRegistryCacheOptions {
+  /** How long a resolved grant may be served from cache. */
+  ttlMs?: number;
+  /** Injectable clock for deterministic tests. */
+  now?: () => number;
+}
+
+interface CachedGrant {
+  grant: AgentRegistryGrant;
+  expiresAt: number;
+}
+
+/**
+ * On-chain `AgentRegistryReader` backed by `contracts/agent-registry`.
+ *
+ * Reads `has_scope` / `is_authorized` and caches the resolved grant for a
+ * bounded window. Cache entries are invalidated on `agent`, `scope`, and
+ * `revoke` events so a revocation takes effect within the documented window
+ * (and immediately when the event is observed).
+ */
+export class OnChainAgentRegistryReader implements AgentRegistryReader {
+  private readonly cache = new Map<string, CachedGrant>();
+  private readonly ttlMs: number;
+  private readonly now: () => number;
+
+  constructor(
+    private readonly client: AgentRegistryContractClient,
+    options: AgentRegistryCacheOptions = {},
+  ) {
+    this.ttlMs = options.ttlMs ?? AGENT_REGISTRY_CACHE_TTL_MS;
+    this.now = options.now ?? (() => Date.now());
+  }
+
+  async getGrant(agentId: string): Promise<AgentRegistryGrant> {
+    const cached = this.cache.get(agentId);
+    if (cached && cached.expiresAt > this.now()) {
+      return cached.grant;
+    }
+
+    const authorized = await this.client.isAuthorized(agentId);
+    const grant: AgentRegistryGrant = {
+      agentId,
+      scopes: [],
+      authorized,
+    };
+
+    this.cache.set(agentId, { grant, expiresAt: this.now() + this.ttlMs });
+    return grant;
+  }
+
+  /**
+   * Check a single scope against the on-chain registry, consulting the cache
+   * first. Returns false when the agent is not authorized or lacks the scope.
+   */
+  async hasScope(agentId: string, scope: string): Promise<boolean> {
+    const grant = await this.getGrant(agentId);
+    if (!grant.authorized) {
+      return false;
+    }
+    return this.client.hasScope(agentId, scope);
+  }
+
+  /**
+   * Invalidate cached reads for an agent. Called when an `agent`, `scope`, or
+   * `revoke` event is observed for that agent.
+   */
+  invalidate(agentId: string): void {
+    this.cache.delete(agentId);
+  }
+
+  /** Drop every cached grant (e.g. on reconnect / reorg). */
+  invalidateAll(): void {
+    this.cache.clear();
+  }
+}
+
 export class InMemoryAgentRegistryReader implements AgentRegistryReader {
   private readonly grants = new Map<string, AgentRegistryGrant>();
 

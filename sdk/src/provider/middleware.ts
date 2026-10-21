@@ -63,6 +63,26 @@ function toError(err: unknown): Error {
   return err instanceof Error ? err : new Error(String(err));
 }
 
+/**
+ * Process-wide counter of requests served free because metering failed while
+ * `failureMode: 'serve-free'` was active. Providers can read this to see the
+ * cost of serving free on metering outages.
+ */
+export const servedFreeStats = {
+  count: 0,
+};
+
+let serveFreeWarningLogged = false;
+
+function warnServeFreeOnce(): void {
+  if (serveFreeWarningLogged) return;
+  serveFreeWarningLogged = true;
+  console.warn(
+    '[SyncroSDK] failureMode "serve-free" is active: requests will be served free when SYNCRO metering is unreachable. ' +
+    'This gives away your API on outages. Set onFailure: "reject" (the default) to return 503 instead.',
+  );
+}
+
 export function metered<
   Req extends MeteredRequest = MeteredRequest,
   Res extends MeteredResponse = MeteredResponse,
@@ -76,7 +96,11 @@ export function metered<
 
   const failureMode: FailureMode = typeof options.onFailure === 'string'
     ? options.onFailure
-    : 'serve-free';
+    : 'reject';
+
+  if (failureMode === 'serve-free') {
+    warnServeFreeOnce();
+  }
 
   const headerName = options.headerName || 'X-Syncro-Payment-Proof';
   const receiptHeaderName = options.receiptHeaderName || 'X-Syncro-Receipt';
@@ -180,6 +204,7 @@ export function metered<
       }
 
       if (failureMode === 'serve-free') {
+        servedFreeStats.count += 1;
         console.warn('[SyncroSDK] SYNCRO verification/metering unreachable, serving free per failure mode:', errorMessage(err));
         const freeReceipt: SyncroReceipt = {
           id: `rcpt_free_${Math.random().toString(36).substring(2, 11)}_${Date.now()}`,
@@ -197,10 +222,14 @@ export function metered<
         res.locals.syncroReceipt = freeReceipt;
         return next();
       } else {
+        if (typeof res.setHeader === 'function') {
+          res.setHeader('Retry-After', '5');
+        }
         if (typeof res.status === 'function') {
           return res.status(503).json({
             error: 'Service Unavailable',
             message: 'SYNCRO payment verification gateway unreachable',
+            retryAfter: 5,
             details: errorMessage(err),
           });
         }

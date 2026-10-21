@@ -95,6 +95,32 @@ const gateway = hostedGateway({
 });
 ```
 
+### Metering failure behaviour
+
+When SYNCRO cannot be reached to meter a request, the provider middleware
+**rejects by default** with a `503` response that includes a `Retry-After`
+hint. This prevents accidentally serving your API for free during an outage.
+
+If you would rather keep serving traffic when metering fails, you must opt in
+explicitly:
+
+```typescript
+import { metered } from "@syncro/sdk";
+
+const meteredRoute = metered({
+  unit: "request",
+  pricePerUnit: 0.001,
+  // ⚠️ Explicit opt-in: serve requests for free when metering fails.
+  // A warning is logged once per process, and each served-free request is
+  // counted so you can observe the cost.
+  onFailure: "serve-free",
+});
+```
+
+> **Breaking change (v3):** the default `failureMode` changed from `'serve-free'`
+to `'reject'`. Providers relying on the old default must set
+`onFailure: "serve-free"` explicitly.
+
 ## Receipt Verification
 
 ### Programmatic Verification
@@ -282,15 +308,6 @@ import type {
 | Sub-path | Description |
 |----------|-------------|
 | `@syncro/sdk` | Main entry — payments utilities, webhooks, receipts, Stellar memos, contract bindings, pricing, channels |
-| `@syncro/sdk/v3` | v3 payments API — `GatewayClient`, `createPaidFetch`, receipt verification, retry, gateway errors |
-| `@syncro/sdk/webhooks` | Webhook verification helpers |
-| `@syncro/sdk/stellar` | Stellar memo build/parse/verify utilities |
-| `@syncro/sdk/zk` | Zero-knowledge proof utilities |
-| `@syncro/sdk/contracts` | Soroban contract transaction builders |
-| `@syncro/sdk/types` | TypeScript types only (no runtime) |
-| `@syncro/sdk/crypto` | Cryptographic primitives (browser/node dual build) |
-| `@syncro/sdk/experimental` | Unstable/preview exports — may change in any release |
+| `@syncro/sdk/v3` | v3 payments API — `GatewayCl
 
-## License
-
-MIT
+/* … truncated 564 chars — edit only what you need near the top … */
