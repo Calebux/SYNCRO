@@ -8,10 +8,36 @@
 //! - Interface version tracking
 //! - Storage TTL constants and helpers (see [`ttl`])
 
-use soroban_sdk::{Env, Symbol};
+use soroban_sdk::{contracterror, Env, Symbol};
 
 pub mod ttl;
 pub mod admin;
+
+// ============================================================================
+// Monotonic counters
+// ============================================================================
+
+/// Typed error returned by the shared counter helper when a counter increment
+/// would overflow its `u64` storage.
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub enum CounterError {
+    /// The identifier counter reached its maximum value and cannot be
+    /// incremented further.
+    Overflow = 1,
+}
+
+/// Issue the next monotonically-increasing `u64` identifier for a contract.
+///
+/// The counter is stored in instance storage under `key`. An absent key yields
+/// `0`, so the first issued id is `1`. Overflow returns [`CounterError`] instead
+/// of wrapping.
+pub fn next_counter_id(env: &Env, key: Symbol) -> Result<u64, CounterError> {
+    let current: u64 = env.storage().instance().get(&key).unwrap_or(0);
+    let next = current.checked_add(1).ok_or(CounterError::Overflow)?;
+    env.storage().instance().set(&key, &next);
+    Ok(next)
+}
 
 // ============================================================================
 // Version Management

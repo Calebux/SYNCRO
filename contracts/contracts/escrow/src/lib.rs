@@ -1,5 +1,4 @@
 #![no_std]
-#![no_std]
 
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype,
@@ -35,6 +34,13 @@ enum DataKey {
     /// The settlement engine MUST subtract this value from the raw channel
     /// balance before computing what is available for new calls.
     ChannelEscrowHold(u64),
+    /// Usage-window context for a metered dispute, keyed by escrow id.
+    /// Stored separately from [`EscrowAgreement`] because Soroban SDK 29's
+    /// `testutils` feature cannot convert `Option<UDT>` fields on
+    /// `#[contracttype]` structs to `ScVal`.
+    DisputeCtx(u64),
+    /// Dispute trigger for a metered dispute, keyed by escrow id.
+    DisputeTrig(u64),
 }
 
 // ── v3 Metered-usage types ────────────────────────────────────────────────────
@@ -44,8 +50,8 @@ enum DataKey {
 /// A `UsageWindow` identifies the half-open time interval `[window_start,
 /// window_end)` and the on-chain payment channel that backed the calls made
 /// during that interval.  When a payer contests the window the gateway
-/// creates an `EscrowAgreement` whose `dispute_context` field carries this
-/// struct so the resolver has the information needed to adjudicate.
+/// creates an escrow whose dispute context (stored under `DisputeCtx`) carries
+/// this struct so the resolver has the information needed to adjudicate.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UsageWindow {
@@ -140,7 +146,7 @@ pub struct ArbiterSet {
 
 impl ArbiterSet {
     pub fn contains(&self, addr: &Address) -> bool {
-        self.arbiters.iter().any(|arbiter| arbiter == addr)
+        self.arbiters.iter().any(|arbiter| arbiter == *addr)
     }
 }
 
@@ -163,13 +169,6 @@ pub struct EscrowAgreement {
     pub arbiter_approvals: Vec<Address>,
     pub payer_confirmed: bool,
     pub payee_confirmed: bool,
-    /// v3 metered-usage context.  `None` for ordinary (non-metered) escrows.
-    /// When set, this escrow represents a contested usage window rather than
-    /// a generic two-party agreement.
-    pub dispute_context: Option<UsageWindow>,
-    /// Why this window moved into escrow instead of settling directly.
-    /// `None` for ordinary (non-metered) escrows.
-    pub dispute_trigger: Option<DisputeTrigger>,
 }
 
 #[contracterror]
@@ -391,19 +390,19 @@ impl EscrowContract {
         if arbiter_set.arbiters.is_empty() {
             panic_with_error!(env, EscrowError::NotInitialized);
         }
-        if arbiter_set.threshold == 0 || arbiter_set.threshold as usize > arbiter_set.arbiters.len() {
+        if arbiter_set.threshold == 0 || arbiter_set.threshold > arbiter_set.arbiters.len() {
             panic_with_error!(env, EscrowError::InvalidAmount);
         }
 
-        let mut seen = Vec::new();
+        let mut seen: Vec<Address> = Vec::new(env);
         for arbiter in arbiter_set.arbiters.iter() {
-            if arbiter == payer || arbiter == payee {
+            if arbiter == *payer || arbiter == *payee {
                 panic_with_error!(env, EscrowError::SameArbiterAsParty);
             }
             if seen.iter().any(|existing| existing == arbiter) {
                 panic_with_error!(env, EscrowError::AlreadyApproved);
             }
-            seen.push_back(arbiter.clone());
+            seen.push_back(arbiter);
         }
     }
 
@@ -435,12 +434,13 @@ impl EscrowContract {
         expires_at: u64,
         description: String,
     ) -> u64 {
+        let arbiters = vec![&env, arbiter];
         Self::create_escrow_with_arbiter_set(
             env,
             payer,
             payee,
             ArbiterSet {
-                arbiters: vec![arbiter],
+                arbiters,
                 threshold: 1,
             },
             token,
@@ -480,7 +480,10 @@ impl EscrowContract {
             panic_with_error!(&env, EscrowError::Expired);
         }
 
-        let primary_arbiter = arbiter_set.arbiters.first().unwrap_or(&payer).clone();
+        let primary_arbiter = arbiter_set
+            .arbiters
+            .first()
+            .unwrap_or(payer.clone());
         let escrow = EscrowAgreement {
             id: escrow_id,
             payer: payer.clone(),
@@ -495,12 +498,9 @@ impl EscrowContract {
             expires_at,
             description,
             arbiter_approved: false,
-            arbiter_approvals: Vec::new(),
+            arbiter_approvals: Vec::new(&env),
             payer_confirmed: false,
             payee_confirmed: false,
-            // Non-metered escrows have no usage-window context.
-            dispute_context: None,
-            dispute_trigger: None,
         };
 
         env.storage()
@@ -597,13 +597,17 @@ impl EscrowContract {
         if escrow.state != EscrowState::Funded && escrow.state != EscrowState::Disputed {
             panic_with_error!(&env, EscrowError::NotFunded);
         }
-        if !escrow.arbiter_set.arbiters.iter().any(|a| a == &arbiter) {
+        if !escrow.arbiter_set.arbiters.iter().any(|a| a == arbiter) {
             panic_with_error!(&env, EscrowError::Unauthorized);
         }
 
         arbiter.require_auth();
 
-        if escrow.arbiter_approvals.iter().any(|approved| approved == &arbiter) {
+        if escrow
+            .arbiter_approvals
+            .iter()
+            .any(|approved| approved == arbiter)
+        {
             panic_with_error!(&env, EscrowError::AlreadyApproved);
         }
 
@@ -611,7 +615,11 @@ impl EscrowContract {
 
         if escrow.arbiter_approvals.len() as u32 >= escrow.arbiter_set.threshold {
             escrow.arbiter_approved = true;
-            escrow.state = EscrowState::Approved;
+            // Funded → Approved unlocks `release`. A Disputed escrow must stay
+            // Disputed so `resolve_dispute` can settle it (v3 metered path).
+            if escrow.state == EscrowState::Funded {
+                escrow.state = EscrowState::Approved;
+            }
             escrow.arbiter = arbiter;
         }
 
@@ -743,7 +751,7 @@ impl EscrowContract {
 
         escrow.state = EscrowState::Disputed;
         escrow.arbiter_approved = false;
-        escrow.arbiter_approvals = Vec::new();
+        escrow.arbiter_approvals = Vec::new(&env);
 
         env.storage()
             .persistent()
@@ -772,9 +780,12 @@ impl EscrowContract {
         Self::validate_arbiter_set(&env, &new_set, &escrow.payer, &escrow.payee);
 
         escrow.arbiter_set = new_set.clone();
-        escrow.arbiter_approvals = Vec::new();
+        escrow.arbiter_approvals = Vec::new(&env);
         escrow.arbiter_approved = false;
-        escrow.arbiter = new_set.arbiters.first().cloned().unwrap_or(escrow.arbiter.clone());
+        escrow.arbiter = new_set
+            .arbiters
+            .first()
+            .unwrap_or(escrow.arbiter.clone());
 
         env.storage()
             .persistent()
@@ -897,10 +908,10 @@ impl EscrowContract {
         // portion of the channel balance hostage.  Now that the dispute is
         // settled we reduce the hold so the channel's available balance
         // reflects the true spendable amount again.
-        //
-        // We extract the context fields we need *before* the hold update so
-        // we hold no live references into `escrow` during the storage write.
-        let window_context = escrow.dispute_context.clone();
+        let window_context: Option<UsageWindow> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::DisputeCtx(escrow_id));
         if let Some(ctx) = window_context {
             let hold_key = DataKey::ChannelEscrowHold(ctx.channel_id);
             let current_hold: i128 = env
@@ -917,8 +928,6 @@ impl EscrowContract {
                 env.storage().persistent().set(&hold_key, &new_hold);
             }
 
-            // Emit the metered-specific event so the settlement engine can
-            // immediately reconcile the channel balance without polling.
             DisputedWindowResolved {
                 escrow_id,
                 channel_id: ctx.channel_id,
@@ -928,6 +937,13 @@ impl EscrowContract {
                 payer_amount,
             }
             .publish(&env);
+
+            env.storage()
+                .persistent()
+                .remove(&DataKey::DisputeCtx(escrow_id));
+            env.storage()
+                .persistent()
+                .remove(&DataKey::DisputeTrig(escrow_id));
         }
     }
 
@@ -1076,16 +1092,20 @@ impl EscrowContract {
             expires_at,
             description: String::from_str(&env, "v3 disputed usage window"),
             arbiter_approved: false,
-            arbiter_approvals: Vec::new(),
+            arbiter_approvals: Vec::new(&env),
             payer_confirmed: false,
             payee_confirmed: false,
-            dispute_context: Some(window),
-            dispute_trigger: Some(trigger.clone()),
         };
 
         env.storage()
             .persistent()
             .set(&DataKey::Escrow(escrow_id), &escrow);
+        env.storage()
+            .persistent()
+            .set(&DataKey::DisputeCtx(escrow_id), &window);
+        env.storage()
+            .persistent()
+            .set(&DataKey::DisputeTrig(escrow_id), &trigger);
 
         // ── 6. Update channel-level escrow hold ──────────────────────────────
         // The hold tracks the total amount currently in escrow for this
@@ -1235,6 +1255,21 @@ impl EscrowContract {
             .persistent()
             .get(&DataKey::Escrow(escrow_id))
             .expect("escrow not found")
+    }
+
+    /// Usage-window context for a metered dispute, if this escrow was created
+    /// via [`Self::admit_disputed_window`].
+    pub fn get_dispute_context(env: Env, escrow_id: u64) -> Option<UsageWindow> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::DisputeCtx(escrow_id))
+    }
+
+    /// Why a metered window moved into escrow, if set.
+    pub fn get_dispute_trigger(env: Env, escrow_id: u64) -> Option<DisputeTrigger> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::DisputeTrig(escrow_id))
     }
 
     pub fn get_escrow_count(env: Env) -> u64 {
@@ -1844,7 +1879,12 @@ mod test {
         let arbiter_b = Address::generate(&env);
         let arbiter_c = Address::generate(&env);
         let set = ArbiterSet {
-            arbiters: vec![arbiter_a.clone(), arbiter_b.clone(), arbiter_c.clone()],
+            arbiters: vec![
+                &env,
+                arbiter_a.clone(),
+                arbiter_b.clone(),
+                arbiter_c.clone(),
+            ],
             threshold: 2,
         };
 
@@ -1901,7 +1941,7 @@ mod test {
         );
 
         let new_set = ArbiterSet {
-            arbiters: vec![new_arbiter_a.clone(), new_arbiter_b.clone()],
+            arbiters: vec![&env, new_arbiter_a.clone(), new_arbiter_b.clone()],
             threshold: 2,
         };
 
@@ -2160,13 +2200,18 @@ mod test {
         assert_eq!(agreement.deposited, amount);
         assert_eq!(agreement.amount, amount);
 
-        // Dispute context must be populated.
-        let ctx = agreement.dispute_context.expect("dispute_context should be set");
+        // Dispute context must be populated (stored under a side key).
+        let ctx = escrow
+            .get_dispute_context(&id)
+            .expect("dispute_context should be set");
         assert_eq!(ctx.channel_id, channel_id);
         assert_eq!(ctx.claimed_calls, 42u64);
 
         // Trigger must be set.
-        assert_eq!(agreement.dispute_trigger, Some(DisputeTrigger::ClaimedFailure));
+        assert_eq!(
+            escrow.get_dispute_trigger(&id),
+            Some(DisputeTrigger::ClaimedFailure)
+        );
 
         // Funds must have moved from payer to the contract.
         let payer_balance_after = token_client.balance(&payer);
