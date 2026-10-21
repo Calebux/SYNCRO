@@ -8,6 +8,7 @@
     "test":"vitest run",
     "typecheck":"tsc -p tsconfig.json --noEmit",
     "dev":"tsx watch src/index.ts",
+    "seed:v3":"node scripts/seed-v3.mjs",
     "start":"node dist/index.js"
   },
   "dependencies":{

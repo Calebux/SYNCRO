@@ -8,8 +8,10 @@ on:
       - 'sdk/README.md'
       - 'backend/README.md'
       - 'backend/SUBSCRIPTION_API.md'
+      - 'backend/src/errors/gateway-taxonomy.json'
       - 'scripts/validate-docs.js'
       - 'scripts/validate-docs.test.js'
+      - 'scripts/generate-error-docs.mjs'
       - '**/*.md'
       - '.github/workflows/validate-docs.yml'
   workflow_dispatch:
@@ -47,6 +49,9 @@ jobs:
 
       - name: Reject absolute file:// documentation links
         run: node --test scripts/validate-docs.test.js
+
+      - name: Check generated error reference is up to date
+        run: node scripts/generate-error-docs.mjs --check
 
       - name: Run doc validation
         run: node scripts/validate-docs.js
