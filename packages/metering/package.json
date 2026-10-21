@@ -17,6 +17,7 @@
     "test:watch": "vitest",
     "test:property": "vitest run src/window.property.test.ts",
     "test:property:nightly": "cross-env FC_SEED=random vitest run src/window.property.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "load": "tsx load/run.ts",
     "load:budget": "tsx load/run.ts --budget --report load/budget.json",
     "load:ci": "tsx load/run.ts --budget --report load/budget.json --ci"

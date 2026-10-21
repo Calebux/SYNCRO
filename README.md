@@ -114,3 +114,6 @@ setup instructions.
 
 <!-- handsoff-issue-1630 -->
 - #1630: [v3][gateway] Specify canonical request hashing for receipt binding
+
+<!-- handsoff-issue-1633 -->
+- #1633: [v3][backend] Remove the retired subscription services still in `backend/src/services`
