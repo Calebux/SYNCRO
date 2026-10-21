@@ -50,6 +50,7 @@ pub fn can_accept(caller: &Address, pending: &Option<Address>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use soroban_sdk::testutils::Address as _;
 
     #[test]
     fn only_admin_may_start_or_cancel() {
