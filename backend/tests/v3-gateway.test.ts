@@ -126,6 +126,41 @@ describe('v3 gateway routes', () => {
     expect(full.body.data).not.toHaveProperty('responseBody');
   });
 
+  it('bills a constant-one route independently of the client quantity', async () => {
+    const app = buildApp();
+    const { providerId } = await onboardProvider(app);
+    await request(app).post(`/api/v3/providers/${providerId}/routes`).send({
+      pathPattern: '/echo/*',
+      method: 'POST',
+      unit: 'request',
+      price: 3,
+      quantityExtractor: 'constant:1',
+    }).expect(201);
+
+    for (const [agentId, quantity] of [['agent-tiny', 0.0001], ['agent-huge', 1_000_000_000]] as const) {
+      await request(app).post('/api/v3/registry/grants').send({
+        agentId,
+        scopes: ['POST:/echo/*'],
+      }).expect(201);
+
+      const paid = await request(app)
+        .post('/api/v3/gateway/paid')
+        .set('x-syncro-agent-id', agentId)
+        .send({
+          providerId,
+          path: '/echo/task',
+          quantity,
+          channelId: `channel-${agentId}`,
+          stateNonce: 1,
+          rateCardVersion: 'rc-v1',
+        })
+        .expect(200);
+
+      const receipt = decodeReceiptHeader(paid.header['x-syncro-receipt']);
+      expect(receipt.quantity).toBe(1);
+    }
+  });
+
   // ── Issue #1617: paid-call failures map to gateway taxonomy codes ──────────
 
   it('maps an unregistered route to a 400 GATEWAY_BAD_REQUEST without leaking internals', async () => {
@@ -210,4 +245,3 @@ describe('v3 gateway routes', () => {
     expect(res.body.message).not.toMatch(/provider not found/i);
   });
 });
-
