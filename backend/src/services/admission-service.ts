@@ -9,6 +9,8 @@ import {
   EndpointLatencyMetrics,
 } from './api-latency-service';
 import type { AuthenticatedRequest } from '../middleware/auth';
+import { createHash } from 'crypto';
+import { Keypair } from '@stellar/stellar-sdk';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -408,6 +410,374 @@ export class AdmissionService {
 
   /**
    * Execute a single admission step with timing and caching.
-   
+   */
+  private async executeStep<T>(
+    stepName: string,
+    fn: () => Promise<T | null>,
+  ): Promise<AdmissionStepResult<T>> {
+    const start = Date.now();
+    try {
+      const data = await fn();
+      return {
+        data,
+        latencyMs: Date.now() - start,
+        error: null,
+        cached: false,
+        revoked: false,
+      };
+    } catch (error) {
+      return {
+        data: null,
+        latencyMs: Date.now() - start,
+        error: error instanceof Error ? error.message : 'Unknown step error',
+        cached: false,
+        revoked: false,
+      };
+    }
+  }
 
-/* … truncated 12181 chars — edit only what you need near the top … */
+  /**
+   * Resolve the caller identity from the x402 headers.
+   */
+  private async resolveIdentity(request: AuthenticatedRequest): Promise<IdentityResolution | null> {
+    const address = (request.headers['x402-address'] as string) || '';
+    const signature = (request.headers['x402-signature'] as string) || '';
+    const nonce = (request.headers['x402-nonce'] as string) || '';
+
+    if (!address || !signature || !nonce) {
+      return null;
+    }
+
+    const valid = await this.verifyX402Signature(request, address, signature, nonce);
+    if (!valid) {
+      return null;
+    }
+
+    return {
+      userId: address,
+      address,
+      signature,
+      nonce,
+      valid: true,
+      resolvedAt: Date.now(),
+    };
+  }
+
+  /**
+   * Verify an x402 Ed25519 signature against the claimed Stellar address.
+   *
+   * The signed payload is canonical and covers the nonce, HTTP method, path,
+   * body hash, and expiry. Reused nonces are rejected via the replay store.
+   * Any failure returns false without revealing which check failed.
+   */
+  private async verifyX402Signature(
+    request: AuthenticatedRequest,
+    address: string,
+    signature: string,
+    nonce: string,
+  ): Promise<boolean> {
+    try {
+      const expiryHeader = request.headers['x402-expiry'] as string | undefined;
+      const expiry = expiryHeader ? Number(expiryHeader) : NaN;
+      if (!Number.isFinite(expiry) || expiry < Date.now()) {
+        return false;
+      }
+
+      const method = (request.method || 'GET').toUpperCase();
+      const path = request.path || request.originalUrl || '/';
+      const bodyHash = this.hashRequestBody(request.body);
+      const payload = this.buildCanonicalPayload(nonce, method, path, bodyHash, expiry);
+
+      const keypair = Keypair.fromPublicKey(address);
+      const signatureBytes = Buffer.from(signature, 'base64');
+      const valid = keypair.verify(Buffer.from(payload, 'utf8'), signatureBytes);
+      if (!valid) {
+        return false;
+      }
+
+      const nonceAccepted = await this.consumeNonce(nonce, expiry);
+      if (!nonceAccepted) {
+        return false;
+      }
+
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Build the canonical payload that is signed by the caller.
+   */
+  private buildCanonicalPayload(
+    nonce: string,
+    method: string,
+    path: string,
+    bodyHash: string,
+    expiry: number,
+  ): string {
+    return [
+      'x402-v1',
+      `nonce:${nonce}`,
+      `method:${method}`,
+      `path:${path}`,
+      `bodyHash:${bodyHash}`,
+      `expiry:${expiry}`,
+    ].join('\n');
+  }
+
+  /**
+   * Hash the request body deterministically for inclusion in the payload.
+   */
+  private hashRequestBody(body: unknown): string {
+    const serialized = body === undefined || body === null
+      ? ''
+      : typeof body === 'string'
+        ? body
+        : JSON.stringify(body);
+    return createHash('sha256').update(serialized).digest('hex');
+  }
+
+  /**
+   * Consume a nonce via the replay-protection store. Returns false if the
+   * nonce has already been used.
+   */
+  private async consumeNonce(nonce: string, expiry: number): Promise<boolean> {
+    const key = `x402:nonce:${nonce}`;
+    const ttlSeconds = Math.max(1, Math.ceil((expiry - Date.now()) / 1000));
+    const result = await sharedRedisClient.set(key, '1', 'EX', ttlSeconds, 'NX');
+    return result === 'OK';
+  }
+
+  /**
+   * Read the caller's scopes from the registry.
+   */
+  private async readScope(request: AuthenticatedRequest): Promise<ScopeRead | null> {
+    const userId = (request.headers['x402-address'] as string) || '';
+    if (!userId) {
+      return null;
+    }
+
+    const { data, error } = await supabase
+      .from('scope_registry')
+      .select('scopes, registry_id, tier')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error || !data) {
+      return null;
+    }
+
+    return {
+      userId,
+      scopes: (data.scopes as string[]) || [],
+      registryId: data.registry_id as string,
+      tier: data.tier as string,
+      resolvedAt: Date.now(),
+    };
+  }
+
+  /**
+   * Check the caller's spending cap.
+   */
+  private async checkCap(identity: IdentityResolution | null): Promise<CapCheck | null> {
+    if (!identity) {
+      return null;
+    }
+
+    const { data, error } = await supabase
+      .from('spending_caps')
+      .select('cap_ceiling, current_usage, period_reset_at')
+      .eq('user_id', identity.userId)
+      .maybeSingle();
+
+    if (error || !data) {
+      return null;
+    }
+
+    const capCeiling = Number(data.cap_ceiling) || 0;
+    const currentUsage = Number(data.current_usage) || 0;
+    const remaining = Math.max(0, capCeiling - currentUsage);
+    const withinCap = currentUsage < capCeiling;
+    const periodResetAt = (data.period_reset_at as string) || null;
+    const retryAfterSeconds = periodResetAt
+      ? Math.max(0, Math.ceil((new Date(periodResetAt).getTime() - Date.now()) / 1000))
+      : null;
+
+    return {
+      userId: identity.userId,
+      capCeiling,
+      currentUsage,
+      remaining,
+      withinCap,
+      resolvedAt: Date.now(),
+      periodResetAt,
+      retryAfterSeconds,
+    };
+  }
+
+  /**
+   * Reserve meter balance for the request.
+   */
+  private async reserveMeter(
+    identity: IdentityResolution | null,
+    scope: ScopeRead | null,
+  ): Promise<MeterReserve | null> {
+    if (!identity || !scope) {
+      return null;
+    }
+
+    const amount = admissionConfig.meter.reserveAmount;
+    const reserveId = `reserve_${identity.userId}_${Date.now()}`;
+    const expiresAt = Date.now() + admissionConfig.meter.reserveTtlMs;
+
+    // Insert reservation into the database
+    const { error } = await supabase.from('meter_reserves').insert({
+      id: reserveId,
+      user_id: identity.userId,
+      amount_reserved: amount,
+      expires_at: new Date(expiresAt).toISOString(),
+    });
+
+    if (error) {
+      logger.error('Failed to insert meter reserve:', error);
+      return null;
+    }
+
+    return {
+      userId: identity.userId,
+      amountReserved: amount,
+      balance: 0,
+      reserveId,
+      expiresAt,
+      resolvedAt: Date.now(),
+    };
+  }
+
+  /**
+   * Evaluate whether the request should be admitted based on step results.
+   */
+  private evaluateAdmission(
+    identityResult: AdmissionStepResult<IdentityResolution>,
+    scopeResult: AdmissionStepResult<ScopeRead>,
+    capResult: AdmissionStepResult<CapCheck>,
+    meterResult: AdmissionStepResult<MeterReserve>,
+    errors: AdmissionError[],
+  ): boolean {
+    if (!identityResult.data || !identityResult.data.valid) {
+      errors.push({
+        step: 'identityResolution',
+        message: 'Identity verification failed',
+        latencyMs: identityResult.latencyMs,
+        fatal: true,
+        code: 'GATEWAY_KEY_INVALID',
+      });
+      return false;
+    }
+
+    if (!scopeResult.data) {
+      errors.push({
+        step: 'scopeRead',
+        message: 'Scope resolution failed',
+        latencyMs: scopeResult.latencyMs,
+        fatal: true,
+        code: 'GATEWAY_SCOPE_INVALID',
+      });
+      return false;
+    }
+
+    if (!capResult.data || !capResult.data.withinCap) {
+      errors.push({
+        step: 'capCheck',
+        message: 'Spending cap exceeded',
+        latencyMs: capResult.latencyMs,
+        fatal: true,
+        code: 'GATEWAY_CAP_EXCEEDED',
+        retryAfterSeconds: capResult.data?.retryAfterSeconds ?? undefined,
+        resetAt: capResult.data?.periodResetAt ?? undefined,
+      });
+      return false;
+    }
+
+    if (!meterResult.data) {
+      errors.push({
+        step: 'meterReserve',
+        message: 'Meter reserve failed',
+        latencyMs: meterResult.latencyMs,
+        fatal: true,
+        code: 'GATEWAY_METER_UNAVAILABLE',
+      });
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Check whether the total latency is within the configured budget.
+   */
+  private checkBudgetCompliance(totalLatencyMs: number): boolean {
+    return totalLatencyMs <= admissionConfig.budget.totalBudgetMs;
+  }
+
+  /**
+   * Record a latency sample for p99 tracking.
+   */
+  private recordLatency(record: LatencyRecord): void {
+    this.latencyRecords.push(record);
+    const cutoff = Date.now() - this.latencyWindowMs;
+    this.latencyRecords = this.latencyRecords.filter((r) => r.timestamp >= cutoff);
+  }
+
+  /**
+   * Get p99 latency from recorded samples.
+   */
+  getP99Latency(): number {
+    if (this.latencyRecords.length < admissionConfig.budget.minSamplesForP99) {
+      return 0;
+    }
+    const sorted = [...this.latencyRecords]
+      .map(r => r.totalLatencyMs)
+      .sort((a, b) => a - b);
+    const p99Index = Math.floor(sorted.length * 0.99);
+    return sorted[p99Index] || sorted[sorted.length - 1];
+  }
+
+  /**
+   * Get the current admission budget status.
+   */
+  getBudgetStatus(): {
+    p99LatencyMs: number;
+    budgetMs: number;
+    compliant: boolean;
+    sampleCount: number;
+    recentViolations: number;
+  } {
+    const p99 = this.getP99Latency();
+    const recentViolations = this.budgetViolations.filter(v => v > admissionConfig.budget.totalBudgetMs).length;
+    return {
+      p99LatencyMs: p99,
+      budgetMs: admissionConfig.budget.totalBudgetMs,
+      compliant: p99 <= admissionConfig.budget.totalBudgetMs,
+      sampleCount: this.latencyRecords.length,
+      recentViolations,
+    };
+  }
+
+  /**
+   * Get all recorded latencies for testing/monitoring.
+   */
+  getLatencyRecords(): LatencyRecord[] {
+    return [...this.latencyRecords];
+  }
+
+  /**
+   * Clear all recorded latencies (useful for testing).
+   */
+  clearLatencyRecords(): void {
+    this.latencyRecords = [];
+    this.budgetViolations.length = 0;
+  }
+}
+
+export const admissionService = AdmissionService.getInstance();
