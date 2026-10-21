@@ -231,6 +231,9 @@ fn provider_initiates_close_stale_payer_disputes_and_wins() {
     assert_eq!(after_stale_close.sequence, 1);
     let original_deadline = after_stale_close.dispute_deadline;
 
+    // Advance so the dispute reset lands strictly after the original deadline base.
+    env.ledger().set_timestamp(env.ledger().timestamp() + 1);
+
     // Payer disputes with honest seq 5 — still within the window.
     client.dispute(&channel_id, &50, &50, &5, &depositor, &counterparty);
 

@@ -1000,4 +1000,7 @@ mod adversarial;
 mod fuzz;
 
 #[cfg(test)]
+mod invariants;
+
+#[cfg(test)]
 mod proof_replay;
