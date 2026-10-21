@@ -1,5 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { encodeBalance, decodeBalance } from '@syncro/shared/bigint-balance';
+import type { SignedChannelState } from './types';
 
 export interface MeterWindow {
   channelId: string;
@@ -10,22 +11,6 @@ export interface MeterWindow {
   endTime: number;
   payerBalance: bigint;
   payeeBalance: bigint;
-}
-
-export interface ChannelState {
-  channelId: string;
-  contractAddress: string;
-  contractVersion: string;
-  nonce: number;
-  payerBalance: bigint;
-  payeeBalance: bigint;
-  windowStart: number;
-  windowEnd: number;
-}
-
-export interface SignedChannelState {
-  state: ChannelState;
-  signature: string;
 }
 
 export interface StateStore {
@@ -68,7 +53,7 @@ export class HmacChannelStateSigner implements ChannelStateSigner {
  * contract address are bound into the payload so a state signed for one channel
  * or one contract version cannot be replayed against another.
  */
-export function encodeChannelState(state: ChannelState): string {
+export function encodeChannelState(state: SignedChannelState['state']): string {
   return [
     'v3-channel-state',
     state.contractVersion,
@@ -82,7 +67,7 @@ export function encodeChannelState(state: ChannelState): string {
   ].join('|');
 }
 
-export function channelStateDigest(state: ChannelState): string {
+export function channelStateDigest(state: SignedChannelState['state']): string {
   return createHash('sha256').update(encodeChannelState(state)).digest('hex');
 }
 
@@ -95,7 +80,7 @@ export function constructChannelState(
   window: MeterWindow,
   contractVersion: string,
   previous?: SignedChannelState,
-): ChannelState {
+): SignedChannelState['state'] {
   if (window.endTime < window.startTime) {
     throw new Error('meter window is not closed');
   }
@@ -138,7 +123,7 @@ export function constructChannelState(
  * version for replay protection.
  */
 export function signChannelState(
-  state: ChannelState,
+  state: SignedChannelState['state'],
   signer: ChannelStateSigner,
 ): SignedChannelState {
   const signature = signer.sign(encodeChannelState(state));
@@ -237,99 +222,4 @@ export interface BatchingPolicy {
  * measured-cost-derived value so exposure never exceeds what a submission can
  * economically clear.
  */
-export function defaultBatchingPolicy(costs: GasCostModel = MEASURED_GAS_COSTS): BatchingPolicy {
-  const valueThreshold = deriveDefaultValueThreshold(costs);
-  return {
-    valueThreshold,
-    maxIntervalMs: 60 * 60 * 1000,
-    capApproachRatio: 0.9,
-    exposureCeiling: valueThreshold,
-  };
-}
-
-/**
- * Per-channel policy registry. Thresholds are configurable per channel so a
- * high-volume channel and a small one can use different policies.
- */
-export class BatchingPolicyRegistry {
-  private readonly policies = new Map<string, BatchingPolicy>();
-
-  constructor(private readonly fallback: BatchingPolicy = defaultBatchingPolicy()) {}
-
-  set(channelId: string, policy: BatchingPolicy): void {
-    this.policies.set(channelId, policy);
-  }
-
-  get(channelId: string): BatchingPolicy {
-    return this.policies.get(channelId) ?? this.fallback;
-  }
-}
-
-/** Inputs describing the current unsettled state of a channel. */
-export interface BatchingContext {
-  channelId: string;
-  /** Value accumulated since the last submission, in wei. */
-  accumulatedValue: bigint;
-  /** Time since the last submission, in ms. */
-  elapsedMs: number;
-  /** Current channel cap, in wei. */
-  channelCap: bigint;
-  /** Value already committed on-chain for the channel, in wei. */
-  committedValue: bigint;
-  /** Whether the channel is approaching exhaustion. */
-  channelExhausted?: boolean;
-  /** Operator-forced flush. */
-  forceFlush?: boolean;
-}
-
-export type SubmissionTrigger =
-  | 'value-threshold'
-  | 'max-interval'
-  | 'cap-approach'
-  | 'channel-exhaustion'
-  | 'exposure-ceiling'
-  | 'operator-forced';
-
-export interface SubmissionDecision {
-  submit: boolean;
-  triggers: SubmissionTrigger[];
-}
-
-/**
- * Decide whether to touch the chain for a channel. A submission is triggered by
- * any of: an accumulated-value threshold, a maximum interval, an approaching
- * cap or channel exhaustion, an operator-forced flush, or the exposure ceiling
- * being reached. The exposure ceiling always forces a submission so unsettled
- * value never exceeds the configured ceiling.
- */
-export function shouldSubmit(
-  context: BatchingContext,
-  policy: BatchingPolicy,
-): SubmissionDecision {
-  const triggers: SubmissionTrigger[] = [];
-
-  if (context.forceFlush) {
-    triggers.push('operator-forced');
-  }
-  if (context.accumulatedValue >= policy.valueThreshold) {
-    triggers.push('value-threshold');
-  }
-  if (context.elapsedMs >= policy.maxIntervalMs) {
-    triggers.push('max-interval');
-  }
-  if (context.channelExhausted) {
-    triggers.push('channel-exhaustion');
-  }
-  if (
-    context.channelCap > 0n &&
-    context.committedValue + context.accumulatedValue >=
-      (context.channelCap * BigInt(Math.round(policy.capApproachRatio * 100))) / 100n
-  ) {
-    triggers.push('cap-approach');
-  }
-  if (context.accumulatedValue >= policy.exposureCeiling) {
-    triggers.push('exposure-ceiling');
-  }
-
-  return { submit: triggers.length > 0, triggers };
-}
+export function defaultBatchingPolicy(costs: GasCostModel = ME
