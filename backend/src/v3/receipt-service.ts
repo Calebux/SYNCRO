@@ -87,6 +87,14 @@ export class ReceiptService {
   private readonly receipts = new Map<string, PaidReceipt>();
   constructor(private readonly store?: ReceiptStore) {}
 
+  signMessage(message: string): string {
+    return edSign(
+      null,
+      Buffer.from(message),
+      createPrivateKey(this.keys.privateKeyPem),
+    ).toString('base64');
+  }
+
   async issueReceipt(input: ReceiptIssueInput): Promise<PaidReceipt> {
     const payload: PaidReceiptPayload = {
       receiptId: input.receiptId,
@@ -105,11 +113,7 @@ export class ReceiptService {
     };
 
     const message = payloadMessage(payload);
-    const signature = edSign(
-      null,
-      Buffer.from(message),
-      createPrivateKey(this.keys.privateKeyPem),
-    ).toString('base64');
+    const signature = this.signMessage(message);
 
     const receipt: PaidReceipt = {
       ...payload,

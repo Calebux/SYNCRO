@@ -8,9 +8,10 @@ export interface ChallengeDetails {
   channelAddress: string;
   settlementAsset: string;
   amount: string;
-  rate?: string;
+  rate: string;
   nonce: string;
   expiresAt: string;
+  signature: string;
 }
 
 export interface PaymentProof {
@@ -132,34 +133,46 @@ export interface VerificationResult {
 }
 
 export function generatePaymentChallenge(options: {
-  settlementAsset?: string;
-  amount?: string;
-  rate?: string;
+  settlementAsset: string;
+  amount: string;
+  rate: string;
   channelAddress?: string;
-  contract?: string;
-  chain?: string;
+  contract: string;
+  chain: string;
   ttlSeconds?: number;
-}): { challenge: ChallengeDetails; headerValue: string } {
+}, sign: (message: string) => string): { challenge: ChallengeDetails; headerValue: string } {
   const nonce = `ch_nonce_${crypto.randomBytes(16).toString('hex')}`;
   const now = Date.now();
   const ttlSeconds = options.ttlSeconds ?? 300;
   const expiresAt = new Date(now + ttlSeconds * 1000).toISOString();
 
-  const challenge: ChallengeDetails = {
+  const unsignedChallenge = {
     challengeId: `chal_${crypto.randomBytes(12).toString('hex')}`,
     scheme: 'channel-state',
-    chain: options.chain || 'stellar:testnet',
-    contract: options.contract || 'CA_PAYMENT_CHANNEL_V3',
+    chain: options.chain,
+    contract: options.contract,
     channelAddress: options.channelAddress || 'G_PROVIDER_CHANNEL_DEFAULT',
-    settlementAsset: options.settlementAsset || 'USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
-    amount: options.amount || '100',
-    rate: options.rate || '100',
+    settlementAsset: options.settlementAsset,
+    amount: options.amount,
+    rate: options.rate,
     nonce,
     expiresAt,
+  };
+  const canonicalChallenge = canonicalizeChallenge(unsignedChallenge);
+  const challenge: ChallengeDetails = {
+    ...unsignedChallenge,
+    signature: sign(canonicalChallenge),
   };
 
   const headerValue = Buffer.from(JSON.stringify(challenge)).toString('base64');
   return { challenge, headerValue };
+}
+
+function canonicalizeChallenge(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalizeChallenge).join(',')}]`;
+  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+  return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalizeChallenge(entry)}`).join(',')}}`;
 }
 
 export function parsePaymentProof(headerValue: string): PaymentProof | null {

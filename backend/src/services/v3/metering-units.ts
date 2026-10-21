@@ -31,6 +31,7 @@ export interface MeteredRouteConfig {
   path: string;
   unitName: string; // 'tokens' | 'bytes' | 'calls' | 'seconds' | custom
   unitPrice: number; // cost per integer unit
+  settlementAsset: string;
   reservationBound: number; // upper bound integer units reserved upfront
   requiredScope: string;
   providerId: string;
@@ -177,6 +178,7 @@ export class MeteredRouteRegistry {
       path,
       unitName: 'calls',
       unitPrice: 8,
+      settlementAsset: 'USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
       reservationBound: 1,
       requiredScope: 'llm:call',
       providerId: 'provider_testnet_1',
@@ -189,6 +191,7 @@ export class MeteredRouteRegistry {
       path: '/api/v3/gateway/inference',
       unitName: 'tokens',
       unitPrice: 0.1,
+      settlementAsset: 'USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
       reservationBound: 100,
       requiredScope: 'llm:call',
       providerId: 'provider_testnet_1',
@@ -199,6 +202,7 @@ export class MeteredRouteRegistry {
       path: '/api/v3/gateway/storage',
       unitName: 'bytes',
       unitPrice: 0.01,
+      settlementAsset: 'USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
       reservationBound: 1000,
       requiredScope: 'storage:write',
       providerId: 'provider_testnet_1',
@@ -209,6 +213,7 @@ export class MeteredRouteRegistry {
       path: '/api/v3/gateway/compute',
       unitName: 'seconds',
       unitPrice: 0.5,
+      settlementAsset: 'USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
       reservationBound: 20,
       requiredScope: 'compute:run',
       providerId: 'provider_testnet_1',
@@ -219,6 +224,7 @@ export class MeteredRouteRegistry {
       path: '/api/v3/gateway/proxy',
       unitName: 'calls',
       unitPrice: 8,
+      settlementAsset: 'USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
       reservationBound: 1,
       requiredScope: 'llm:call',
       providerId: 'provider_testnet_1',

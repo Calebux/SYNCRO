@@ -18,6 +18,7 @@ import {
   QuantityExtractor,
 } from './metering-units';
 import { meterUsageLedgerService } from '../usage/meter-usage-ledger';
+import { receiptService } from '../../v3/receipt-runtime';
 
 export interface UpstreamProvider {
   name: string;
@@ -122,6 +123,7 @@ export interface RoutePlan {
   path: string;
   unitName: string;
   unitPrice: number;
+  settlementAsset: string;
   reservationBound: number;
   priceUpperBound: number;
   actualPrice: number;
@@ -167,10 +169,23 @@ export function createGatewayLifecycle() {
 
       if (!apiKey) {
         // Return 402 actionable challenge if unfunded / unauthenticated
+        const routeId = req.path.split('/').filter(Boolean).pop() ?? 'proxy';
+        const routeConfig = meteredRouteRegistry.getRouteConfig(`/api/v3/gateway/${routeId}`);
+        const amount = Math.round(routeConfig.reservationBound * routeConfig.unitPrice * 100) / 100;
+        const contract = process.env.SOROBAN_CONTRACT_ADDRESS;
+        if (!contract) {
+          return res.status(503).json({
+            error: 'Payment challenge unavailable',
+            message: 'No payment contract is configured for this network',
+          });
+        }
         const { challenge, headerValue } = generatePaymentChallenge({
-          amount: '100',
-          rate: '100',
-        });
+          settlementAsset: routeConfig.settlementAsset,
+          amount: String(amount),
+          rate: String(routeConfig.unitPrice),
+          contract,
+          chain: `stellar:${process.env.STELLAR_NETWORK ?? 'testnet'}`,
+        }, (message) => receiptService.signMessage(message));
         res.setHeader('PAYMENT-REQUIRED', headerValue);
         return res.status(402).json({
           error: 'Payment required: unauthenticated or unfunded agent request',
@@ -194,13 +209,14 @@ export function createGatewayLifecycle() {
     // 2. Resolve Route and Price using Unit Definition
     resolveRouteAndPrice: async (req: GatewayRequest, res: Response, next: NextFunction) => {
       const ctx = req.gatewayCtx!;
-      const routeConfig = meteredRouteRegistry.getRouteConfig(req.path);
+      const routeConfig = meteredRouteRegistry.getRouteConfig(req.originalUrl.split('?')[0]);
       const priceUpperBound = Math.round(routeConfig.reservationBound * routeConfig.unitPrice * 100) / 100;
 
       ctx.routePlan = {
         path: routeConfig.path,
         unitName: routeConfig.unitName,
         unitPrice: routeConfig.unitPrice,
+        settlementAsset: routeConfig.settlementAsset,
         reservationBound: routeConfig.reservationBound,
         priceUpperBound,
         actualPrice: priceUpperBound, // initial upper bound estimate
@@ -279,9 +295,20 @@ export function createGatewayLifecycle() {
       const paymentSignatureHeader = req.headers['payment-signature'] as string;
 
       if (!paymentSignatureHeader) {
+        const contract = process.env.SOROBAN_CONTRACT_ADDRESS;
+        if (!contract) {
+          return res.status(503).json({
+            error: 'Payment challenge unavailable',
+            message: 'No payment contract is configured for this network',
+          });
+        }
         const { challenge, headerValue } = generatePaymentChallenge({
           amount: String(ctx.routePlan!.priceUpperBound),
-        });
+          settlementAsset: ctx.routePlan!.settlementAsset,
+          rate: String(ctx.routePlan!.unitPrice),
+          contract,
+          chain: `stellar:${process.env.STELLAR_NETWORK ?? 'testnet'}`,
+        }, (message) => receiptService.signMessage(message));
         res.setHeader('PAYMENT-REQUIRED', headerValue);
         return res.status(402).json({
           error: 'Payment required: Please provide PAYMENT-SIGNATURE header with valid channel state proof',
@@ -455,6 +482,7 @@ export function createGatewayLifecycle() {
             path: ctx.routePlan!.path,
             unitName: ctx.routePlan!.unitName,
             unitPrice: ctx.routePlan!.unitPrice,
+            settlementAsset: ctx.routePlan!.settlementAsset,
             reservationBound: ctx.routePlan!.reservationBound,
             requiredScope: ctx.routePlan!.requiredScope,
             providerId: ctx.routePlan!.providerId,

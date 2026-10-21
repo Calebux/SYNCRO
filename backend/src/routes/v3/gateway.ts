@@ -15,6 +15,8 @@ import {
 import { spendCapService } from '../../services/v3/spend-cap-service';
 import { unitEconomicsService } from '../../services/v3/unit-economics-service';
 import { optionalAuthenticate, AuthenticatedRequest, UserRole } from '../../middleware/auth';
+import { meteredRouteRegistry } from '../../services/v3/metering-units';
+import { receiptService } from '../../v3/receipt-runtime';
 
 /**
  * Minimal view of the provider registry needed to authorize the unit-economics
@@ -176,14 +178,34 @@ export function createV3GatewayRouter(
    * Explicit Challenge endpoint (402 generation)
    */
   router.get('/challenge', (req, res: Response) => {
+    const query = z.object({
+      routeId: z.enum(['proxy', 'inference', 'storage', 'compute']).optional(),
+    }).strict().safeParse(req.query);
+    if (!query.success) {
+      return res.status(400).json({
+        error: 'Validation Error',
+        message: 'Only a valid routeId query parameter is accepted',
+      });
+    }
+
+    const routeId = query.data.routeId ?? 'proxy';
+    const routeConfig = meteredRouteRegistry.getRouteConfig(`/api/v3/gateway/${routeId}`);
+    const amount = Math.round(routeConfig.reservationBound * routeConfig.unitPrice * 100) / 100;
+    const contract = process.env.SOROBAN_CONTRACT_ADDRESS;
+    if (!contract) {
+      return res.status(503).json({
+        error: 'Payment challenge unavailable',
+        message: 'No payment contract is configured for this network',
+      });
+    }
+
     const { challenge, headerValue } = generatePaymentChallenge({
-      settlementAsset: (req.query.asset as string) || undefined,
-      amount: (req.query.amount as string) || undefined,
-      rate: (req.query.rate as string) || undefined,
-      channelAddress: (req.query.channel as string) || undefined,
-      contract: (req.query.contract as string) || undefined,
-      chain: (req.query.chain as string) || undefined,
-    });
+      settlementAsset: routeConfig.settlementAsset,
+      amount: String(amount),
+      rate: String(routeConfig.unitPrice),
+      contract,
+      chain: `stellar:${process.env.STELLAR_NETWORK ?? 'testnet'}`,
+    }, (message) => receiptService.signMessage(message));
     res.setHeader('PAYMENT-REQUIRED', headerValue);
     return res.status(402).json({
       error: 'Payment required: machine-readable payment instruction challenge',
