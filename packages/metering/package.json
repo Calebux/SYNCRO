@@ -1,5 +1,5 @@
 {
-  "name": "@handsoff/metering",
+  "name": "@syncro/metering",
   "version": "0.1.0",
   "private": true,
   "description": "Metering core: reserve/commit/release/read interface with degraded-mode built in",

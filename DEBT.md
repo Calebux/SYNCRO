@@ -30,7 +30,6 @@ Untracked TODO/FIXME here fails CI:
 - `packages/settlement/` (v3 settlement — channel balances, payouts)
 - `sdk/`
 - `shared/`
-- `quota_guard/`
 - `client/app/api/` (API routes — auth, payments, webhooks, CSP report)
 - `client/lib/`
 - `app/api/`
