@@ -235,12 +235,11 @@ export class GatewayProxyService {
   private preserveHeaders(headers: http.IncomingHttpHeaders): OutgoingHttpHeaders {
     const preserved: OutgoingHttpHeaders = {};
     
-    // Preserve all headers except hop-by-hop
+    // Preserve headers except hop-by-hop and cookies owned by the provider.
     Object.entries(headers).forEach(([key, value]) => {
       const lowerKey = key.toLowerCase();
       
-      // Skip hop-by-hop headers
-      if (this.isHopByHopHeader(lowerKey)) {
+      if (lowerKey === 'set-cookie' || this.isHopByHopHeader(lowerKey)) {
         return;
       }
 
