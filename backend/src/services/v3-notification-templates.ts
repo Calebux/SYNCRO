@@ -8,6 +8,9 @@ import {
   DisputeDetectedPayload,
   DegradedModePayload,
   ReconciliationDeltaPayload,
+  PayoutChangeRequestedPayload,
+  PayoutChangeAppliedPayload,
+  PayoutChangeCancelledPayload,
 } from '../types/v3-notifications';
 
 function fmtAmount(value: number, currency = 'USD'): string {
@@ -243,6 +246,79 @@ function renderReconciliationDelta(
   return { title, body, html, priority: priorityFor('reconciliation_delta_outside_tolerance'), url: `/admin/reconciliation/${runId}` };
 }
 
+function renderPayoutChangeRequested(
+  payload: PayoutChangeRequestedPayload,
+): RenderedV3Notification {
+  const title = `⚠️ Payout address change requested`;
+  const body = `A payout address change has been requested for provider ${payload.providerId.slice(0, 8)}…. Old address: ${payload.oldAddress.slice(0, 8)}… New address: ${payload.newAddress.slice(0, 8)}…. The change will take effect after the cooling-off window at ${fmtDate(payload.coolsDownUntil)}. If you did not request this change, cancel it immediately.`;
+  const html = `
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:0 auto;padding:20px;">
+  <div style="background:linear-gradient(135deg,#D69E2E 0%,#B7791F 100%);padding:30px;border-radius:10px 10px 0 0;text-align:center;">
+    <h1 style="color:white;margin:0;font-size:24px;">⚠️ Payout address change requested</h1>
+  </div>
+  <div style="background:#f9f9f9;padding:30px;border-radius:0 0 10px 10px;">
+    <div style="background:white;padding:20px;border-radius:8px;margin:20px 0;border-left:4px solid #D69E2E;">
+      <p style="margin:0 0 8px 0;"><strong>Change ID:</strong> <code>${payload.changeId}</code></p>
+      <p style="margin:0 0 8px 0;"><strong>Requested by:</strong> ${payload.requestedBy}</p>
+      <p style="margin:0 0 8px 0;"><strong>Old address:</strong> <code>${payload.oldAddress}</code></p>
+      <p style="margin:0 0 8px 0;"><strong>New address:</strong> <code>${payload.newAddress}</code></p>
+      <p style="margin:0;"><strong>Cooling off until:</strong> ${fmtDate(payload.coolsDownUntil)}</p>
+    </div>
+    <p style="color:#C53030;text-align:center;font-weight:600;">If you did not request this change, cancel it immediately.</p>
+    <div style="text-align:center;margin:30px 0;">
+      <a href="/provider/payout" style="background:#D69E2E;color:white;padding:12px 30px;text-decoration:none;border-radius:6px;display:inline-block;font-weight:600;">Manage payout changes</a>
+    </div>
+  </div>
+</div>`.trim();
+  return { title, body, html, priority: priorityFor('payout_change_requested'), url: '/provider/payout' };
+}
+
+function renderPayoutChangeApplied(
+  payload: PayoutChangeAppliedPayload,
+): RenderedV3Notification {
+  const title = `✅ Payout address change applied`;
+  const body = `The pending payout address change for provider ${payload.providerId.slice(0, 8)}… has been applied after the cooling-off window. New address: ${payload.newAddress.slice(0, 8)}…. Old address: ${payload.oldAddress.slice(0, 8)}…. Settlements will now go to the new address.`;
+  const html = `
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:0 auto;padding:20px;">
+  <div style="background:linear-gradient(135deg,#38A169 0%,#276749 100%);padding:30px;border-radius:10px 10px 0 0;text-align:center;">
+    <h1 style="color:white;margin:0;font-size:24px;">✅ Payout address change applied</h1>
+  </div>
+  <div style="background:#f9f9f9;padding:30px;border-radius:0 0 10px 10px;">
+    <div style="background:white;padding:20px;border-radius:8px;margin:20px 0;border-left:4px solid #38A169;">
+      <p style="margin:0 0 8px 0;"><strong>Change ID:</strong> <code>${payload.changeId}</code></p>
+      <p style="margin:0 0 8px 0;"><strong>Old address:</strong> <code>${payload.oldAddress}</code></p>
+      <p style="margin:0 0 8px 0;"><strong>New address:</strong> <code>${payload.newAddress}</code></p>
+      <p style="margin:0;"><strong>Applied at:</strong> ${fmtDate(payload.appliedAt)}</p>
+    </div>
+    <p style="color:#2F855A;text-align:center;">Settlements will now go to the new address.</p>
+  </div>
+</div>`.trim();
+  return { title, body, html, priority: priorityFor('payout_change_applied'), url: '/provider/payout' };
+}
+
+function renderPayoutChangeCancelled(
+  payload: PayoutChangeCancelledPayload,
+): RenderedV3Notification {
+  const title = `ℹ️ Payout address change cancelled`;
+  const body = `The pending payout address change for provider ${payload.providerId.slice(0, 8)}… has been cancelled. Settlements will continue to go to the old address: ${payload.oldAddress.slice(0, 8)}….`;
+  const html = `
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:0 auto;padding:20px;">
+  <div style="background:linear-gradient(135deg,#2B6CB0 0%,#2C5282 100%);padding:30px;border-radius:10px 10px 0 0;text-align:center;">
+    <h1 style="color:white;margin:0;font-size:24px;">ℹ️ Payout address change cancelled</h1>
+  </div>
+  <div style="background:#f9f9f9;padding:30px;border-radius:0 0 10px 10px;">
+    <div style="background:white;padding:20px;border-radius:8px;margin:20px 0;border-left:4px solid #2B6CB0;">
+      <p style="margin:0 0 8px 0;"><strong>Change ID:</strong> <code>${payload.changeId}</code></p>
+      <p style="margin:0 0 8px 0;"><strong>Old address:</strong> <code>${payload.oldAddress}</code></p>
+      <p style="margin:0 0 8px 0;"><strong>New address (cancelled):</strong> <code>${payload.newAddress}</code></p>
+      <p style="margin:0;"><strong>Cancelled at:</strong> ${fmtDate(payload.cancelledAt)}</p>
+    </div>
+    <p style="color:#2B6CB0;text-align:center;">Settlements will continue to go to the old address.</p>
+  </div>
+</div>`.trim();
+  return { title, body, html, priority: priorityFor('payout_change_cancelled'), url: '/provider/payout' };
+}
+
 export function renderV3Notification(
   eventType: V3NotificationEventType,
   payload: any,
@@ -262,6 +338,12 @@ export function renderV3Notification(
       return renderDegradedMode(payload as DegradedModePayload, false);
     case 'reconciliation_delta_outside_tolerance':
       return renderReconciliationDelta(payload as ReconciliationDeltaPayload);
+    case 'payout_change_requested':
+      return renderPayoutChangeRequested(payload as PayoutChangeRequestedPayload);
+    case 'payout_change_applied':
+      return renderPayoutChangeApplied(payload as PayoutChangeAppliedPayload);
+    case 'payout_change_cancelled':
+      return renderPayoutChangeCancelled(payload as PayoutChangeCancelledPayload);
     default:
       return {
         title: 'SYNCRO notification',

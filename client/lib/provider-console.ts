@@ -21,6 +21,18 @@ export interface ProviderRegistration {
   updatedAt: string;
 }
 
+export interface PendingPayoutChange {
+  changeId: string;
+  providerId: string;
+  oldAddress: string;
+  newAddress: string;
+  challengeId: string;
+  requestedBy: string;
+  requestedAt: string;
+  coolsDownUntil: string;
+  status: 'pending' | 'applied' | 'cancelled';
+}
+
 export interface RateCardVersion {
   versionId: string;
   providerId: string;
@@ -211,6 +223,9 @@ export interface ProviderConsoleClient {
   updatePayoutAddress(providerId: string, payoutAddress: string): Promise<ProviderRegistration>;
   createPayoutChallenge(providerId: string): Promise<{ challenge: string }>;
   verifyPayout(providerId: string, signature: string): Promise<ProviderRegistration>;
+  createPayoutChange(providerId: string, input: { challengeId: string; newAddress: string }): Promise<{ changeId: string; oldAddress: string; newAddress: string; status: string; coolsDownUntil: string }>;
+  cancelPayoutChange(providerId: string, changeId: string): Promise<{ changeId: string; status: string }>;
+  applyPayoutChange(providerId: string, changeId: string): Promise<ProviderRegistration>;
   registerRoute(providerId: string, input: RouteDraft): Promise<ProviderRoute>;
   reviseRoute(providerId: string, routeId: string, input: Partial<RouteDraft>): Promise<{ route: ProviderRoute; version: RateCardVersion }>;
   loadConsole(providerId: string): Promise<ProviderConsoleSnapshot>;
@@ -239,6 +254,25 @@ export const providerConsoleClient: ProviderConsoleClient = {
     return request<ProviderRegistration>(`/api/v3/providers/${providerId}/payout-verify`, {
       method: 'POST',
       body: JSON.stringify({ signature }),
+    });
+  },
+  createPayoutChange(providerId, input) {
+    return request<{ changeId: string; oldAddress: string; newAddress: string; status: string; coolsDownUntil: string }>(
+      `/api/v3/providers/${providerId}/payout-change`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+  cancelPayoutChange(providerId, changeId) {
+    return request<{ changeId: string; status: string }>(
+      `/api/v3/providers/${providerId}/payout-change/${changeId}/cancel`, {
+      method: 'POST',
+    });
+  },
+  applyPayoutChange(providerId, changeId) {
+    return request<ProviderRegistration>(
+      `/api/v3/providers/${providerId}/payout-change/${changeId}/apply`, {
+      method: 'POST',
     });
   },
   registerRoute(providerId, input) {

@@ -257,3 +257,20 @@ export interface PaidReceiptPayload {
 export interface PaidReceipt extends PaidReceiptPayload {
   signature: string;
 }
+
+/**
+ * A pending payout address change that has been verified but is still
+ * within the cooling-off window. Settlements during this window continue
+ * to go to the old address.
+ */
+export interface PendingPayoutChange {
+  changeId: string;
+  providerId: string;
+  oldAddress: string;
+  newAddress: string;
+  challengeId: string;
+  requestedBy: string;
+  requestedAt: string;
+  coolsDownUntil: string;
+  status: 'pending' | 'applied' | 'cancelled';
+}

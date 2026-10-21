@@ -173,6 +173,13 @@ const dryRunRouteSchema = z.object({
 
 const payoutAddressSchema = z.object({
   payoutAddress: z.string().min(1),
+  challengeId: z.string().uuid().optional(),
+});
+
+const payoutChangeSchema = z.object({
+  newAddress: z.string().min(1),
+  challengeId: z.string().uuid(),
+  coolingOffMs: z.number().int().positive().default(86_400_000),
 });
 
 function routeParam(value: string | string[] | undefined): string {
@@ -403,13 +410,68 @@ router.get('/providers/:providerId', requireProviderAuth, (req: Request, res: Re
 
 // ── Mutating provider routes (owner only) ──────────────────────────
 
-router.patch('/providers/:providerId/payout-address', requireProviderAuth, (req: Request, res: Response) => {
+router.patch('/providers/:providerId/payout-address', requireProviderAuth, async (req: Request, res: Response) => {
   const parsed = payoutAddressSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
+  if (!parsed.data.challengeId) {
+    return res.status(400).json({ error: 'challengeId is required — a verified payout challenge is needed before changing the payout address' });
+  }
   try {
-    const provider = service.updatePayoutAddress(routeParam(req.params.providerId), parsed.data.payoutAddress);
+    const change = await service.createPendingPayoutChange({
+      providerId: routeParam(req.params.providerId),
+      newAddress: parsed.data.payoutAddress,
+      challengeId: parsed.data.challengeId,
+      requestedBy: req.headers['x-syncro-agent-id'] as string ?? 'unknown',
+      coolingOffMs: 86_400_000,
+    });
+    return res.status(201).json({ data: change });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+// ── Payout change flow (owner only) ─────────────────────────────────
+
+router.post('/providers/:providerId/payout-change', requireProviderAuth, async (req: Request, res: Response) => {
+  const parsed = payoutChangeSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  try {
+    const change = await service.createPendingPayoutChange({
+      providerId: routeParam(req.params.providerId),
+      newAddress: parsed.data.newAddress,
+      challengeId: parsed.data.challengeId,
+      requestedBy: req.headers['x-syncro-agent-id'] as string ?? 'unknown',
+      coolingOffMs: parsed.data.coolingOffMs,
+    });
+    return res.status(201).json({ data: change });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+router.post('/providers/:providerId/payout-change/:changeId/cancel', requireProviderAuth, async (req: Request, res: Response) => {
+  try {
+    const change = await service.cancelPendingPayoutChange({
+      providerId: routeParam(req.params.providerId),
+      changeId: routeParam(req.params.changeId),
+      requestedBy: req.headers['x-syncro-agent-id'] as string ?? 'unknown',
+    });
+    return res.json({ data: change });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+router.post('/providers/:providerId/payout-change/:changeId/apply', requireProviderAuth, async (req: Request, res: Response) => {
+  try {
+    const provider = await service.applyPendingPayoutChange({
+      providerId: routeParam(req.params.providerId),
+      changeId: routeParam(req.params.changeId),
+    });
     return res.json({ data: provider });
   } catch (error) {
     return sendServiceError(res, error);

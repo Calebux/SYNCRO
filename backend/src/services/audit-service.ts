@@ -35,6 +35,9 @@ export type SecurityEventType =
   | 'api_key.suspicious_usage'
   | 'session.invalidated_all'
   | 'session.revoked'
+  | 'payout.change_requested'
+  | 'payout.change_applied'
+  | 'payout.change_cancelled'
   // Agent lifecycle
   | 'agent.registered'
   | 'agent.scope_granted'
