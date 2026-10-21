@@ -359,4 +359,52 @@ describe('agent console grant lifecycle', () => {
     expect(expired.status).toBe(400);
     expect(expired.body.error).toBe('challenge_expired');
   });
+
+  it('caps outstanding session challenges per address', async () => {
+    let now = Date.parse('2026-09-25T12:00:00.000Z');
+    const service = new AgentConsoleService(() => now);
+    const app = buildApp(service);
+    const principal = Keypair.random();
+
+    // Create 5 outstanding challenges (the cap)
+    for (let i = 0; i < 5; i++) {
+      await request(app)
+        .post('/api/v3/agents/session/challenge')
+        .send({ publicKey: principal.publicKey() })
+        .expect(200);
+    }
+
+    // The 6th should be rejected with 429
+    const blocked = await request(app)
+      .post('/api/v3/agents/session/challenge')
+      .send({ publicKey: principal.publicKey() })
+      .expect(429);
+    expect(blocked.body.error).toBe('challenge_limit_exceeded');
+  });
+
+  it('prunes expired challenges so they do not count toward the cap', async () => {
+    let now = Date.parse('2026-09-25T12:00:00.000Z');
+    const service = new AgentConsoleService(() => now);
+    const app = buildApp(service);
+    const principal = Keypair.random();
+
+    // Create 5 outstanding challenges
+    for (let i = 0; i < 5; i++) {
+      await request(app)
+        .post('/api/v3/agents/session/challenge')
+        .send({ publicKey: principal.publicKey() })
+        .expect(200);
+    }
+
+    // Advance time past TTL so challenges expire
+    now += 13 * 60 * 60 * 1000;
+
+    // Creating a new challenge should succeed because expired ones are pruned
+    const fresh = await request(app)
+      .post('/api/v3/agents/session/challenge')
+      .send({ publicKey: principal.publicKey() })
+      .expect(200);
+    expect(fresh.body.data).toBeDefined();
+    expect(fresh.body.data.challengeId).toBeTruthy();
+  });
 });

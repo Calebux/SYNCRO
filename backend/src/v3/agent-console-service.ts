@@ -42,6 +42,8 @@ const PERIOD_DAYS: Record<SpendPeriod, number> = { day: 1, week: 7, month: 30 };
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const REAUTH_TTL_MS = 2 * 60 * 1000;
 const DEV_TOKEN_SECRET = 'syncro-agent-console-dev-only';
+/** Maximum outstanding (unused, non-expired) challenges per public key. */
+const MAX_OUTSTANDING_CHALLENGES_PER_ADDRESS = 5;
 
 export class AgentConsoleError extends Error {
   readonly status: number;
@@ -310,7 +312,45 @@ export class AgentConsoleService {
 
   createSessionChallenge(publicKeyInput: string): { challengeId: string; message: string; expiresAt: string } {
     const publicKey = assertPublicKey(publicKeyInput);
+    this.pruneExpiredChallenges();
+    this.enforceOutstandingChallengeCap(publicKey);
     return this.issueChallenge('session', publicKey);
+  }
+
+  /**
+   * Remove challenges that have expired so they cannot be redeemed.
+   * Called before creating a new challenge to keep the store bounded.
+   */
+  private pruneExpiredChallenges(): void {
+    const now = this.now();
+    for (const [id, challenge] of this.challenges) {
+      if (challenge.expiresAt <= now || challenge.used) {
+        this.challenges.delete(id);
+      }
+    }
+    this.persist();
+  }
+
+  /**
+   * Reject new session challenges when too many outstanding (unused,
+   * non-expired) challenges already exist for the same address.
+   */
+  private enforceOutstandingChallengeCap(publicKey: string): void {
+    const now = this.now();
+    const outstanding = [...this.challenges.values()].filter(
+      (challenge) =>
+        challenge.publicKey === publicKey &&
+        challenge.purpose === 'session' &&
+        !challenge.used &&
+        challenge.expiresAt > now,
+    ).length;
+    if (outstanding >= MAX_OUTSTANDING_CHALLENGES_PER_ADDRESS) {
+      throw new AgentConsoleError(
+        429,
+        'challenge_limit_exceeded',
+        `Too many pending session challenges for this address. Wait for them to expire or complete before creating new ones.`,
+      );
+    }
   }
 
   openSession(input: { challengeId: string; publicKey: string; signature: string }): { token: string; publicKey: string } {

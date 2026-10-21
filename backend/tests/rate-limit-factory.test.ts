@@ -86,6 +86,13 @@ describe('RateLimiterFactory', () => {
     });
   });
 
+  describe('createSessionChallengeLimiter', () => {
+    it('should create session challenge limiter with correct configuration', () => {
+      const limiter = RateLimiterFactory.createSessionChallengeLimiter();
+      expect(limiter).toBeDefined();
+    });
+  });
+
   describe('sensitive mutation limiters', () => {
     it('creates login, import, payment, refund, and api-key limiters', () => {
       expect(RateLimiterFactory.createLoginLimiter()).toBeDefined();

@@ -2,6 +2,9 @@ import express from 'express';
 import request from 'supertest';
 import { Keypair } from '@stellar/stellar-sdk';
 import v3GatewayRouter, { meter } from '../src/routes/v3-gateway';
+import { createAgentConsoleRouter } from '../src/routes/v3/agents';
+import { AgentConsoleService, InMemoryAgentConsoleStore } from '../src/v3/agent-console-service';
+import { createSessionChallengeLimiter } from '../src/middleware/rate-limit-factory';
 
 describe('v3 per-agent rate limiting (Issue #1447)', () => {
   beforeEach(() => {
@@ -198,5 +201,55 @@ describe('v3 per-agent rate limiting (Issue #1447)', () => {
       .expect(200);
 
     await paidCall(app, providerId, 'agent-d', 1).expect(429);
+  });
+});
+
+describe('v3 session challenge rate limiting (Issue #1620)', () => {
+  function buildApp() {
+    const app = express();
+    app.use(express.json());
+    app.use('/api/v3/agents', createAgentConsoleRouter(new AgentConsoleService(() => Date.now(), { store: new InMemoryAgentConsoleStore() })));
+    return app;
+  }
+
+  it('returns 429 with Retry-After when the per-IP limit is exceeded', async () => {
+    const app = buildApp();
+    const principal = Keypair.random();
+
+    for (let i = 0; i < 5; i++) {
+      await request(app)
+        .post('/api/v3/agents/session/challenge')
+        .send({ publicKey: principal.publicKey() })
+        .expect(200);
+    }
+
+    const blocked = await request(app)
+      .post('/api/v3/agents/session/challenge')
+      .send({ publicKey: principal.publicKey() })
+      .expect(429);
+    expect(blocked.body.error).toBe('challenge_limit_exceeded');
+    expect(blocked.header['retry-after']).toBeDefined();
+  });
+
+  it('returns 429 with Retry-After on POST /session when the per-IP limit is exceeded', async () => {
+    const app = buildApp();
+    const principal = Keypair.random();
+
+    for (let i = 0; i < 5; i++) {
+      await request(app)
+        .post('/api/v3/agents/session/challenge')
+        .send({ publicKey: principal.publicKey() })
+        .expect(200);
+    }
+
+    const blocked = await request(app)
+      .post('/api/v3/agents/session')
+      .send({
+        challengeId: 'unused',
+        publicKey: principal.publicKey(),
+        signature: 'unused',
+      })
+      .expect(429);
+    expect(blocked.header['retry-after']).toBeDefined();
   });
 });

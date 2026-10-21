@@ -36,6 +36,8 @@ describe('Rate Limit Configuration', () => {
       expect(config.mfa.windowMs).toBe(15 * 60 * 1000); // 15 minutes
       expect(config.admin.max).toBe(100);
       expect(config.admin.windowMs).toBe(60 * 60 * 1000); // 1 hour
+      expect(config.sessionChallenge.max).toBe(5);
+      expect(config.sessionChallenge.windowMs).toBe(15 * 60 * 1000); // 15 minutes
     });
 
     it('should use environment variables when provided', () => {
@@ -57,6 +59,13 @@ describe('Rate Limit Configuration', () => {
       expect(config.mfa.windowMs).toBe(30 * 60 * 1000); // 30 minutes
       expect(config.admin.max).toBe(200);
       expect(config.admin.windowMs).toBe(3 * 60 * 60 * 1000); // 3 hours
+      process.env.RATE_LIMIT_SESSION_CHALLENGE_MAX = '10';
+      process.env.RATE_LIMIT_SESSION_CHALLENGE_WINDOW_MINUTES = '30';
+
+      const config2 = loadRateLimitConfig();
+
+      expect(config2.sessionChallenge.max).toBe(10);
+      expect(config2.sessionChallenge.windowMs).toBe(30 * 60 * 1000); // 30 minutes
     });
 
     it('should use defaults for invalid environment variables', () => {
@@ -74,20 +83,25 @@ describe('Rate Limit Configuration', () => {
     it('should generate appropriate error messages', () => {
       process.env.RATE_LIMIT_TEAM_INVITE_MAX = '25';
       process.env.RATE_LIMIT_TEAM_INVITE_WINDOW_HOURS = '2';
+      process.env.RATE_LIMIT_SESSION_CHALLENGE_MAX = '3';
+      process.env.RATE_LIMIT_SESSION_CHALLENGE_WINDOW_MINUTES = '10';
 
       const config = loadRateLimitConfig();
 
       expect(config.teamInvite.message.error).toContain('25 invitations per 2 hours');
+      expect(config.sessionChallenge.message.error).toContain('3 attempts per 10 minutes');
     });
 
     it('should handle singular vs plural in error messages', () => {
       process.env.RATE_LIMIT_TEAM_INVITE_WINDOW_HOURS = '1';
       process.env.RATE_LIMIT_MFA_WINDOW_MINUTES = '1';
+      process.env.RATE_LIMIT_SESSION_CHALLENGE_WINDOW_MINUTES = '1';
 
       const config = loadRateLimitConfig();
 
       expect(config.teamInvite.message.error).toContain('1 hour');
       expect(config.mfa.message.error).toContain('1 minute');
+      expect(config.sessionChallenge.message.error).toContain('1 minute');
     });
 
     it('should enable Redis when URL is provided', () => {

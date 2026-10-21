@@ -257,6 +257,27 @@ export class RateLimiterFactory {
   }
 
   /**
+   * Create rate limiter for session challenge endpoints
+   * 5 requests per 15 minutes per IP (unauthenticated endpoints)
+   */
+  static createSessionChallengeLimiter(): RateLimitRequestHandler {
+    return rateLimit({
+      windowMs: rateLimitConfig.sessionChallenge.windowMs,
+      max: rateLimitConfig.sessionChallenge.max,
+      message: rateLimitConfig.sessionChallenge.message,
+      standardHeaders: true,
+      legacyHeaders: true,
+      validate: false,
+      keyGenerator: ipKeyGenerator,
+      store: this.redisStore || undefined,
+      handler: (req, res, _next) => {
+        createRateLimitHandler('session-challenge')(req, res);
+        res.status(429).json(rateLimitConfig.sessionChallenge.message);
+      },
+    });
+  }
+
+  /**
    * Create rate limiter for simulation endpoints
    * 5 requests per hour per user
    */
@@ -445,4 +466,5 @@ export const createStealthAddressLimiter = () => RateLimiterFactory.createStealt
 export const createZkProofLimiter = () => RateLimiterFactory.createZkProofLimiter();
 export const createPaymentChannelStateUpdateLimiter = () => RateLimiterFactory.createPaymentChannelStateUpdateLimiter();
 export const createSelectiveDisclosureLimiter = () => RateLimiterFactory.createSelectiveDisclosureLimiter();
+export const createSessionChallengeLimiter = () => RateLimiterFactory.createSessionChallengeLimiter();
 export { createSubscriptionTierLimiter } from './subscription-tier-rate-limiter';
