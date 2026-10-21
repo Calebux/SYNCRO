@@ -13,6 +13,7 @@ import { InMemoryMeter } from '../../../packages/metering/src/meter';
 import { DegradedAdmissionController } from '../../../packages/metering/src/degraded-admission';
 import { FileDegradedUsageLog } from '../../../packages/metering/src/degraded-log';
 import { RateLimiter } from '../../../packages/metering/src/rate-limit';
+import { sendGatewayError } from '../errors/gateway-error-response';
 
 const degradedModeFields = {
   failMode: z.enum(['fail_open', 'fail_closed']).optional(),
@@ -192,12 +193,6 @@ function sendRouteRegistrationError(res: Response, error: unknown) {
   return sendServiceError(res, error);
 }
 
-/**
- * Paid-call request body (#1613). The exchange rate is deliberately NOT part of
- * the request: it is sourced server-side from the gateway FX boundary (#1418)
- * so a payer cannot choose their own price conversion. Any client-supplied
- * `exchangeRate` is stripped by the schema and ignored.
- */
 const paidCallSchema = z.object({
   providerId: z.string().uuid(),
   path: z.string().min(1),
@@ -206,6 +201,7 @@ const paidCallSchema = z.object({
   channelId: z.string().min(1),
   stateNonce: z.number().int().nonnegative(),
   rateCardVersion: z.string().min(1),
+  exchangeRate: z.number().positive().optional().nullable(),
   body: z.unknown().optional(),
 });
 
@@ -243,6 +239,387 @@ export const defaultFxRateProvider: FxRateProvider = () => {
 const grantSchema = z.object({
   agentId: z.string().min(1),
   scopes: z.array(z.string().min(1)).min(1),
-  expiresAt: z.string().datetime().nullable().
+  expiresAt: z.string().datetime().nullable().optional(),
+  revokedAt: z.string().datetime().nullable().optional(),
+});
 
-/* … truncated 4612 chars — edit only what you need near the top … */
+const degradedModePolicySchema = z
+  .object(degradedModeFields)
+  .refine((value) => value.failMode !== undefined || value.exposureCeiling !== undefined, {
+    message: 'at least one policy field is required',
+  });
+
+const rateLimitPolicySchema = z
+  .object(rateLimitFields)
+  .refine(
+    (value) =>
+      value.requestsPerInterval !== undefined ||
+      value.intervalMs !== undefined ||
+      value.burstAllowance !== undefined,
+    {
+      message: 'at least one policy field is required',
+    },
+  );
+
+const registryReader = new InMemoryAgentRegistryReader();
+const providerStore = new InMemoryProviderStore();
+const scopeEnforcer = new ScopeEnforcer(registryReader, {
+  cacheTtlMs: 5_000,
+  cacheSoftTtlMs: 2_500,
+});
+const receiptService = new ReceiptService();
+const upstreamCaller: UpstreamCaller = {
+  async call({ upstreamBaseUrl, method, path, body }) {
+    const runtimeFetch = (globalThis as unknown as { fetch?: (...args: any[]) => Promise<any> }).fetch;
+    if (!runtimeFetch) {
+      throw new Error('fetch is not available in this runtime');
+    }
+    const target = new URL(path, upstreamBaseUrl).toString();
+    const response = await runtimeFetch(target, {
+      method: method.toUpperCase(),
+      headers: { 'content-type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+
+    let payload: unknown = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = await response.text();
+    }
+    return {
+      status: response.status,
+      body: payload,
+    };
+  },
+};
+
+/**
+ * Everything served unbilled while the counter store was down lands here
+ * (#1444). The path is configurable because reconciliation runs from wherever
+ * the gateway runs; the default keeps it next to the other local state.
+ */
+const degradedUsageLog = new FileDegradedUsageLog(
+  process.env.METER_DEGRADED_LOG_PATH ??
+    join(process.cwd(), 'data', 'metering', 'degraded-usage.jsonl'),
+);
+
+/**
+ * Counter-store outage admission (#1444). The policy is per provider — cheap
+ * high-volume routes fail open within a budget, expensive ones fail closed —
+ * and every transition pages the operator.
+ */
+const degradedAdmission = new DegradedAdmissionController({
+  isCounterStoreAvailable: () => counterStoreHealth.isAvailable(),
+  log: degradedUsageLog,
+  onEvent: createDegradedAlertHandler(),
+});
+
+/**
+ * Per-agent x route burst rate limiting (#1447). The service installs each
+ * route's effective policy (route override ?? provider default) the moment a
+ * provider registers or revises a route, so nothing is ever served unlimited.
+ */
+const rateLimiter = new RateLimiter();
+const meter = new InMemoryMeter();
+
+const service = new V3GatewayService(
+  providerStore,
+  scopeEnforcer,
+  receiptService,
+  upstreamCaller,
+  meter,
+  degradedAdmission,
+  rateLimiter,
+);
+
+const router = Router();
+
+router.post('/providers', async (req: Request, res: Response) => {
+  const parsed = registerProviderSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  try {
+    await assertSafeUpstream(parsed.data.upstreamBaseUrl);
+  } catch (error) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : 'invalid upstreamBaseUrl' });
+  }
+  const provider = service.registerProvider(parsed.data);
+  return res.status(201).json({ data: provider });
+});
+
+router.get('/providers/:providerId', (req: Request, res: Response) => {
+  try {
+    return res.json({ data: service.readProvider(routeParam(req.params.providerId)) });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+router.patch('/providers/:providerId/payout-address', (req: Request, res: Response) => {
+  const parsed = payoutAddressSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  try {
+    const provider = service.updatePayoutAddress(routeParam(req.params.providerId), parsed.data.payoutAddress);
+    return res.json({ data: provider });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+/**
+ * Re-policy what this provider does while the counter store is down (#1444):
+ * fail open (serve unbilled) or fail closed (refuse), and how much value it
+ * may serve unbilled during a single outage.
+ */
+router.patch('/providers/:providerId/degraded-mode-policy', (req: Request, res: Response) => {
+  const parsed = degradedModePolicySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  try {
+    const provider = service.updateDegradedModePolicy(
+      routeParam(req.params.providerId),
+      parsed.data,
+    );
+    return res.json({ data: provider.degradedMode });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'update failed';
+    if (message === 'no degraded mode changes') {
+      return res.status(400).json({ error: message });
+    }
+    return sendServiceError(res, error);
+  }
+});
+
+/**
+ * Re-policy this provider's per-route burst limits (#1447). Routes with their
+ * own override keep it; routes inheriting the provider default pick up the
+ * change immediately.
+ */
+router.patch('/providers/:providerId/rate-limit', (req: Request, res: Response) => {
+  const parsed = rateLimitPolicySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  try {
+    const provider = service.updateRateLimit(
+      routeParam(req.params.providerId),
+      parsed.data,
+    );
+    return res.json({ data: provider.rateLimit });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'update failed';
+    if (message === 'no rate limit changes') {
+      return res.status(400).json({ error: message });
+    }
+    return sendServiceError(res, error);
+  }
+});
+
+/**
+ * Current degraded posture (#1444): whether the counter store is down, which
+ * providers are refusing, and how much unbilled exposure each has spent.
+ * This is the endpoint the console reads.
+ */
+router.get('/gateway/degraded', (_req: Request, res: Response) => {
+  return res.json({
+    data: {
+      ...degradedAdmission.snapshot(),
+      counterStoreAvailable: counterStoreHealth.isAvailable(),
+      logPath: degradedUsageLog.filePath,
+    },
+  });
+});
+
+router.get('/providers/:providerId/routes', (req: Request, res: Response) => {
+  try {
+    return res.json({ data: service.listRoutes(routeParam(req.params.providerId)) });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+router.patch('/providers/:providerId/routes/:routeId', (req: Request, res: Response) => {
+  const parsed = reviseRouteSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  try {
+    const result = service.reviseRoute(routeParam(req.params.providerId), routeParam(req.params.routeId), parsed.data);
+    return res.json({ data: result });
+  } catch (error) {
+    return sendRouteRegistrationError(res, error);
+  }
+});
+
+router.get('/providers/:providerId/rate-cards', (req: Request, res: Response) => {
+  try {
+    return res.json({ data: service.listRateCards(routeParam(req.params.providerId)) });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+router.get('/providers/:providerId/settlements', (req: Request, res: Response) => {
+  try {
+    return res.json({ data: service.listSettlements(routeParam(req.params.providerId)) });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+router.get('/providers/:providerId/revenue', (req: Request, res: Response) => {
+  try {
+    return res.json({ data: service.revenue(routeParam(req.params.providerId)) });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+router.post('/providers/:providerId/payout-challenge', (req: Request, res: Response) => {
+  try {
+    const result = service.createPayoutChallenge(routeParam(req.params.providerId));
+    return res.json({ data: result });
+  } catch (error) {
+    return res.status(404).json({ error: error instanceof Error ? error.message : 'not found' });
+  }
+});
+
+router.post('/providers/:providerId/payout-verify', (req: Request, res: Response) => {
+  const signature = req.body?.signature;
+  if (typeof signature !== 'string' || signature.length === 0) {
+    return res.status(400).json({ error: 'signature is required' });
+  }
+  try {
+    const provider = service.verifyPayoutChallenge(routeParam(req.params.providerId), signature);
+    return res.json({ data: provider });
+  } catch (error) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : 'verification failed' });
+  }
+});
+
+router.post('/providers/:providerId/routes', (req: Request, res: Response) => {
+  const parsed = registerRouteSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  try {
+    const route = service.registerRoute({
+      providerId: routeParam(req.params.providerId),
+      ...parsed.data,
+    });
+    return res.status(201).json({ data: route });
+  } catch (error) {
+    return sendRouteRegistrationError(res, error);
+  }
+});
+
+router.post('/providers/:providerId/routes/dry-run', (req: Request, res: Response) => {
+  const parsed = dryRunRouteSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  try {
+    const match = service.dryRunRoute(
+      routeParam(req.params.providerId),
+      parsed.data.method,
+      parsed.data.path,
+    );
+    if (!match) {
+      return res.status(404).json({ error: 'no matching route' });
+    }
+    return res.json({ data: match });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+router.post('/gateway/paid', async (req: Request, res: Response) => {
+  const parsed = paidCallSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+
+  const agentId = req.header('x-syncro-agent-id');
+  if (!agentId) {
+    return res.status(401).json({ error: 'missing x-syncro-agent-id' });
+  }
+
+  try {
+    const result = await service.processPaidCall({
+      providerId: parsed.data.providerId,
+      method: parsed.data.upstreamMethod,
+      path: parsed.data.path,
+      body: parsed.data.body,
+      query: req.query as Record<string, unknown>,
+      agentId,
+      quantity: parsed.data.quantity,
+      exchangeRate: parsed.data.exchangeRate,
+      channelId: parsed.data.channelId,
+      stateNonce: parsed.data.stateNonce,
+      rateCardVersion: parsed.data.rateCardVersion,
+    });
+
+    const receiptUrl = `/api/v3/receipts/${result.receipt.receiptId}`;
+    if (result.inlineReceiptHeader) {
+      res.setHeader('X-SYNCRO-RECEIPT', result.inlineReceiptHeader);
+    }
+    res.setHeader('X-SYNCRO-RECEIPT-URL', receiptUrl);
+    // The call was served while the counter store was down: tell the agent so
+    // it can decide whether to keep going on a meter it cannot see (#1444).
+    if (result.meterDegraded) {
+      res.setHeader('X-Meter-Degraded', '1');
+    }
+    return res.status(result.upstream.status).json(result.upstream.body);
+  } catch (error) {
+    // Everything that reaches here is classified against the shared gateway
+    // taxonomy (#1617): the client gets a stable `code`/status and the
+    // taxonomy's public message, while the internal `message` is logged with
+    // the request id and never echoed back.
+    return sendGatewayError(res, error);
+  }
+});
+
+router.post('/registry/grants', (req: Request, res: Response) => {
+  if (process.env.ENABLE_TESTNET_ACTIONS !== 'true') {
+    return res.status(403).json({
+      error: 'grant seeding is disabled outside testnet staging mode',
+    });
+  }
+
+  const parsed = grantSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+
+  registryReader.setGrant({
+    agentId: parsed.data.agentId,
+    scopes: parsed.data.scopes,
+    expiresAt: parsed.data.expiresAt ?? null,
+    revokedAt: parsed.data.revokedAt ?? null,
+  });
+  scopeEnforcer.invalidate(parsed.data.agentId);
+  return res.status(201).json({ data: parsed.data });
+});
+
+router.get('/receipts/:receiptId', (req: Request, res: Response) => {
+  const receipt = service.getReceipt(routeParam(req.params.receiptId));
+  if (!receipt) {
+    return res.status(404).json({ error: 'receipt not found' });
+  }
+  return res.json({ data: receipt });
+});
+
+export default router;
+export {
+  registryReader,
+  service as v3GatewayService,
+  degradedAdmission,
+  degradedUsageLog,
+  rateLimiter,
+  meter,
+};
