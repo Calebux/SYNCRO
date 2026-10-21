@@ -61,6 +61,9 @@ enum DataKey {
     PendingAdmin,
     /// Scope mask (`u32`) for a registered agent.  Unchanged since v1.
     Agent(Address),
+    /// Principal that owns / granted authority to the agent. Required for
+    /// principal-managed register / update / revoke (v3).
+    AgentPrincipal(Address),
     /// Optional expiry for an agent's authority, as a ledger timestamp
     /// (`u64`, seconds).  Stored under its OWN key so that entries written
     /// before issue #1656 (a bare `u32` under `Agent`) stay readable with no
@@ -94,6 +97,32 @@ impl AgentRegistry {
         // Every admin call keeps the instance storage (admin, pending admin) alive.
         syncro_common::ttl::extend_instance(env);
         Ok(admin)
+    }
+
+    fn require_initialized(env: &Env) -> Result<(), Error> {
+        if !env.storage().instance().has(&DataKey::Admin) {
+            return Err(Error::NotInitialized);
+        }
+        syncro_common::ttl::extend_instance(env);
+        Ok(())
+    }
+
+    /// Authenticate `principal` and verify it owns `agent`.
+    fn require_agent_owner(
+        env: &Env,
+        principal: &Address,
+        agent: &Address,
+    ) -> Result<(), Error> {
+        principal.require_auth();
+        let owner: Address = syncro_common::ttl::persistent_get(
+            env,
+            &DataKey::AgentPrincipal(agent.clone()),
+        )
+        .ok_or(Error::NotRegistered)?;
+        if owner != *principal {
+            return Err(Error::Unauthorized);
+        }
+        Ok(())
     }
 
     /// Read the current admin address.
@@ -175,38 +204,49 @@ impl AgentRegistry {
     }
 
 
-    /// Register a new agent with no expiry. Admin only.
-    pub fn register(env: Env, agent: Address) -> Result<(), Error> {
-        Self::require_admin(&env)?;
-        Self::store_new_agent(&env, &agent);
+    /// Register a new agent with no expiry. Principal-authorized.
+    pub fn register(env: Env, principal: Address, agent: Address) -> Result<(), Error> {
+        Self::require_initialized(&env)?;
+        principal.require_auth();
+        Self::ensure_registerable(&env, &principal, &agent)?;
+
+        Self::store_new_agent(&env, &principal, &agent);
         // A fresh registration never inherits an expiry from an old one.
         env.storage()
             .persistent()
             .remove(&DataKey::AgentExpiry(agent.clone()));
 
-        env.events()
-            .publish((symbol_short!("agent"), symbol_short!("reg")), agent);
+        env.events().publish(
+            (symbol_short!("agent"), symbol_short!("reg")),
+            (principal, agent),
+        );
 
         Ok(())
     }
 
     /// Register a new agent whose authority lapses at `expires_at`
-    /// (ledger timestamp, seconds). `None` means "never expires". Admin only.
+    /// (ledger timestamp, seconds). `None` means "never expires".
+    /// Principal-authorized.
     ///
     /// Emits `agent/reg` and, when an expiry is set, `agent/exp_set`.
     pub fn register_with_expiry(
         env: Env,
+        principal: Address,
         agent: Address,
         expires_at: Option<u64>,
     ) -> Result<(), Error> {
-        Self::require_admin(&env)?;
+        Self::require_initialized(&env)?;
+        principal.require_auth();
+        Self::ensure_registerable(&env, &principal, &agent)?;
         Self::check_expiry(&env, expires_at)?;
 
-        Self::store_new_agent(&env, &agent);
+        Self::store_new_agent(&env, &principal, &agent);
         Self::write_expiry(&env, &agent, expires_at);
 
-        env.events()
-            .publish((symbol_short!("agent"), symbol_short!("reg")), agent);
+        env.events().publish(
+            (symbol_short!("agent"), symbol_short!("reg")),
+            (principal, agent),
+        );
 
         Ok(())
     }
@@ -239,7 +279,24 @@ impl AgentRegistry {
         syncro_common::ttl::persistent_get::<_, u64>(&env, &DataKey::AgentExpiry(agent))
     }
 
-    fn store_new_agent(env: &Env, agent: &Address) {
+    /// Reject registration when the agent is already owned by another principal.
+    fn ensure_registerable(
+        env: &Env,
+        principal: &Address,
+        agent: &Address,
+    ) -> Result<(), Error> {
+        if let Some(owner) = syncro_common::ttl::persistent_get::<_, Address>(
+            env,
+            &DataKey::AgentPrincipal(agent.clone()),
+        ) {
+            if owner != *principal {
+                return Err(Error::Unauthorized);
+            }
+        }
+        Ok(())
+    }
+
+    fn store_new_agent(env: &Env, principal: &Address, agent: &Address) {
         // Store an explicit u32 scope mask (initially empty). The previous
         // implementation stored a `bool` here, which is a different type than
         // the `u32` read by `has_scope`/`update_scopes` — reading it back as a
@@ -247,6 +304,23 @@ impl AgentRegistry {
         // stored type consistent and means a freshly registered agent has no
         // scopes until `update_scopes` grants them.
         syncro_common::ttl::persistent_set(env, &DataKey::Agent(agent.clone()), &0u32);
+        syncro_common::ttl::persistent_set(
+            env,
+            &DataKey::AgentPrincipal(agent.clone()),
+            principal,
+        );
+    }
+
+    fn clear_agent(env: &Env, agent: &Address) {
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Agent(agent.clone()));
+        env.storage()
+            .persistent()
+            .remove(&DataKey::AgentPrincipal(agent.clone()));
+        env.storage()
+            .persistent()
+            .remove(&DataKey::AgentExpiry(agent.clone()));
     }
 
     /// Expiry must be strictly in the future (`None` is always fine).
@@ -290,49 +364,80 @@ impl AgentRegistry {
         }
     }
 
+    /// Update an agent's scope mask. Principal-authorized (owner only).
     pub fn update_scopes(
         env: Env,
+        principal: Address,
         agent: Address,
         scopes: ScopeSet,
     ) -> Result<(), Error> {
-        Self::require_admin(&env)?;
+        Self::require_initialized(&env)?;
+        Self::require_agent_owner(&env, &principal, &agent)?;
 
         if !scopes.is_valid() {
             return Err(Error::InvalidScope);
         }
 
         if !syncro_common::ttl::persistent_has(&env, &DataKey::Agent(agent.clone())) {
-            return Err(Error::Unauthorized);
+            return Err(Error::NotRegistered);
         }
 
         syncro_common::ttl::persistent_set(&env, &DataKey::Agent(agent.clone()), &scopes.0);
 
         env.events().publish(
             (symbol_short!("agent"), symbol_short!("scopes")),
-            (agent, scopes.0),
+            (principal, agent, scopes.0),
         );
 
         Ok(())
     }
 
 
-    /// Revoke an agent's authorization. Admin only.
-    pub fn revoke_agent(env: Env, agent: Address) -> Result<(), Error> {
-        Self::require_admin(&env)?;
+    /// Revoke an agent's authorization. Principal-authorized (owner only).
+    pub fn revoke_agent(
+        env: Env,
+        principal: Address,
+        agent: Address,
+    ) -> Result<(), Error> {
+        Self::require_initialized(&env)?;
+        Self::require_agent_owner(&env, &principal, &agent)?;
 
-        env.storage()
-            .persistent()
-            .remove(&DataKey::Agent(agent.clone()));
-        env.storage()
-            .persistent()
-            .remove(&DataKey::AgentExpiry(agent.clone()));
+        Self::clear_agent(&env, &agent);
 
         env.events().publish(
             (symbol_short!("agent"), symbol_short!("revoke")),
-            agent,
+            (principal, agent),
         );
 
         Ok(())
+    }
+
+    /// Admin emergency revoke. Distinct from principal `revoke` (`agent/em_rev`).
+    pub fn emergency_revoke(env: Env, agent: Address) -> Result<(), Error> {
+        Self::require_admin(&env)?;
+
+        if !syncro_common::ttl::persistent_has(&env, &DataKey::Agent(agent.clone())) {
+            return Err(Error::NotRegistered);
+        }
+
+        let principal: Option<Address> = syncro_common::ttl::persistent_get(
+            &env,
+            &DataKey::AgentPrincipal(agent.clone()),
+        );
+
+        Self::clear_agent(&env, &agent);
+
+        env.events().publish(
+            (symbol_short!("agent"), symbol_short!("em_rev")),
+            (principal, agent),
+        );
+
+        Ok(())
+    }
+
+    /// Read the principal that owns `agent`, if registered under the v3 model.
+    pub fn get_principal(env: Env, agent: Address) -> Option<Address> {
+        syncro_common::ttl::persistent_get(&env, &DataKey::AgentPrincipal(agent))
     }
 
     /// Check if an agent is authorized: registered AND not expired.
