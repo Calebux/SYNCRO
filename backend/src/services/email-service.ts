@@ -45,10 +45,16 @@ export class EmailService {
       return this.transporter;
     }
 
-    // SMTP belongs to the retired subscription domain. v3 notification
-    // delivery uses in-app, push, Telegram, and Slack transports instead.
-    logger.warn('SMTP email delivery is disabled in v3. Using mock transporter.');
-    this.transporter = nodemailer.createTransport({ jsonTransport: true });
+    const port = Number(env.SMTP_PORT);
+    if (!env.SMTP_HOST || !Number.isInteger(port) || port <= 0 || !env.SMTP_USER || !env.SMTP_PASS) {
+      throw new Error('SMTP is not configured for email notification delivery.');
+    }
+    this.transporter = nodemailer.createTransport({
+      host: env.SMTP_HOST,
+      port,
+      secure: port === 465,
+      auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+    });
 
     return this.transporter;
   }

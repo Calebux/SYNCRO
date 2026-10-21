@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "prebuild": "node scripts/validate-env.js",
+    "prebuild": "npm run build -w @syncro/sdk && node scripts/validate-env.js",
     "build": "NEXT_TELEMETRY_DISABLED=1 next build",
     "typecheck": "tsc --noEmit",
     "dev": "NEXT_TELEMETRY_DISABLED=1 next dev",
@@ -66,6 +66,7 @@
     "@react-pdf/renderer": "^4.9.0",
     "@rolldown/binding-linux-x64-gnu": "^1.2.14",
     "@syncro/shared": "file:../shared",
+    "@syncro/sdk": "file:../sdk",
     "@tanstack/react-query": "^5.104.3",
     "@syncro/ui": "file:../packages/ui",
     "@tremor/react": "^3.17.4",

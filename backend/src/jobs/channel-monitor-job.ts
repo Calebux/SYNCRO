@@ -4,6 +4,7 @@ import { env } from '../config/env';
 import { runWithCorrelationId } from '../middleware/requestContext';
 import { runChannelMonitor } from '../services/channel-alert-service';
 import { channelStateService } from '../services/channel-state';
+import { spendCapAlertService } from '../services/spend-cap-alert-service';
 
 /**
  * Monitors payment channels for expiry, low balance, and watchtower dispute
@@ -16,6 +17,7 @@ export function startChannelMonitorJob(): void {
 
       try {
         await runChannelMonitor();
+        await spendCapAlertService.run();
         await runWatchtowerSweep();
         logger.debug('Channel monitor completed', { correlationId: cid });
       } catch (error) {

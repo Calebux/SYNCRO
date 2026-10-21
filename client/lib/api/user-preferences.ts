@@ -3,6 +3,7 @@ import { apiGet, apiPatch } from "@/lib/api"
 export interface UserPreferences {
   user_id: string
   notification_channels: ('email' | 'push' | 'telegram' | 'slack')[]
+  spend_cap_alert_channels?: ('email' | 'telegram')[]
   reminder_timing: number[]
   email_opt_ins: {
     marketing: boolean
@@ -31,6 +32,7 @@ export interface UserPreferences {
 
 export interface UserPreferencesUpdateInput {
   notification_channels?: ('email' | 'push' | 'telegram' | 'slack')[]
+  spend_cap_alert_channels?: ('email' | 'telegram')[]
   reminder_timing?: number[]
   email_opt_ins?: {
     marketing?: boolean

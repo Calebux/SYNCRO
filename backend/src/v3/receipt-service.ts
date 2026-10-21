@@ -22,6 +22,11 @@ interface KeyMaterial {
   publicKeyPem: string;
 }
 
+export interface ReceiptStore {
+  save(receipt: PaidReceipt): Promise<void>;
+  get(receiptId: string): Promise<PaidReceipt | null>;
+}
+
 export interface ReceiptPublicKeyEntry {
   keyId: string;
   status: 'current' | 'previous';
@@ -80,8 +85,9 @@ function loadKeyMaterial(): KeyMaterial {
 export class ReceiptService {
   private readonly keys = loadKeyMaterial();
   private readonly receipts = new Map<string, PaidReceipt>();
+  constructor(private readonly store?: ReceiptStore) {}
 
-  issueReceipt(input: ReceiptIssueInput): PaidReceipt {
+  async issueReceipt(input: ReceiptIssueInput): Promise<PaidReceipt> {
     const payload: PaidReceiptPayload = {
       receiptId: input.receiptId,
       requestHash: requestHash(input.requestMethod, input.requestPath, input.requestQuery),
@@ -109,18 +115,20 @@ export class ReceiptService {
       ...payload,
       signature,
     };
+    await this.store?.save(receipt);
     this.receipts.set(receipt.receiptId, receipt);
     return receipt;
   }
 
   /** Current + previous public keys for the well-known endpoint. Previous stays valid during the dispute window. */
   getReceiptPublicKeys(): ReceiptPublicKeyEntry[] {
-    const entries: ReceiptPublicKeyEntry[] = [
-      { keyId: this.keys.keyId, status: 'current', publicKeyPem: this.keys.publicKeyPem },
-    ];
+    const revoked = revokedKeyIds();
+    const entries: ReceiptPublicKeyEntry[] = revoked.has(this.keys.keyId)
+      ? []
+      : [{ keyId: this.keys.keyId, status: 'current', publicKeyPem: this.keys.publicKeyPem }];
     const prevPem = process.env.SYNCRO_RECEIPT_PREVIOUS_PUBLIC_KEY_PEM;
     const prevId = process.env.SYNCRO_RECEIPT_PREVIOUS_KEY_ID?.trim();
-    if (prevPem && prevId && prevId !== this.keys.keyId && !revokedKeyIds().has(prevId)) {
+    if (prevPem && prevId && prevId !== this.keys.keyId && !revoked.has(prevId)) {
       entries.push({ keyId: prevId, status: 'previous', publicKeyPem: prevPem });
     }
     return entries;
@@ -173,8 +181,10 @@ export class ReceiptService {
     }
   }
 
-  getReceipt(receiptId: string): PaidReceipt | null {
-    return this.receipts.get(receiptId) ?? null;
+  async getReceipt(receiptId: string): Promise<PaidReceipt | null> {
+    const cached = this.receipts.get(receiptId);
+    if (cached) return cached;
+    return this.store ? this.store.get(receiptId) : null;
   }
 
   encodeHeaderValue(receipt: PaidReceipt): string {

@@ -4,6 +4,7 @@ export default defineConfig({
   entry: {
     index: 'src/index.ts',
     'v3/index': 'src/v3/index.ts',
+    'v3/receipt-browser': 'src/v3/receipt-browser.ts',
     types: 'src/types.ts',
     errors: 'src/errors.ts',
     webhooks: 'src/webhooks.ts',

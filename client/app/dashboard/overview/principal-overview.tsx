@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { AlertTriangle, ArrowRight, CircleAlert, RefreshCw, ShieldAlert } from 'lucide-react';
 import type { PrincipalAnalytics } from '@syncro/shared/domain';
 import { getPrincipalAnalytics } from '@/lib/api/v3-analytics';
+import { getSpendCapAlerts } from '@/lib/spend-cap-alerts';
 
 const money = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
 const date = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -49,6 +50,7 @@ export function PrincipalOverview() {
     const totalCapacity = analytics.capUtilizationPerAgent.reduce((sum, agent) => sum + agent.capacity, 0);
     const totalSpend = analytics.capUtilizationPerAgent.reduce((sum, agent) => sum + (agent.currentSpend ?? agent.capacity - agent.currentBalance), 0);
     const criticalAlerts = analytics.alerts.filter((alert) => alert.severity === 'critical');
+    const spendCapAlerts = getSpendCapAlerts(analytics.capUtilizationPerAgent);
 
     return (
         <main className="min-h-screen bg-[#f6f7f4] px-4 py-6 text-[#17211b] md:px-10 md:py-9">
@@ -75,6 +77,35 @@ export function PrincipalOverview() {
                     </section>
                 )}
 
+                {spendCapAlerts.length > 0 && (
+                    <section
+                        aria-labelledby="spend-cap-alert-heading"
+                        role={spendCapAlerts.some((alert) => alert.exceeded) ? 'alert' : 'status'}
+                        className={`rounded-xl border px-4 py-4 ${spendCapAlerts.some((alert) => alert.exceeded) ? 'border-red-300 bg-red-50 text-red-950' : 'border-amber-300 bg-amber-50 text-amber-950'}`}
+                    >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                                <h2 id="spend-cap-alert-heading" className="font-semibold">
+                                    {spendCapAlerts.some((alert) => alert.exceeded) ? 'An agent has reached its spend cap' : 'An agent is approaching its spend cap'}
+                                </h2>
+                                <ul className="mt-1 space-y-1 text-sm">
+                                    {spendCapAlerts.map((alert) => (
+                                        <li key={alert.agentId}>
+                                            <span className="font-medium">{alert.agentName}</span>
+                                            {alert.exceeded
+                                                ? ` has used ${Math.floor(alert.percentage)}% of its cap.`
+                                                : ` has used ${Math.floor(alert.percentage)}% of its cap (80% alert threshold).`}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                            <Link href="/settings/notifications" className="text-sm font-semibold underline underline-offset-2">
+                                Notification settings
+                            </Link>
+                        </div>
+                    </section>
+                )}
+
                 <section aria-label="Spend summary" className="grid gap-4 md:grid-cols-3">
                     <Metric label="Spend against caps" value={`${formatAmount(totalSpend)} / ${formatAmount(totalCapacity)}`} detail={totalCapacity ? `${Math.round((totalSpend / totalCapacity) * 100)}% committed` : 'No active caps'} />
                     <Metric label="Metered calls" value={formatAmount(analytics.callsMetered)} detail={`${formatAmount(analytics.valueSettled)} settled in period`} />
@@ -86,8 +117,10 @@ export function PrincipalOverview() {
                     <div className="mt-5 space-y-5">
                         {analytics.capUtilizationPerAgent.length === 0 ? <Empty text="No active agent caps yet." /> : analytics.capUtilizationPerAgent.map((agent) => {
                             const spend = agent.currentSpend ?? Math.max(0, agent.capacity - agent.currentBalance);
-                            const percentage = agent.capacity ? Math.min(100, (spend / agent.capacity) * 100) : 0;
-                            return <div key={agent.agentId}><div className="flex flex-wrap justify-between gap-2 text-sm"><span className="font-medium">{agent.agentName}</span><span className="text-gray-600">{formatAmount(spend)} spent of {formatAmount(agent.capacity)} cap</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-gray-100"><div className={`h-full rounded-full ${percentage >= 85 ? 'bg-red-500' : percentage >= 65 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.max(2, percentage)}%` }} /></div><div className="mt-1 flex justify-between text-xs text-gray-500"><span>{agent.dailySpendRate ? `${formatAmount(agent.dailySpendRate)}/day` : 'Rate unavailable'}</span><span>{agent.projectedCapAt ? `Cap binds ${daysUntil(agent.projectedCapAt)}` : 'No bind projection'}</span></div></div>;
+                            const actualPercentage = agent.capacity ? (spend / agent.capacity) * 100 : 0;
+                            const percentage = Math.min(100, actualPercentage);
+                            const capAlert = spendCapAlerts.find((alert) => alert.agentId === agent.agentId);
+                            return <div key={agent.agentId}><div className="flex flex-wrap justify-between gap-2 text-sm"><span className="flex items-center gap-2 font-medium">{agent.agentName}{capAlert && <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${capAlert.exceeded ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>{capAlert.exceeded ? 'Cap reached' : '80% cap alert'}</span>}</span><span className="text-gray-600">{formatAmount(spend)} spent of {formatAmount(agent.capacity)} cap</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-gray-100"><div className={`h-full rounded-full ${actualPercentage >= 100 ? 'bg-red-700' : actualPercentage >= 80 ? 'bg-red-500' : actualPercentage >= 65 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.max(2, percentage)}%` }} /></div><div className="mt-1 flex justify-between text-xs text-gray-500"><span>{agent.dailySpendRate ? `${formatAmount(agent.dailySpendRate)}/day` : 'Rate unavailable'}</span><span>{agent.projectedCapAt ? `Cap binds ${daysUntil(agent.projectedCapAt)}` : 'No bind projection'}</span></div></div>;
                         })}
                     </div>
                 </section>
