@@ -61,8 +61,8 @@ describe('v3 gateway routes', () => {
       .send({
         pathPattern: '/echo/*',
         method: 'POST',
-        unit: 'request',
-        price: 2,
+        unit: 'call',
+        priceStroops: 2,
         quantityExtractor: 'constant:1',
       })
       .expect(201);
@@ -80,7 +80,6 @@ describe('v3 gateway routes', () => {
         path: '/echo/task',
         channelId: 'channel-1',
         stateNonce: 7,
-        rateCardVersion: 'rc-v1',
       });
 
     expect(res.status).toBe(403);
@@ -98,8 +97,8 @@ describe('v3 gateway routes', () => {
       .send({
         pathPattern: '/echo/*',
         method: 'POST',
-        unit: 'request',
-        price: 3,
+        unit: 'call',
+        priceStroops: 3,
         quantityExtractor: 'constant:1',
       })
       .expect(201);
@@ -117,7 +116,6 @@ describe('v3 gateway routes', () => {
         path: '/echo/task',
         channelId: 'channel-2',
         stateNonce: 8,
-        rateCardVersion: 'rc-v2',
       })
       .expect(200);
 
@@ -144,8 +142,8 @@ describe('v3 gateway routes', () => {
       .send({
         pathPattern: '/echo/*',
         method: 'POST',
-        unit: 'request',
-        price: 3,
+        unit: 'call',
+        priceStroops: 3,
         quantityExtractor: 'constant:1',
       })
       .expect(201);
@@ -165,7 +163,6 @@ describe('v3 gateway routes', () => {
           quantity,
           channelId: `channel-${agentId}`,
           stateNonce: 1,
-          rateCardVersion: 'rc-v1',
         })
         .expect(200);
 
@@ -192,7 +189,6 @@ describe('v3 gateway routes', () => {
         path: '/echo/task',
         channelId: 'channel-1',
         stateNonce: 1,
-        rateCardVersion: 'rc-v1',
       });
 
     expect(res.status).toBe(400);
@@ -211,8 +207,8 @@ describe('v3 gateway routes', () => {
       .send({
         pathPattern: '/echo/*',
         method: 'POST',
-        unit: 'request',
-        price: 2,
+        unit: 'call',
+        priceStroops: 2,
         quantityExtractor: 'constant:1',
       })
       .expect(201);
@@ -229,7 +225,6 @@ describe('v3 gateway routes', () => {
         path: '/echo/task',
         channelId: 'channel-1',
         stateNonce: 1,
-        rateCardVersion: 'rc-v1',
       });
 
     expect(res.status).toBe(503);
@@ -253,7 +248,6 @@ describe('v3 gateway routes', () => {
         path: '/echo/task',
         channelId: 'channel-1',
         stateNonce: 1,
-        rateCardVersion: 'rc-v1',
       });
 
     expect(res.status).toBe(400);
@@ -290,13 +284,13 @@ describe('v3 gateway routes', () => {
       // POST routes without provider key
       await request(app)
         .post(`/api/v3/providers/${providerId}/routes`)
-        .send({ pathPattern: '/echo/*', method: 'POST', unit: 'request', price: 1 })
+        .send({ pathPattern: '/echo/*', method: 'POST', unit: 'call', priceStroops: 1 })
         .expect(401);
 
       // PATCH routes without provider key
       await request(app)
         .patch(`/api/v3/providers/${providerId}/routes/some-route`)
-        .send({ price: 2 })
+        .send({ priceStroops: 2 })
         .expect(401);
 
       // GET routes without provider key
@@ -371,7 +365,7 @@ describe('v3 gateway routes', () => {
       await request(app)
         .post(`/api/v3/providers/${providerId}/routes`)
         .set('x-provider-key', providerSecret)
-        .send({ pathPattern: '/echo/*', method: 'POST', unit: 'request', price: 1 })
+        .send({ pathPattern: '/echo/*', method: 'POST', unit: 'call', priceStroops: 1 })
         .expect(201);
 
       // GET routes as the owning provider
@@ -407,7 +401,7 @@ describe('v3 gateway routes', () => {
       await request(app)
         .post(`/api/v3/providers/${providerId}/routes`)
         .set('x-provider-key', providerSecret)
-        .send({ pathPattern: '/echo/*', method: 'POST', unit: 'request', price: 1 })
+        .send({ pathPattern: '/echo/*', method: 'POST', unit: 'call', priceStroops: 1 })
         .expect(201);
 
       // Receipt lookup should work without provider key

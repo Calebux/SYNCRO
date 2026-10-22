@@ -1,5 +1,6 @@
 import type { DegradedPolicy } from '../../../packages/metering/src/degraded-admission';
 import type { RateLimitPolicy } from '../../../packages/metering/src/rate-limit';
+import type { RouteUnit } from './pricing';
 
 export type ProviderMode = 'staging' | 'production';
 
@@ -37,8 +38,11 @@ export interface RegisteredRoute {
   providerId: string;
   pathPattern: string;
   method: string;
-  unit: string;
-  price: number;
+  unit: RouteUnit;
+  /** Integer stroops per billable unit. */
+  priceStroops: number;
+  /** Hard admission maximum used to reserve before an upstream call. */
+  maxBillableUnits: number;
   quantityExtractor: string;
   scopeKey: string;
   /** Per-route rate-limit override; falls back to the provider default (#1447). */
@@ -57,8 +61,10 @@ export interface RateCardVersion {
   routeId: string;
   sequence: number;
   label: string;
-  price: number;
-  unit: string;
+  /** Integer stroops per billable unit. */
+  priceStroops: number;
+  unit: RouteUnit;
+  maxBillableUnits: number;
   quantityExtractor: string;
   pathPattern: string;
   method: string;
@@ -80,10 +86,10 @@ export interface ProviderSettlement {
   receiptId: string;
   method: string;
   pathPattern: string;
-  unit: string;
+  unit: RouteUnit;
   quantity: number;
   /** Unit price of the rate-card version that applied when the call was metered. */
-  price: number;
+  priceStroops: number;
   amount: number;
   rateCardVersion: string;
   rateCardEffectiveFrom: string;
