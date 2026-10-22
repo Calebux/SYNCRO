@@ -148,6 +148,27 @@ export {
   type AllowanceStore,
 } from './reservation';
 
+// Shared counter store (Issue #1442) — Redis Lua adapter for multi-instance
+export {
+  CounterStoreUnavailableError,
+  UNLIMITED_LIMIT,
+  type CounterStore,
+  type CounterStoreReservation,
+  type CounterStoreCommitResult,
+  type CounterStoreReading,
+  type CounterStoreOptions,
+} from './counter-store';
+export { InMemoryCounterStore } from './memory-counter-store';
+export {
+  RedisCounterStore,
+  RESERVE_LUA,
+  COMMIT_LUA,
+  RELEASE_LUA,
+  type CounterStoreRedisClient,
+  type RedisCounterStoreOptions,
+} from './redis-counter-store';
+export { RedisMeter, type RedisMeterOptions } from './redis-meter';
+
 // Overage policy
 export {
   createOverageState,
