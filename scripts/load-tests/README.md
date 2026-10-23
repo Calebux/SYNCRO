@@ -7,18 +7,7 @@ Overview
 Files
 - `run-reminder-loadtest.sh` — public status check + admin-trigger (`POST /api/reminders/process`). Requires `ADMIN_API_KEY` env var.
 - `run-analytics-loadtest.sh` — authenticated analytics endpoints (`/api/analytics/summary` and `/api/analytics/spending`). Requires `X_API_KEY` env var.
-- `run-settlement-loadtest.sh` — bounded batch sizing / backpressure assertions via Jest (`settlement-batcher.test.ts`).
-
-Settlement batch env knobs
-- `SETTLEMENT_MIN_BATCH` (default 3)
-- `SETTLEMENT_MAX_BATCH` (default 20) — hard cap per on-chain submit
-- `SETTLEMENT_MAX_WAIT_MS` (default 300000)
-- `SETTLEMENT_MAX_QUEUE_DEPTH` (default 500) — enqueue backpressure
-- `SETTLEMENT_MAX_IN_FLIGHT` (default 2)
-
-```bash
-./scripts/load-tests/run-settlement-loadtest.sh
-```
+- `seed-100k-subscriptions.sh` — generates N=100k subscriptions in Supabase for load testing the reminder + renewal jobs. Requires `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` (or `PGSQL_CONN` for fast direct inserts).
 
 Representative scenarios
 1. Light (smoke): `DURATION=10 CONCURRENCY=10 ./run-analytics-loadtest.sh`
@@ -59,3 +48,41 @@ Interpreting results and next steps
 - Look for increased 5xx responses, long tail latency, DB connection pool exhaustion, and retry queue growth.
 - If DB is the bottleneck, enable or tune the indexes found in `backend/migrations/20260527000000_add_performance_indexes.sql` and re-run benchmarks.
 - If CPU/GC is the bottleneck, consider scaling worker processes, optimizing heavy queries, or offloading analytics to materialized views.
+
+## k6 Scenarios (CI-integrated)
+
+Two k6 scripts in `tests/load-testing/` add multi-scenario coverage for the reminder and renewal orchestrator jobs under N=100k subscriptions:
+
+### `load-test-reminders.js`
+| Scenario | Executor | VUs | Duration | Description |
+|---|---|---|---|---|
+| `reminder_schedule` | per-vu-iterations | 10 | 20 iterations (max 5m) | POST /api/reminders/schedule — simulates daily scheduling job |
+| `reminder_process` | ramping-vus | 0→5→20→0 | 2m | POST /api/reminders/process — processes pending reminders |
+| `reminder_retry` | constant-vus | 5 | 2m | POST /api/reminders/retry — retries failed deliveries |
+| `reminder_status` | constant-vus | 50 | 3m | GET /api/reminders/status — scheduler health check |
+
+**Thresholds:** p(95)<10s for mutations, p(95)<500ms for status reads, error rate < 10%
+
+### `load-test-renewals.js`
+| Scenario | Executor | VUs | Duration | Description |
+|---|---|---|---|---|
+| `renewal_execution` | per-vu-iterations | 20 | 100 iters (max 10m) | POST /api/subscriptions/:id/renew — idempotent renewal w/ Redis locks |
+| `dead_letter_query` | constant-vus | 10 | 3m | GET /api/renewals/dead-letter/stats — DLQ statistics |
+| `renewal_metrics` | ramping-vus | 0→5→30→0 | 2m | GET /api/admin/metrics/renewals — admin renewal metrics |
+
+**Thresholds:** p(95)<5s for renewals, p(95)<1s for reads, error rate < 10%
+
+### Running locally
+```bash
+# Seed data (required first)
+export SUPABASE_URL="https://xxxx.supabase.co"
+export SUPABASE_SERVICE_ROLE_KEY="eyJ..."
+bash scripts/load-tests/seed-100k-subscriptions.sh
+
+# Install k6 (https://k6.io/docs/getting-started/installation/)
+k6 run tests/load-testing/load-test-reminders.js --env ADMIN_API_KEY=xxx --env SCENARIO=process
+k6 run tests/load-testing/load-test-renewals.js --env ADMIN_API_KEY=xxx --env SCENARIO=renewal_execution
+```
+
+### CI Integration
+The nightly workflow (`.github/workflows/load-test-nightly.yml`) runs all scenarios via cron at 02:00 UTC, collects summary-export JSON artifacts, and publishes a job summary with p95 latencies.
