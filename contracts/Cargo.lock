@@ -880,6 +880,7 @@ name = "fx-oracle"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "syncro-contract-common",
 ]
 
 [[package]]
@@ -2363,6 +2364,7 @@ name = "zk-payment-verifier"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "syncro-contract-common",
 ]
 
 [[package]]

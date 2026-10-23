@@ -59,6 +59,7 @@ When a new decision replaces an existing ADR:
 | [ADR-016](./ADR-016-metering-core-typescript-promotion.md) | Promote quota_guard to the TypeScript Metering Core | Accepted | 2026-09-29 |
 | [ADR-017](./ADR-017-zk-payment-verifier-role-in-v3.md) | Role of zk-payment-verifier in v3 | Accepted | 2026-09-28 |
 | [ADR-018](./ADR-018-defer-zk-payment-proofs-from-v3.md) | Defer ZK Payment Proofs from v3 and Remove the SDK ZK Export | Accepted | 2026-09-30 |
+| [ADR-019](./ADR-019-upgrade-policy-for-settlement-contracts.md) | Upgrade Path and Versioning for the Settlement Contracts | Proposed | 2026-09-28 |
 
 ---
 

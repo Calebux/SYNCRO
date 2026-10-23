@@ -47,7 +47,48 @@ export interface PaymentChannelRecord {
 
 const STORAGE_KEY_PREFIX = 'syncro:channel:';
 
-function signState(state: ChannelState, channelId: string): string {
+/**
+ * On-chain `interface_version()` expected by the signing path (ADR-016).
+ * Must match the `interface_version` exported by the deployed
+ * payment-channel contract. Bumped only via a governed upgrade.
+ */
+export const EXPECTED_CHANNEL_CONTRACT_VERSION = 1;
+
+export class ContractVersionMismatchError extends Error {
+  readonly code = 'CONTRACT_VERSION_MISMATCH';
+
+  constructor(
+    readonly expected: number,
+    readonly actual: number | undefined,
+  ) {
+    super(
+      `Refusing to sign channel state: on-chain contract version ` +
+        `${actual ?? 'unknown'} does not match expected ${expected}`,
+    );
+    this.name = 'ContractVersionMismatchError';
+  }
+}
+
+/**
+ * Refuse to sign states for an unexpected contract version.
+ * Throws {@link ContractVersionMismatchError} on mismatch so a stale or
+ * unknown deployment can never receive a valid state signature.
+ */
+export function assertContractVersion(
+  actual: number | undefined,
+  expected: number = EXPECTED_CHANNEL_CONTRACT_VERSION,
+): void {
+  if (!Number.isInteger(actual) || actual !== expected) {
+    throw new ContractVersionMismatchError(expected, actual);
+  }
+}
+
+function signState(
+  state: ChannelState,
+  channelId: string,
+  contractVersion: number | undefined = EXPECTED_CHANNEL_CONTRACT_VERSION,
+): string {
+  assertContractVersion(contractVersion);
   const payload = JSON.stringify({ channelId, ...state });
   return crypto.createHmac('sha256', env.CHANNEL_SIGNING_SECRET)
     .update(payload)
@@ -147,7 +188,15 @@ export class PaymentChannelService {
     amount: number,
     proof: PaymentProof,
     requestHash: string,
+    opts?: { contractVersion?: number },
   ): Promise<PaymentChannelRecord> {
+    // ── Contract version gate (ADR-016) ───────────────────────────────────────
+    // When the caller has observed the on-chain interface_version, refuse to
+    // sign unless it matches EXPECTED_CHANNEL_CONTRACT_VERSION.
+    assertContractVersion(
+      opts?.contractVersion ?? EXPECTED_CHANNEL_CONTRACT_VERSION,
+    );
+
     // ── Payment proof gate ────────────────────────────────────────────────────
     const proofResult = paymentProofVerifier.verify(proof, channelId, requestHash);
     if (!proofResult.ok) {
@@ -186,7 +235,11 @@ export class PaymentChannelService {
       .update({
         balance: nextState.userBalance,
         channel_state: nextState,
-        state_signature: signState(nextState, channelId),
+        state_signature: signState(
+          nextState,
+          channelId,
+          opts?.contractVersion ?? EXPECTED_CHANNEL_CONTRACT_VERSION,
+        ),
         updated_at: new Date().toISOString(),
       })
       .eq('id', channelId)
