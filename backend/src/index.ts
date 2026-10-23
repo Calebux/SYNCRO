@@ -78,8 +78,11 @@ import { scheduleAutoResume, stopAutoResume } from './jobs/auto-resume';
 import { startSettlementBatchJob, stopSettlementBatchJob } from './jobs/settlement-batch-job';
 import { startStealthScanJob } from './jobs/stealth-scan-job';
 import { startChannelMonitorJob } from './jobs/channel-monitor-job';
+import { startUsageRetentionJob } from './jobs/usage-retention-job';
 import { startChannelSettlementJob, stopChannelSettlementJob } from './jobs/channel-settlement-job';
 import { startSettlementReconciliationJob, stopSettlementReconciliationJob } from './jobs/settlement-reconciliation-job';
+import { startSettlementSignerBalanceJob, stopSettlementSignerBalanceJob } from './jobs/settlement-signer-balance-job';
+import { startUsageReconciliationJob, stopUsageReconciliationJob } from './jobs/usage-reconciliation-job';
 import { startJobAlertMonitor, stopJobAlertMonitor } from './jobs/job-alert-monitor';
 import { startWebhookRetryJob, stopWebhookRetryJob } from './jobs/webhook-retry-job';
 import { startPaidCallAlertJob, stopPaidCallAlertJob } from './jobs/paid-call-alert-job';
@@ -109,6 +112,7 @@ import metricsRoutes from './routes/metrics';
 import analyticsV3Routes from './routes/analytics-v3';
 import v3GatewayRoutes from './routes/v3/gateway';
 import v3ProviderRoutes from './routes/v3-gateway';
+import receiptKeysRoutes from './routes/v3/receipt-keys';
 
 
 const app = express();
@@ -275,6 +279,8 @@ app.use('/api/v1', v1Router);
 app.use('/api/v2', v2Router);
 app.use('/api/v3/gateway', v3GatewayRoutes);
 app.use('/api/v3', v3ProviderRoutes);
+app.use('/.well-known/syncro-receipt-keys', receiptKeysRoutes);
+app.use('/api/v3/receipt-keys', receiptKeysRoutes);
 
 // API Routes
 app.use('/api/keys', apiKeysRoutes);
@@ -687,8 +693,11 @@ const server = app.listen(PORT, async () => {
   startSettlementBatchJob();
   startStealthScanJob();
   startChannelMonitorJob();
+  startUsageRetentionJob();
   startChannelSettlementJob();
   startSettlementReconciliationJob();
+  startSettlementSignerBalanceJob();
+  startUsageReconciliationJob();
   startJobAlertMonitor();
   startWebhookRetryJob();
   startPaidCallAlertJob();
@@ -706,6 +715,8 @@ registerGracefulShutdown(server, {
     stopSettlementBatchJob();
     stopChannelSettlementJob();
     stopSettlementReconciliationJob();
+    stopSettlementSignerBalanceJob();
+    stopUsageReconciliationJob();
     stopJobAlertMonitor();
     stopWebhookRetryJob();
     stopPaidCallAlertJob();

@@ -41,7 +41,7 @@ version: "3.9"
 
 services:
   postgres:
-    image: postgres:15-alpine
+    image: postgres:15.12-alpine
     restart: unless-stopped
     ports:
       - "5432:5432"
@@ -59,7 +59,7 @@ services:
       retries: 10
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.4-alpine
     restart: unless-stopped
     ports:
       - "6379:6379"
@@ -73,7 +73,7 @@ services:
       retries: 10
 
   soroban-rpc:
-    image: stellar/soroban-rpc:latest
+    image: stellar/soroban-rpc:22.1.0
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -135,7 +135,7 @@ services:
       - ./backend/.env
 
   mock-provider:
-    image: node:20-alpine
+    image: node:20.19-alpine
     restart: unless-stopped
     ports:
       - "3002:3002"
@@ -162,7 +162,7 @@ services:
         condition: service_started
 
   seed:
-    image: node:20-alpine
+    image: node:20.19-alpine
     restart: "no"
     depends_on:
       postgres:

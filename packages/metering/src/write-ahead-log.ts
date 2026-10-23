@@ -1,4 +1,13 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  writeSync,
+} from "node:fs";
 import { dirname } from "node:path";
 
 /**
@@ -157,13 +166,42 @@ export class WriteAheadLog {
     return elapsedNs === 0 ? Infinity : (iterations * 1e9) / elapsedNs;
   }
 
+  /**
+   * Append one NDJSON record and fsync the file before returning.
+   * That fsync is the durability barrier `commit()` advertises.
+   */
   private appendDurable(record: UsageRecord): void {
-    appendFileSync(this.path, `${JSON.stringify(record)}\n`, { encoding: "utf8", flag: "a" });
+    const line = `${JSON.stringify(record)}\n`;
+    const fd = openSync(this.path, "a");
+    try {
+      writeSync(fd, line, null, "utf8");
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
   }
 
+  /**
+   * Replace the WAL with an empty file via create-fsync-rename, then fsync the
+   * parent directory so the rename itself is durable.
+   */
   private truncate(): void {
     const tmp = `${this.path}.tmp`;
-    writeFileSync(tmp, "", "utf8");
+    const fd = openSync(tmp, "w");
+    try {
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
     renameSync(tmp, this.path);
+    const dir = dirname(this.path);
+    if (dir) {
+      const dirFd = openSync(dir, "r");
+      try {
+        fsyncSync(dirFd);
+      } finally {
+        closeSync(dirFd);
+      }
+    }
   }
 }

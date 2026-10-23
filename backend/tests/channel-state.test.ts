@@ -20,6 +20,21 @@ jest.mock('../src/services/payment-channel-service', () => ({
 import { ChannelStateService } from '../src/services/channel-state';
 import { supabase } from '../src/config/database';
 import { paymentChannelService } from '../src/services/payment-channel-service';
+import {
+  ChannelState,
+  SignedChannelState,
+  MeterWindow,
+  InMemoryStateStore,
+  HmacChannelStateSigner,
+  constructChannelState,
+  encodeChannelState,
+  signChannelState,
+  verifyChannelState,
+  channelStateDigest,
+  produceAndPersistState,
+  StateStore,
+  ChannelStateSigner,
+} from '@syncro/settlement';
 
 describe('ChannelStateService', () => {
   let service: ChannelStateService;
@@ -246,5 +261,203 @@ describe('ChannelStateService', () => {
         }),
       ).rejects.toMatchObject({ code: 'NOT_WATCHTOWER' });
     });
+  });
+});
+
+describe('@syncro/settlement package - channel state API', () => {
+  const signer = new HmacChannelStateSigner('test-key');
+  let store: StateStore;
+
+  const window: MeterWindow = {
+    channelId: 'ch_test',
+    contractAddress: '0xabc',
+    startNonce: 1,
+    endNonce: 10,
+    startTime: 1000,
+    endTime: 2000,
+    payerBalance: 100n,
+    payeeBalance: 50n,
+  };
+
+  beforeEach(() => {
+    store = new InMemoryStateStore();
+  });
+
+  it('constructChannelState creates a valid ChannelState from a MeterWindow', () => {
+    const state = constructChannelState(window, 'v1');
+    expect(state.channelId).toBe('ch_test');
+    expect(state.contractAddress).toBe('0xabc');
+    expect(state.contractVersion).toBe('v1');
+    expect(state.nonce).toBe(10); // first state uses endNonce
+    expect(state.payerBalance).toBe(100n);
+    expect(state.payeeBalance).toBe(50n);
+  });
+
+  it('constructChannelState rejects an unclosed window', () => {
+    const openWindow: MeterWindow = {
+      ...window,
+      endTime: 0,
+      startTime: 100,
+    };
+    expect(() => constructChannelState(openWindow, 'v1')).toThrow('meter window is not closed');
+  });
+
+  it('constructChannelState rejects a window with invalid nonce range', () => {
+    const badWindow: MeterWindow = {
+      ...window,
+      startNonce: 10,
+      endNonce: 5,
+    };
+    expect(() => constructChannelState(badWindow, 'v1')).toThrow('meter window nonce range is invalid');
+  });
+
+  it('constructChannelState rejects negative balances', () => {
+    const badWindow: MeterWindow = {
+      ...window,
+      payerBalance: -1n,
+    };
+    expect(() => constructChannelState(badWindow, 'v1')).toThrow('balances must be non-negative');
+  });
+
+  it('constructChannelState throws on non-decreasing payee balance', () => {
+    const state = constructChannelState(window, 'v1');
+    const signed: SignedChannelState = { state, signature: 'dummy' };
+    const lowerPayeeWindow: MeterWindow = {
+      ...window,
+      startNonce: 10,
+      endNonce: 20,
+      startTime: 2000,
+      endTime: 3000,
+      payerBalance: 200n,
+      payeeBalance: 25n, // lower than previous
+    };
+    expect(() => constructChannelState(lowerPayeeWindow, 'v1', signed)).toThrow(
+      'refusing to reduce payee balance below previously signed state',
+    );
+  });
+
+  it('constructChannelState uses next nonce when previous exists', () => {
+    const state = constructChannelState(window, 'v1');
+    const signed: SignedChannelState = { state, signature: 'dummy' };
+    const nextWindow: MeterWindow = {
+      ...window,
+      startNonce: 10,
+      endNonce: 20,
+      startTime: 2000,
+      endTime: 3000,
+      payerBalance: 200n,
+      payeeBalance: 75n,
+    };
+    const next = constructChannelState(nextWindow, 'v1', signed);
+    expect(next.nonce).toBe(11); // previous nonce + 1
+  });
+
+  it('encodeChannelState produces deterministic canonical encoding', () => {
+    const state = constructChannelState(window, 'v1');
+    const encoded = encodeChannelState(state);
+    expect(typeof encoded).toBe('string');
+    expect(encoded).toContain('v3-channel-state');
+    expect(encoded).toContain('ch_test');
+    expect(encoded).toContain('0xabc');
+
+    // Must be deterministic
+    const encoded2 = encodeChannelState(state);
+    expect(encoded).toBe(encoded2);
+  });
+
+  it('channelStateDigest produces a consistent hash', () => {
+    const state = constructChannelState(window, 'v1');
+    const digest = channelStateDigest(state);
+    expect(typeof digest).toBe('string');
+    expect(digest).toMatch(/^[a-f0-9]{64}$/); // sha256 hex
+
+    // Same state => same digest
+    expect(channelStateDigest(state)).toBe(digest);
+  });
+
+  it('signChannelState produces and attaches a signature', () => {
+    const state = constructChannelState(window, 'v1');
+    const signed = signChannelState(state, signer);
+    expect(signed.state).toBe(state);
+    expect(typeof signed.signature).toBe('string');
+    expect(signed.signature.length).toBeGreaterThan(0);
+  });
+
+  it('verifyChannelState validates correct signatures', () => {
+    const state = constructChannelState(window, 'v1');
+    const signed = signChannelState(state, signer);
+    expect(verifyChannelState(signed, signer)).toBe(true);
+  });
+
+  it('verifyChannelState rejects tampered state', () => {
+    const state = constructChannelState(window, 'v1');
+    const signed = signChannelState(state, signer);
+    const tampered: SignedChannelState = {
+      state: { ...state, payerBalance: state.payerBalance + 1n },
+      signature: signed.signature,
+    };
+    expect(verifyChannelState(tampered, signer)).toBe(false);
+  });
+
+  it('verifyChannelState rejects wrong key', () => {
+    const state = constructChannelState(window, 'v1');
+    const signed = signChannelState(state, signer);
+    const wrongSigner = new HmacChannelStateSigner('different-key');
+    expect(verifyChannelState(signed, wrongSigner)).toBe(false);
+  });
+
+  it('InMemoryStateStore persists and retrieves latest state', async () => {
+    const state = constructChannelState(window, 'v1');
+    const signed = signChannelState(state, signer);
+    await store.persist(signed);
+
+    const retrieved = await store.latest('ch_test');
+    expect(retrieved).toBeDefined();
+    expect(retrieved!.state.nonce).toBe(10);
+  });
+
+  it('InMemoryStateStore rejects stale state', async () => {
+    const state = constructChannelState(window, 'v1');
+    const signed = signChannelState(state, signer);
+    await store.persist(signed);
+
+    const staleWindow: MeterWindow = {
+      ...window,
+      startNonce: 1,
+      endNonce: 5,
+      startTime: 500,
+      endTime: 1000,
+      payerBalance: 50n,
+      payeeBalance: 25n,
+    };
+    const staleState = constructChannelState(staleWindow, 'v1', signed);
+    const staleSigned = signChannelState(staleState, signer);
+    await expect(store.persist(staleSigned)).rejects.toThrow(
+      'refusing to persist stale state',
+    );
+  });
+
+  it('InMemoryStateStore returns undefined for unknown channel', async () => {
+    const result = await store.latest('unknown_ch');
+    expect(result).toBeUndefined();
+  });
+
+  it('produceAndPersistState constructs, signs and persists in one call', async () => {
+    const signed = await produceAndPersistState(window, 'v1', signer, store);
+    expect(signed.state.nonce).toBe(10);
+    expect(typeof signed.signature).toBe('string');
+
+    // Next call uses the persisted state to derive nonce
+    const nextWindow: MeterWindow = {
+      ...window,
+      startNonce: 10,
+      endNonce: 20,
+      startTime: 2000,
+      endTime: 3000,
+      payerBalance: 200n,
+      payeeBalance: 75n,
+    };
+    const signed2 = await produceAndPersistState(nextWindow, 'v1', signer, store);
+    expect(signed2.state.nonce).toBe(11); // previous nonce + 1
   });
 });

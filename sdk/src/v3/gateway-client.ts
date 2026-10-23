@@ -16,6 +16,8 @@ export interface GatewayClientOptions {
 interface GatewayErrorPayload {
   code?: string;
   message?: string;
+  capResetAt?: string;
+  retryAfterSeconds?: number;
 }
 
 function parseRetryAfterMs(headers: Headers): number | undefined {
@@ -41,7 +43,8 @@ async function toGatewayError(response: Response): Promise<GatewaySdkError> {
     return createGatewayErrorFromCode(payload.code, {
       message: payload.message,
       status: response.status,
-      retryAfterMs,
+      retryAfterMs: retryAfterMs ?? (payload.retryAfterSeconds !== undefined ? payload.retryAfterSeconds * 1000 : undefined),
+      capResetAt: payload.capResetAt,
     });
   }
 

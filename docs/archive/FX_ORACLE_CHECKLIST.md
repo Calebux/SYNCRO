@@ -42,7 +42,7 @@
 - [x] Integrity hash includes currency
 
 **Files**:
-- `contracts/contracts/subscription_renewal/src/lib.rs` (modified)
+- `contracts/contracts/subscription-renewal/src/lib.rs` (modified)
 - Integration points in renew() function
 
 ### 4. Tests
@@ -70,7 +70,7 @@
 
 **Files**:
 - `contracts/contracts/fx-oracle/src/test.rs`
-- `contracts/contracts/subscription_renewal/src/test.rs`
+- `contracts/contracts/subscription-renewal/src/test.rs`
 - `backend/tests/fx-oracle-feeder.test.ts`
 
 ## 📦 Deliverables

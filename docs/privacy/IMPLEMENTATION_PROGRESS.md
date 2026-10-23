@@ -33,8 +33,8 @@
 ### ✅ Phase 2: Soroban Contract Implementation
 
 **Files Modified:**
-- `contracts/contracts/subscription_logging/src/lib.rs` - Added commitment functions
-- `contracts/contracts/subscription_logging/src/test.rs` - Comprehensive test suite
+- `contracts/contracts/subscription-logging/src/lib.rs` - Added commitment functions
+- `contracts/contracts/subscription-logging/src/test.rs` - Comprehensive test suite
 
 **New Contract Functions:**
 
@@ -369,8 +369,8 @@ await db.transaction(async (tx) => {
 ## Files Changed
 
 ### Contracts
-- ✅ `contracts/contracts/subscription_logging/src/lib.rs` - New commitment functions
-- ✅ `contracts/contracts/subscription_logging/src/test.rs` - Comprehensive tests
+- ✅ `contracts/contracts/subscription-logging/src/lib.rs` - New commitment functions
+- ✅ `contracts/contracts/subscription-logging/src/test.rs` - Comprehensive tests
 
 ### Database
 - ✅ `supabase/migrations/20260623000001_create_commitment_blinding_factors.sql` - New table

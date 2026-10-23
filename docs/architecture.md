@@ -60,3 +60,16 @@ The performance budget is derived from the measured results above: a target
 throughput floor and a p99 latency ceiling for `reserve` and `commit`. CI runs
 the load harness and fails when a change regresses past the budget, so the
 budget gate runs on every change to the metering path.
+
+## Money-protecting flows
+
+The happy path is drawn in the README. The flows that protect funds —
+cooperative close, unilateral close, dispute with newer state, the escrowed
+disputed window via `admit_disputed_window`, and the watchtower response — are
+documented as Mermaid sequence diagrams under [`docs/sequences/`](sequences/):
+
+- [Cooperative close](sequences/cooperative-close.md)
+- [Unilateral close](sequences/unilateral-close.md)
+- [Dispute with newer state](sequences/dispute-newer-state.md)
+- [Escrowed disputed window (`admit_disputed_window`)](sequences/admit-disputed-window.md)
+- [Watchtower response](sequences/watchtower-response.md)

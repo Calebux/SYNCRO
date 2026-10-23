@@ -30,6 +30,12 @@
       "soroban-contract-interfaces": [
         "src/logic/soroban-contract-interfaces.ts"
       ],
+      "bigint-balance": [
+        "src/logic/bigint-balance.ts"
+      ],
+      "format-amount": [
+        "src/logic/format-amount.ts"
+      ],
       "rpc-client": [
         "src/platform/rpc-client.ts"
       ],
@@ -111,6 +117,16 @@
       "types": "./src/logic/soroban-contract-interfaces.ts",
       "import": "./src/logic/soroban-contract-interfaces.ts",
       "require": "./dist/logic/soroban-contract-interfaces.js"
+    },
+    "./bigint-balance": {
+      "types": "./src/logic/bigint-balance.ts",
+      "import": "./src/logic/bigint-balance.ts",
+      "require": "./dist/logic/bigint-balance.js"
+    },
+    "./format-amount": {
+      "types": "./src/logic/format-amount.ts",
+      "import": "./src/logic/format-amount.ts",
+      "require": "./dist/logic/format-amount.js"
     },
     "./rpc-client": {
       "types": "./src/platform/rpc-client.ts",

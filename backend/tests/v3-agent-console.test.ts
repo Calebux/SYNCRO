@@ -1,3 +1,22 @@
+// The gateway now writes a durable usage reservation, which pulls in
+// `config/database` -> `config/env`, and that validates (then exits) on import.
+// Prime the required variables before anything below is loaded.
+process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'https://example.supabase.co';
+process.env.SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'test-anon-key';
+process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-service-role-key';
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-jwt-secret';
+process.env.SMTP_HOST = process.env.SMTP_HOST || 'smtp.example.com';
+process.env.SMTP_PORT = process.env.SMTP_PORT || '587';
+process.env.SMTP_USER = process.env.SMTP_USER || 'test-user';
+process.env.SMTP_PASS = process.env.SMTP_PASS || 'test-pass';
+
+// The gateway persists a meter reservation before serving a paid call, so this
+// suite needs a store. Pointing it at the in-memory fake keeps the real
+// reserve -> commit path exercised instead of stubbing the ledger away.
+jest.mock('../src/config/database', () => ({
+  supabase: require('./helpers/fake-usage-store').createFakeStore().client,
+}));
+
 import express from 'express';
 import request from 'supertest';
 import { Keypair } from '@stellar/stellar-sdk';
@@ -339,5 +358,53 @@ describe('agent console grant lifecycle', () => {
       });
     expect(expired.status).toBe(400);
     expect(expired.body.error).toBe('challenge_expired');
+  });
+
+  it('caps outstanding session challenges per address', async () => {
+    let now = Date.parse('2026-09-25T12:00:00.000Z');
+    const service = new AgentConsoleService(() => now);
+    const app = buildApp(service);
+    const principal = Keypair.random();
+
+    // Create 5 outstanding challenges (the cap)
+    for (let i = 0; i < 5; i++) {
+      await request(app)
+        .post('/api/v3/agents/session/challenge')
+        .send({ publicKey: principal.publicKey() })
+        .expect(200);
+    }
+
+    // The 6th should be rejected with 429
+    const blocked = await request(app)
+      .post('/api/v3/agents/session/challenge')
+      .send({ publicKey: principal.publicKey() })
+      .expect(429);
+    expect(blocked.body.error).toBe('challenge_limit_exceeded');
+  });
+
+  it('prunes expired challenges so they do not count toward the cap', async () => {
+    let now = Date.parse('2026-09-25T12:00:00.000Z');
+    const service = new AgentConsoleService(() => now);
+    const app = buildApp(service);
+    const principal = Keypair.random();
+
+    // Create 5 outstanding challenges
+    for (let i = 0; i < 5; i++) {
+      await request(app)
+        .post('/api/v3/agents/session/challenge')
+        .send({ publicKey: principal.publicKey() })
+        .expect(200);
+    }
+
+    // Advance time past TTL so challenges expire
+    now += 13 * 60 * 60 * 1000;
+
+    // Creating a new challenge should succeed because expired ones are pruned
+    const fresh = await request(app)
+      .post('/api/v3/agents/session/challenge')
+      .send({ publicKey: principal.publicKey() })
+      .expect(200);
+    expect(fresh.body.data).toBeDefined();
+    expect(fresh.body.data.challengeId).toBeTruthy();
   });
 });

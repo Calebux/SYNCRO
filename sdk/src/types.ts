@@ -52,6 +52,7 @@ export interface PaidReceiptPayload {
   stateNonce: number;
   timestamp: string;
   signerPublicKey: string;
+  keyId: string;
 }
 
 export interface PaidReceipt extends PaidReceiptPayload {

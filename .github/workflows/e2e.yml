@@ -59,7 +59,8 @@ jobs:
         env:
           CI: true
           E2E_BASE_URL: ${{ steps.preview.outputs.E2E_BASE_URL }}
-        run: npx playwright test
+        # Chromium only: keeps the v3 journey under its three-minute budget.
+        run: npx playwright test --project=chromium
 
       - name: Upload Playwright report
         if: always()

@@ -1,6 +1,11 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { Keypair } from '@stellar/stellar-sdk';
 import { spendCapService } from '../services/v3/spend-cap-service';
+import {
+  PRINCIPAL_DAILY_CAP_EXCEEDED,
+  PrincipalAggregateCap,
+  PrincipalCapError,
+} from './principal-cap';
 
 export type SpendPeriod = 'day' | 'week' | 'month';
 
@@ -37,6 +42,8 @@ const PERIOD_DAYS: Record<SpendPeriod, number> = { day: 1, week: 7, month: 30 };
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const REAUTH_TTL_MS = 2 * 60 * 1000;
 const DEV_TOKEN_SECRET = 'syncro-agent-console-dev-only';
+/** Maximum outstanding (unused, non-expired) challenges per public key. */
+const MAX_OUTSTANDING_CHALLENGES_PER_ADDRESS = 5;
 
 export class AgentConsoleError extends Error {
   readonly status: number;
@@ -49,10 +56,51 @@ export class AgentConsoleError extends Error {
   }
 }
 
+/** Durable state for the agent console (database row mirror). */
+export interface AgentConsolePersistedState {
+  agents: AgentRecord[];
+  challenges: ChallengeRecord[];
+  usedReauthJtis: string[];
+}
+
+/** Database adapter. Chain writes always happen before store writes. */
+export interface AgentConsoleStore {
+  load(): AgentConsolePersistedState | null;
+  save(state: AgentConsolePersistedState): void;
+  clear(): void;
+}
+
+/** On-chain registry adapter. Throws on chain failure so no DB row is written. */
+export interface AgentChainRegistry {
+  registerAgent(publicKey: string): void;
+  closeAgent(publicKey: string): void;
+}
+
+export class InMemoryAgentConsoleStore implements AgentConsoleStore {
+  private state: AgentConsolePersistedState | null = null;
+  load(): AgentConsolePersistedState | null {
+    return this.state;
+  }
+  save(state: AgentConsolePersistedState): void {
+    this.state = state;
+  }
+  clear(): void {
+    this.state = null;
+  }
+}
+
 export interface SpendAndLimitView {
   spentPlain: string;
   limitPlain: string;
   together: string;
+}
+
+/** Principal-wide daily budget shown in the console beside each agent. */
+export interface PrincipalBudgetView {
+  limitUsdc: number;
+  spentUsdc: number;
+  remainingUsdc: number;
+  remainingPlain: string;
 }
 
 export interface AgentView {
@@ -65,6 +113,8 @@ export interface AgentView {
   allowedCalls: string[];
   scopeIds: string[];
   spendAndLimit: SpendAndLimitView;
+  /** Principal-wide daily budget (null when the principal set no limit). */
+  principalBudget: PrincipalBudgetView | null;
   revocation: {
     stops: string;
     continues: string;
@@ -206,8 +256,27 @@ export class AgentConsoleService {
   private readonly agents = new Map<string, AgentRecord>();
   private readonly challenges = new Map<string, ChallengeRecord>();
   private readonly usedReauth = new Set<string>();
+  private readonly store: AgentConsoleStore;
+  private readonly chainRegistry: AgentChainRegistry;
+  private readonly principalCaps: PrincipalAggregateCap;
 
-  constructor(private readonly now: () => number = () => Date.now()) {}
+  constructor(
+    private readonly now: () => number = () => Date.now(),
+    deps?: { store?: AgentConsoleStore; chainRegistry?: AgentChainRegistry },
+  ) {
+    this.store = deps?.store ?? new InMemoryAgentConsoleStore();
+    this.chainRegistry =
+      deps?.chainRegistry ??
+      ({
+        registerAgent: () => {},
+        closeAgent: (publicKey: string) => {
+          const cap = spendCapService.getCap(publicKey);
+          if (cap) spendCapService.setCap({ ...cap, status: 'closed' });
+        },
+      } satisfies AgentChainRegistry);
+    this.principalCaps = new PrincipalAggregateCap(this.now);
+    this.restore();
+  }
 
   reset(): void {
     for (const agent of this.agents.values()) {
@@ -216,11 +285,72 @@ export class AgentConsoleService {
     this.agents.clear();
     this.challenges.clear();
     this.usedReauth.clear();
+    this.store.clear();
+    this.principalCaps.clear();
+  }
+
+  private restore(): void {
+    let saved: AgentConsolePersistedState | null = null;
+    try {
+      saved = this.store.load();
+    } catch {
+      saved = null;
+    }
+    if (!saved) return;
+    for (const agent of saved.agents) this.agents.set(agent.agentId, agent);
+    for (const challenge of saved.challenges) this.challenges.set(challenge.id, challenge);
+    for (const jti of saved.usedReauthJtis) this.usedReauth.add(jti);
+  }
+
+  private persist(): void {
+    this.store.save({
+      agents: [...this.agents.values()],
+      challenges: [...this.challenges.values()],
+      usedReauthJtis: [...this.usedReauth],
+    });
   }
 
   createSessionChallenge(publicKeyInput: string): { challengeId: string; message: string; expiresAt: string } {
     const publicKey = assertPublicKey(publicKeyInput);
+    this.pruneExpiredChallenges();
+    this.enforceOutstandingChallengeCap(publicKey);
     return this.issueChallenge('session', publicKey);
+  }
+
+  /**
+   * Remove challenges that have expired so they cannot be redeemed.
+   * Called before creating a new challenge to keep the store bounded.
+   */
+  private pruneExpiredChallenges(): void {
+    const now = this.now();
+    for (const [id, challenge] of this.challenges) {
+      if (challenge.expiresAt <= now || challenge.used) {
+        this.challenges.delete(id);
+      }
+    }
+    this.persist();
+  }
+
+  /**
+   * Reject new session challenges when too many outstanding (unused,
+   * non-expired) challenges already exist for the same address.
+   */
+  private enforceOutstandingChallengeCap(publicKey: string): void {
+    const now = this.now();
+    const outstanding = [...this.challenges.values()].filter(
+      (challenge) =>
+        challenge.publicKey === publicKey &&
+        challenge.purpose === 'session' &&
+        !challenge.used &&
+        challenge.expiresAt > now,
+    ).length;
+    if (outstanding >= MAX_OUTSTANDING_CHALLENGES_PER_ADDRESS) {
+      throw new AgentConsoleError(
+        429,
+        'challenge_limit_exceeded',
+        `Too many pending session challenges for this address. Wait for them to expire or complete before creating new ones.`,
+      );
+    }
   }
 
   openSession(input: { challengeId: string; publicKey: string; signature: string }): { token: string; publicKey: string } {
@@ -277,7 +407,21 @@ export class AgentConsoleService {
       spentCents: 0,
       periodStartedAt: null,
     };
+    // Defined order: on-chain registry first, then the database row.
+    // A chain failure throws before any row exists, so no orphan row remains.
+    this.chainRegistry.registerAgent(publicKey);
     this.agents.set(record.agentId, record);
+    try {
+      this.persist();
+    } catch (error) {
+      this.agents.delete(record.agentId);
+      try {
+        this.chainRegistry.closeAgent(publicKey);
+      } catch {
+        // Best-effort compensation; the original error carries the failure.
+      }
+      throw error;
+    }
     return this.toView(record, 0);
   }
 
@@ -355,6 +499,7 @@ export class AgentConsoleService {
       agent.periodStartedAt = this.now();
     }
     this.writeSpendCap(agent);
+    this.persist();
     return this.toView(agent, inFlightCount(agent.publicKey));
   }
 
@@ -365,10 +510,8 @@ export class AgentConsoleService {
     }
     agent.status = 'revoked';
     agent.revokedAt = new Date(this.now()).toISOString();
-    const cap = spendCapService.getCap(agent.publicKey);
-    if (cap) {
-      spendCapService.setCap({ ...cap, status: 'closed' });
-    }
+    this.chainRegistry.closeAgent(agent.publicKey);
+    this.persist();
     return this.toView(agent, inFlightCount(agent.publicKey));
   }
 
@@ -378,12 +521,62 @@ export class AgentConsoleService {
     return { status: agent.status, scopeIds: [...agent.scopeIds] };
   }
 
+  /**
+   * Optional principal-wide daily limit across all of the principal's agents
+   * (#1701). Enforced at admission via `checkPrincipalAdmission`; the
+   * remaining budget is shown in the console on every agent view.
+   */
+  setPrincipalDailyLimit(principalPublicKey: string, amountUsdc: number): PrincipalBudgetView {
+    this.principalCaps.setDailyLimit(principalPublicKey, amountUsdc);
+    return this.principalBudget(principalPublicKey)!;
+  }
+
+  clearPrincipalDailyLimit(principalPublicKey: string): void {
+    this.principalCaps.clearDailyLimit(principalPublicKey);
+  }
+
+  principalBudget(principalPublicKey: string): PrincipalBudgetView | null {
+    const limit = this.principalCaps.limitUsdc(principalPublicKey);
+    if (limit === null) return null;
+    const spent = this.principalCaps.spentUsdc(principalPublicKey) ?? 0;
+    const remaining = this.principalCaps.remainingUsdc(principalPublicKey) ?? 0;
+    return {
+      limitUsdc: limit,
+      spentUsdc: spent,
+      remainingUsdc: remaining,
+      remainingPlain: `${formatUsdcFromCents(Math.round(remaining * 100))} left today (principal)`,
+    };
+  }
+
+  /**
+   * Admission check against the principal aggregate. Throws
+   * `AgentConsoleError` with the distinct code
+   * `principal_daily_cap_exceeded` when the call would push the principal
+   * total over its daily limit. No-ops when no principal limit is set.
+   */
+  checkPrincipalAdmission(presentedId: string, amountUsdc: number): void {
+    const agent = this.findByPresentedId(presentedId);
+    if (!agent || agent.status !== 'active') return;
+    try {
+      this.principalCaps.checkAdmission(agent.principalPublicKey, amountUsdc);
+    } catch (error) {
+      if (!(error instanceof PrincipalCapError)) throw error;
+      const remaining = this.principalCaps.remainingUsdc(agent.principalPublicKey) ?? 0;
+      throw new AgentConsoleError(
+        402,
+        PRINCIPAL_DAILY_CAP_EXCEEDED,
+        `This principal already spent its daily total. ${formatUsdcFromCents(Math.round(remaining * 100))} left today.`,
+      );
+    }
+  }
+
   recordPresentedSpend(presentedId: string, amount: number): void {
     const agent = this.findByPresentedId(presentedId);
     if (!agent || agent.status !== 'active' || agent.amountCents === null || !agent.period) return;
     if (!Number.isFinite(amount) || amount <= 0) return;
     this.rollSpendWindow(agent);
     agent.spentCents += Math.round(amount * 100);
+    this.principalCaps.recordSpend(agent.principalPublicKey, amount);
   }
 
   private toView(agent: AgentRecord, inFlightCalls: number): AgentView {
@@ -398,6 +591,7 @@ export class AgentConsoleService {
       allowedCalls: agent.scopeIds.map(labelFor),
       scopeIds: [...agent.scopeIds],
       spendAndLimit: this.spendAndLimit(agent),
+      principalBudget: this.principalBudget(agent.principalPublicKey),
       revocation: {
         stops: REVOKE_STOPS,
         continues: REVOKE_CONTINUES,
@@ -528,6 +722,7 @@ export class AgentConsoleService {
       expiresAt,
       used: false,
     });
+    this.persist();
     return { challengeId, message, expiresAt: new Date(expiresAt).toISOString() };
   }
 
@@ -540,6 +735,7 @@ export class AgentConsoleService {
       throw new AgentConsoleError(400, 'challenge_expired', 'This confirmation expired. Start again.');
     }
     challenge.used = true;
+    this.persist();
     return challenge;
   }
 

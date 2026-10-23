@@ -137,14 +137,19 @@ jobs:
         with:
           node-version: '20'
           cache: "npm"
-          cache-dependency-path: ${{ matrix.workspace }}/package-lock.json
+          cache-dependency-path: ${{ contains(fromJSON('["sdk","shared"]'), matrix.workspace) && 'package-lock.json' || format('{0}/package-lock.json', matrix.workspace) }}
 
       - name: Audit ${{ matrix.workspace }} dependencies
+        if: matrix.workspace == 'backend' || matrix.workspace == 'client'
         working-directory: ${{ matrix.workspace }}
         run: |
-          npm install --package-lock-only
+          npm install --package-lock-only --legacy-peer-deps
           npm audit --audit-level=high
         continue-on-error: false
+
+      - name: Audit ${{ matrix.workspace }} workspace dependencies
+        if: matrix.workspace == 'sdk' || matrix.workspace == 'shared'
+        run: npm audit --workspace=@syncro/${{ matrix.workspace }} --audit-level=high
 
   # ──────────────────────────────────────────────
   # Security Audit Gate (allowlist-based)
@@ -166,15 +171,10 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-          cache-dependency-path: ${{ matrix.workspace }}/package-lock.json
-
-      - name: Install ${{ matrix.workspace }} dependencies
-        working-directory: ${{ matrix.workspace }}
-        run: npm ci --ignore-scripts
+          cache-dependency-path: ${{ contains(fromJSON('["sdk","shared"]'), matrix.workspace) && 'package-lock.json' || format('{0}/package-lock.json', matrix.workspace) }}
 
       - name: Run dependency audit gate
-        working-directory: ${{ matrix.workspace }}
-        run: node ../scripts/security-audit-gate.js ${{ matrix.workspace }} ${{ matrix.workspace }}
+        run: node scripts/security-audit-gate.js ${{ matrix.workspace }} ${{ matrix.workspace }}
 
   # ──────────────────────────────────────────────
   # Generate SBOMs

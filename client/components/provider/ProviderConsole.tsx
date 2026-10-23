@@ -17,6 +17,7 @@ import {
   formatSettlementAmount,
 } from '@syncro/ui';
 import {
+  PAYOUT_CHANGE_COOLING_OFF_MS,
   PROVIDER_SESSION_KEY,
   RATE_CARD_NON_RETROACTIVE_NOTICE,
   SEPARATE_REVENUE_NOTICE,
@@ -28,10 +29,12 @@ import {
   ProviderSettlement,
   RateCardVersion,
   describeRateCardVersion,
+  payoutChangeCountdown,
   previewCallCost,
   providerConsoleClient,
   settlementStatusLabel,
   versionsForRoute,
+  type PayoutChange,
 } from '@/lib/provider-console';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
@@ -322,10 +325,21 @@ function PayoutSection({
   const provider = snapshot.provider;
   const [address, setAddress] = useState(provider.payoutAddress);
   const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<PayoutChange | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     setAddress(provider.payoutAddress);
   }, [provider.payoutAddress]);
+
+  useEffect(() => {
+    if (!pending) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [pending]);
+
+  const countdown = pending ? payoutChangeCountdown(pending, now, PAYOUT_CHANGE_COOLING_OFF_MS) : null;
 
   async function run(action: () => Promise<void>) {
     setBusy(true);
@@ -339,25 +353,134 @@ function PayoutSection({
     }
   }
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Payout address</CardTitle>
-        <CardDescription>
-          Changing the address clears verification. Routes can be priced only after the address is verified.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex items-center gap-2">
-          <Badge variant={provider.payoutVerified ? 'default' : 'secondary'}>
-            {provider.payoutVerified ? 'Verified' : 'Not verified'}
-          </Badge>
-        </div>
+  function clearPending() {
+    setPending(null);
+    onChallenge(null);
+    onSignature('');
+  }
+
+  const trimmedAddress = address.trim();
+  const canStartChange = trimmedAddress.length > 0 && trimmedAddress !== provider.payoutAddress && !pending;
+
+  // ── Verified provider UI ──
+  function renderVerifiedPayoutChangeForm() {
+    const cannotRequest = busy || pending || (address.trim() === provider.payoutAddress);
+    return (
+      <>
         <form
           className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end"
           onSubmit={(event) => {
             event.preventDefault();
-            void run(() => client.updatePayoutAddress(provider.providerId, address.trim()).then(() => undefined));
+            if (cannotRequest) return;
+            void run(async () => {
+              const result = await client.createPayoutChallenge(provider.providerId);
+              onChallenge(result.challenge);
+            });
+          }}
+        >
+          <Field label="New Stellar payout address" id="new-payout-address">
+            <Input
+              id="new-payout-address"
+              value={address}
+              onChange={(event) => setAddress(event.target.value)}
+              required
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </Field>
+          <Button type="submit" variant="outline" disabled={cannotRequest}>
+            Request payout change
+          </Button>
+        </form>
+
+        {challenge && (
+          <div className="space-y-3 rounded-lg border p-4" data-testid="payout-change-request">
+            <h3 className="text-sm font-medium">Verify new address</h3>
+            <p className="text-sm text-muted-foreground">
+              Sign the challenge with the new payout address key and submit the base64 signature.
+            </p>
+            <p className="break-all font-mono text-xs" data-testid="payout-challenge">
+              {challenge}
+            </p>
+            <Field label="Signature" id="payout-signature">
+              <Input
+                id="payout-signature"
+                value={signature}
+                onChange={(event) => onSignature(event.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </Field>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => {
+                  void run(async () => {
+                    const signed = await signChallenge(challenge);
+                    if (!signed) {
+                      throw new Error('No wallet signature was returned. Paste the base64 signature instead.');
+                    }
+                    onSignature(signed);
+                    await client.verifyPayout(provider.providerId, signed);
+                    await client.updatePayoutAddress(provider.providerId, address.trim());
+                    setPending({
+                      previousAddress: provider.payoutAddress,
+                      newAddress: address.trim(),
+                      startedAt: Date.now(),
+                    });
+                    onSignature('');
+                    onChallenge(null);
+                  });
+                }}
+              >
+                Sign with wallet
+              </Button>
+              <Button
+                type="button"
+                disabled={busy || signature.trim().length === 0}
+                onClick={() => {
+                  void run(async () => {
+                    await client.verifyPayout(provider.providerId, signature.trim());
+                    await client.updatePayoutAddress(provider.providerId, address.trim());
+                    setPending({
+                      previousAddress: provider.payoutAddress,
+                      newAddress: address.trim(),
+                      startedAt: Date.now(),
+                    });
+                    onSignature('');
+                  });
+                }}
+              >
+                Submit signature
+              </Button>
+            </div>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  // ── Unverified provider UI ──
+  function renderUnverifiedPayoutForm() {
+    return (
+      <>
+        <form
+          className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!canStartChange) return;
+            void run(async () => {
+              await client.updatePayoutAddress(provider.providerId, trimmedAddress);
+              setPending({
+                previousAddress: provider.payoutAddress,
+                newAddress: trimmedAddress,
+                startedAt: Date.now(),
+              });
+              onChallenge(null);
+              onSignature('');
+            });
           }}
         >
           <Field label="Stellar payout address" id="payout-address">
@@ -370,8 +493,8 @@ function PayoutSection({
               spellCheck={false}
             />
           </Field>
-          <Button type="submit" variant="outline" disabled={busy}>
-            Update payout address
+          <Button type="submit" variant="outline" disabled={busy || !canStartChange}>
+            Change payout address
           </Button>
         </form>
 
@@ -429,6 +552,7 @@ function PayoutSection({
                         onSignature(signed);
                         await client.verifyPayout(provider.providerId, signed);
                         onSignature('');
+                        clearPending();
                       });
                     }}
                   >
@@ -441,6 +565,7 @@ function PayoutSection({
                       void run(async () => {
                         await client.verifyPayout(provider.providerId, signature.trim());
                         onSignature('');
+                        clearPending();
                       });
                     }}
                   >
@@ -451,6 +576,46 @@ function PayoutSection({
             )}
           </div>
         )}
+      </>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Payout address</CardTitle>
+        <CardDescription>
+          Changing the address requires a verified challenge and starts a cooling-off window.
+          Settlements during the window continue to the old address. Routes can be priced only after the new address is verified.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-2">
+          <Badge variant={provider.payoutVerified ? 'default' : 'secondary'}>
+            {provider.payoutVerified ? 'Verified' : 'Not verified'}
+          </Badge>
+        </div>
+
+        {pending && countdown && (
+          <div className="space-y-2 rounded-lg border p-4" data-testid="payout-pending-change">
+            <h3 className="text-sm font-medium">Pending payout change</h3>
+            <p className="text-sm text-muted-foreground">
+              <span className="font-mono break-all">{pending.previousAddress}</span> →{' '}
+              <span className="font-mono break-all">{pending.newAddress}</span>
+            </p>
+            <p className="text-sm" data-testid="payout-cooling-off">
+              {countdown.label}
+            </p>
+            <Button type="button" variant="outline" disabled={busy} onClick={() => void run(async () => {
+              await client.updatePayoutAddress(provider.providerId, pending.previousAddress);
+              clearPending();
+            })}>
+              Cancel change
+            </Button>
+          </div>
+        )}
+
+        {provider.payoutVerified ? renderVerifiedPayoutChangeForm() : renderUnverifiedPayoutForm()}
       </CardContent>
     </Card>
   );

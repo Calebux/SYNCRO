@@ -62,9 +62,31 @@ export const envSchema = z.object({
   SETTLEMENT_MAX_WAIT_MS: z.string().default('300000'),
   SETTLEMENT_MAX_QUEUE_DEPTH: z.string().default('500'),
   SETTLEMENT_MAX_IN_FLIGHT: z.string().default('2'),
+  // Settlement signer balance monitoring
+  SETTLEMENT_SIGNER_SECRET_KEY: z.string().optional(),
+  SETTLEMENT_SIGNER_BALANCE_WARNING_THRESHOLD: z.string().default('100'),
+  SETTLEMENT_SIGNER_BALANCE_CRITICAL_THRESHOLD: z.string().default('20'),
+  SETTLEMENT_SIGNER_BALANCE_CHECK_CRON: z.string().default('*/15 * * * *'),
   // Three-way settlement reconciliation (meter / engine / chain)
   SETTLEMENT_RECONCILIATION_ENABLED: z.string().default('true'),
   RECONCILIATION_TOLERANCE_PCT: z.string().default('1'),
+  // Usage reconciliation (issue #1445): degraded-mode replay, orphan
+  // detection, and the daily served/metered/settled report.
+  USAGE_RECONCILIATION_ENABLED: z.string().default('true'),
+  /** Cron schedule. Default 04:10 UTC daily — see jobs/usage-reconciliation-job.ts */
+  USAGE_RECONCILIATION_CRON: z.string().default('10 4 * * *'),
+  /** Length of the reconciled window, in hours. */
+  USAGE_RECONCILIATION_WINDOW_HOURS: z.string().default('24'),
+  /** Max degraded-log entries one replay pass will attempt. */
+  USAGE_REPLAY_MAX_ENTRIES: z.string().default('500'),
+  /** Failed replay attempts before an entry is abandoned and escalated. */
+  USAGE_REPLAY_MAX_ATTEMPTS: z.string().default('5'),
+  /** Grace period before metered-but-unsettled usage counts as an orphan. */
+  USAGE_SETTLEMENT_GRACE_MS: z.string().default('900000'),
+  /** Max usage rows one run hands to the settlement engine. */
+  USAGE_SETTLEMENT_MAX_HANDOFF: z.string().default('200'),
+  /** Max rows examined per orphan class per scan. */
+  USAGE_ORPHAN_SCAN_LIMIT: z.string().default('1000'),
   MERCHANT_CACHE_TTL_MS: z.string().optional(),
   UNSUBSCRIBE_SECRET: z.string().optional(),
   BACKEND_URL: z.string().default('http://localhost:3001'),

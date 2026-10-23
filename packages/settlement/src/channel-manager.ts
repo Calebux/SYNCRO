@@ -38,7 +38,8 @@ export type ChannelStatus =
   | "topping_up"
   | "exhausted"
   | "closed"
-  | "failed";
+  | "failed"
+  | "unknown";
 
 export interface ChannelState {
   /** Stable key identifying the (principal, provider) pair. */
@@ -103,6 +104,43 @@ export interface PrincipalAuthorizer {
   }): Promise<boolean>;
 }
 
+/**
+ * Distributed lock interface for cross-instance coordination.
+ * Implementations should provide acquire/release semantics with TTL.
+ */
+export interface DistributedLock {
+  /**
+   * Acquire a lock for the given resource key.
+   * @param resourceKey - Unique identifier for the resource (e.g., "principal::provider")
+   * @param ttlMs - Time-to-live in milliseconds
+   * @returns { acquired: true, lockToken } on success, { acquired: false, reason } on failure
+   */
+  acquire(resourceKey: string, ttlMs?: number): Promise<
+    | { acquired: true; lockToken: string }
+    | { acquired: false; reason: 'contention' | 'unavailable' }
+  >;
+
+  /**
+   * Release a lock if we still hold it.
+   * @param resourceKey - The resource key used when acquiring
+   * @param lockToken - The token returned from acquire()
+   * @returns true if released, false if we didn't hold it or it expired
+   */
+  release(resourceKey: string, lockToken: string): Promise<boolean>;
+}
+
+/**
+ * No-op lock implementation for single-instance or test scenarios.
+ */
+export const NoOpLock: DistributedLock = {
+  async acquire() {
+    return { acquired: true, lockToken: 'noop' };
+  },
+  async release() {
+    return true;
+  },
+};
+
 export interface ChannelManagerOptions {
   backend: ChannelBackend;
   store: ChannelStore;
@@ -114,6 +152,8 @@ export interface ChannelManagerOptions {
   burnWindow?: number;
   /** Injectable clock for deterministic tests. */
   now?: () => number;
+  /** Distributed lock for cross-instance coordination. Defaults to no-op lock. */
+  lock?: DistributedLock;
 }
 
 /** Error raised when a channel cannot be opened or topped up. */
@@ -139,6 +179,7 @@ export class ChannelManager {
   private readonly safetyWindowMs: number;
   private readonly burnWindow: number;
   private readonly now: () => number;
+  private readonly lock: DistributedLock;
 
   /** In-flight per-key operations, used to serialize lifecycle work. */
   private readonly inflight = new Map<string, Promise<ChannelState>>();
@@ -153,6 +194,7 @@ export class ChannelManager {
     this.safetyWindowMs = options.safetyWindowMs ?? DEFAULT_SAFETY_WINDOW_MS;
     this.burnWindow = options.burnWindow ?? DEFAULT_BURN_WINDOW;
     this.now = options.now ?? (() => Date.now());
+    this.lock = options.lock ?? NoOpLock;
   }
 
   static key(principal: string, provider: string): string {
@@ -298,6 +340,17 @@ export class ChannelManager {
         now,
       ),
     };
+    // Idempotency / lock expiry check: if another instance opened a channel while we were opening (due to lock loss/expiry)
+    const existing = await this.store.get(key);
+    if (existing && this.isUsable(existing)) {
+      try {
+        await this.backend.closeChannel({ channelId: opened.channelId });
+      } catch {
+        // ignore cleanup error
+      }
+      return existing;
+    }
+
     // Only now, after a fully committed open, is the channel persisted as
     // usable.
     await this.store.put(state);
@@ -393,7 +446,7 @@ export class ChannelManager {
       key: ChannelManager.key(principal, provider),
       principal,
       provider,
-      status: "closed",
+      status: "unknown",
       balance: 0n,
       burnRate: 0,
       lastUpdated: this.now(),
@@ -408,7 +461,41 @@ export class ChannelManager {
     const previous = this.inflight.get(key) ?? Promise.resolve(undefined as unknown as ChannelState);
     const next = previous
       .catch(() => undefined)
-      .then(() => work());
+      .then(async () => {
+        // Acquire distributed lock for this channel key
+        const lockRes = await this.lock.acquire(key);
+        if (!lockRes.acquired) {
+          // Could not acquire lock: another instance is working on this channel
+          // Check if a usable channel already exists (idempotency)
+          const existing = await this.store.get(key);
+          if (existing && this.isUsable(existing)) {
+            return existing;
+          }
+          throw new ChannelError(
+            `failed to acquire distributed lock for ${key} (reason: ${lockRes.reason})`,
+          );
+        }
+
+        const lockToken = lockRes.lockToken;
+        try {
+          // Re-check store after acquiring lock (idempotency: another instance may have created channel while we waited)
+          const existing = await this.store.get(key);
+          if (existing && this.isUsable(existing)) {
+            return existing;
+          }
+          return await work();
+        } finally {
+          // Release the lock
+          const released = await this.lock.release(key, lockToken);
+          if (!released) {
+            // Lock expired mid-operation or was already released by another instance
+            // This can happen if operation took longer than TTL or lock was stolen
+            // The store state should be consistent; we don't throw here to avoid breaking flow
+            // but in production this should be logged/monitored
+          }
+        }
+      });
+
     this.inflight.set(
       key,
       next.finally(() => {

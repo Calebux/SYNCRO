@@ -9,7 +9,13 @@ use soroban_sdk::{
 };
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use super::{ChannelState, PaymentChannelContract, PaymentChannelContractClient};
+use super::{
+    ChannelState, PaymentChannelContract, PaymentChannelContractClient, MAX_DISPUTE_WINDOW_SECS,
+    MIN_DISPUTE_WINDOW_SECS,
+};
+
+/// Valid per-channel dispute window used by fuzz cases that open a channel.
+const W: u64 = MIN_DISPUTE_WINDOW_SECS;
 
 fn fuzz_env() -> Env {
     Env::new_with_config(EnvTestConfig {
@@ -50,7 +56,7 @@ proptest! {
     #[test]
     fn fuzz_open_channel_random_deposits(
         deposit in 1i128..=1_000_000_000i128,
-        dispute_window in 1u64..=1_000_000u64,
+        dispute_window in MIN_DISPUTE_WINDOW_SECS..=MAX_DISPUTE_WINDOW_SECS,
     ) {
         let (env, client, depositor, counterparty, _admin, token) = fuzz_setup();
         let channel_id =
@@ -70,7 +76,7 @@ proptest! {
         top_ups in prop::collection::vec(1i128..=100_000i128, 1..=5),
     ) {
         let (_env, client, depositor, counterparty, _admin, token) = fuzz_setup();
-        let channel_id = client.open_channel(&depositor, &counterparty, &token, &initial, &100u64);
+        let channel_id = client.open_channel(&depositor, &counterparty, &token, &initial, &W);
 
         let mut expected_a = initial;
         for amount in &top_ups {
@@ -91,7 +97,7 @@ proptest! {
         split in 0i128..=100i128,
     ) {
         let (_env, client, depositor, counterparty, _admin, token) = fuzz_setup();
-        let channel_id = client.open_channel(&depositor, &counterparty, &token, &deposit, &100u64);
+        let channel_id = client.open_channel(&depositor, &counterparty, &token, &deposit, &W);
 
         let balance_b = split.min(deposit);
         let balance_a = deposit - balance_b;
@@ -122,7 +128,7 @@ proptest! {
         stale_seq in 0u64..=5u64,
     ) {
         let (_env, client, depositor, counterparty, _admin, token) = fuzz_setup();
-        let channel_id = client.open_channel(&depositor, &counterparty, &token, &deposit, &100u64);
+        let channel_id = client.open_channel(&depositor, &counterparty, &token, &deposit, &W);
 
         client.submit_state(
             &channel_id,
@@ -152,7 +158,7 @@ proptest! {
         top_up_amount in 1i128..=100_000i128,
     ) {
         let (_env, client, depositor, counterparty, _admin, token) = fuzz_setup();
-        let channel_id = client.open_channel(&depositor, &counterparty, &token, &deposit, &100u64);
+        let channel_id = client.open_channel(&depositor, &counterparty, &token, &deposit, &W);
 
         let result = catch_unwind(AssertUnwindSafe(|| {
             client.top_up(&channel_id, &top_up_amount, &counterparty);
@@ -167,7 +173,7 @@ proptest! {
     fn fuzz_invalid_deposit_amounts_rejected(amount in -1_000_000i128..=0i128) {
         let (_env, client, depositor, counterparty, _admin, token) = fuzz_setup();
         let result = catch_unwind(AssertUnwindSafe(|| {
-            client.open_channel(&depositor, &counterparty, &token, &amount, &100u64);
+            client.open_channel(&depositor, &counterparty, &token, &amount, &W);
         }));
         prop_assert!(result.is_err(), "invalid deposit amount must be rejected");
     }
@@ -181,7 +187,7 @@ proptest! {
         let balance_b = balance_b.min(deposit);
         let balance_a = deposit - balance_b;
 
-        let channel_id = client.open_channel(&depositor, &counterparty, &token, &deposit, &1u64);
+        let channel_id = client.open_channel(&depositor, &counterparty, &token, &deposit, &W);
 
         client.initiate_close(
             &channel_id,
@@ -216,7 +222,7 @@ proptest! {
         let balance_a = deposit - balance_b;
 
         let channel_id =
-            client.open_channel(&depositor, &counterparty, &token, &deposit, &1u64);
+            client.open_channel(&depositor, &counterparty, &token, &deposit, &W);
         client.initiate_close(&channel_id, &balance_a, &balance_b, &5u64, &depositor);
 
         let closing = client.get_channel(&channel_id).unwrap();
@@ -245,22 +251,17 @@ proptest! {
         let balance_a = deposit - balance_b;
 
         let channel_id =
-            client.open_channel(&depositor, &counterparty, &token, &deposit, &100u64);
+            client.open_channel(&depositor, &counterparty, &token, &deposit, &W);
         client.initiate_close(&channel_id, &balance_a, &balance_b, &1u64, &depositor);
 
         let closing = client.get_channel(&channel_id).unwrap();
+        // timestamp = deadline - offset is always ≤ deadline → finalize must fail.
         env.ledger().set_timestamp(closing.dispute_deadline.saturating_sub(time_offset));
 
-        if time_offset < 100 {
-            let result = catch_unwind(AssertUnwindSafe(|| {
-                client.finalize(&channel_id, &1);
-            }));
-            prop_assert!(result.is_err(), "finalize before window must be rejected");
-        } else {
+        let result = catch_unwind(AssertUnwindSafe(|| {
             client.finalize(&channel_id, &1);
-            let closed = client.get_channel(&channel_id).unwrap();
-            prop_assert_eq!(closed.state, ChannelState::Closed);
-        }
+        }));
+        prop_assert!(result.is_err(), "finalize before/at window end must be rejected");
     }
 
     #[test]
@@ -271,7 +272,7 @@ proptest! {
     ) {
         let (_env, client, depositor, counterparty, _admin, token) = fuzz_setup();
         let channel_id =
-            client.open_channel(&depositor, &counterparty, &token, &deposit, &100u64);
+            client.open_channel(&depositor, &counterparty, &token, &deposit, &W);
         client.initiate_close(&channel_id, &deposit, &0i128, &close_seq, &depositor);
 
         if dispute_seq <= close_seq {
@@ -294,7 +295,7 @@ proptest! {
     ) {
         let (_env, client, depositor, counterparty, _admin, token) = fuzz_setup();
         let channel_id =
-            client.open_channel(&depositor, &counterparty, &token, &deposit, &100u64);
+            client.open_channel(&depositor, &counterparty, &token, &deposit, &W);
         client.submit_state(&channel_id, &deposit, &0i128, &state_seq, &depositor, &counterparty);
 
         if close_seq <= state_seq {
@@ -316,7 +317,7 @@ proptest! {
     ) {
         let (_env, client, depositor, counterparty, _admin, token) = fuzz_setup();
         let channel_id =
-            client.open_channel(&depositor, &counterparty, &token, &deposit, &100u64);
+            client.open_channel(&depositor, &counterparty, &token, &deposit, &W);
         client.initiate_close(&channel_id, &deposit, &0i128, &1u64, &depositor);
 
         let result = catch_unwind(AssertUnwindSafe(|| {
@@ -335,7 +336,7 @@ proptest! {
     ) {
         let (_env, client, depositor, counterparty, _admin, token) = fuzz_setup();
         let channel_id =
-            client.open_channel(&depositor, &counterparty, &token, &deposit, &100u64);
+            client.open_channel(&depositor, &counterparty, &token, &deposit, &W);
         client.initiate_close(&channel_id, &deposit, &0i128, &1u64, &depositor);
         client.dispute(&channel_id, &deposit, &0i128, &2u64, &depositor, &counterparty);
 
@@ -351,7 +352,7 @@ proptest! {
     #[test]
     fn fuzz_dispute_after_window_rejected(
         deposit in 100i128..=1_000_000i128,
-        dispute_window in 1u64..=100u64,
+        dispute_window in MIN_DISPUTE_WINDOW_SECS..=(MIN_DISPUTE_WINDOW_SECS + 200),
         time_offset in 0u64..=200u64,
     ) {
         let (env, client, depositor, counterparty, _admin, token) = fuzz_setup();
@@ -372,5 +373,86 @@ proptest! {
             let channel = client.get_channel(&channel_id).unwrap();
             prop_assert_eq!(channel.state, ChannelState::Dispute);
         }
+    }
+
+    /// Issue #1431: over a generated mix of `top_up` and `submit_state`, the
+    /// two balances must always sum to what has been deposited, and neither may
+    /// go negative. Asserted after every step, not just at the end.
+    #[test]
+    fn fuzz_operation_sequence_conserves_balance(
+        initial in 100i128..=1_000_000i128,
+        ops in prop::collection::vec((0u8..=1u8, 1i128..=50_000i128), 1..=8),
+    ) {
+        let (_env, client, depositor, counterparty, _admin, token) = fuzz_setup();
+        let channel_id = client.open_channel(&depositor, &counterparty, &token, &initial, &W);
+
+        let mut deposited = initial;
+        let mut sequence = 0u64;
+
+        for (kind, amount) in &ops {
+            if *kind == 0 {
+                client.top_up(&channel_id, amount, &depositor);
+                deposited = deposited.saturating_add(*amount);
+            } else {
+                // Move part of the pot to B without changing the total.
+                let to_b = (*amount).min(deposited);
+                sequence += 1;
+                client.submit_state(
+                    &channel_id,
+                    &(deposited - to_b),
+                    &to_b,
+                    &sequence,
+                    &depositor,
+                    &counterparty,
+                );
+            }
+
+            let channel = client.get_channel(&channel_id).unwrap();
+            prop_assert!(channel.balance_a >= 0, "balance_a went negative");
+            prop_assert!(channel.balance_b >= 0, "balance_b went negative");
+            prop_assert_eq!(
+                channel.balance_a.saturating_add(channel.balance_b),
+                deposited,
+                "balances stopped summing to the deposited total"
+            );
+        }
+    }
+
+    /// Issue #1431: finalize must pay out the highest sequence submitted before
+    /// the window closed, not the first or the last attempted.
+    #[test]
+    fn fuzz_finalize_pays_highest_submitted_sequence(
+        deposit in 100i128..=1_000_000i128,
+        splits in prop::collection::vec(0i128..=100i128, 2..=6),
+    ) {
+        let (env, client, depositor, counterparty, _admin, token) = fuzz_setup();
+        let channel_id = client.open_channel(&depositor, &counterparty, &token, &deposit, &W);
+
+        let mut last = (deposit, 0i128, 0u64);
+        for (i, split) in splits.iter().enumerate() {
+            let to_b = (*split).min(deposit);
+            let sequence = (i as u64) + 1;
+            client.submit_state(
+                &channel_id,
+                &(deposit - to_b),
+                &to_b,
+                &sequence,
+                &depositor,
+                &counterparty,
+            );
+            last = (deposit - to_b, to_b, sequence);
+        }
+
+        // initiate_close requires a strictly greater sequence than the last submit.
+        let close_seq = last.2 + 1;
+        client.initiate_close(&channel_id, &last.0, &last.1, &close_seq, &depositor);
+        let closing = client.get_channel(&channel_id).unwrap();
+        env.ledger().set_timestamp(closing.dispute_deadline + 1);
+        client.finalize(&channel_id, &close_seq);
+
+        let channel = client.get_channel(&channel_id).unwrap();
+        prop_assert_eq!(channel.sequence, close_seq);
+        prop_assert_eq!(channel.balance_a, last.0);
+        prop_assert_eq!(channel.balance_b, last.1);
     }
 }

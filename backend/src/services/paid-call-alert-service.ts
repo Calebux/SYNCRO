@@ -7,6 +7,7 @@ import { env } from '../config/env';
 export interface PaidCallAlertPayload {
   alertType:
     | 'high_unsettled_value'
+    | 'unsettled_value_total_exceeded'
     | 'rising_unsettled_value'
     | 'reconciliation_delta_outside_tolerance'
     | 'reconciliation_blocked'
@@ -17,6 +18,7 @@ export interface PaidCallAlertPayload {
   severity: 'critical' | 'warning' | 'info';
   channelId?: string;
   userId?: string;
+  providerId?: string;
   unsettledValue?: number;
   channelSize?: number;
   totalUnsettledValue?: number;
@@ -36,6 +38,10 @@ export interface PaidCallAlertPayload {
 
 const UNSETTLED_VALUE_HIGH_THRESHOLD = 0.5; // 50% of channel size
 const UNSETTLED_VALUE_RISING_THRESHOLD_PCT = 20; // 20% increase in 1 hour
+/** Absolute per-channel ceiling (cents) — any channel above this pages. */
+const UNSETTLED_VALUE_PER_CHANNEL_THRESHOLD = Number(process.env.UNSETTLED_PER_CHANNEL_THRESHOLD ?? 100_000);
+/** Global ceiling (cents) — total exposure above this pages. */
+const UNSETTLED_VALUE_TOTAL_THRESHOLD = Number(process.env.UNSETTLED_TOTAL_THRESHOLD ?? 1_000_000);
 const METER_RESERVE_FAILURE_SPIKE = 10; // failures in 5 minutes
 const METER_COMMIT_FAILURE_SPIKE = 10; // failures in 5 minutes
 const SETTLEMENT_SUBMISSION_FAILURE_RATE = 95; // percent
@@ -55,23 +61,23 @@ class PaidCallAlertService {
     channels: Array<{
       channelId: string;
       userId: string;
+      providerId?: string;
       unsettledValue: number;
       channelSize?: number;
     }>,
   ): Promise<void> {
     for (const channel of channels) {
       const size = channel.channelSize ?? 0;
-      if (size <= 0) continue;
+      const ratio = size > 0 ? channel.unsettledValue / size : 0;
 
-      const ratio = channel.unsettledValue / size;
-
-      // Critical: unsettled value exceeds 50% of channel size
-      if (ratio >= UNSETTLED_VALUE_HIGH_THRESHOLD) {
+      // Critical: unsettled value exceeds 50% of channel size, or the absolute per-channel ceiling.
+      if ((size > 0 && ratio >= UNSETTLED_VALUE_HIGH_THRESHOLD) || channel.unsettledValue >= UNSETTLED_VALUE_PER_CHANNEL_THRESHOLD) {
         await this.sendAlert({
           alertType: 'high_unsettled_value',
           severity: 'critical',
           channelId: channel.channelId,
           userId: channel.userId,
+          providerId: channel.providerId,
           unsettledValue: channel.unsettledValue,
           channelSize: size,
         });
@@ -80,6 +86,14 @@ class PaidCallAlertService {
 
     // Check total unsettled value trend
     const totalUnsettled = channels.reduce((sum, c) => sum + c.unsettledValue, 0);
+    // Global ceiling: total SYNCRO exposure if payers disappear.
+    if (totalUnsettled >= UNSETTLED_VALUE_TOTAL_THRESHOLD) {
+      await this.sendAlert({
+        alertType: 'unsettled_value_total_exceeded',
+        severity: 'critical',
+        totalUnsettledValue: totalUnsettled,
+      });
+    }
     if (this.lastUnsettledValue > 0 && totalUnsettled > 0) {
       const increasePct = ((totalUnsettled - this.lastUnsettledValue) / this.lastUnsettledValue) * 100;
       if (increasePct >= UNSETTLED_VALUE_RISING_THRESHOLD_PCT) {
@@ -211,7 +225,10 @@ class PaidCallAlertService {
 
     switch (payload.alertType) {
       case 'high_unsettled_value':
-        return `${base}Channel \`${payload.channelId}\` (user: \`${payload.userId}\`) has unsettled value of *${payload.unsettledValue}* against channel size *${payload.channelSize}* (${((payload.unsettledValue ?? 0) / (payload.channelSize ?? 1) * 100).toFixed(1)}% of channel).`;
+        return `${base}Channel \`${payload.channelId}\` (user: \`${payload.userId}\`${payload.providerId ? `, provider: \`${payload.providerId}\`` : ''}) has unsettled value of *${payload.unsettledValue}* against channel size *${payload.channelSize}* (${((payload.unsettledValue ?? 0) / (payload.channelSize ?? 1) * 100).toFixed(1)}% of channel).`;
+
+      case 'unsettled_value_total_exceeded':
+        return `${base}Total unsettled value across all channels is *${payload.totalUnsettledValue}* — above the global exposure ceiling. Force-settle or pause new metered calls until it drains.`;
 
       case 'rising_unsettled_value':
         return `${base}Total unsettled value across all channels has risen to *${payload.totalUnsettledValue}* — a significant increase detected.`;

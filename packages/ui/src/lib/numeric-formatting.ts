@@ -7,6 +7,7 @@
  */
 
 import { formatNumber, formatCurrency, formatPercent } from "@syncro/shared/i18n";
+import { formatAmount as formatSharedAmount } from "@syncro/shared/format-amount";
 
 /**
  * Settlement asset configuration.
@@ -44,17 +45,7 @@ export function formatSettlementAmount(
   amount: number | bigint,
   options: { locale?: string; showSymbol?: boolean } = {},
 ): string {
-  const { locale = "en-US", showSymbol = true } = options;
-  const num = typeof amount === "bigint" ? Number(amount) : amount;
-  const fractionDigits = SETTLEMENT_ASSET.decimals;
-
-  const formatted = new Intl.NumberFormat(locale, {
-    minimumFractionDigits: fractionDigits,
-    maximumFractionDigits: fractionDigits,
-    useGrouping: true,
-  }).format(num);
-
-  return showSymbol ? `${formatted} ${SETTLEMENT_ASSET.symbol}` : formatted;
+  return formatSharedAmount(amount, SETTLEMENT_ASSET, options);
 }
 
 /**
@@ -65,15 +56,7 @@ export function formatStroopsAsXlm(
   stroops: number | bigint,
   options: { locale?: string; showSymbol?: boolean } = {},
 ): string {
-  const { locale = "en-US", showSymbol = true } = options;
-  const num = typeof stroops === "bigint" ? Number(stroops) : stroops;
-  const xlm = num / STELLAR_NATIVE.stroopsPerXlm;
-
-  return formatCurrency(xlm, STELLAR_NATIVE.code, {
-    locale,
-    minimumFractionDigits: STELLAR_NATIVE.decimals,
-    maximumFractionDigits: STELLAR_NATIVE.decimals,
-  });
+  return formatSharedAmount(stroops, STELLAR_NATIVE, options);
 }
 
 /**
@@ -85,17 +68,7 @@ export function formatBaseUnits(
   asset: AssetConfig,
   options: { locale?: string; showSymbol?: boolean } = {},
 ): string {
-  const { locale = "en-US", showSymbol = true } = options;
-  const num = typeof baseUnits === "bigint" ? Number(baseUnits) : baseUnits;
-  const amount = num / asset.baseUnit;
-
-  const formatted = new Intl.NumberFormat(locale, {
-    minimumFractionDigits: asset.decimals,
-    maximumFractionDigits: asset.decimals,
-    useGrouping: true,
-  }).format(amount);
-
-  return showSymbol ? `${formatted} ${asset.symbol}` : formatted;
+  return formatSharedAmount(baseUnits, asset, options);
 }
 
 /**
@@ -127,13 +100,8 @@ export function formatDelta(
 
   let formatted: string;
   if (asset) {
-    const absValue = Math.abs(value) / asset.baseUnit;
-    const numStr = new Intl.NumberFormat(locale, {
-      minimumFractionDigits: asset.decimals,
-      maximumFractionDigits: asset.decimals,
-      useGrouping: true,
-    }).format(absValue);
-    formatted = `${showPlusSign && isPositive ? "+" : ""}${isNegative ? "−" : ""}${numStr} ${asset.symbol}`;
+    const sign = showPlusSign && isPositive ? "+" : isNegative ? "−" : "";
+    formatted = `${sign}${formatSharedAmount(Math.abs(value), asset, { locale })}`;
   } else {
     const numStr = new Intl.NumberFormat(locale, {
       minimumFractionDigits: precision,
@@ -212,13 +180,11 @@ export function formatBalance(
   options: BalanceFormatOptions = {},
 ): string {
   const { locale = "en-US", showSymbol = true, blankZero = false } = options;
-  const num = typeof amount === "bigint" ? Number(amount) : amount;
-
-  if (blankZero && num === 0) {
+  if (blankZero && (amount === 0 || amount === 0n)) {
     return "—";
   }
 
-  return formatBaseUnits(num, asset, { locale, showSymbol });
+  return formatBaseUnits(amount, asset, { locale, showSymbol });
 }
 
 /**

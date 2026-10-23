@@ -13,6 +13,7 @@ import { healthService } from '../../services/health-service';
 import { expiryService } from '../../services/expiry-service';
 import { adminAuth } from '../../middleware/admin';
 import logger from '../../config/logger';
+import renewalSagaRoutes from '../admin/renewal-sagas';
 
 const v1Router = express.Router();
 
@@ -22,6 +23,7 @@ v1Router.use('/team', teamRoutes);
 v1Router.use('/push-notifications', pushNotificationsRoutes);
 v1Router.use('/user', userRoutes);
 v1Router.use('/integrations', integrationRoutes);
+v1Router.use('/admin/renewal-sagas', renewalSagaRoutes);
 
 // Auth alias (some parts of frontend might use /api/v1/auth)
 v1Router.use('/auth', userRoutes);

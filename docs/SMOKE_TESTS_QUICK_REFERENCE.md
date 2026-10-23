@@ -88,5 +88,5 @@ See [SMOKE_TESTS.md](./SMOKE_TESTS.md) for complete details.
 ## 🔗 Related
 
 - [CI/CD Workflows](./branch-protection.md)
-- [API Security](../SECURITY_AUDIT_MATRIX_API_ROUTES.md)
+- [API Security](archive/SECURITY_AUDIT_MATRIX_API_ROUTES.md)
 - [RLS Audit](./RLS_AUDIT_GUIDE.md)

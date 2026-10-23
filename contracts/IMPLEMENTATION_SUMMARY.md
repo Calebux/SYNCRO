@@ -180,8 +180,8 @@ pub struct BudgetRegistry { ... }
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `contracts/contracts/subscription_renewal/src/admin_multisig.rs` | 445 | Reusable multisig governance module |
-| `contracts/contracts/subscription_renewal/src/tests/admin_multisig_tests.rs` | 285 | Comprehensive multisig tests |
+| `contracts/contracts/subscription-renewal/src/admin_multisig.rs` | 445 | Reusable multisig governance module |
+| `contracts/contracts/subscription-renewal/src/tests/admin_multisig_tests.rs` | 285 | Comprehensive multisig tests |
 | `contracts/contracts/src/budget_harness.rs` | 215 | Budget tracking and validation |
 | `contracts/budgets.json` | 253 | Baseline measurements for all entrypoints |
 
@@ -189,7 +189,7 @@ pub struct BudgetRegistry { ... }
 
 | File | Changes | Details |
 |------|---------|---------|
-| `contracts/contracts/subscription_renewal/src/lib.rs` | +130 lines | Module integration, dual-path API for all destructive ops |
+| `contracts/contracts/subscription-renewal/src/lib.rs` | +130 lines | Module integration, dual-path API for all destructive ops |
 | `contracts/DEPLOYMENT.md` | +180 lines | Guardian rotation runbook, multisig procedures, checklist |
 | `.github/workflows/contracts.yml` | +40 lines | Budget measurement and regression detection steps |
 

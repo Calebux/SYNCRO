@@ -4,11 +4,7 @@
 [workspace]
 resolver = "2"
 members = [
-  "common",
-  "contracts",
   "contracts/common",
-  "contracts/subscription_renewal",
-  "contracts/subscription_logging",
   "contracts/virtual-card",
   "contracts/escrow",
   "contracts/agent-registry",
@@ -17,24 +13,22 @@ members = [
   "contracts/contract-upgrade",
   "contracts/allowance",
   "contracts/payment-adapter",
-  "contracts/voucher-ledger",
   "contracts/fee-collector",
   "contracts/resolver-registry",
-  "contracts/subscription_refund",
-  "contracts/recurring_allowance",
-  "contracts/loyalty_rewards",
-  "contracts/subscription_nft",
   "contracts/attestation",
   "contracts/guardian",
   "contracts/fx-oracle",
   "contracts/payment-splitter",
   "contracts/stealth-announcement",
-  "integration_tests",
 ]
 
 [workspace.dependencies]
-soroban-sdk = "=27.0.2"
+soroban-sdk = "=29.0.1"
 proptest = "1.6"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+hmac = "0.13"
+sha2 = "0.11"
 
 [profile.release]
 opt-level = "z"

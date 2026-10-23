@@ -21,9 +21,9 @@
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `contracts/contracts/subscription_renewal/src/admin_multisig.rs` | 445 | Reusable multisig governance module with guardian management |
-| `contracts/contracts/subscription_renewal/src/tests/admin_multisig_tests.rs` | 285 | Comprehensive test suite (14 test cases) |
-| `contracts/contracts/subscription_renewal/src/lib.rs` | +130 | Integration into subscription_renewal contract |
+| `contracts/contracts/subscription-renewal/src/admin_multisig.rs` | 445 | Reusable multisig governance module with guardian management |
+| `contracts/contracts/subscription-renewal/src/tests/admin_multisig_tests.rs` | 285 | Comprehensive test suite (14 test cases) |
+| `contracts/contracts/subscription-renewal/src/lib.rs` | +130 | Integration into subscription_renewal contract |
 
 **Total**: 860 lines for multisig governance
 
@@ -194,7 +194,7 @@ contracts/
 ├── DELIVERABLES.md                                  This file
 ├── budgets.json                                     253 lines (NEW)
 ├── contracts/
-│   ├── subscription_renewal/
+│   ├── subscription-renewal/
 │   │   ├── src/
 │   │   │   ├── lib.rs                               +130 lines (modified)
 │   │   │   ├── admin_multisig.rs                    445 lines (NEW)

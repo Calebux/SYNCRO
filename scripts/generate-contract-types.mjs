@@ -40,7 +40,7 @@ const SEED_ABI = {
   contracts: [
     {
       contract: 'SubscriptionRegistry',
-      source: 'contracts/contracts/src/subscription_registry.rs',
+      source: 'contracts/contracts/subscription-registry/src/lib.rs',
       functions: [
         {
           name: 'create_subscription',
@@ -74,7 +74,7 @@ const SEED_ABI = {
     },
     {
       contract: 'SubscriptionLogging',
-      source: 'contracts/contracts/subscription_logging/src/lib.rs',
+      source: 'contracts/contracts/subscription-logging/src/lib.rs',
       functions: [
         {
           name: 'record_log',
@@ -88,7 +88,7 @@ const SEED_ABI = {
     },
     {
       contract: 'SubscriptionRenewal',
-      source: 'contracts/contracts/subscription_renewal/src/lib.rs',
+      source: 'contracts/contracts/subscription-renewal/src/lib.rs',
       functions: [
         {
           name: 'renew',

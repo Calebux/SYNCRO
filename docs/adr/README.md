@@ -27,7 +27,7 @@ Each ADR tracks its lifecycle using one of the following statuses:
 | **Proposed** | Under active RFC review in a pull request or design issue. |
 | **Accepted** | Approved and implemented in the codebase. |
 | **Accepted (Retrospective)** | Formally documented after initial implementation to capture historical architectural reasoning. |
-| **Superseded by [ADR-XXX](./ADR-XXX-title.md)** | Replaced by a newer architectural decision. Must include a link to the replacing ADR. |
+| **Superseded by ADR-XXX** | Replaced by a newer architectural decision. Must include a link to the replacing ADR. |
 | **Rejected** | Evaluated during RFC phase but decided against. Kept for historical reference. |
 
 ### How to Supersede an ADR
@@ -55,7 +55,11 @@ When a new decision replaces an existing ADR:
 | [ADR-009](./ADR-009-row-level-security-authorization.md) | Row-Level Security (RLS) as Primary Database Authorization Boundary | Accepted (Retrospective) | 2026-06-12 |
 | [ADR-010](./ADR-010-quota-guard-rate-limiting.md) | Dual-Engine Rate Limiting (Redis Token Bucket + Memory Fallback) | Accepted (Retrospective) | 2026-06-15 |
 | [ADR-011](./ADR-011-direct-token-transfer-renewals.md) | Direct Token Transfer for Recurring Subscription Renewals | Superseded by [ADR-005](./ADR-005-payment-channels-for-renewals.md) | 2026-05-25 |
-| [ADR-016](./ADR-016-upgrade-policy-for-settlement-contracts.md) | Upgrade Path and Versioning for the Settlement Contracts | Proposed | 2026-09-28 |
+| [ADR-015](./ADR-015-channel-settlement-fee-split.md) | Channel Settlement Fee Split Architecture | Proposed | 2026-09-23 |
+| [ADR-016](./ADR-016-metering-core-typescript-promotion.md) | Promote quota_guard to the TypeScript Metering Core | Accepted | 2026-09-29 |
+| [ADR-017](./ADR-017-zk-payment-verifier-role-in-v3.md) | Role of zk-payment-verifier in v3 | Accepted | 2026-09-28 |
+| [ADR-018](./ADR-018-defer-zk-payment-proofs-from-v3.md) | Defer ZK Payment Proofs from v3 and Remove the SDK ZK Export | Accepted | 2026-09-30 |
+| [ADR-019](./ADR-019-upgrade-policy-for-settlement-contracts.md) | Upgrade Path and Versioning for the Settlement Contracts | Proposed | 2026-09-28 |
 
 ---
 

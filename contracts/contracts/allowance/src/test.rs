@@ -323,3 +323,153 @@ fn test_independent_allowances_are_isolated() {
     assert_eq!(ctx.token_client.balance(&ctx.merchant), 50);
     assert_eq!(ctx.token_client.balance(&merchant2), 10);
 }
+
+// ── Indexer events (issue #1430) ────────────────────────────────────────────
+
+mod indexer_events {
+    extern crate std;
+
+    use super::*;
+    use soroban_sdk::{
+        testutils::Events as _,
+        xdr::{ContractEventBody, ScVal},
+    };
+    use std::string::ToString;
+    use std::vec::Vec;
+
+    /// Topics of every recorded event as plain strings.
+    fn event_topics(ctx: &Ctx) -> Vec<Vec<std::string::String>> {
+        ctx.env
+            .events()
+            .all()
+            .events()
+            .iter()
+            .map(|event| match &event.body {
+                ContractEventBody::V0(v0) => v0
+                    .topics
+                    .iter()
+                    .map(|topic| match topic {
+                        ScVal::Symbol(s) => std::string::String::from_utf8_lossy(&s.0).into_owned(),
+                        other => std::format!("{:?}", other),
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
+
+    /// Payload of the first recorded event as (key, value-debug) pairs.
+    fn first_event_data(ctx: &Ctx) -> Vec<(std::string::String, std::string::String)> {
+        let events = ctx.env.events().all();
+        let first = events.events().first().expect("expected an event");
+        event_data(first)
+    }
+
+    /// Payload of the last recorded event as (key, value-debug) pairs.
+    fn last_event_data(ctx: &Ctx) -> Vec<(std::string::String, std::string::String)> {
+        let events = ctx.env.events().all();
+        let last = events.events().last().expect("expected an event");
+        event_data(last)
+    }
+
+    fn event_data(
+        event: &soroban_sdk::xdr::ContractEvent,
+    ) -> Vec<(std::string::String, std::string::String)> {
+        match &event.body {
+            ContractEventBody::V0(v0) => match &v0.data {
+                ScVal::Map(Some(entries)) => entries
+                    .iter()
+                    .map(|entry| {
+                        let key = match &entry.key {
+                            ScVal::Symbol(s) => {
+                                std::string::String::from_utf8_lossy(&s.0).into_owned()
+                            }
+                            other => std::format!("{:?}", other),
+                        };
+                        (key, std::format!("{:?}", entry.val))
+                    })
+                    .collect(),
+                other => panic!("expected map payload, got {:?}", other),
+            },
+        }
+    }
+
+    fn data_value(
+        data: &[(std::string::String, std::string::String)],
+        key: &str,
+    ) -> std::string::String {
+        data.iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.clone())
+            .unwrap_or_else(|| panic!("missing payload key {}", key))
+    }
+
+    fn count_topic(ctx: &Ctx, needle: &str) -> usize {
+        event_topics(ctx)
+            .iter()
+            .filter(|topics| topics.iter().any(|t| t.contains(needle)))
+            .count()
+    }
+
+    // NOTE: `env.events().all()` returns only the LAST invocation's events,
+    // so each assertion below reads the events of the call under test.
+
+    #[test]
+    fn pause_and_unpause_emit_suspend_events() {
+        let ctx = setup();
+
+        ctx.allowance.pause();
+        let topics = event_topics(&ctx);
+        assert_eq!(topics.len(), 1);
+        // contractevent topics lead with the snake_case event name.
+        assert!(topics[0].iter().any(|t| t.contains("paused")));
+        let data = last_event_data(&ctx);
+        assert!(data_value(&data, "paused").contains("true"));
+        assert!(data_value(&data, "schema_version").contains("U32(1)"));
+
+        ctx.allowance.unpause();
+        let topics = event_topics(&ctx);
+        assert_eq!(topics.len(), 1);
+        assert!(topics[0].iter().any(|t| t.contains("paused")));
+        let data = last_event_data(&ctx);
+        assert!(data_value(&data, "paused").contains("false"));
+    }
+
+    #[test]
+    fn consume_across_period_boundary_emits_rollover() {
+        let ctx = setup();
+        let id = grant(&ctx, 50, 600, MONTH);
+        ctx.allowance.consume(&id, &50);
+        assert_eq!(count_topic(&ctx, "rolled_over"), 0);
+
+        ctx.env
+            .ledger()
+            .set_timestamp(ctx.env.ledger().timestamp() + MONTH + DAY);
+        ctx.allowance.consume(&id, &10);
+
+        // Rollover publishes before the consume event in the same call.
+        // (The token contract's own transfer event is also recorded.)
+        let topics = event_topics(&ctx);
+        assert!(topics[0].iter().any(|t| t.contains("rolled_over")));
+        assert!(topics
+            .iter()
+            .any(|t| t.iter().any(|s| s.contains("consumed"))));
+    }
+
+    #[test]
+    fn rollover_event_carries_new_window_and_version() {
+        let ctx = setup();
+        let start = ctx.env.ledger().timestamp();
+        let id = grant(&ctx, 50, 600, MONTH);
+        ctx.allowance.consume(&id, &10);
+
+        ctx.env.ledger().set_timestamp(start + 2 * MONTH);
+        ctx.allowance.consume(&id, &10);
+
+        let topics = event_topics(&ctx);
+        assert!(topics[0].iter().any(|t| t.contains("rolled_over")));
+
+        let data = first_event_data(&ctx);
+        assert!(data_value(&data, "new_period_start").contains(&(start + 2 * MONTH).to_string()));
+        assert!(data_value(&data, "schema_version").contains("U32(1)"));
+    }
+}

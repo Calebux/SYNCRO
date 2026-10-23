@@ -8,8 +8,8 @@ from pathlib import Path
 
 # Mapping of contract names to their base error codes
 CONTRACTS = {
-    "subscription_renewal": 1000,
-    "subscription_logging": 1100,
+    "subscription-renewal": 1000,
+    "subscription-logging": 1100,
     "virtual-card": 1200,
     # escrow already updated
     "agent-registry": 1400,
@@ -21,10 +21,10 @@ CONTRACTS = {
     "voucher-ledger": 2000,
     "fee-collector": 2100,
     "resolver-registry": 2200,
-    "subscription_refund": 2300,
-    "recurring_allowance": 2400,
-    "loyalty_rewards": 2500,
-    "subscription_nft": 2600,
+    "subscription-refund": 2300,
+    "recurring-allowance": 2400,
+    "loyalty-rewards": 2500,
+    "subscription-nft": 2600,
     "attestation": 2700,
     "guardian": 2800,
     "fx-oracle": 2900,

@@ -17,6 +17,7 @@ import { getTTLBumpWorker } from '../workers/ttl-bump-worker';
 import { getArchivalWorker } from '../workers/archival-worker';
 import { getTTLConfig } from '../config/ttl-config';
 import { blockchainService } from './blockchain-service';
+import { renewalSagaRecoveryService } from './renewal-saga/renewal-saga-recovery-service';
 
 export class SchedulerService {
   private jobs: cron.ScheduledTask[] = [];
@@ -116,6 +117,7 @@ export class SchedulerService {
       cron.schedule('*/5 * * * *', async () => {
         try {
           await renewalLockService.releaseExpiredLocks();
+          await renewalSagaRecoveryService.recoverStuckSagas();
         } catch (error) {
           logger.error('Error in scheduled renewal lock cleanup:', error);
         }

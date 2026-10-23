@@ -36,6 +36,7 @@ describe('provider console reads', () => {
       mode: 'staging',
     });
     const providerId = registerRes.body.data.providerId as string;
+    const providerSecret = registerRes.body.data.providerSecret as string;
 
     const challengeRes = await request(app)
       .post(`/api/v3/providers/${providerId}/payout-challenge`)
@@ -47,20 +48,21 @@ describe('provider console reads', () => {
       .send({ signature })
       .expect(200);
 
-    return { providerId, keypair: kp };
+    return { providerId, providerSecret, keypair: kp };
   }
 
   it('keeps an earlier rate-card version after a price change', async () => {
     const app = buildApp();
-    const { providerId } = await onboardProvider(app);
+    const { providerId, providerSecret } = await onboardProvider(app);
 
     const created = await request(app)
       .post(`/api/v3/providers/${providerId}/routes`)
+      .set('x-provider-key', providerSecret)
       .send({
         pathPattern: '/echo/task',
         method: 'POST',
-        unit: 'request',
-        price: 2,
+        unit: 'call',
+        priceStroops: 2,
         quantityExtractor: 'constant:1',
       })
       .expect(201);
@@ -79,28 +81,32 @@ describe('provider console reads', () => {
         path: '/echo/task',
         channelId: 'channel-console',
         stateNonce: 1,
-        rateCardVersion: 'caller-supplied',
       })
       .expect(200);
 
     const revised = await request(app)
       .patch(`/api/v3/providers/${providerId}/routes/${routeId}`)
-      .send({ price: 9 })
+      .set('x-provider-key', providerSecret)
+      .send({ priceStroops: 9 })
       .expect(200);
 
     expect(revised.body.data.version.label).toBe('v2');
-    expect(revised.body.data.version.price).toBe(9);
-    expect(revised.body.data.route.price).toBe(9);
+    expect(revised.body.data.version.priceStroops).toBe(9);
+    expect(revised.body.data.route.priceStroops).toBe(9);
 
-    const cards = await request(app).get(`/api/v3/providers/${providerId}/rate-cards`).expect(200);
+    const cards = await request(app)
+      .get(`/api/v3/providers/${providerId}/rate-cards`)
+      .set('x-provider-key', providerSecret)
+      .expect(200);
     const v1 = cards.body.data.find((version: { label: string }) => version.label === 'v1');
     const v2 = cards.body.data.find((version: { label: string }) => version.label === 'v2');
-    expect(v1.price).toBe(2);
-    expect(v2.price).toBe(9);
+    expect(v1.priceStroops).toBe(2);
+    expect(v2.priceStroops).toBe(9);
     expect(Date.parse(v1.effectiveFrom)).toBeLessThan(Date.parse(v2.effectiveFrom));
 
     const settlements = await request(app)
       .get(`/api/v3/providers/${providerId}/settlements`)
+      .set('x-provider-key', providerSecret)
       .expect(200);
     expect(settlements.body.data).toHaveLength(1);
     expect(settlements.body.data[0]).toMatchObject({
@@ -111,29 +117,34 @@ describe('provider console reads', () => {
       rateCardEffectiveFrom: v1.effectiveFrom,
     });
 
-    const revenue = await request(app).get(`/api/v3/providers/${providerId}/revenue`).expect(200);
+    const revenue = await request(app)
+      .get(`/api/v3/providers/${providerId}/revenue`)
+      .set('x-provider-key', providerSecret)
+      .expect(200);
     expect(revenue.body.data).toEqual({ settled: 0, unsettled: 2, inDispute: 0 });
     expect(revenue.body.data).not.toHaveProperty('total');
   });
 
   it('requires payout verification again after the address changes', async () => {
     const app = buildApp();
-    const { providerId } = await onboardProvider(app);
+    const { providerId, providerSecret } = await onboardProvider(app);
     const next = Keypair.random();
 
     const updated = await request(app)
       .patch(`/api/v3/providers/${providerId}/payout-address`)
+      .set('x-provider-key', providerSecret)
       .send({ payoutAddress: next.publicKey() })
       .expect(200);
     expect(updated.body.data.payoutVerified).toBe(false);
 
     await request(app)
       .post(`/api/v3/providers/${providerId}/routes`)
+      .set('x-provider-key', providerSecret)
       .send({
         pathPattern: '/echo/*',
         method: 'POST',
-        unit: 'request',
-        price: 1,
+        unit: 'call',
+        priceStroops: 1,
         quantityExtractor: 'constant:1',
       })
       .expect(400);
@@ -165,19 +176,19 @@ describe('rate card applicability', () => {
       providerId: provider.providerId,
       pathPattern: '/echo/*',
       method: 'POST',
-      unit: 'request',
-      price: 2,
+      unit: 'call',
+      priceStroops: 2,
       quantityExtractor: 'constant:1',
     });
     const first = store.applicableVersion(route.routeId, route.createdAt);
     expect(first?.label).toBe('v1');
-    expect(first?.price).toBe(2);
+    expect(first?.priceStroops).toBe(2);
 
-    const second = store.reviseRoute(provider.providerId, route.routeId, { price: 9 }).version;
+    const second = store.reviseRoute(provider.providerId, route.routeId, { priceStroops: 9 }).version;
     const beforeChange = new Date(Date.parse(second.effectiveFrom) - 1).toISOString();
-    expect(store.applicableVersion(route.routeId, beforeChange)?.price).toBe(2);
-    expect(store.applicableVersion(route.routeId, second.effectiveFrom)?.price).toBe(9);
-    expect(store.listRateCards(provider.providerId).find((version) => version.label === 'v1')?.price).toBe(2);
+    expect(store.applicableVersion(route.routeId, beforeChange)?.priceStroops).toBe(2);
+    expect(store.applicableVersion(route.routeId, second.effectiveFrom)?.priceStroops).toBe(9);
+    expect(store.listRateCards(provider.providerId).find((version) => version.label === 'v1')?.priceStroops).toBe(2);
   });
 
   it('sums settled, unsettled, and in-dispute amounts in separate buckets', () => {
@@ -195,9 +206,9 @@ describe('rate card applicability', () => {
       receiptId: 'receipt',
       method: 'POST',
       pathPattern: '/echo/*',
-      unit: 'request',
+      unit: 'call',
       quantity: 1,
-      price: 1,
+      priceStroops: 1,
       rateCardVersion: 'v1',
       rateCardEffectiveFrom: '2026-01-01T00:00:00.000Z',
       meteredAt: '2026-01-02T00:00:00.000Z',

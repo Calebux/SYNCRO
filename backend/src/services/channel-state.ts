@@ -188,6 +188,25 @@ export class ChannelStateService {
     return null;
   }
 
+    /**
+   * Compensating action for applyRenewalPayment — credits the channel
+   * back by the same amount when a later saga step fails after an
+   * off-chain renewal payment was already applied.
+   */
+  async reverseRenewalPayment(
+    channelId: string,
+    userId: string,
+    subscriptionId: string,
+    amount: number,
+  ): Promise<PaymentChannelRecord> {
+    logger.info('Reversing off-chain channel renewal payment (saga compensation)', {
+      channelId,
+      subscriptionId,
+      amount,
+    });
+    return this.applyRenewalPayment(channelId, userId, subscriptionId, -amount);
+  }
+
   /**
    * Applies an off-chain state update and records the payment locally (not on-chain).
    */

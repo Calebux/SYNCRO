@@ -2,6 +2,8 @@ import logger from '../config/logger';
 import { supabase } from '../config/database';
 import { env } from '../config/env';
 import { blockchainService } from './blockchain-service';
+import type { BatchingPolicy, BatchingContext, SubmissionDecision } from '@syncro/settlement';
+import { shouldSubmit } from '@syncro/settlement';
 
 export interface BatchConfig {
   /** Minimum items before a batch is flushed (unless maxWaitMs elapsed). */
@@ -17,6 +19,8 @@ export interface BatchConfig {
   maxQueueDepth: number;
   /** Max concurrent submitBatch calls (in-flight). Extra processPending calls no-op. */
   maxInFlightBatches: number;
+  /** Optional batching policy from the settlement package. */
+  policy?: BatchingPolicy;
 }
 
 export interface PendingSettlement {
@@ -195,6 +199,25 @@ export class SettlementBatcher {
     const capped = batch.slice(0, this.config.maxBatchSize);
     const batchId = `batch_${Date.now()}_${capped.length}`;
     const shuffled = this.shuffle([...capped]);
+
+    // Consult the package's batching policy if one is configured
+    if (this.config.policy) {
+      const context: BatchingContext = {
+        channelId: '',
+        accumulatedValue: BigInt(shuffled.reduce((sum, s) => sum + s.amount, 0)),
+        elapsedMs: 0,
+        channelCap: BigInt(0),
+        committedValue: BigInt(0),
+      };
+      // shouldSubmit accepts (context, policy) — if submission is deferred, log and skip
+      if (!shouldSubmit(context, this.config.policy).submit) {
+        logger.info('Batching policy deferred submission', {
+          batchId,
+          pendingCount: shuffled.length,
+        });
+        return { batchId: '' };
+      }
+    }
 
     logger.info('Submitting settlement batch', {
       batchId,

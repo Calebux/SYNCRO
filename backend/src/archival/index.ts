@@ -8,3 +8,11 @@
 export { SnapshotStorage } from './snapshot-storage';
 export { ArchivalIndex, ArchivalStatus, ArchivalRecord, getArchivalIndex, resetArchivalIndex } from './archival-index';
 export { Archiver, EntryToArchive, ArchivalResult, getArchiver, resetArchiver } from './archiver';
+export {
+  UsageRetentionArchiver,
+  UsageRetentionRepository,
+  RetentionRecord,
+  RetentionSource,
+  USAGE_RETENTION_POLICY,
+  usageRetentionArchiver,
+} from './usage-retention-archiver';

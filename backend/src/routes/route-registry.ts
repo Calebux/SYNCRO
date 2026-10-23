@@ -478,9 +478,12 @@ const ALL_ROUTES: RouteDescriptor[] = [
     method: 'ALL',
     path: '/v3',
     version: 'v3',
-    auth: 'public',
+    auth: 'provider',
     tags: ['Provider'],
-    summary: 'Provider registration, payout verification, routes, rate cards, and settlements',
+    summary:
+      'Provider management (auth: provider key via x-provider-key header). ' +
+      'GET /receipts/:receiptId and POST /providers/:providerId/payout-challenge remain public ' +
+      '(deliberate decision — challenge endpoints must be reachable by agents without a provider session).',
     handler: v3ProviderRoutes,
   },
 ];

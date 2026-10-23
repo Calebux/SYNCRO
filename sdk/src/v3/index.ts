@@ -1,6 +1,5 @@
 export {
   verifyReceipt,
-  signReceiptForTests,
   type IndependentReceipt,
   type VerifyReceiptInput,
   type VerifyReceiptResult,

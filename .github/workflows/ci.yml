@@ -43,6 +43,12 @@ jobs:
           - 'shared/**'
         contracts:
           - 'contracts/**'
+        metering:
+          - 'packages/metering/**'
+        settlement:
+          - 'packages/settlement/**'
+        v3:
+          - 'backend/src/v3/**'
         docs:
           - 'docs/**'
           - 'README.md'
@@ -221,6 +227,43 @@ jobs:
           retention-days: 7
 
   # ──────────────────────────────────────────────
+  # Test v3 Packages — metering & settlement have their own vitest suites
+  # (no workspace lockfile, so this job installs locally instead of using
+  # the lockfile-based install-deps composite).
+  # ──────────────────────────────────────────────
+  test-v3-packages:
+    name: Test v3 Packages (${{ matrix.package }})
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs.force_full_run == 'true' ||
+      (matrix.package == 'metering' && needs.detect-changes.outputs.metering == 'true') ||
+      (matrix.package == 'settlement' && needs.detect-changes.outputs.settlement == 'true')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [metering, settlement]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        working-directory: packages/${{ matrix.package }}
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck v3 package
+        working-directory: packages/${{ matrix.package }}
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: Run v3 package tests
+        working-directory: packages/${{ matrix.package }}
+        run: npm test -- --run
+
+  # ──────────────────────────────────────────────
   # Security Audit — dependency vulnerability scan per workspace
   # ──────────────────────────────────────────────
   security-audit:
@@ -336,7 +379,7 @@ jobs:
   test-backend:
     name: Test Backend (Integration)
     needs: [detect-changes, validate-env, security-audit]
-    if: ${{ needs.detect-changes.outputs.force_full_run == 'true' || needs.detect-changes.outputs.backend == 'true' }}
+    if: ${{ needs.detect-changes.outputs.force_full_run == 'true' || needs.detect-changes.outputs.backend == 'true' || needs.detect-changes.outputs.metering == 'true' || needs.detect-changes.outputs.settlement == 'true' || needs.detect-changes.outputs.v3 == 'true' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -508,7 +551,7 @@ jobs:
   admission-budget-gate:
     name: Admission Budget Gate
     needs: [detect-changes, test-backend]
-    if: ${{ needs.detect-changes.outputs.force_full_run == 'true' || needs.detect-changes.outputs.backend == 'true' }}
+    if: ${{ needs.detect-changes.outputs.force_full_run == 'true' || needs.detect-changes.outputs.backend == 'true' || needs.detect-changes.outputs.metering == 'true' || needs.detect-changes.outputs.settlement == 'true' || needs.detect-changes.outputs.v3 == 'true' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -714,6 +757,9 @@ jobs:
 
       - name: Run doc validation
         run: node scripts/validate-docs.js
+
+      - name: Ensure error reference is up to date
+        run: node scripts/check-error-reference.mjs
 
       - name: Comment on PR if validation fails
         if: failure()

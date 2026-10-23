@@ -27,6 +27,11 @@ function ver(cmd) {
   return (r.stdout || r.stderr || "").trim().split("\n")[0];
 }
 
+function exec(cmd) {
+  const r = spawnSync("bash", ["-lc", cmd], { encoding: "utf8" });
+  return { status: r.status, stdout: r.stdout?.trim() || "", stderr: r.stderr?.trim() || "" };
+}
+
 function check(name, bin, hint, versionCmd, expectPrefix) {
   const found = which(bin);
   if (!found) {
@@ -59,6 +64,35 @@ if (!which("soroban") && which("stellar")) {
 }
 check("Docker", "docker", "Install Docker Desktop / engine. Required for the v3 local stack.", "docker --version");
 check("Docker Compose", "docker compose", "Bundled with Docker Desktop; install separately on Linux.", "docker compose version");
+
+// Check if Docker daemon is running
+if (which("docker")) {
+  const dockerInfo = exec("docker info 2>&1");
+  if (dockerInfo.status !== 0 || dockerInfo.stderr.includes("Cannot connect")) {
+    missing.push("Docker daemon is not running. Start Docker Desktop or run: sudo systemctl start docker");
+  } else {
+    ok.push("Docker daemon: running");
+  }
+}
+
+// Check wasm32-unknown-unknown target
+if (which("rustup")) {
+  const targets = exec("rustup target list --installed");
+  if (targets.status === 0 && targets.stdout.includes("wasm32-unknown-unknown")) {
+    ok.push("Rust target wasm32-unknown-unknown: installed");
+  } else {
+    missing.push("Rust target wasm32-unknown-unknown is not installed. Add with: rustup target add wasm32-unknown-unknown");
+  }
+}
+
+// Check for ports in use (common dev ports)
+const ports = [3000, 5432, 6379, 8080];
+for (const port of ports) {
+  const check = exec(`lsof -i :${port} -sTCP:LISTEN -t 2>/dev/null || netstat -tuln 2>/dev/null | grep :${port}`);
+  if (check.stdout) {
+    missing.push(`Port ${port} is already in use. Stop the process or change the port configuration.`);
+  }
+}
 
 const redis = which("redis-server") || which("redis-cli");
 if (!redis) {

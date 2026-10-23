@@ -320,7 +320,7 @@ npm run validate:secrets
 ## Related Documentation
 
 - [Secret Handling Audit Report](./SECRET_HANDLING_AUDIT_REPORT.md)
-- [Secret Rotation Policy](./docs/SECRET_ROTATION_POLICY.md)
+- [Secret Rotation Policy](../SECRET_ROTATION_POLICY.md)
 - [Secret Handling Action Items](./SECRET_HANDLING_ACTION_ITEMS.md)
 - [Security Audit Matrix](./SECURITY_AUDIT_MATRIX_API_ROUTES.md)
 

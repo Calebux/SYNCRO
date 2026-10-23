@@ -356,10 +356,10 @@ DROP INDEX IF EXISTS idx_monthly_budgets_user_category;
 
 ## Related Documentation
 
-- [Performance Indexes Implementation](./backend/docs/PERFORMANCE_INDEXES_IMPLEMENTATION.md)
-- [Query Plans Documentation](./backend/docs/PERFORMANCE_INDEXES_QUERY_PLANS.md)
-- [Analytics Service](./backend/src/services/analytics-service.ts)
-- [Backend Architecture](./backend/ARCHITECTURE.md)
+- [Performance Indexes Implementation](../../backend/docs/PERFORMANCE_INDEXES_IMPLEMENTATION.md)
+- [Query Plans Documentation](../../backend/docs/PERFORMANCE_INDEXES_QUERY_PLANS.md)
+- [Analytics Service](../../backend/src/services/analytics-service.ts)
+- [Backend Architecture](../../backend/ARCHITECTURE.md)
 
 ## Conclusion
 

@@ -39,6 +39,27 @@ const DEFAULT_POLICY: Required<DefaultRetryPolicy> = {
   maxTotalDurationMs: 10_000,
 };
 
+/**
+ * Maximum wall-clock span a single logical call can occupy across all retries.
+ *
+ * A logical call is bounded by `maxTotalDurationMs` (the retry loop stops once
+ * the next delay would push elapsed time past this budget) plus the duration of
+ * the final in-flight attempt. The meter's idempotency-key TTL must exceed this
+ * span so a retried call at the edge of the window is still deduplicated.
+ *
+ * See issue #1644: meter TTL must be >= this value plus a safety margin.
+ */
+export const SDK_MAX_RETRY_SPAN_MS = DEFAULT_POLICY.maxTotalDurationMs;
+
+/**
+ * Resolve the maximum retry span for a given policy. Mirrors the retry loop's
+ * budget: the loop never sleeps past `maxTotalDurationMs`, so the span is the
+ * configured total-duration budget.
+ */
+export function resolveMaxRetrySpanMs(policy: DefaultRetryPolicy = {}): number {
+  return policy.maxTotalDurationMs ?? DEFAULT_POLICY.maxTotalDurationMs;
+}
+
 function computeJitteredDelay(
   attempt: number,
   policy: Required<DefaultRetryPolicy>,
@@ -70,6 +91,11 @@ export class LogicalCallManager {
       sleepMs: runtime.sleepMs ?? ((ms: number) => new Promise((r) => setTimeout(r, ms))),
       random: runtime.random ?? (() => Math.random()),
     };
+  }
+
+  /** Maximum retry span for this manager's configured policy, in milliseconds. */
+  get maxRetrySpanMs(): number {
+    return this.policy.maxTotalDurationMs;
   }
 
   beginLogicalCall(options: LogicalCallOptions = {}): string {

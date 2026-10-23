@@ -683,5 +683,5 @@ After successful migration:
 
 1. Review [Security Considerations](./security-considerations.md)
 2. Read [Integration Guide](./integration-guide.md)
-3. Run [Test Vectors](./test-vectors.md)
-4. Deploy with [Deployment Guide](./deployment-guide.md)
+3. Run Test Vectors
+4. Deploy with Deployment Guide

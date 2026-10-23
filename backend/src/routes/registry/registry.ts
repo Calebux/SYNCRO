@@ -38,7 +38,7 @@ export class RouteRegistry {
 
       if (d.auth === undefined || d.auth === null) {
         errors.push(
-          `${label}: auth policy is missing — every route must declare auth explicitly (public | user | admin)`,
+          `${label}: auth policy is missing — every route must declare auth explicitly (public | user | admin | provider)`,
         );
       }
 

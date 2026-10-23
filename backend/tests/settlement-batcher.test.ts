@@ -1,12 +1,21 @@
 /**
  * Settlement batcher unit + load-style tests.
  * Verifies bounded batching, backpressure, and metrics under load.
+ * Also exercises the @syncro/settlement package through its public API.
  */
 
 import {
   SettlementBatcher,
   SettlementBackpressureError,
 } from '../src/services/settlement-batcher';
+import {
+  BatchingPolicy,
+  BatchingContext,
+  shouldSubmit,
+  defaultBatchingPolicy,
+  deriveDefaultValueThreshold,
+  MEASURED_GAS_COSTS,
+} from '@syncro/settlement';
 
 jest.mock('../src/config/logger', () => ({
   __esModule: true,
@@ -214,5 +223,94 @@ describe('SettlementBatcher', () => {
     expect(m.batchesSubmitted).toBe(21);
     expect(m.processed).toBe(21 * maxBatchSize);
     expect(m.lastBatchSize).toBeLessThanOrEqual(maxBatchSize);
+  });
+});
+
+describe('@syncro/settlement package public API', () => {
+  it('derives a default value threshold from measured gas costs', () => {
+    const threshold = deriveDefaultValueThreshold();
+    expect(threshold).toBe(MEASURED_GAS_COSTS.submissionBaseCost * 10n);
+  });
+
+  it('derives a custom value threshold from custom gas costs', () => {
+    const costs = {
+      perOperationCost: 100n,
+      submissionBaseCost: 500_000n,
+      submissionPerOperationCost: 100n,
+    };
+    const threshold = deriveDefaultValueThreshold(costs);
+    expect(threshold).toBe(5_000_000n);
+  });
+
+  it('defaultBatchingPolicy produces a valid policy', () => {
+    const policy = defaultBatchingPolicy();
+    expect(policy.valueThreshold).toBeGreaterThan(0n);
+    expect(policy.maxIntervalMs).toBe(60 * 60 * 1000);
+    expect(policy.capApproachRatio).toBe(0.9);
+    expect(policy.exposureCeiling).toBeGreaterThan(0n);
+  });
+
+  it('shouldSubmit triggers on value threshold', () => {
+    const policy = defaultBatchingPolicy();
+    const context: BatchingContext = {
+      channelId: 'ch_test',
+      accumulatedValue: policy.valueThreshold,
+      elapsedMs: 0,
+      channelCap: 1_000_000n,
+      committedValue: 0n,
+    };
+    const decision = shouldSubmit(context, policy);
+    expect(decision.submit).toBe(true);
+    expect(decision.triggers).toContain('value-threshold');
+  });
+
+  it('shouldSubmit triggers on max interval', () => {
+    const policy = defaultBatchingPolicy();
+    const context: BatchingContext = {
+      channelId: 'ch_test',
+      accumulatedValue: 0n,
+      elapsedMs: policy.maxIntervalMs,
+      channelCap: 1_000_000n,
+      committedValue: 0n,
+    };
+    const decision = shouldSubmit(context, policy);
+    expect(decision.submit).toBe(true);
+    expect(decision.triggers).toContain('max-interval');
+  });
+
+  it('shouldSubmit does not trigger when below all thresholds', () => {
+    const policy = defaultBatchingPolicy();
+    const context: BatchingContext = {
+      channelId: 'ch_test',
+      accumulatedValue: 0n,
+      elapsedMs: 0,
+      channelCap: 1_000_000n,
+      committedValue: 0n,
+    };
+    const decision = shouldSubmit(context, policy);
+    expect(decision.submit).toBe(false);
+    expect(decision.triggers).toHaveLength(0);
+  });
+
+  it('shouldSubmit triggers on force flush', () => {
+    const policy = defaultBatchingPolicy();
+    const context: BatchingContext = {
+      channelId: 'ch_test',
+      accumulatedValue: 0n,
+      elapsedMs: 0,
+      channelCap: 1_000_000n,
+      committedValue: 0n,
+      forceFlush: true,
+    };
+    const decision = shouldSubmit(context, policy);
+    expect(decision.submit).toBe(true);
+    expect(decision.triggers).toContain('operator-forced');
+  });
+
+  it('BatchingPolicy is usable with SettlementBatcher', () => {
+    const policy = defaultBatchingPolicy();
+    const batcher = new SettlementBatcher({ policy });
+    const cfg = batcher.getConfig();
+    expect(cfg.policy).toBe(policy);
   });
 });

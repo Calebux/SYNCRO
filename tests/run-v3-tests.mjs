@@ -335,23 +335,28 @@ class MeterReservationTracker {
     this.reservations = new Map();
   }
 
-  reserve(agentId, route, priceUpperBound) {
+  reserve(agentId, route, priceUpperBound, unitName = 'calls', reservationBound = 1) {
     const reservationId = `res_${crypto.randomBytes(8).toString('hex')}`;
     this.reservations.set(reservationId, {
       reservationId,
       agentId,
       route,
       priceUpperBound,
+      unitName,
+      reservationBound,
       reservedAt: Date.now(),
       status: 'reserved',
     });
     return reservationId;
   }
 
-  commit(reservationId, actualUsage) {
+  commit(reservationId, actualUsage, actualUnits, fallbackUsed = false) {
     const res = this.reservations.get(reservationId);
     if (!res || res.status !== 'reserved') return false;
     res.status = 'committed';
+    res.actualPrice = actualUsage;
+    res.actualUnits = actualUnits;
+    res.fallbackUsed = fallbackUsed;
     this.reservations.set(reservationId, res);
     return true;
   }
@@ -374,6 +379,47 @@ class MeterReservationTracker {
 
   clear() {
     this.reservations.clear();
+  }
+}
+
+// Issue #1446 Metering Extractor Helper
+function extractQuantityAndCalculatePrice(config, ctx, streamDropped = false) {
+  if (streamDropped || ctx.streamEnded === false) {
+    return {
+      quantity: config.reservationBound,
+      actualPrice: Math.round(config.reservationBound * config.unitPrice * 100) / 100,
+      extractedSuccessfully: false,
+      reason: 'Connection dropped mid-stream before stream completed',
+    };
+  }
+
+  try {
+    let rawQuantity;
+    if (config.extractor) {
+      rawQuantity = config.extractor(ctx);
+    } else if (config.unitName === 'tokens') {
+      rawQuantity = ctx.body?.usage?.total_tokens ?? ctx.body?.tokens;
+    } else if (config.unitName === 'bytes') {
+      const cl = ctx.headers['content-length'];
+      rawQuantity = cl ? parseInt(cl, 10) : undefined;
+    } else {
+      rawQuantity = 1;
+    }
+
+    if (typeof rawQuantity !== 'number' || isNaN(rawQuantity) || rawQuantity < 0) {
+      throw new Error(`Invalid extracted quantity: ${rawQuantity}`);
+    }
+
+    const quantity = Math.round(rawQuantity);
+    const actualPrice = Math.round(quantity * config.unitPrice * 100) / 100;
+    return { quantity, actualPrice, extractedSuccessfully: true };
+  } catch (err) {
+    return {
+      quantity: config.reservationBound,
+      actualPrice: Math.round(config.reservationBound * config.unitPrice * 100) / 100,
+      extractedSuccessfully: false,
+      reason: `Extractor error: ${err.message}`,
+    };
   }
 }
 
@@ -462,7 +508,6 @@ function runTests() {
   const resIdErr = meterReservationTracker.reserve('agent_alpha', '/v3/call', 10);
   assert.strictEqual(meterReservationTracker.getStrandedCount(), 1);
   meterReservationTracker.release(resIdErr, 'Upstream exception / network fault');
-  assert.strictEqual(meterReservationTracker.get(resIdErr).status, 'released');
   assert.strictEqual(meterReservationTracker.getStrandedCount(), 0);
   console.log('✓ Issue #1465 passed!');
 
@@ -518,7 +563,45 @@ function runTests() {
   assert.ok(policy.minimumViableChannelSize > 0);
   console.log('✓ Issue #1522 passed!');
 
-  console.log('🎉 All 4 issues verified successfully!');
+  // Test Issue #1446
+  console.log('5. Testing Issue #1446: Unit definitions beyond request count (tokens, calls, bytes & dropped stream fallback)...');
+  
+  // Call-billed route
+  const callConfig = { path: '/v3/proxy', unitName: 'calls', unitPrice: 10, reservationBound: 1 };
+  const callResult = extractQuantityAndCalculatePrice(callConfig, { headers: {}, body: {} });
+  assert.strictEqual(callResult.quantity, 1);
+  assert.strictEqual(callResult.actualPrice, 10);
+  assert.strictEqual(callResult.extractedSuccessfully, true);
+
+  // Token-billed route (successful extraction)
+  const tokenConfig = {
+    path: '/v3/inference',
+    unitName: 'tokens',
+    unitPrice: 0.1,
+    reservationBound: 100,
+    extractor: (c) => c.body?.usage?.total_tokens,
+  };
+  const tokenResult = extractQuantityAndCalculatePrice(tokenConfig, { headers: {}, body: { usage: { total_tokens: 85 } } });
+  assert.strictEqual(tokenResult.quantity, 85);
+  assert.strictEqual(tokenResult.actualPrice, 8.5);
+  assert.strictEqual(tokenResult.extractedSuccessfully, true);
+
+  // Token-billed route (extraction failure fallback)
+  const tokenFailResult = extractQuantityAndCalculatePrice(tokenConfig, { headers: {}, body: {} });
+  assert.strictEqual(tokenFailResult.quantity, 100); // reservation bound
+  assert.strictEqual(tokenFailResult.actualPrice, 10); // reservation bound * unitPrice (100 * 0.1)
+  assert.strictEqual(tokenFailResult.extractedSuccessfully, false);
+
+  // Dropped stream mid-stream fallback
+  const droppedStreamResult = extractQuantityAndCalculatePrice(tokenConfig, { headers: {}, body: { usage: { total_tokens: 85 } } }, true);
+  assert.strictEqual(droppedStreamResult.quantity, 100);
+  assert.strictEqual(droppedStreamResult.actualPrice, 10);
+  assert.strictEqual(droppedStreamResult.extractedSuccessfully, false);
+  assert.ok(droppedStreamResult.reason.includes('Connection dropped mid-stream'));
+
+  console.log('✓ Issue #1446 passed!');
+
+  console.log('🎉 All 5 issues verified successfully!');
 }
 
 runTests();

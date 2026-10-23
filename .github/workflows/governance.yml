@@ -48,6 +48,12 @@ jobs:
           - 'shared/**'
         shared:
           - 'shared/**'
+        metering:
+          - 'packages/metering/**'
+        settlement:
+          - 'packages/settlement/**'
+        v3:
+          - 'backend/src/v3/**'
         docs:
           - 'docs/**'
           - 'README.md'

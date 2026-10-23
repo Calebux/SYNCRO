@@ -34,7 +34,7 @@ Successfully implemented a global, unique contract error-code registry and added
 
 **Evidence**:
 - File: `contracts/errors.json` - 195+ error mappings for all contracts
-- File: `contracts/integration_tests/tests/error_registry_tests.rs` - Comprehensive validation tests
+- File: `contracts/integration-tests/tests/error_registry_tests.rs` - Comprehensive validation tests
 - Test coverage:
   - `test_error_code_ranges_are_disjoint` - Verifies no overlaps
   - `test_error_code_conversion_round_trip` - Encode/decode verification
@@ -129,7 +129,7 @@ fx-oracle, subscription_logging, subscription_renewal
 - **`backend/src/services/contract-version-manager.ts`** - Version tracking and logging
 
 #### 6. Testing
-- **`contracts/integration_tests/tests/error_registry_tests.rs`** - 7 comprehensive tests
+- **`contracts/integration-tests/tests/error_registry_tests.rs`** - 7 comprehensive tests
 
 #### 7. Documentation
 - **`contracts/README.md`** - Added ~250 lines documenting:
@@ -177,7 +177,7 @@ fx-oracle, subscription_logging, subscription_renewal
 
 ### Run Error Registry Tests
 ```bash
-cd contracts/integration_tests
+cd contracts/integration-tests
 cargo test --test error_registry_tests -- --nocapture
 ```
 
@@ -223,7 +223,7 @@ python3 scripts/generate-error-registry.py
 2. `contracts/contracts/common/src/lib.rs`
 3. `contracts/ERROR_CODE_REGISTRY.md`
 4. `contracts/errors.json`
-5. `contracts/integration_tests/tests/error_registry_tests.rs`
+5. `contracts/integration-tests/tests/error_registry_tests.rs`
 6. `contracts/scripts/generate-error-registry.py`
 7. `contracts/scripts/batch-update-contracts.py`
 8. `backend/src/services/contract-version-manager.ts`

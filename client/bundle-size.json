@@ -17,8 +17,7 @@
       "/dpa": 150,
       "/email-preferences": 200,
       "/offline": 150,
-      "/oauth-success": 150,
-      "/oauth-error": 150
+      "/oauth-success": 150
     },
     "perChunk": 200,
     "forbiddenInRoutes": {

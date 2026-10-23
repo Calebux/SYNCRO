@@ -16,9 +16,9 @@ This document defines clear ownership for every major directory in the SYNCRO re
 - Enable efficient escalation and handoff procedures
 
 **Related Documents**:
-- [CODEOWNERS](./.github/CODEOWNERS) - GitHub enforcement of ownership
-- [Code Review Process](./docs/code-review-process.md) - Review and escalation procedures
-- [Contributing Guide](./CONTRIBUTING.md) - Contribution guidelines
+- [CODEOWNERS](../../.github/CODEOWNERS) - GitHub enforcement of ownership
+- [Code Review Process](../code-review-process.md) - Review and escalation procedures
+- [Contributing Guide](../../CONTRIBUTING.md) - Contribution guidelines
 
 ---
 
@@ -673,10 +673,10 @@ When ownership changes:
 
 ## Related Documentation
 
-- [CODEOWNERS](./.github/CODEOWNERS) - GitHub ownership enforcement
-- [Code Review Process](./docs/code-review-process.md) - Review procedures
-- [Contributing Guide](./CONTRIBUTING.md) - Contribution guidelines
-- [Branch Protection](./docs/branch-protection.md) - Branch protection rules
+- [CODEOWNERS](../../.github/CODEOWNERS) - GitHub ownership enforcement
+- [Code Review Process](../code-review-process.md) - Review procedures
+- [Contributing Guide](../../CONTRIBUTING.md) - Contribution guidelines
+- [Branch Protection](../branch-protection.md) - Branch protection rules
 - [CurrentState.md](./CurrentState.md) - Project status
 
 ---

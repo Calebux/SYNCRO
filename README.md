@@ -15,7 +15,7 @@ the request.
 > That product is being retired. The settlement primitives it produced — payment
 > channels, scoped agent authority, on-chain spend caps, and an escrow dispute path
 > — are the foundation of the current direction. See
-> [`docs/architecture/v3-metered-rails.md`](./docs/architecture/v3-metered-rails.md)
+> [`docs/architecture.md`](./docs/architecture.md)
 > for the target architecture and the migration plan.
 
 ## Why metering instead of subscriptions
@@ -62,7 +62,7 @@ SYNCRO bills what actually happened:
 | Component | Source | Role |
 |---|---|---|
 | **Gateway** | `backend/src/routes` | 402 challenge, key → identity, scope + cap admission |
-| **Meter** | `quota_guard/` | usage counting, aggregation windows, idempotency, degraded mode |
+| **Meter** | `packages/metering` | usage counting, aggregation windows, idempotency, degraded mode |
 | **Settlement engine** | `backend/src/services` | channel lifecycle, state signing, batching, reconciliation |
 | **Registry** | `contracts/agent-registry` | agent identity and scoped delegated authority |
 | **Channels** | `contracts/payment-channel` | open, submit_state, initiate_close, dispute, finalize, top_up |
@@ -109,3 +109,11 @@ the CI enforcement model, and how to add a new variable.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution guidelines and development
 setup instructions.
+
+## Handsoff notes
+
+<!-- handsoff-issue-1630 -->
+- #1630: [v3][gateway] Specify canonical request hashing for receipt binding
+
+<!-- handsoff-issue-1633 -->
+- #1633: [v3][backend] Remove the retired subscription services still in `backend/src/services`

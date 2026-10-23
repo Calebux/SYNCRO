@@ -96,10 +96,31 @@
         "default": "./dist/v3/index.cjs"
       }
     },
+    "./v3/receipt-browser": {
+      "import": {
+        "types": "./dist/v3/receipt-browser.d.ts",
+        "default": "./dist/v3/receipt-browser.js"
+      },
+      "require": {
+        "types": "./dist/v3/receipt-browser.d.cts",
+        "default": "./dist/v3/receipt-browser.cjs"
+      }
+    },
+    "./testing": {
+      "import": {
+        "types": "./dist/testing/index.d.ts",
+        "default": "./dist/testing/index.js"
+      },
+      "require": {
+        "types": "./dist/testing/index.d.cts",
+        "default": "./dist/testing/index.cjs"
+      }
+    },
     "./package.json": "./package.json"
   },
   "bin": {
-    "syncro-verify-receipt": "./dist/cli/verify-receipt.js"
+    "syncro-verify-receipt": "./dist/cli/verify-receipt.js",
+    "syncro-receipt-verify": "./dist/cli/receipt-verify.js"
   },
   "engines": {
     "node": ">=18"
@@ -162,7 +183,7 @@
     "publint": "^0.3.12",
     "ts-jest": "^29.2.5",
     "ts-node": "^10.9.2",
-    "tsup": "^8.5.0",
+    "tsup": "^9.0.0",
     "typescript": "^7.0.2"
   }
 }

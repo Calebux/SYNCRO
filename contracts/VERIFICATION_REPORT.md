@@ -11,7 +11,7 @@
 ### Issue #1235: Admin Multisig Migration ✅
 
 #### 1. Guardian Multisig Module ✅
-- **File**: `/workspaces/SYNCRO/contracts/contracts/subscription_renewal/src/admin_multisig.rs`
+- **File**: `/workspaces/SYNCRO/contracts/contracts/subscription-renewal/src/admin_multisig.rs`
 - **Size**: 445 lines
 - **Key Components**:
   - [x] `init_admin()` - Single-admin initialization
@@ -25,7 +25,7 @@
   - [x] Event types: `AdminProposalCreated`, `AdminProposalApproved`, `AdminProposalExecuted`, `GuardianSetChanged`
 
 #### 2. Integration into subscription_renewal.rs ✅
-- **Location**: `/workspaces/SYNCRO/contracts/contracts/subscription_renewal/src/lib.rs`
+- **Location**: `/workspaces/SYNCRO/contracts/contracts/subscription-renewal/src/lib.rs`
 - **Module Import**: Line 8 - `mod admin_multisig;`
 - **API Functions**:
   - [x] `init()` - Updated to use `admin_multisig::init_admin()`
@@ -36,7 +36,7 @@
   - [x] `set_user_cap()` + `propose_set_user_cap()` + `execute_set_user_cap()` - Dual-path API
 
 #### 3. Comprehensive Test Suite ✅
-- **File**: `/workspaces/SYNCRO/contracts/contracts/subscription_renewal/src/tests/admin_multisig_tests.rs`
+- **File**: `/workspaces/SYNCRO/contracts/contracts/subscription-renewal/src/tests/admin_multisig_tests.rs`
 - **Size**: 285 lines
 - **Test Coverage** (14 tests):
   - [x] Single-admin initialization
@@ -161,8 +161,8 @@
 
 ### New Files Created (1,750 total lines)
 ```
-contracts/contracts/subscription_renewal/src/admin_multisig.rs           445 lines
-contracts/contracts/subscription_renewal/src/tests/admin_multisig_tests.rs 285 lines
+contracts/contracts/subscription-renewal/src/admin_multisig.rs           445 lines
+contracts/contracts/subscription-renewal/src/tests/admin_multisig_tests.rs 285 lines
 contracts/contracts/src/budget_harness.rs                               215 lines
 contracts/budgets.json                                                  253 lines
 contracts/IMPLEMENTATION_SUMMARY.md                                     323 lines
@@ -170,7 +170,7 @@ contracts/IMPLEMENTATION_SUMMARY.md                                     323 line
 
 ### Modified Files
 ```
-contracts/contracts/subscription_renewal/src/lib.rs                     +130 lines (module import + dual-path APIs)
+contracts/contracts/subscription-renewal/src/lib.rs                     +130 lines (module import + dual-path APIs)
 contracts/DEPLOYMENT.md                                                 +180 lines (multisig procedures, rotation runbook)
 .github/workflows/contracts.yml                                         +40 lines (budget measurement & validation)
 ```

@@ -32,6 +32,13 @@ const eslintConfig = defineConfig([
           selector: "MemberExpression[object.name='process'][property.name='env']",
           message: "Direct process.env access is banned outside the config module. Import `env` from `src/config/env` instead.",
         },
+        // Flag Number() calls on balance fields — they silently lose precision
+        // above Number.MAX_SAFE_INTEGER (2^53). Use encodeBalance/decodeBalance
+        // from @syncro/shared/bigint-balance instead.
+        {
+          selector: "CallExpression[callee.name='Number'][arguments.0.name=/balance|Balance/]",
+          message: "Number() on balance fields loses precision for bigint values. Use encodeBalance() from @syncro/shared/bigint-balance to serialize as a decimal string.",
+        },
       ],
     },
   },

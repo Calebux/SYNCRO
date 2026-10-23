@@ -54,7 +54,7 @@ export const SOROBAN_CONTRACT_INTERFACES: SorobanContractInterface[] = [
   },
   {
     contract: 'SubscriptionLogging',
-    source: 'contracts/contracts/subscription_logging/src/lib.rs',
+    source: 'contracts/contracts/subscription-logging/src/lib.rs',
     functions: [
       {
         name: 'record_log',
@@ -84,7 +84,7 @@ export const SOROBAN_CONTRACT_INTERFACES: SorobanContractInterface[] = [
   },
   {
     contract: 'SubscriptionRenewal',
-    source: 'contracts/contracts/subscription_renewal/src/lib.rs',
+    source: 'contracts/contracts/subscription-renewal/src/lib.rs',
     functions: [
       {
         name: 'renew',

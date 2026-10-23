@@ -51,5 +51,5 @@ We implemented **Payment Channels with Pre-Authorized Execution Windows** in the
 
 ## Compliance & Verification
 
-- Soroban contract functions `init_sub`, `approve_renewal`, `acquire_renewal_lock`, and `renew` in `contracts/subscription_renewal/` enforce window checks.
+- Soroban contract functions `init_sub`, `approve_renewal`, `acquire_renewal_lock`, and `renew` in `contracts/subscription-renewal/` enforce window checks.
 - Verification tests in `contracts/` test suite confirm that expired or over-budget renewals fail deterministically.

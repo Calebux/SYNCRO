@@ -49,7 +49,7 @@ export interface VerifyReceiptResult {
   failures: ReceiptFailure[];
 }
 
-function canonicalizeReceiptForSigning(receipt: IndependentReceipt): string {
+export function canonicalizeReceiptForSigning(receipt: IndependentReceipt): string {
   const payload = {
     providerId: receipt.providerId,
     channelId: receipt.channelId,
@@ -68,14 +68,6 @@ function canonicalizeReceiptForSigning(receipt: IndependentReceipt): string {
       }, {}),
   };
   return JSON.stringify(payload);
-}
-
-export function signReceiptForTests(
-  receipt: IndependentReceipt,
-  providerPrivateKeyPem: string,
-): string {
-  const payload = canonicalizeReceiptForSigning(receipt);
-  return signDetached(null, Buffer.from(payload, "utf8"), providerPrivateKeyPem).toString("hex");
 }
 
 function verifyDetachedSignature(

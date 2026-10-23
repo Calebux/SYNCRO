@@ -672,8 +672,8 @@ Review these monthly to maintain maximum privacy:
 ## 12. Further Resources
 
 ### SYNCRO Documentation
-- [Stealth Address Specification](./stealth-addresses.md) — Technical deep dive
-- [Metadata Encryption Guide](./metadata-encryption.md) — How encryption works
+- [Stealth Address Specification](../../sdk/docs/privacy/stealth-addresses.md) — Technical deep dive
+- [Metadata Encryption Guide](../../sdk/docs/privacy/metadata-encryption.md) — How encryption works
 - [Payment Channel Protocol](./payment-channel-protocol.md) — Recurring payments
 
 ### Privacy Tools & Standards

@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response, Router } from 'express';
 import { z } from 'zod';
 import { meterReservationTracker } from '../../services/v3/gateway-lifecycle';
+import { createSessionChallengeLimiter } from '../../middleware/rate-limit-factory';
 import {
   AgentConsoleError,
   AgentConsoleService,
@@ -81,7 +82,7 @@ export function createAgentConsoleRouter(service: AgentConsoleService = agentCon
     }
   }
 
-  router.post('/session/challenge', (req, res) => {
+  router.post('/session/challenge', createSessionChallengeLimiter(), (req, res) => {
     const publicKey = req.body?.publicKey;
     if (typeof publicKey !== 'string' || publicKey.length === 0) {
       return res.status(400).json({ error: 'invalid_public_key', message: 'Enter a Stellar public key. It starts with G.' });
@@ -93,7 +94,7 @@ export function createAgentConsoleRouter(service: AgentConsoleService = agentCon
     }
   });
 
-  router.post('/session', (req, res) => {
+  router.post('/session', createSessionChallengeLimiter(), (req, res) => {
     const parsed = sessionSchema.safeParse(req.body);
     if (!parsed.success) return sendValidation(res, parsed.error);
     try {
@@ -164,6 +165,28 @@ export function createAgentConsoleRouter(service: AgentConsoleService = agentCon
     try {
       const agent = service.revokeAgent(req.principalPublicKey!, agentIdFrom(req.params.agentId), inFlightCount);
       return res.json({ data: agent });
+    } catch (error) {
+      return sendError(res, error);
+    }
+  });
+
+  router.get('/principal-budget', requireSession, (req: PrincipalRequest, res) => {
+    try {
+      return res.json({ data: service.principalBudget(req.principalPublicKey!) });
+    } catch (error) {
+      return sendError(res, error);
+    }
+  });
+
+  const principalBudgetSchema = z.object({
+    amount: z.number().positive().max(1_000_000),
+  });
+
+  router.post('/principal-budget', requireSession, (req: PrincipalRequest, res) => {
+    const parsed = principalBudgetSchema.safeParse(req.body);
+    if (!parsed.success) return sendValidation(res, parsed.error);
+    try {
+      return res.json({ data: service.setPrincipalDailyLimit(req.principalPublicKey!, parsed.data.amount) });
     } catch (error) {
       return sendError(res, error);
     }

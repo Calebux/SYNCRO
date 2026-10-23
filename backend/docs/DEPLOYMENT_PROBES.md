@@ -184,6 +184,31 @@ readinessProbe:
 - Returns **degraded** when the scheduler has no jobs or hasn't started
 - **Failure impact**: Reminder emails, renewal processing, risk recalculation, and other background jobs will not fire on schedule; real-time user requests are unaffected
 
+## v3 Paid-Path Dependencies (Critical)
+
+The v3 paid path cannot serve calls without the counter (meter) store, Soroban RPC, and a funded settlement signer. These are checked by `/health/ready` and are **critical**: if any is down, `/health/ready` returns 503 while `/health/live` keeps returning 200.
+
+### Counter / Meter Store (Critical)
+- Reachability check against the counter store used for metering
+- Executes a lightweight read/ping
+- **Failure impact**: Metering cannot be recorded → paid calls cannot be served → not ready
+
+### Soroban RPC — Latest Ledger Freshness (Critical)
+- Queries the Soroban RPC for the latest ledger sequence
+- Compares the latest ledger against a freshness threshold (max allowed ledger lag)
+- Returns **unhealthy** when the RPC is unreachable or the latest ledger is stale
+- **Failure impact**: On-chain settlement cannot be submitted/confirmed → not ready
+
+### Settlement Signer Balance (Critical)
+- Loads the settlement signer account from Soroban RPC
+- Checks the account balance is above a configured minimum threshold
+- Returns **unhealthy** when the signer is missing, unfunded, or below threshold
+- **Failure impact**: Settlement transactions cannot be paid for → not ready
+
+### Per-Check Timeouts
+
+Every readiness check runs with its own timeout so a hung dependency cannot hang the probe itself. If a check exceeds its timeout it is reported as `unhealthy` with a timeout error, and `/health/ready` returns 503.
+
 ## Recommended Kubernetes Configuration
 
 ```yaml
@@ -299,75 +324,10 @@ curl http://localhost:3001/health/ready | jq '.dependencies[] | select(.name=="d
 ### Development Environment
 - `/health/live` and `/health/ready` available without authentication
 - May have degraded dependencies (optional providers) but still ready
-- Use for local testing before commit
+- Use for local development and debugging
 
 ### Production Environment
-- `/health/live` and `/health/ready` available without authentication
-- Critical dependencies must be healthy
-- Use in load balancer and orchestration
-- Monitor readiness failures as service incidents
-
-## Backwards Compatibility
-
-The legacy `/health` endpoint still exists and returns:
-```json
-{
-  "status": "ok",
-  "timestamp": "2026-06-25T00:00:00.000Z",
-  "deprecated": true
-}
-```
-
-**Migration path**:
-1. Update deployment configs to use `/health/live` and `/health/ready`
-2. Remove dependency on `/health` endpoint
-3. Deprecate `/health` in next major release
-
-## Implementation Details
-
-### Dependency Health Service
-
-The `DependencyHealthService` class handles all health checks:
-
-```typescript
-import { dependencyHealthService } from './services/dependency-health-service';
-
-// Get liveness status
-const liveness = dependencyHealthService.getLiveness();
-
-// Get readiness status
-const readiness = await dependencyHealthService.getReadiness();
-
-// Get individual dependency status
-const allDeps = await dependencyHealthService.checkAllDependencies();
-// includes: database, redis, queue, providers, scheduler
-```
-
-### Adding New Dependency Checks
-
-To add a new dependency check:
-
-1. Add a `check<Service>()` method to `DependencyHealthService`
-2. Include it in `checkAllDependencies()`
-3. Classify as critical or optional (critical deps: `database`, `redis`, `rpc_horizon`, `fx_provider`)
-4. Update this document with dependency details
-5. Add the check to both backend (`dependency-health-service.ts`) and client (`client/app/api/health/ready/route.ts`) readiness probes
-
-Example:
-```typescript
-async checkPostgres(): Promise<DependencyStatus> {
-  const start = Date.now();
-  try {
-    // Your check implementation
-    return { name: 'postgres', status: 'healthy', latency_ms: Date.now() - start };
-  } catch (error) {
-    return { name: 'postgres', status: 'unhealthy', latency_ms: Date.now() - start, error: String(error) };
-  }
-}
-```
-
-## Related
-
-- [Health Service](../../backend/src/services/health-service.ts) - Admin health metrics
-- [Dependency Health Service](../../backend/src/services/dependency-health-service.ts) - Probe implementation
-- Issue #700: Expand health and readiness endpoints
+- Both endpoints available without authentication
+- Readiness must be 200 before routing traffic
+- Monitor readiness failures and alert on-call
+- v3 paid-path dependencies (counter store, Soroban RPC, settlement signer) must be healthy for readiness

@@ -6,9 +6,9 @@
 ## Quick Links
 
 - 📋 [Full Ownership Matrix](./DIRECTORY_OWNERSHIP_MATRIX.md)
-- 👥 [CODEOWNERS](./.github/CODEOWNERS)
-- 📝 [Code Review Process](./docs/code-review-process.md)
-- 🤝 [Contributing Guide](./CONTRIBUTING.md)
+- 👥 [CODEOWNERS](../../.github/CODEOWNERS)
+- 📝 [Code Review Process](../code-review-process.md)
+- 🤝 [Contributing Guide](../../CONTRIBUTING.md)
 
 ## TL;DR - Who Owns What
 
@@ -278,9 +278,9 @@ cat .github/CODEOWNERS | grep "@" | sort | uniq
 ## Resources
 
 - [Full Ownership Matrix](./DIRECTORY_OWNERSHIP_MATRIX.md) - Detailed ownership information
-- [CODEOWNERS](./.github/CODEOWNERS) - GitHub enforcement
-- [Code Review Process](./docs/code-review-process.md) - Review procedures
-- [Contributing Guide](./CONTRIBUTING.md) - Contribution guidelines
+- [CODEOWNERS](../../.github/CODEOWNERS) - GitHub enforcement
+- [Code Review Process](../code-review-process.md) - Review procedures
+- [Contributing Guide](../../CONTRIBUTING.md) - Contribution guidelines
 - [CurrentState.md](./CurrentState.md) - Project status
 
 ## Need Help?

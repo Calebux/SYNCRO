@@ -28,6 +28,15 @@ on:
       contracts:
         description: "Contracts package changed"
         value: ${{ jobs.detect-changes.outputs.contracts }}
+      metering:
+        description: "packages/metering changed"
+        value: ${{ jobs.detect-changes.outputs.metering }}
+      settlement:
+        description: "packages/settlement changed"
+        value: ${{ jobs.detect-changes.outputs.settlement }}
+      v3:
+        description: "backend/src/v3 changed"
+        value: ${{ jobs.detect-changes.outputs.v3 }}
       docs:
         description: "Docs changed"
         value: ${{ jobs.detect-changes.outputs.docs }}
@@ -48,6 +57,9 @@ jobs:
       sdk: ${{ steps.filter.outputs.sdk }}
       shared: ${{ steps.filter.outputs.shared }}
       contracts: ${{ steps.filter.outputs.contracts }}
+      metering: ${{ steps.filter.outputs.metering }}
+      settlement: ${{ steps.filter.outputs.settlement }}
+      v3: ${{ steps.filter.outputs.v3 }}
       docs: ${{ steps.filter.outputs.docs }}
       root: ${{ steps.filter.outputs.root }}
       force_full_run: ${{ inputs.force-full-run || github.event.inputs.force_full_run || 'false' }}

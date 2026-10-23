@@ -258,7 +258,7 @@ This enables:
 
 - [CI/CD Workflows](./branch-protection.md)
 - [API Documentation](./api-reference/)
-- [Security Audit Matrix](../SECURITY_AUDIT_MATRIX_API_ROUTES.md)
+- Security Audit Matrix
 - [RLS Audit Guide](./RLS_AUDIT_GUIDE.md)
 
 ## Metrics & Monitoring

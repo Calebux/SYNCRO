@@ -25,10 +25,15 @@ bash scripts/deploy.sh testnet
 ```
 
 This will:
-1. Build all five contracts to WASM
-2. Deploy `SubscriptionRegistry`, `SubscriptionRenewal`, `SubscriptionLogging`, `ZkPaymentVerifier`, and `ContractUpgradeGovernance`
-3. Run `init.sh` to initialize each contract and link the logging contract to the renewal contract
-4. Print the contract addresses and save them to `scripts/deployed-addresses-testnet.env`
+1. Build the `zk-payment-verifier` and `contract-upgrade` contracts to WASM
+2. Deploy `ZkPaymentVerifier` and `ContractUpgradeGovernance`
+3. Print the contract addresses and save them to `scripts/deployed-addresses-testnet.env`
+
+> The subscription contracts (`subscription-registry`, `subscription-renewal`,
+> `subscription-logging`, ...) were retired in #1660 and are no longer built or
+> deployed by this script. See [docs/retired-contracts.md](docs/retired-contracts.md).
+> Initialize the deployed contracts by invoking their `init` entrypoints with the
+> Stellar CLI, or through the `deploy/` manifests used for v3.
 
 ---
 
@@ -45,20 +50,6 @@ Before deploying to mainnet:
 ```bash
 cd contracts
 STELLAR_SECRET_KEY=<mainnet_secret> bash scripts/deploy.sh mainnet
-```
-
----
-
-## Manual Initialization (standalone)
-
-If you deployed contracts separately and need to run init on its own:
-
-```bash
-export STELLAR_SECRET_KEY=<your_secret>
-export SOROBAN_RENEWAL_ADDRESS=<renewal_contract_id>
-export SOROBAN_LOGGING_ADDRESS=<logging_contract_id>
-
-bash contracts/scripts/init.sh mainnet
 ```
 
 ---
@@ -86,9 +77,8 @@ The upgrade process:
 After deployment, copy the printed addresses into `backend/.env`:
 
 ```env
-SOROBAN_REGISTRY_ADDRESS=<SubscriptionRegistry contract ID>
-SOROBAN_RENEWAL_ADDRESS=<SubscriptionRenewal contract ID>
-SOROBAN_LOGGING_ADDRESS=<SubscriptionLogging contract ID>
+SOROBAN_ZK_VERIFIER_ADDRESS=<ZkPaymentVerifier contract ID>
+SOROBAN_UPGRADE_ADDRESS=<ContractUpgradeGovernance contract ID>
 ```
 
 The addresses are also saved automatically to `contracts/scripts/deployed-addresses-<network>.env` after each run.
@@ -99,42 +89,10 @@ The addresses are also saved automatically to `contracts/scripts/deployed-addres
 
 Update this section after each testnet deployment.
 
-| Contract               | Address |
-|------------------------|---------|
-| SubscriptionRegistry   | _(deploy and fill in)_ |
-| SubscriptionRenewal    | _(deploy and fill in)_ |
-| SubscriptionLogging    | _(deploy and fill in)_ |
+| Contract                   | Address |
+|----------------------------|---------|
+| ZkPaymentVerifier          | _(deploy and fill in)_ |
+| ContractUpgradeGovernance  | _(deploy and fill in)_ |
 
 Network: `testnet`  
 Last deployed: _(fill in after first deployment)_
-
-To also issue a mock testnet asset and fund test accounts with it (see below), set `SETUP_MOCK_TOKEN=true`:
-
-   \`\`\`bash
-   SETUP_MOCK_TOKEN=true bash scripts/deploy.sh testnet
-   \`\`\`
-
-   ---
-
-   ## Mock Token Setup (Testnet)
-
-   `scripts/setup-mock-token.sh` issues a mock Stellar asset for exercising the
-   escrow-locking flow (`renew` / `claim_escrow`) end-to-end on testnet, without
-   needing a real payment rail:
-
-   \`\`\`bash
-   cd contracts
-   bash scripts/setup-mock-token.sh testnet <renewal_contract_id>
-   \`\`\`
-
-   This will:
-   1. Generate (or reuse) a funded issuer identity for the mock asset
-   2. Deploy the asset's Stellar Asset Contract (SAC) — this is the token address used by `SubscriptionRenewal`
-   3. Generate a couple of funded test-user identities, establish trustlines, and mint each of them a mock balance
-   4. If a `SubscriptionRenewal` contract id is passed in, invoke `set_token_contract` to wire the mock token in as the escrow asset
-   5. Save everything (issuer, token contract id, test user addresses) to `scripts/mock-token-testnet.env`
-
-   Override the asset code, mint amount, or number of test users with `TOKEN_CODE`, `MINT_AMOUNT`, or `NUM_TEST_USERS` env vars.
-
-   ---
-   

@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import { DEFAULT_DEGRADED_POLICY } from '../../../packages/metering/src/degraded-admission';
+import { normalizeRateLimitPolicy, type RateLimitPolicy } from '../../../packages/metering/src/rate-limit';
 import {
+  DegradedModePolicy,
+  PendingPayoutChange,
   ProviderMode,
   ProviderRegistration,
   ProviderRevenue,
@@ -9,6 +13,7 @@ import {
   RegisteredRoute,
   SettlementStatus,
 } from './types';
+import { assertPositiveSafeInteger, ROUTE_UNITS, type RouteUnit } from './pricing';
 
 export interface RegisterProviderInput {
   identity: string;
@@ -16,23 +21,48 @@ export interface RegisterProviderInput {
   upstreamBaseUrl: string;
   agreementTerms: string;
   mode: ProviderMode;
+  /** Optional override of the platform degraded-mode default (#1444). */
+  degradedMode?: Partial<DegradedModePolicy>;
+  /** Optional override of the platform per-route rate-limit default (#1447). */
+  rateLimit?: Partial<RateLimitPolicy>;
+}
+
+/** Patch for the per-provider degraded-mode policy (#1444). */
+export interface UpdateDegradedModePolicyInput {
+  failMode?: DegradedModePolicy['failMode'];
+  exposureCeiling?: number;
+}
+
+/** Patch for the per-provider rate-limit policy (#1447). */
+export interface UpdateRateLimitInput {
+  requestsPerInterval?: number;
+  intervalMs?: number;
+  burstAllowance?: number;
 }
 
 export interface RegisterRouteInput {
   providerId: string;
   pathPattern: string;
   method: string;
-  unit: string;
-  price: number;
+  unit: RouteUnit;
+  /** Integer stroops per billable unit. */
+  priceStroops: number;
+  maxBillableUnits?: number;
   quantityExtractor: string;
+  /** Optional per-route rate-limit override; inherits the provider default (#1447). */
+  rateLimit?: Partial<RateLimitPolicy>;
 }
 
 export interface ReviseRouteInput {
   pathPattern?: string;
   method?: string;
-  unit?: string;
-  price?: number;
+  unit?: RouteUnit;
+  priceStroops?: number;
+  maxBillableUnits?: number;
   quantityExtractor?: string;
+  effectiveFrom?: string;
+  /** Replaces the route's rate-limit override; omit to keep it (#1447). */
+  rateLimit?: Partial<RateLimitPolicy>;
 }
 
 export interface RecordSettlementInput {
@@ -43,13 +73,35 @@ export interface RecordSettlementInput {
   pathPattern: string;
   unit: string;
   quantity: number;
-  price: number;
+  priceStroops: number;
   amount: number;
   rateCardVersion: string;
   rateCardEffectiveFrom: string;
   status: SettlementStatus;
   meteredAt: string;
   channelId: string;
+}
+
+/** Input for creating a pending payout address change (requires verified challenge). */
+export interface CreatePayoutChangeInput {
+  providerId: string;
+  newAddress: string;
+  challengeId: string;
+  requestedBy: string;
+  coolingOffMs: number;
+}
+
+/** Input for cancelling a pending payout address change. */
+export interface CancelPayoutChangeInput {
+  providerId: string;
+  changeId: string;
+  requestedBy: string;
+}
+
+/** Input for applying a pending payout address change after the cooling-off window. */
+export interface ApplyPayoutChangeInput {
+  providerId: string;
+  changeId: string;
 }
 
 function nowIso(): string {
@@ -64,17 +116,64 @@ function buildScopeKey(method: string, pathPattern: string): string {
   return `${normalizeMethod(method)}:${pathPattern}`;
 }
 
+/**
+ * Validate a degraded-mode policy and fill in the platform default (#1444).
+ *
+ * Invalid values are rejected rather than coerced: a typo'd ceiling is a
+ * revenue-integrity bug, and silently falling back to the default would hide
+ * it until the next outage.
+ */
+function normalizeDegradedMode(input: Partial<DegradedModePolicy> | undefined): DegradedModePolicy {
+  const policy: DegradedModePolicy = { ...DEFAULT_DEGRADED_POLICY, ...(input ?? {}) };
+
+  if (policy.failMode !== 'fail_open' && policy.failMode !== 'fail_closed') {
+    throw new Error('degradedMode.failMode must be fail_open or fail_closed');
+  }
+  if (typeof policy.exposureCeiling !== 'number' || !Number.isFinite(policy.exposureCeiling) || policy.exposureCeiling < 0) {
+    throw new Error('degradedMode.exposureCeiling must be a finite number greater than or equal to 0');
+  }
+  return policy;
+}
+
+/** A route lifecycle change observed by the store (issue #1700). */
+export interface ProviderRouteChangeEvent {
+  kind: 'created' | 'updated' | 'deleted';
+  oldRoute: RegisteredRoute | null;
+  newRoute: RegisteredRoute | null;
+  /** `versionId` of the rate-card version taking effect (updates only). */
+  rateCardVersion?: string;
+}
+
+/**
+ * Sink for route change events. Wire it to `auditProviderRouteEvent` so every
+ * create, update, and delete lands in the hash-chained audit log with the old
+ * and new price and extractor.
+ */
+export type ProviderRouteAuditSink = (event: ProviderRouteChangeEvent) => void;
+
 export class InMemoryProviderStore {
   private readonly providers = new Map<string, ProviderRegistration>();
   private readonly routes = new Map<string, RegisteredRoute>();
   private readonly rateCards = new Map<string, RateCardVersion>();
   private readonly settlements = new Map<string, ProviderSettlement>();
+  private readonly pendingPayoutChanges = new Map<string, PendingPayoutChange>();
+  private readonly auditSink?: ProviderRouteAuditSink;
+
+  constructor(auditSink?: ProviderRouteAuditSink) {
+    this.auditSink = auditSink;
+  }
+
+  private emitRouteChange(event: ProviderRouteChangeEvent): void {
+    this.auditSink?.(event);
+  }
 
   registerProvider(input: RegisterProviderInput): ProviderRegistration {
     const providerId = randomUUID();
+    const providerSecret = randomUUID();
     const createdAt = nowIso();
     const record: ProviderRegistration = {
       providerId,
+      providerSecret,
       identity: input.identity,
       payoutAddress: input.payoutAddress,
       upstreamBaseUrl: input.upstreamBaseUrl,
@@ -82,6 +181,8 @@ export class InMemoryProviderStore {
       mode: input.mode,
       payoutVerified: false,
       payoutChallenge: null,
+      degradedMode: normalizeDegradedMode(input.degradedMode),
+      rateLimit: normalizeRateLimitPolicy(input.rateLimit),
       createdAt,
       updatedAt: createdAt,
     };
@@ -91,6 +192,16 @@ export class InMemoryProviderStore {
 
   getProvider(providerId: string): ProviderRegistration | null {
     return this.providers.get(providerId) ?? null;
+  }
+
+  /** Look up a provider by its secret key (for provider auth). */
+  getProviderBySecret(secret: string): ProviderRegistration | null {
+    for (const provider of this.providers.values()) {
+      if (provider.providerSecret === secret) {
+        return provider;
+      }
+    }
+    return null;
   }
 
   saveProvider(provider: ProviderRegistration): void {
@@ -117,31 +228,225 @@ export class InMemoryProviderStore {
     return provider;
   }
 
+  /**
+   * Create a pending payout address change. Requires a verified
+   * challenge id so that a compromised session alone cannot
+   * redirect payouts. The change only takes effect after the
+   * cooling-off window, during which settlements continue to the
+   * old address.
+   */
+  createPendingPayoutChange(input: CreatePayoutChangeInput): PendingPayoutChange {
+    const provider = this.getProvider(input.providerId);
+    if (!provider) {
+      throw new Error('provider not found');
+    }
+    if (!provider.payoutVerified) {
+      throw new Error('payout address must be verified before a change can be requested');
+    }
+    const newAddress = input.newAddress.trim();
+    if (!newAddress) {
+      throw new Error('new payout address is required');
+    }
+    if (provider.payoutAddress === newAddress) {
+      throw new Error('new payout address must differ from the current address');
+    }
+    // Check for an existing pending change that hasn't been applied or cancelled yet
+    const existingPending = [...this.pendingPayoutChanges.values()].find(
+      (change) => change.providerId === input.providerId && change.status === 'pending',
+    );
+    if (existingPending) {
+      throw new Error('a pending payout change already exists; cancel it first or wait for the cooling-off window');
+    }
+
+    const changeId = randomUUID();
+    const now = new Date().toISOString();
+    const coolsDownUntil = new Date(Date.parse(now) + input.coolingOffMs).toISOString();
+    const change: PendingPayoutChange = {
+      changeId,
+      providerId: input.providerId,
+      oldAddress: provider.payoutAddress,
+      newAddress: newAddress,
+      challengeId: input.challengeId,
+      requestedBy: input.requestedBy,
+      requestedAt: now,
+      coolsDownUntil,
+      status: 'pending',
+    };
+    this.pendingPayoutChanges.set(changeId, change);
+    return change;
+  }
+
+  /**
+   * Cancel a pending payout address change during the cooling-off window.
+   * The old address keeps receiving settlements.
+   */
+  cancelPendingPayoutChange(input: CancelPayoutChangeInput): PendingPayoutChange {
+    const change = this.pendingPayoutChanges.get(input.changeId);
+    if (!change) {
+      throw new Error('pending payout change not found');
+    }
+    if (change.providerId !== input.providerId) {
+      throw new Error('pending payout change does not belong to this provider');
+    }
+    if (change.status !== 'pending') {
+      throw new Error('pending payout change is not in pending state');
+    }
+    change.status = 'cancelled';
+    this.pendingPayoutChanges.set(input.changeId, change);
+    return change;
+  }
+
+  /**
+   * Apply a pending payout address change after the cooling-off window.
+   * Settlements during the window went to the old address; after this
+   * call, new settlements go to the new address.
+   */
+  applyPendingPayoutChange(input: ApplyPayoutChangeInput): ProviderRegistration {
+    const change = this.pendingPayoutChanges.get(input.changeId);
+    if (!change) {
+      throw new Error('pending payout change not found');
+    }
+    if (change.status !== 'pending') {
+      throw new Error('pending payout change is not in pending state');
+    }
+    const provider = this.getProvider(change.providerId);
+    if (!provider) {
+      throw new Error('provider not found');
+    }
+    change.status = 'applied';
+    this.pendingPayoutChanges.set(input.changeId, change);
+    provider.payoutAddress = change.newAddress;
+    provider.payoutVerified = false;
+    provider.payoutChallenge = null;
+    this.saveProvider(provider);
+    return provider;
+  }
+
+  /**
+   * Return a pending payout change for a provider, or null if none
+   * exists or it is no longer pending.
+   */
+  getPendingPayoutChange(providerId: string): PendingPayoutChange | null {
+    return (
+      [...this.pendingPayoutChanges.values()].find(
+        (change) => change.providerId === providerId && change.status === 'pending',
+      ) ?? null
+    );
+  }
+
+  /**
+   * Return all pending payout changes for a provider.
+   */
+  listPendingPayoutChanges(providerId: string): PendingPayoutChange[] {
+    return [...this.pendingPayoutChanges.values()]
+      .filter((change) => change.providerId === providerId)
+      .sort((a, b) => b.requestedAt.localeCompare(a.requestedAt));
+  }
+
+  /**
+   * Change how this provider behaves while the counter store is unavailable
+   * (#1444): switch between fail-open and fail-closed, or re-budget the
+   * maximum value it is willing to serve unbilled during one outage.
+   */
+  updateDegradedModePolicy(
+    providerId: string,
+    patch: UpdateDegradedModePolicyInput,
+  ): ProviderRegistration {
+    const provider = this.getProvider(providerId);
+    if (!provider) {
+      throw new Error('provider not found');
+    }
+    const next = normalizeDegradedMode({ ...provider.degradedMode, ...patch });
+    if (
+      next.failMode === provider.degradedMode.failMode &&
+      next.exposureCeiling === provider.degradedMode.exposureCeiling
+    ) {
+      throw new Error('no degraded mode changes');
+    }
+    provider.degradedMode = next;
+    this.saveProvider(provider);
+    return provider;
+  }
+
+  /**
+   * Change the per-agent x route burst budget for every route this provider
+   * registers (#1447). Existing per-route overrides stand; routes without an
+   * override inherit the new provider value immediately.
+   */
+  updateRateLimit(providerId: string, patch: UpdateRateLimitInput): ProviderRegistration {
+    const provider = this.getProvider(providerId);
+    if (!provider) {
+      throw new Error('provider not found');
+    }
+    const next = normalizeRateLimitPolicy({ ...provider.rateLimit, ...patch });
+    if (
+      next.requestsPerInterval === provider.rateLimit.requestsPerInterval &&
+      next.intervalMs === provider.rateLimit.intervalMs &&
+      next.burstAllowance === provider.rateLimit.burstAllowance
+    ) {
+      throw new Error('no rate limit changes');
+    }
+    provider.rateLimit = next;
+    this.saveProvider(provider);
+    return provider;
+  }
+
   registerRoute(input: RegisterRouteInput): RegisteredRoute {
+    const method = normalizeMethod(input.method);
+    const pattern = input.pathPattern.trim();
+    assertPositiveSafeInteger(input.priceStroops, 'priceStroops');
+    if (!ROUTE_UNITS.includes(input.unit)) {
+      throw new Error(`unit must be one of: ${ROUTE_UNITS.join(', ')}`);
+    }
+    const maxBillableUnits = input.maxBillableUnits ?? 1;
+    assertPositiveSafeInteger(maxBillableUnits, 'maxBillableUnits');
+    if (input.quantityExtractor !== 'constant:1' && input.maxBillableUnits === undefined) {
+      throw new Error('maxBillableUnits is required when quantity is measured after execution');
+    }
+    const duplicate = [...this.routes.values()].find(
+      (route) => route.providerId === input.providerId && route.method === method && route.pathPattern === pattern,
+    );
+    if (duplicate) {
+      throw new Error('route already registered for provider');
+    }
     const routeId = randomUUID();
     const route: RegisteredRoute = {
       routeId,
       providerId: input.providerId,
-      pathPattern: input.pathPattern,
-      method: normalizeMethod(input.method),
+      pathPattern: pattern,
+      method,
       unit: input.unit,
-      price: input.price,
+      priceStroops: input.priceStroops,
+      maxBillableUnits,
       quantityExtractor: input.quantityExtractor,
-      scopeKey: buildScopeKey(input.method, input.pathPattern),
+      scopeKey: buildScopeKey(input.method, pattern),
+      rateLimit: input.rateLimit !== undefined ? normalizeRateLimitPolicy(input.rateLimit) : undefined,
       createdAt: nowIso(),
     };
+    this.appendVersion(route, route.createdAt);
     this.routes.set(routeId, route);
-    this.appendVersion(route);
+    this.emitRouteChange({ kind: 'created', oldRoute: null, newRoute: { ...route } });
     return route;
   }
 
   listRoutes(providerId: string, atIso: string = nowIso()): ProviderRouteView[] {
     return [...this.routes.values()]
       .filter((route) => route.providerId === providerId)
-      .map((route) => ({
-        ...route,
-        applicableVersion: this.applicableVersion(route.routeId, atIso),
-      }))
+      .map((route) => {
+        const applicableVersion = this.applicableVersion(route.routeId, atIso);
+        return {
+          ...route,
+          ...(applicableVersion
+            ? {
+                unit: applicableVersion.unit,
+                priceStroops: applicableVersion.priceStroops,
+                maxBillableUnits: applicableVersion.maxBillableUnits,
+                quantityExtractor: applicableVersion.quantityExtractor,
+              }
+            : {}),
+          applicableVersion,
+        };
+      })
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
@@ -163,32 +468,75 @@ export class InMemoryProviderStore {
       ...existing,
       pathPattern: patch.pathPattern?.trim() || existing.pathPattern,
       method: patch.method !== undefined ? normalizeMethod(patch.method) : existing.method,
-      unit: patch.unit?.trim() || existing.unit,
-      price: patch.price !== undefined ? patch.price : existing.price,
+      unit: patch.unit ?? existing.unit,
+      priceStroops: patch.priceStroops !== undefined ? patch.priceStroops : existing.priceStroops,
+      maxBillableUnits: patch.maxBillableUnits ?? existing.maxBillableUnits,
       quantityExtractor: patch.quantityExtractor?.trim() || existing.quantityExtractor,
+      rateLimit:
+        patch.rateLimit !== undefined
+          ? normalizeRateLimitPolicy(patch.rateLimit)
+          : existing.rateLimit,
     };
     next.scopeKey = buildScopeKey(next.method, next.pathPattern);
 
-    if (!Number.isFinite(next.price) || next.price <= 0) {
-      throw new Error('price must be greater than zero');
+    assertPositiveSafeInteger(next.priceStroops, 'priceStroops');
+    assertPositiveSafeInteger(next.maxBillableUnits, 'maxBillableUnits');
+    if (!ROUTE_UNITS.includes(next.unit)) throw new Error(`unit must be one of: ${ROUTE_UNITS.join(', ')}`);
+    if (next.quantityExtractor !== 'constant:1' && patch.maxBillableUnits === undefined && existing.maxBillableUnits === 1) {
+      throw new Error('maxBillableUnits is required when quantity is measured after execution');
     }
     if (!next.pathPattern || !next.method || !next.unit || !next.quantityExtractor) {
       throw new Error('route fields must not be empty');
+    }
+
+    const duplicate = [...this.routes.values()].find(
+      (route) =>
+        route.routeId !== existing.routeId &&
+        route.providerId === providerId &&
+        route.method === next.method &&
+        route.pathPattern === next.pathPattern,
+    );
+    if (duplicate) {
+      throw new Error('route already registered for provider');
     }
 
     const unchanged =
       next.pathPattern === existing.pathPattern &&
       next.method === existing.method &&
       next.unit === existing.unit &&
-      next.price === existing.price &&
-      next.quantityExtractor === existing.quantityExtractor;
+      next.priceStroops === existing.priceStroops &&
+      next.maxBillableUnits === existing.maxBillableUnits &&
+      next.quantityExtractor === existing.quantityExtractor &&
+      next.rateLimit?.requestsPerInterval === existing.rateLimit?.requestsPerInterval &&
+      next.rateLimit?.intervalMs === existing.rateLimit?.intervalMs &&
+      next.rateLimit?.burstAllowance === existing.rateLimit?.burstAllowance;
     if (unchanged) {
       throw new Error('no route changes');
     }
 
+    const version = this.appendVersion(next, patch.effectiveFrom);
     this.routes.set(routeId, next);
-    const version = this.appendVersion(next);
+    this.emitRouteChange({
+      kind: 'updated',
+      oldRoute: { ...existing },
+      newRoute: { ...next },
+      rateCardVersion: version.versionId,
+    });
     return { route: { ...next }, version: { ...version } };
+  }
+
+  /**
+   * Remove a route. The rate-card history is left untouched so past calls can
+   * still be billed at the price that applied at the time.
+   */
+  deleteRoute(providerId: string, routeId: string): RegisteredRoute {
+    const existing = this.routes.get(routeId);
+    if (!existing || existing.providerId !== providerId) {
+      throw new Error('route not found');
+    }
+    this.routes.delete(routeId);
+    this.emitRouteChange({ kind: 'deleted', oldRoute: { ...existing }, newRoute: null });
+    return { ...existing };
   }
 
   listRateCards(providerId: string): RateCardVersion[] {
@@ -222,7 +570,7 @@ export class InMemoryProviderStore {
       pathPattern: input.pathPattern,
       unit: input.unit,
       quantity: input.quantity,
-      price: input.price,
+      priceStroops: input.priceStroops,
       amount: input.amount,
       rateCardVersion: input.rateCardVersion,
       rateCardEffectiveFrom: input.rateCardEffectiveFrom,
@@ -252,27 +600,65 @@ export class InMemoryProviderStore {
     };
   }
 
+  /**
+   * Route precedence: most specific pattern wins, independent of
+   * registration order (issue #1698).
+   *
+   * Specificity order, comparing `/`-separated segments left to right:
+   *   1. at the first differing segment, a static segment beats one
+   *      containing `*` (`/v1/chat` and `/v1/chat/*` both beat `/v1/*`
+   *      and `/v1/*/summary` for the path `/v1/chat/summary`);
+   *   2. when all shared segments agree, the longer pattern wins;
+   *   3. lexicographic pattern order as a final deterministic tie-break
+   *      (two identical patterns cannot coexist — registration rejects them).
+   */
   findRoute(providerId: string, method: string, requestPath: string): RegisteredRoute | null {
     const normalized = normalizeMethod(method);
-    const routeList = [...this.routes.values()].filter((route) => route.providerId === providerId && route.method === normalized);
-    for (const route of routeList) {
-      if (pathMatchesPattern(requestPath, route.pathPattern)) {
-        return route;
-      }
-    }
-    return null;
+    const matches = [...this.routes.values()].filter(
+      (route) =>
+        route.providerId === providerId &&
+        route.method === normalized &&
+        pathMatchesPattern(requestPath, route.pathPattern),
+    );
+    matches.sort((a, b) => compareSpecificity(a.pathPattern, b.pathPattern));
+    return matches[0] ?? null;
+  }
+
+  /**
+   * Dry-run match: shows which route (and price) would apply to a request
+   * without serving it. Backs the `POST .../routes/dry-run` endpoint.
+   */
+  dryRunRoute(
+    providerId: string,
+    method: string,
+    requestPath: string,
+    atIso: string = nowIso(),
+  ): { route: RegisteredRoute; applicableVersion: RateCardVersion | null } | null {
+    const route = this.findRoute(providerId, method, requestPath);
+    if (!route) return null;
+    return { route: { ...route }, applicableVersion: this.applicableVersion(route.routeId, atIso) };
   }
 
   private versionsFor(routeId: string): RateCardVersion[] {
     return [...this.rateCards.values()].filter((version) => version.routeId === routeId);
   }
 
-  private appendVersion(route: RegisteredRoute): RateCardVersion {
+  private appendVersion(route: RegisteredRoute, requestedEffectiveFrom?: string): RateCardVersion {
     const existing = this.versionsFor(route.routeId);
     const sequence = existing.reduce((max, version) => Math.max(max, version.sequence), 0) + 1;
     const previous = existing.find((version) => version.sequence === sequence - 1);
-    let effectiveFrom = nowIso();
-    if (previous && Date.parse(effectiveFrom) <= Date.parse(previous.effectiveFrom)) {
+    let effectiveFrom = requestedEffectiveFrom ?? nowIso();
+    const effectiveTime = Date.parse(effectiveFrom);
+    if (Number.isNaN(effectiveTime)) {
+      throw new Error('effectiveFrom must be a valid ISO date');
+    }
+    if (requestedEffectiveFrom && effectiveTime < Date.now()) {
+      throw new Error('effectiveFrom cannot be in the past');
+    }
+    if (previous && effectiveTime <= Date.parse(previous.effectiveFrom)) {
+      if (requestedEffectiveFrom) {
+        throw new Error('effectiveFrom must be later than the previous rate-card version');
+      }
       effectiveFrom = new Date(Date.parse(previous.effectiveFrom) + 1).toISOString();
     }
     const version: RateCardVersion = {
@@ -281,8 +667,9 @@ export class InMemoryProviderStore {
       routeId: route.routeId,
       sequence,
       label: `v${sequence}`,
-      price: route.price,
+      priceStroops: route.priceStroops,
       unit: route.unit,
+      maxBillableUnits: route.maxBillableUnits,
       quantityExtractor: route.quantityExtractor,
       pathPattern: route.pathPattern,
       method: route.method,
@@ -294,6 +681,49 @@ export class InMemoryProviderStore {
   }
 }
 
+/**
+ * Sandbox rule (#1699): staging providers are testnet-only with separate
+ * keys and data; they must never serve mainnet traffic. Production
+ * providers require the mainnet runtime.
+ *
+ * Pure helper (no Stellar SDK dependency) so it can be unit-tested
+ * anywhere; `V3GatewayService.processPaidCall` enforces it at admission.
+ */
+export type ProviderNetwork = 'mainnet' | 'testnet' | string | undefined;
+
+export function assertNetworkForMode(mode: ProviderMode, network: ProviderNetwork): void {
+  if (mode === 'production' && network !== 'mainnet') {
+    throw new Error('production providers require mainnet runtime');
+  }
+  if (mode === 'staging' && network === 'mainnet') {
+    throw new Error(
+      'staging providers cannot serve mainnet traffic (staging_mainnet_forbidden): use testnet credentials and the test asset only',
+    );
+  }
+}
+
+/**
+ * Order two path patterns by specificity (most specific first).
+ * See `findRoute` for the documented precedence rules.
+ */
+function compareSpecificity(a: string, b: string): number {
+  if (a === b) return 0;
+  const segA = a.split('/');
+  const segB = b.split('/');
+  const shared = Math.min(segA.length, segB.length);
+  for (let i = 0; i < shared; i += 1) {
+    if (segA[i] === segB[i]) continue;
+    // At the first differing segment, a static segment beats a wildcard.
+    const wildA = segA[i].includes('*');
+    const wildB = segB[i].includes('*');
+    if (wildA !== wildB) return wildA ? 1 : -1;
+    return segA[i] < segB[i] ? -1 : 1;
+  }
+  // All shared segments equal: the longer pattern is more specific.
+  if (segA.length !== segB.length) return segB.length - segA.length;
+  return a < b ? -1 : 1;
+}
+
 function pathMatchesPattern(path: string, pattern: string): boolean {
   const regex = new RegExp(
     `^${pattern
@@ -302,4 +732,3 @@ function pathMatchesPattern(path: string, pattern: string): boolean {
   );
   return regex.test(path);
 }
-

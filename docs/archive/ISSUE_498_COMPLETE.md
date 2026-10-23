@@ -169,13 +169,13 @@ Expected output:
 ## Documentation
 
 ### For Developers
-📖 [CSP Monitoring README](docs/CSP_MONITORING_README.md) - Quick start guide  
+📖 [CSP Monitoring README](../CSP_MONITORING_README.md) - Quick start guide  
 📖 [Implementation Summary](ISSUE_498_IMPLEMENTATION_SUMMARY.md) - Technical details  
 📖 [PR Guide](ISSUE_498_PR_GUIDE.md) - Pull request information  
 
 ### For Operations
-📖 [Policy Tuning Workflow](docs/CSP_POLICY_TUNING.md) - Complete workflow guide  
-📖 [Incident Response Runbook](docs/CSP_INCIDENT_RESPONSE.md) - Response procedures  
+📖 [Policy Tuning Workflow](../CSP_POLICY_TUNING.md) - Complete workflow guide  
+📖 [Incident Response Runbook](../CSP_INCIDENT_RESPONSE.md) - Response procedures  
 
 ### For Security Team
 📖 Alert threshold configuration in `.env.example`  
@@ -283,7 +283,7 @@ Expected output:
 ## Support
 
 ### Troubleshooting
-See [CSP Monitoring README](docs/CSP_MONITORING_README.md#troubleshooting)
+See [CSP Monitoring README](../CSP_MONITORING_README.md#troubleshooting)
 
 ### Questions
 - Technical: Check implementation summary

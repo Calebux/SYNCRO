@@ -61,13 +61,24 @@ npm install @syncro/sdk
 ```typescript
 import { createPaidFetch } from "@syncro/sdk/v3";
 
-const fetch = createPaidFetch({ spendingKey: "..." });
+const fetch = createPaidFetch({
+  spendingKey: "...",
+  gatewayPublicKey: "<trusted Ed25519 PEM from the gateway's well-known receipt-key endpoint>",
+});
 const res = await fetch("https://api.syncro.example.com/charge");
 
 if (res.receipt) {
   console.log("Payment settled:", res.receipt.transaction);
 }
 ```
+
+`createPaidFetch` only signs a `PAYMENT-REQUIRED` challenge after verifying its
+Ed25519 signature with `gatewayPublicKey`. Obtain and pin that key from the
+gateway's `/.well-known/syncro-receipt-keys` endpoint over a trusted channel.
+The gateway deployment must keep its receipt signing key pair persistent so
+the published public key remains stable across restarts.
+Unsigned challenges, invalid signatures, and responses without a configured
+gateway key are returned as 402 responses without signing or retrying.
 
 ## Configuration
 
@@ -95,7 +106,35 @@ const gateway = hostedGateway({
 });
 ```
 
+### Metering failure behaviour
+
+When SYNCRO cannot be reached to meter a request, the provider middleware
+**rejects by default** with a `503` response that includes a `Retry-After`
+hint. This prevents accidentally serving your API for free during an outage.
+
+If you would rather keep serving traffic when metering fails, you must opt in
+explicitly:
+
+```typescript
+import { metered } from "@syncro/sdk";
+
+const meteredRoute = metered({
+  unit: "request",
+  pricePerUnit: 0.001,
+  // ⚠️ Explicit opt-in: serve requests for free when metering fails.
+  // A warning is logged once per process, and each served-free request is
+  // counted so you can observe the cost.
+  onFailure: "serve-free",
+});
+```
+
+> **Breaking change (v3):** the default `failureMode` changed from `'serve-free'`
+to `'reject'`. Providers relying on the old default must set
+`onFailure: "serve-free"` explicitly.
+
 ## Receipt Verification
+
+### Programmatic Verification
 
 ```typescript
 import { verifyReceipt, decodeReceiptHeader } from "@syncro/sdk";
@@ -104,6 +143,58 @@ const receipt = decodeReceiptHeader(headers["x-syncro-receipt"]);
 const ok = verifyReceipt(receipt);
 if (!ok) throw new Error("Invalid receipt");
 ```
+
+### CLI Verification
+
+The SDK includes a command-line tool to verify receipts from files or URLs:
+
+```bash
+# Verify a receipt from a file
+syncro-receipt-verify \
+  --file receipt.json \
+  --public-key provider-key.pem \
+  --channel ch_abc123 \
+  --nonce n_xyz789
+
+# Verify a receipt from a URL
+syncro-receipt-verify \
+  --url https://api.syncro.example.com/api/v3/receipts/rcpt_123 \
+  --public-key provider-key.pem \
+  --channel ch_abc123 \
+  --nonce n_xyz789
+
+# Get machine-readable JSON output
+syncro-receipt-verify \
+  --file receipt.json \
+  --public-key provider-key.pem \
+  --channel ch_abc123 \
+  --nonce n_xyz789 \
+  --json
+```
+
+**Exit codes:**
+- `0`: Receipt is valid (all checks passed)
+- `1`: Receipt is invalid or an error occurred
+
+**Output format:**
+
+By default, the command prints a human-readable summary showing pass/fail for each verification check:
+
+```
+Receipt Verification Result:
+══════════════════════════════════════════════════
+✓ PASS Receipt Shape
+✓ PASS Signature
+✓ PASS Amount
+✓ PASS Channel
+✓ PASS Nonce
+══════════════════════════════════════════════════
+Overall: ✓ VALID
+
+Derived Amount: 1000 (minor units)
+```
+
+With `--json`, the output is machine-readable JSON matching the `VerifyReceiptResult` type.
 
 ## Webhook Verification
 
@@ -228,15 +319,6 @@ import type {
 | Sub-path | Description |
 |----------|-------------|
 | `@syncro/sdk` | Main entry — payments utilities, webhooks, receipts, Stellar memos, contract bindings, pricing, channels |
-| `@syncro/sdk/v3` | v3 payments API — `GatewayClient`, `createPaidFetch`, receipt verification, retry, gateway errors |
-| `@syncro/sdk/webhooks` | Webhook verification helpers |
-| `@syncro/sdk/stellar` | Stellar memo build/parse/verify utilities |
-| `@syncro/sdk/zk` | Zero-knowledge proof utilities |
-| `@syncro/sdk/contracts` | Soroban contract transaction builders |
-| `@syncro/sdk/types` | TypeScript types only (no runtime) |
-| `@syncro/sdk/crypto` | Cryptographic primitives (browser/node dual build) |
-| `@syncro/sdk/experimental` | Unstable/preview exports — may change in any release |
+| `@syncro/sdk/v3` | v3 payments API — `GatewayCl
 
-## License
-
-MIT
+/* … truncated 564 chars — edit only what you need near the top … */

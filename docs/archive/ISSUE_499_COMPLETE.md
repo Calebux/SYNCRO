@@ -225,7 +225,7 @@ $ git commit -m "test"
 ## Documentation
 
 ### For Developers
-📖 [Dependency Management Policy](docs/DEPENDENCY_MANAGEMENT.md)
+📖 [Dependency Management Policy](../DEPENDENCY_MANAGEMENT.md)
 - Version pinning strategy
 - Update process
 - Adding/removing dependencies

@@ -6,6 +6,7 @@ import { renewalExecutor } from './renewal-executor';
 import { renewalDeadLetterService } from './renewal-dead-letter-service';
 import { generateCycleId } from '../utils/cycle-id';
 import { idempotencyService } from './idempotency';
+import { renewalSagaExecutor } from './renewal-saga/renewal-saga-executor';
 
 export interface RenewalExecutionRequest {
   subscriptionId: string;
@@ -82,71 +83,36 @@ export class RenewalExecutionOrchestrator {
 
     const lockToken = lockResult.lockToken;
 
-    try {
-      await renewalDeadLetterService.recordAttempt({
-        subscriptionId,
-        userId,
-        cycleId,
-        idempotencyKey,
-        lockHolder: this.lockHolder,
-      });
-
-      const result = await renewalExecutor.executeRenewal({
+   try {
+      const outcome = await renewalSagaExecutor.run({
         subscriptionId,
         userId,
         approvalId,
         amount,
+        cycleId,
+         idempotencyKey,
+        workerId: this.lockHolder,
       });
 
       const response: RenewalExecutionResponse = {
-        success: result.success,
+        success: outcome.success,
         subscriptionId,
         idempotencyKey,
         cycleId,
-        transactionHash: result.transactionHash,
-        error: result.error,
-        failureReason: result.failureReason,
+        transactionHash: outcome.transactionHash,
+        error: outcome.error,
+        failureReason: outcome.failureReason,
       };
 
-      if (result.success) {
-        await renewalDeadLetterService.updateAttemptStatus(idempotencyKey, 'success', response);
-
+      if (outcome.success) {
         const requestHash = idempotencyService.hashRequest({ subscriptionId, approvalId, amount, cycleId });
         await idempotencyService.storeResponse(idempotencyKey, userId, requestHash, 200, response);
-      } else {
-        await renewalDeadLetterService.updateAttemptStatus(idempotencyKey, 'failed', response);
-
-        const isStuck = ['execution_error', 'contract_failure'].includes(result.failureReason ?? '');
-        if (isStuck) {
-          await renewalDeadLetterService.moveToDeadLetter({
-            subscriptionId,
-            userId,
-            cycleId,
-            idempotencyKey,
-            approvalId,
-            amount,
-            failureReason: result.failureReason ?? 'unknown',
-            errorMessage: result.error,
-          });
-        }
       }
 
       return response;
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      logger.error('[RenewalOrchestrator] Unexpected error', { subscriptionId, error: errorMsg });
-
-      await renewalDeadLetterService.updateAttemptStatus(idempotencyKey, 'failed', { error: errorMsg });
-      await renewalDeadLetterService.moveToDeadLetter({
-        subscriptionId,
-        userId,
-        cycleId,
-        idempotencyKey,
-        approvalId,
-        amount,
-        failureReason: 'execution_error',
-        errorMessage: errorMsg,
-      });
+      logger.error('[RenewalOrchestrator] Unexpected saga error', { subscriptionId, error: errorMsg });
 
       return {
         success: false,
@@ -162,8 +128,7 @@ export class RenewalExecutionOrchestrator {
       }
     }
   }
-
-  private async resolveBillingDate(subscriptionId: string): Promise<string> {
+    private async resolveBillingDate(subscriptionId: string): Promise<string> {
     const { data, error } = await supabase
       .from('subscriptions')
       .select('next_billing_date')

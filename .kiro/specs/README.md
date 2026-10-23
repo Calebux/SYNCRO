@@ -57,7 +57,7 @@ Three major architectural initiatives to improve quality, visibility, and securi
 
 ---
 
-### 4. [Settlement Engine Service](./04-settlement-engine.md)
+### 4. Settlement Engine Service
 
 **Goal**: Turn metered usage into on-chain value movement through a distinct settlement engine service with a defined boundary.
 
