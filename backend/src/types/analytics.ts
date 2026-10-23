@@ -32,6 +32,7 @@ export interface AnalyticsSummary {
     percentage: number;
   };
   potential_savings_monthly: number;
+  display_currency: string;
 }
 
 export interface Budget {

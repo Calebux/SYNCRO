@@ -11,7 +11,7 @@ This document outlines the security threat model, best practices, and common pit
 ### Adversaries We Protect Against
 
 #### 1. Server Operator / Database Administrator
-**Threat**: Steal subscription details and payment metadata
+**Threat**: Steal payment details and transaction metadata
 
 **Protection**:
 - ✅ Metadata Encryption: Server sees only encrypted blob
@@ -21,7 +21,7 @@ This document outlines the security threat model, best practices, and common pit
 **Recommendation**: Use encryption for all sensitive data
 
 #### 2. Network Observer (ISP, WiFi Provider, etc.)
-**Threat**: Monitor payment patterns, infer subscription services
+**Threat**: Monitor payment patterns, infer services being paid for
 
 **Protection**:
 - ✅ Stealth Addresses: Payment destinations unlinkable
@@ -31,7 +31,7 @@ This document outlines the security threat model, best practices, and common pit
 **Recommendation**: Combine with VPN or Tor for maximum privacy
 
 #### 3. Third-Party Service Provider
-**Threat**: Harvest subscription data from API responses
+**Threat**: Harvest payment data from API responses
 
 **Protection**:
 - ✅ Client-side Decryption: Keys never leave your device

@@ -1,5 +1,8 @@
 /**
  * Stealth payment types for unlinkable on-chain subscription renewals.
+ *
+ * Pure data layer: interfaces only.
+ * No imports from logic/ or platform/.
  */
 
 export interface StealthPaymentRecord {

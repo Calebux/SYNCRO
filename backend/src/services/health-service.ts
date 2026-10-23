@@ -1,7 +1,8 @@
 import { supabase } from '../config/database';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { monitoringService } from './monitoring-service';
-import { eventListener, EventListenerHealth } from './event-listener';
+import { eventListener } from './event-listener';
 import type { EventListenerHealth } from './event-listener';
 
 export interface HealthThresholds {
@@ -52,12 +53,9 @@ export interface AdminHealthResponse {
 }
 
 const DEFAULT_THRESHOLDS: HealthThresholds = {
-  failedRenewalsPerHour:
-    Number(process.env.HEALTH_THRESHOLD_FAILED_RENEWALS_PER_HOUR) || 10,
-  contractErrorsPerHour:
-    Number(process.env.HEALTH_THRESHOLD_CONTRACT_ERRORS_PER_HOUR) || 5,
-  agentInactivityHours:
-    Number(process.env.HEALTH_THRESHOLD_AGENT_INACTIVITY_HOURS) || 24,
+  failedRenewalsPerHour: Number(env.HEALTH_THRESHOLD_FAILED_RENEWALS_PER_HOUR),
+  contractErrorsPerHour: Number(env.HEALTH_THRESHOLD_CONTRACT_ERRORS_PER_HOUR),
+  agentInactivityHours: Number(env.HEALTH_THRESHOLD_AGENT_INACTIVITY_HOURS),
 };
 
 export class HealthService {

@@ -18,7 +18,14 @@ fn fuzz_env() -> Env {
     })
 }
 
-fn fuzz_setup() -> (Env, Address, Address, Address, Address, TokenClient<'static>) {
+fn fuzz_setup() -> (
+    Env,
+    Address,
+    Address,
+    Address,
+    Address,
+    TokenClient<'static>,
+) {
     let env = fuzz_env();
     env.mock_all_auths();
 
@@ -187,14 +194,14 @@ proptest! {
         let payer_received = payer_balance_after - payer_balance_before;
 
         // Critical: total must be conserved
-        prop_assert_eq!(payee_received + payer_received, amount, 
-            "Fund conservation violated: payee got {}, payer got {}, total was {}", 
+        prop_assert_eq!(payee_received + payer_received, amount,
+            "Fund conservation violated: payee got {}, payer got {}, total was {}",
             payee_received, payer_received, amount);
 
         // Verify payee received approximately the correct percentage
         let expected_payee = (amount * payee_basis_points as i128) / 10000;
         prop_assert_eq!(payee_received, expected_payee,
-            "Payee should receive {}% = {}, but got {}", 
+            "Payee should receive {}% = {}, but got {}",
             payee_basis_points as f64 / 100.0, expected_payee, payee_received);
     }
 

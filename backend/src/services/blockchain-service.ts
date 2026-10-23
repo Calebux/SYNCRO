@@ -1,8 +1,11 @@
 import logger from "../config/logger";
 import { supabase } from "../config/database";
+import { env } from "../config/env";
 import { NotificationPayload } from "../types/reminder";
 import { getRequestId } from "../middleware/requestContext";
 import crypto from 'crypto';
+import fs from "fs";
+import path from "path";
 import { calculateBackoffDelay } from "../utils/retry";
 import {
   Contract,
@@ -31,6 +34,7 @@ import {
   resolveMemoOperationFromMethod,
   verifyTransactionMemo,
 } from "@syncro/shared/stellar/memo";
+import { ChainSubmissionClient } from "../blockchain/chain-submission-client";
 
 export type PayloadVersion = '1.0';
 
@@ -193,15 +197,15 @@ export class BlockchainService {
   private networkPassphrase: string;
   private redisClient: RedisClientType | null = null;
   private readonly policy = EXTERNAL_SERVICE_POLICIES.stellar_rpc;
+  public chainSubmissionClient: ChainSubmissionClient;
 
   constructor() {
-    this.contractAddress = process.env.SOROBAN_CONTRACT_ADDRESS || null;
-
     const flags = getBlockchainFlags();
     const network = resolveStellarNetwork();
+    this.contractAddress = this.resolveContractAddress(network);
 
     // Resolve RPC URL — never silently fall back to testnet in production.
-    const configuredRpc = process.env.SOROBAN_RPC_URL;
+    const configuredRpc = env.SOROBAN_RPC_URL;
     if (!configuredRpc && flags.isProduction) {
       throw new Error(
         "[blockchain] SOROBAN_RPC_URL must be explicitly set in production. " +
@@ -211,7 +215,7 @@ export class BlockchainService {
     this.rpcUrl = configuredRpc || "https://soroban-testnet.stellar.org";
 
     // Resolve network passphrase — never silently use testnet passphrase in production.
-    const configuredPassphrase = process.env.STELLAR_NETWORK_PASSPHRASE;
+    const configuredPassphrase = env.STELLAR_NETWORK_PASSPHRASE;
     if (!configuredPassphrase && flags.isProduction) {
       throw new Error(
         "[blockchain] STELLAR_NETWORK_PASSPHRASE must be explicitly set in production. " +
@@ -225,6 +229,16 @@ export class BlockchainService {
         : network === "futurenet"
           ? Networks.FUTURENET
           : Networks.TESTNET);
+
+    this.chainSubmissionClient = new ChainSubmissionClient({
+      rpcUrl: this.rpcUrl,
+      networkPassphrase: this.networkPassphrase,
+      initialFeeStroops: 100,
+      maxAcceptableFeeStroops: 100000,
+      feeMultiplier: 1.5,
+      timeoutMs: this.policy.timeoutMs,
+      maxRetries: this.policy.retryPolicy.maxAttempts,
+    });
 
     if (!this.contractAddress) {
       logger.warn(
@@ -240,7 +254,7 @@ export class BlockchainService {
     }
 
     // Initialize optional Redis client for DLQ if REDIS_URL present
-    const redisUrl = process.env.REDIS_URL;
+    const redisUrl = env.REDIS_URL;
     if (redisUrl) {
       try {
         this.redisClient = createClient({ url: redisUrl });
@@ -254,6 +268,41 @@ export class BlockchainService {
         this.redisClient = null;
       }
     }
+  }
+
+  private resolveContractAddress(network: string): string | null {
+    if (env.SOROBAN_CONTRACT_ADDRESS) {
+      logger.warn(
+        "[blockchain] SOROBAN_CONTRACT_ADDRESS env override is in use; overriding deployment manifest.",
+      );
+      return env.SOROBAN_CONTRACT_ADDRESS;
+    }
+
+    try {
+      const manifestPath = path.resolve(
+        __dirname,
+        "../../../contracts/deployments",
+        `${network}.json`,
+      );
+      const manifest = JSON.parse(
+        fs.readFileSync(manifestPath, "utf8"),
+      ) as { contracts?: { syncro?: { address?: string } } };
+      const address = manifest.contracts?.syncro?.address;
+      if (address) {
+        logger.info(
+          "[blockchain] Resolved contract address from deployment manifest",
+          { network },
+        );
+        return address;
+      }
+    } catch (err) {
+      logger.warn(
+        `[blockchain] Could not read deployment manifest for network "${network}".`,
+        err,
+      );
+    }
+
+    return null;
   }
 
   /**
@@ -725,19 +774,11 @@ export class BlockchainService {
       contractAddress: this.contractAddress 
     });
 
-    const rpc = new SorobanRpc.Server(this.rpcUrl);
-    
-    // Use rotated agent wallet keypair instead of a single static secret key.
-    // The "executor" agent is used for contract invocations; its address rotates
-    // on a configurable schedule (per-task, daily, weekly) to prevent address
-    // clustering.
     let sourceKeypair: Keypair;
     try {
       const derived = await agentWalletRotationService.getActiveKeypair('executor');
       sourceKeypair = derived.keypair;
     } catch {
-      // Fallback to the legacy STELLAR_SECRET_KEY if the rotation service
-      // is not configured (e.g., AGENT_MASTER_SEED not set).
       const secret = await secretProvider.getSecret("STELLAR_SECRET_KEY");
       if (!secret) {
         throw new Error(
@@ -747,10 +788,6 @@ export class BlockchainService {
       }
       sourceKeypair = Keypair.fromSecret(secret);
     }
-    const contract = new Contract(this.contractAddress);
-
-    let lastErr: unknown = null;
-    const { maxAttempts = 5, initialDelay = 1000, multiplier = 2, maxDelay = 16000, jitter = true } = this.policy.retryPolicy;
 
     const memoOperation = subscriptionId ? resolveMemoOperationFromMethod(method) : null;
     const expectedMemo =
@@ -758,113 +795,54 @@ export class BlockchainService {
         ? buildSyncroMemo(memoOperation, subscriptionId)
         : null;
 
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      try {
-        const account = await rpc.getAccount(sourceKeypair.publicKey());
-        let builder = new TransactionBuilder(account, {
-          fee: "100",
-          networkPassphrase: this.networkPassphrase,
-        })
-          .addOperation(contract.call(method, ...args))
-          .setTimeout(Math.floor(this.policy.timeoutMs / 1000));
+    const idempotencyKey = subscriptionId
+      ? `${subscriptionId}:${method}`
+      : undefined;
 
-        if (expectedMemo) {
-          builder = builder.addMemo(Memo.text(expectedMemo));
-        }
+    try {
+      const result = await this.chainSubmissionClient.submit({
+        sourceKeypair,
+        contractAddress: this.contractAddress,
+        method,
+        args,
+        memo: expectedMemo || undefined,
+        idempotencyKey,
+      });
 
-        const tx = builder.build();
+      logger.info('Contract transaction submitted successfully via ChainSubmissionClient', {
+        method,
+        transactionHash: result.transactionHash,
+        correlationId,
+        subscriptionId,
+      });
 
-        const sim = await rpc.simulateTransaction(tx);
-        if (SorobanRpc.Api.isSimulationError(sim)) {
-          throw new Error(`Simulation failed: ${sim.error}`);
-        }
+      return { transactionHash: result.transactionHash };
+    } catch (err) {
+      const lastErr = err;
+      logger.error('Contract transaction failed in ChainSubmissionClient', { 
+        method, 
+        subscriptionId, 
+        correlationId,
+        error: lastErr instanceof Error ? lastErr.message : String(lastErr) 
+      });
+      
+      await this.enqueueDeadLetter({
+        version: '1.0',
+        eventType: method,
+        payload: this.previewArgs(args),
+        failedAt: new Date().toISOString(),
+        errorReason: lastErr instanceof Error ? lastErr.message : String(lastErr),
+        retryCount: this.policy.retryPolicy.maxAttempts,
+        contractAddress: this.contractAddress,
+        rpcUrl: this.rpcUrl,
+      });
 
-        const assembled = SorobanRpc.assembleTransaction(tx, sim).build();
-        assembled.sign(sourceKeypair);
-
-        const send = await rpc.sendTransaction(assembled);
-        if (send.status === "ERROR") {
-          throw new Error(`Send failed: ${send.errorResult}`);
-        }
-
-        logger.info('Contract transaction submitted', { 
-          method, 
-          transactionHash: send.hash, 
-          correlationId,
-          subscriptionId,
-          attempt: attempt + 1 
-        });
-
-        // Wait for confirmation
-        const getTx = await rpc.getTransaction(send.hash);
-        if (getTx.status === "NOT_FOUND") {
-          // brief wait+retry fetch
-          await this.sleep(initialDelay);
-        } else if (
-          expectedMemo &&
-          subscriptionId &&
-          memoOperation &&
-          getTx.status === "SUCCESS" &&
-          !verifyTransactionMemo(
-            { memo: expectedMemo, successful: true, hash: send.hash },
-            memoOperation,
-            subscriptionId,
-          )
-        ) {
-          throw new Error(`Transaction memo verification failed for method ${method}`);
-        }
-
-        logger.info('Contract transaction confirmed', { 
-          method, 
-          transactionHash: send.hash, 
-          correlationId,
-          subscriptionId,
-          status: getTx.status 
-        });
-
-        return { transactionHash: send.hash };
-      } catch (err) {
-        lastErr = err;
-        const reason = err instanceof Error ? err.message : String(err);
-        const delay = calculateBackoffDelay(attempt + 1, { initialDelay, maxDelay, multiplier, jitter });
-        logger.warn('Soroban tx attempt failed', {
-          method,
-          subscriptionId,
-          attempt: attempt + 1,
-          maxAttempts,
-          reason,
-          retryInMs: delay,
-          correlationId,
-        });
-        await this.sleep(delay);
-      }
+      throw new Error(
+        `Soroban transaction failed: ${
+          lastErr instanceof Error ? lastErr.message : String(lastErr)
+        }`,
+      );
     }
-
-    // After all retries failed, enqueue to DLQ if available
-    logger.error('Contract transaction failed after all retries', { 
-      method, 
-      subscriptionId, 
-      maxAttempts, 
-      correlationId,
-      error: lastErr instanceof Error ? lastErr.message : String(lastErr) 
-    });
-    
-    await this.enqueueDeadLetter({
-      version: '1.0',
-      eventType: method,
-      payload: this.previewArgs(args),
-      failedAt: new Date().toISOString(),
-      errorReason: lastErr instanceof Error ? lastErr.message : String(lastErr),
-      retryCount: maxAttempts,
-      contractAddress: this.contractAddress,
-      rpcUrl: this.rpcUrl,
-    });
-
-    throw new Error(
-      `Soroban transaction failed after ${maxAttempts} attempts: ${
-        lastErr instanceof Error ? lastErr.message : String(lastErr)
-      }`,
-    );
   }
 
   async recordCommitment(
@@ -1035,7 +1013,7 @@ export class BlockchainService {
 
   // Helper to calculate a simulated Pedersen commitment (using SHA256 with blinding)
   private computePedersenCommitment(data: string, userId: string): Buffer {
-    const systemSecret = process.env.ENCRYPTION_KEY || process.env.JWT_SECRET || 'system-secret';
+    const systemSecret = env.ENCRYPTION_KEY || env.JWT_SECRET || 'system-secret';
     const blinding = crypto.createHmac('sha256', systemSecret).update(userId).digest('hex');
     return crypto.createHash('sha256').update(`${data}:${blinding}`).digest();
   }
@@ -1179,6 +1157,191 @@ export class BlockchainService {
       );
     } catch {
       return "[unavailable]";
+    }
+  }
+
+  /**
+   * TTL Management: Extend a contract entry's time-to-live.
+   * Idempotent: calling with the same newTtl multiple times is safe.
+   */
+  async extendTTL(
+    entryKey: string,
+    newTtl: number,
+    workerKeyPath?: string,
+  ): Promise<{ txHash: string; sequence: number }> {
+    const startTime = Date.now();
+    const { TTL_CONTRACT_HELPERS } = require("../blockchain/ttl-contract-helpers");
+
+    logger.info("Extending entry TTL", {
+      entryKey: entryKey.substring(0, 16),
+      newTtl,
+    });
+
+    try {
+      // Validate inputs
+      if (!TTL_CONTRACT_HELPERS.validateEntryKey(entryKey)) {
+        throw new Error(`Invalid entry key: ${entryKey}`);
+      }
+      if (!TTL_CONTRACT_HELPERS.validateTTL(newTtl)) {
+        throw new Error(`Invalid TTL value: ${newTtl}`);
+      }
+
+      const args = TTL_CONTRACT_HELPERS.prepareExtendTTLArgs(entryKey, newTtl);
+      const result = await this.invokeContractWithRetry(
+        TTL_CONTRACT_HELPERS.TTL_CONTRACT_METHODS.extendTTL,
+        args,
+      );
+
+      logger.info("TTL extended successfully", {
+        entryKey: entryKey.substring(0, 16),
+        txHash: result.transactionHash,
+        durationMs: Date.now() - startTime,
+      });
+
+      return {
+        txHash: result.transactionHash,
+        sequence: 0, // Sequence extracted from confirmed transaction if needed
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error("Failed to extend TTL", {
+        entryKey: entryKey.substring(0, 16),
+        error: errorMessage,
+        durationMs: Date.now() - startTime,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * TTL Management: Read the current TTL of a contract entry.
+   * Returns the ledger sequence at which the entry expires.
+   */
+  async getTTL(entryKey: string): Promise<number> {
+    const startTime = Date.now();
+    const { TTL_CONTRACT_HELPERS } = require("../blockchain/ttl-contract-helpers");
+
+    logger.info("Reading entry TTL", {
+      entryKey: entryKey.substring(0, 16),
+    });
+
+    try {
+      // Validate input
+      if (!TTL_CONTRACT_HELPERS.validateEntryKey(entryKey)) {
+        throw new Error(`Invalid entry key: ${entryKey}`);
+      }
+
+      const args = TTL_CONTRACT_HELPERS.prepareGetTTLArgs(entryKey);
+
+      if (!this.contractAddress) {
+        throw new Error("SOROBAN_CONTRACT_ADDRESS not configured");
+      }
+
+      const rpc = new SorobanRpc.Server(this.rpcUrl);
+      const contract = new Contract(this.contractAddress);
+
+      const secret = await secretProvider.getSecret("STELLAR_SECRET_KEY");
+      if (!secret) {
+        throw new Error("STELLAR_SECRET_KEY not configured");
+      }
+
+      const sourceKeypair = Keypair.fromSecret(secret);
+      const account = await rpc.getAccount(sourceKeypair.publicKey());
+
+      const tx = new TransactionBuilder(account, {
+        fee: "100",
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(contract.call(TTL_CONTRACT_HELPERS.TTL_CONTRACT_METHODS.getTTL, ...args))
+        .setTimeout(30)
+        .build();
+
+      const sim = await rpc.simulateTransaction(tx);
+      if (SorobanRpc.Api.isSimulationError(sim)) {
+        throw new Error(`Simulation failed: ${sim.error}`);
+      }
+
+      if (sim.result && sim.result.retval) {
+        const ttlValue = TTL_CONTRACT_HELPERS.extractU64FromScVal(sim.result.retval);
+        logger.info("TTL read successfully", {
+          entryKey: entryKey.substring(0, 16),
+          ttl: ttlValue,
+          durationMs: Date.now() - startTime,
+        });
+        return ttlValue;
+      }
+
+      throw new Error("Failed to extract TTL from contract response");
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error("Failed to read TTL", {
+        entryKey: entryKey.substring(0, 16),
+        error: errorMessage,
+        durationMs: Date.now() - startTime,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * TTL Management: Mark an entry as archived with a snapshot hash proof.
+   * Records immutable proof of archival on-chain.
+   */
+  async markArchived(
+    entryKey: string,
+    snapshotHash: string,
+    operatorId: string,
+  ): Promise<{ txHash: string; sequence: number }> {
+    const startTime = Date.now();
+    const { TTL_CONTRACT_HELPERS } = require("../blockchain/ttl-contract-helpers");
+
+    logger.info("Marking entry as archived", {
+      entryKey: entryKey.substring(0, 16),
+      snapshotHash: snapshotHash.substring(0, 16),
+      operatorId,
+    });
+
+    try {
+      // Validate inputs
+      if (!TTL_CONTRACT_HELPERS.validateEntryKey(entryKey)) {
+        throw new Error(`Invalid entry key: ${entryKey}`);
+      }
+      if (!TTL_CONTRACT_HELPERS.validateSnapshotHash(snapshotHash)) {
+        throw new Error(`Invalid snapshot hash: ${snapshotHash}`);
+      }
+
+      const args = TTL_CONTRACT_HELPERS.prepareMarkArchivedArgs(
+        entryKey,
+        snapshotHash,
+      );
+      const result = await this.invokeContractWithRetry(
+        TTL_CONTRACT_HELPERS.TTL_CONTRACT_METHODS.markArchived,
+        args,
+      );
+
+      logger.info("Entry marked as archived successfully", {
+        entryKey: entryKey.substring(0, 16),
+        txHash: result.transactionHash,
+        operatorId,
+        durationMs: Date.now() - startTime,
+      });
+
+      return {
+        txHash: result.transactionHash,
+        sequence: 0, // Sequence extracted from confirmed transaction if needed
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error("Failed to mark entry as archived", {
+        entryKey: entryKey.substring(0, 16),
+        error: errorMessage,
+        operatorId,
+        durationMs: Date.now() - startTime,
+      });
+      throw error;
     }
   }
 }

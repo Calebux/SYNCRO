@@ -48,9 +48,12 @@ Provide a migration path in the changelog entry. Example:
 
 ## Currently Deprecated
 
-_Nothing is currently deprecated._
+| Surface | Deprecated | Sunset | Migration |
+|---------|------------|--------|-----------|
+| Unversioned `/api/*` (legacy v1 payloads) | 2026-08-26 | **2027-02-26** | [v2 envelope contract](./api/v2-envelope.md) at `/api/v2` |
+| `/api/v1/*` | 2026-08-26 | **2027-02-26** | Same handlers, frozen shape. Move clients to `/api/v2`. |
 
-When items are deprecated, they will be listed here with their sunset date and migration path.
+v1 response shapes stay unchanged until sunset. After 2027-02-26 v1 may return HTTP 410 or be removed in the next major backend release.
 
 ---
 

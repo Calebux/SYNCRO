@@ -1,14 +1,20 @@
 import swaggerJSDoc from 'swagger-jsdoc';
 import type { OpenAPIV3_1 } from 'openapi-types';
+import authoredContract from './openapi/openapi.json';
 
 const options: swaggerJSDoc.Options = {
   definition: {
     openapi: '3.1.0',
     info: {
       title: 'SYNCRO API',
-      version: '1.0.0',
+      version: '2.0.0',
       description: [
         'Self-custodial subscription management platform API.',
+        '',
+        '## Versioning',
+        '',
+        '- **v2** (`/api/v2`) — current contract: success envelope, RFC 7807 errors, opaque cursor pagination. See docs/api/v2-envelope.md.',
+        '- **v1** (`/api/*` and `/api/v1`) — frozen. Deprecated 2026-08-26; sunset 2027-02-26.',
         '',
         '## Authentication',
         '',
@@ -31,7 +37,6 @@ const options: swaggerJSDoc.Options = {
     ],
     tags: [
       { name: 'Health', description: 'Liveness and readiness probes' },
-      { name: 'Subscriptions', description: 'Subscription CRUD and lifecycle' },
       { name: 'Analytics', description: 'Spend analytics and forecasting' },
       { name: 'API Keys', description: 'Programmatic API key management' },
       { name: 'Payments', description: 'Wallet funding and payment channels (x402-capable)' },
@@ -106,23 +111,6 @@ const options: swaggerJSDoc.Options = {
             nextCursor: { type: 'string', nullable: true, examples: [null] },
           },
         },
-        CreateSubscriptionRequest: {
-          type: 'object',
-          required: ['name', 'price', 'billing_cycle'],
-          properties: {
-            name: { type: 'string', minLength: 1, examples: ['Netflix'] },
-            price: { type: 'number', minimum: 0, examples: [15.99] },
-            billing_cycle: {
-              type: 'string',
-              enum: ['monthly', 'yearly', 'quarterly', 'weekly', 'annual'],
-              examples: ['monthly'],
-            },
-            currency: { type: 'string', examples: ['USD'] },
-            renewal_url: { type: 'string', format: 'uri', examples: ['https://netflix.com/account'] },
-            website_url: { type: 'string', format: 'uri', examples: ['https://netflix.com'] },
-            category: { type: 'string', examples: ['Entertainment'] },
-          },
-        },
         CreateApiKeyRequest: {
           type: 'object',
           required: ['scopes'],
@@ -148,22 +136,6 @@ const options: swaggerJSDoc.Options = {
             created_at: { type: 'string', format: 'date-time' },
           },
         },
-        Subscription: {
-          type: 'object',
-          properties: {
-            id: { type: 'string', format: 'uuid' },
-            user_id: { type: 'string', format: 'uuid' },
-            name: { type: 'string', examples: ['Netflix'] },
-            price: { type: 'number', examples: [15.99] },
-            billing_cycle: { type: 'string', enum: ['monthly', 'yearly', 'quarterly'] },
-            status: { type: 'string', enum: ['active', 'cancelled', 'expired'] },
-            renewal_url: { type: 'string', format: 'uri', nullable: true },
-            website_url: { type: 'string', format: 'uri', nullable: true },
-            logo_url: { type: 'string', format: 'uri', nullable: true },
-            created_at: { type: 'string', format: 'date-time' },
-            updated_at: { type: 'string', format: 'date-time' },
-          },
-        },
         BlockchainResult: {
           type: 'object',
           properties: {
@@ -181,17 +153,6 @@ const options: swaggerJSDoc.Options = {
             last_calculated_at: { type: 'string', format: 'date-time' },
           },
         },
-        Merchant: {
-          type: 'object',
-          properties: {
-            id: { type: 'string', format: 'uuid' },
-            name: { type: 'string' },
-            category: { type: 'string', nullable: true },
-            website_url: { type: 'string', format: 'uri', nullable: true },
-            logo_url: { type: 'string', format: 'uri', nullable: true },
-            created_at: { type: 'string', format: 'date-time' },
-          },
-        },
         TeamMember: {
           type: 'object',
           properties: {
@@ -200,14 +161,6 @@ const options: swaggerJSDoc.Options = {
             email: { type: 'string', format: 'email', nullable: true },
             role: { type: 'string', enum: ['admin', 'member', 'viewer'] },
             joinedAt: { type: 'string', format: 'date-time' },
-          },
-        },
-        DigestPreferences: {
-          type: 'object',
-          properties: {
-            digestEnabled: { type: 'boolean' },
-            digestDay: { type: 'integer', minimum: 1, maximum: 28 },
-            includeYearToDate: { type: 'boolean' },
           },
         },
         MonthlySpend: {
@@ -243,9 +196,30 @@ const options: swaggerJSDoc.Options = {
   apis: [
     './src/openapi/generated-paths.ts',
     './src/openapi/x402-docs.ts',
+    './src/openapi/v2-envelope.ts',
     './src/routes/**/*.ts',
     './src/index.ts',
   ],
 };
 
-export const swaggerSpec = swaggerJSDoc(options) as unknown as OpenAPIV3_1.Document;
+const document = swaggerJSDoc(options) as unknown as OpenAPIV3_1.Document;
+document.paths = { ...document.paths, ...authoredContract.paths } as unknown as OpenAPIV3_1.PathsObject;
+
+// Pin authorization failures to the shared problem-details contract.
+for (const item of Object.values(document.paths ?? {})) {
+  for (const [method, value] of Object.entries(item ?? {})) {
+    if (!['get', 'post', 'put', 'patch', 'delete'].includes(method) || !value || typeof value !== 'object') continue;
+    const operation = value as OpenAPIV3_1.OperationObject;
+    operation.responses ??= {};
+    if (!operation.responses['200'] && !operation.responses['201'] && !operation.responses['204']) {
+      operation.responses['200'] = { description: 'Successful response' };
+    }
+    const secured = 'security' in operation && Array.isArray(operation.security) && operation.security.length > 0;
+    if (secured && !operation.responses['401']) operation.responses['401'] = {
+      description: 'Unauthorized',
+      content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } as OpenAPIV3_1.ReferenceObject } },
+    };
+  }
+}
+
+export const swaggerSpec = document;

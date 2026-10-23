@@ -230,5 +230,5 @@ This won't be validated
 
 ## References
 
-- [Validation Script](../../scripts/validate-docs.js)
-- [CI Workflow](../../.github/workflows/validate-docs.yml)
+- [Validation Script](../scripts/validate-docs.js)
+- [CI Workflow](../.github/workflows/validate-docs.yml)

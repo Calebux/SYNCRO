@@ -1,9 +1,10 @@
 import * as Sentry from '@sentry/node';
 import logger from '../config/logger';
+import { env } from '../config/env';
 
 const FAILURE_WINDOW_MS = 60 * 60 * 1000;
-const ALERT_THRESHOLD = parseInt(process.env.WEBHOOK_SIGNATURE_ALERT_THRESHOLD || '5', 10);
-const ALERT_COOLDOWN_MS = parseInt(process.env.WEBHOOK_SIGNATURE_ALERT_COOLDOWN_MS || '900000', 10);
+const ALERT_THRESHOLD = parseInt(env.WEBHOOK_SIGNATURE_ALERT_THRESHOLD, 10);
+const ALERT_COOLDOWN_MS = parseInt(env.WEBHOOK_SIGNATURE_ALERT_COOLDOWN_MS, 10);
 
 interface ProviderFailureState {
   timestamps: number[];

@@ -6,12 +6,22 @@ export interface IdempotencyRecord<TResponse = unknown> {
   id: string;
   key: string;
   user_id: string;
+  route: string;
   request_hash: string;
   response_status: number;
   response_body: TResponse;
   created_at: string;
   expires_at: string;
 }
+
+/**
+ * Default `route` value for callers that predate route-scoping (e.g. the
+ * internal renewal orchestrator, which uses this table as a generic
+ * dedup store rather than for an HTTP route). Keeping this distinct from
+ * any real "METHOD /path" string means it can never collide with a route
+ * looked up by the idempotency middleware.
+ */
+const UNSCOPED_ROUTE = '*';
 
 export interface TypedIdempotentResponse<TResponse = unknown> {
   status: number;
@@ -53,7 +63,47 @@ export class IdempotencyService<TPayload extends SerializableInput = Serializabl
   }
 
   /**
+   * Look up an idempotency record by (key, user, route) alone — regardless
+   * of whether the stored request_hash matches the caller's current
+   * request. Callers (the idempotency middleware) compare the hash
+   * themselves so they can distinguish a safe replay from a reused key
+   * with a different body (409).
+   */
+  async checkKey(
+    key: string,
+    userId: string,
+    route: string
+  ): Promise<{ record: IdempotencyRecord<TResponse> | null }> {
+    try {
+      const { data: existing, error } = await supabase
+        .from('idempotency_keys')
+        .select('*')
+        .eq('key', key)
+        .eq('user_id', userId)
+        .eq('route', route)
+        .gt('expires_at', new Date().toISOString())
+        .maybeSingle();
+
+      if (error) {
+        // Log but don't throw - idempotency is best-effort and must never
+        // be the reason a legitimate request fails.
+        logger.error('Idempotency key lookup error:', error);
+        return { record: null };
+      }
+
+      return { record: (existing as IdempotencyRecord<TResponse>) ?? null };
+    } catch (error) {
+      logger.error('Idempotency key lookup failed:', error);
+      return { record: null };
+    }
+  }
+
+  /**
    * Check if request is idempotent and return cached response if exists
+   *
+   * @deprecated kept for backward compatibility with the hash-scoped
+   * lookup path. New callers should use {@link checkKey}, which is
+   * route-scoped and lets the caller decide replay vs. conflict.
    */
   async checkIdempotency(
     key: string,
@@ -105,7 +155,8 @@ export class IdempotencyService<TPayload extends SerializableInput = Serializabl
     userId: string,
     requestHash: string,
     responseStatus: number,
-    responseBody: TResponse
+    responseBody: TResponse,
+    route: string = UNSCOPED_ROUTE
   ): Promise<void> {
     try {
       const expiresAt = new Date();
@@ -114,6 +165,7 @@ export class IdempotencyService<TPayload extends SerializableInput = Serializabl
       const { error } = await supabase.from('idempotency_keys').insert({
         key,
         user_id: userId,
+        route,
         request_hash: requestHash,
         response_status: responseStatus,
         response_body: responseBody,
@@ -121,8 +173,21 @@ export class IdempotencyService<TPayload extends SerializableInput = Serializabl
       });
 
       if (error) {
-        // Log but don't throw - idempotency is best-effort
-        logger.warn('Failed to store idempotency record:', error);
+        // A unique-violation here means two concurrent requests raced to
+        // store the same (key, user, route) — the first writer wins and
+        // the loser's response was already served to its caller, so this
+        // is expected under concurrency and not an error worth failing
+        // the request over.
+        if (error.code === '23505') {
+          logger.info('Idempotency record already stored by a concurrent request', {
+            key,
+            userId,
+            route,
+          });
+        } else {
+          // Log but don't throw - idempotency is best-effort
+          logger.warn('Failed to store idempotency record:', error);
+        }
       }
     } catch (error) {
       logger.error('Idempotency storage failed:', error);

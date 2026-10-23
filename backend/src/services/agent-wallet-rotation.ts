@@ -33,6 +33,7 @@ import {
 import { rpc as SorobanRpc } from '@stellar/stellar-sdk';
 import { supabase } from '../config/database';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import {
   AgentHDWallet,
   AgentName,
@@ -67,7 +68,7 @@ export interface RotationResult {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function resolveSchedule(): RotationSchedule {
-  const raw = (process.env.AGENT_ROTATION_SCHEDULE ?? 'daily').toLowerCase();
+  const raw = (env.AGENT_ROTATION_SCHEDULE ?? 'daily').toLowerCase();
   if (['per-task', 'daily', 'weekly', 'manual'].includes(raw)) {
     return raw as RotationSchedule;
   }
@@ -294,10 +295,10 @@ export class AgentWalletRotationService {
       return null;
     }
 
-    const rpcUrl = process.env.SOROBAN_RPC_URL ?? 'https://soroban-testnet.stellar.org';
+    const rpcUrl = env.SOROBAN_RPC_URL ?? 'https://soroban-testnet.stellar.org';
     const network = resolveStellarNetwork();
     const passphrase =
-      process.env.STELLAR_NETWORK_PASSPHRASE ??
+      env.STELLAR_NETWORK_PASSPHRASE ??
       (network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET);
 
     try {

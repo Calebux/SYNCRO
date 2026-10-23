@@ -1,0 +1,18 @@
+{
+  "id": "amazon-prime-en-monthly",
+  "merchant": "Amazon Prime",
+  "locale": "en",
+  "kind": "positive",
+  "notes": "Monthly Prime membership renewal.",
+  "email": {
+    "subject": "Your Amazon Prime monthly membership",
+    "from": "Amazon Prime <no-reply@amazon.com>",
+    "body": "Your membership renews monthly. Payment received for $14.99."
+  },
+  "expected": {
+    "name": "Amazon Prime",
+    "amount": 14.99,
+    "currency": "USD",
+    "interval": "monthly"
+  }
+}

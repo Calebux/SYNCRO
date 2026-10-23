@@ -123,7 +123,7 @@ function measureBuild(buildManifest, chunksDir, appChunksDir, rootDir) {
     const filePath = path.join(cd, file);
     const size = getFileSize(filePath);
     if (size > 0) {
-      sharedChunks.push({ name: file, size });
+      sharedChunks.push({ name: file, size, filePath });
       allChunks.set(file, size);
     }
   }
@@ -133,7 +133,7 @@ function measureBuild(buildManifest, chunksDir, appChunksDir, rootDir) {
     const filePath = path.join(cd, file);
     const size = getFileSize(filePath);
     if (size > 0) {
-      sharedChunks.push({ name: file, size });
+      sharedChunks.push({ name: file, size, filePath });
       allChunks.set(file, size);
     }
   }
@@ -251,20 +251,82 @@ function checkBudgets(measurement, budgets) {
   return { violations, warnings };
 }
 
-function printReport(measurement, result, isJson) {
+function scanForbiddenModules(measurement, budgets, rootDir) {
+  const forbidden = budgets.forbiddenInRoutes || {};
+  const violations = [];
+  const hits = {};
+
+  for (const [route, needles] of Object.entries(forbidden)) {
+    const routeData = measurement.routes[route];
+    if (!routeData) continue;
+    const files = [
+      ...(routeData.chunks || []).map(c => c.filePath),
+      ...(measurement.sharedChunks || []).map(c => c.filePath || (c.name && path.join(ROOT, '.next', 'static', 'chunks', c.name))),
+    ].filter(Boolean);
+    let blob = '';
+    for (const filePath of files) {
+      try {
+        blob += fs.readFileSync(filePath, 'utf8');
+      } catch {
+        // missing chunk
+      }
+    }
+    const found = needles.filter(needle => blob.includes(needle));
+    hits[route] = found;
+    for (const needle of found) {
+      violations.push({
+        type: 'forbidden',
+        route,
+        needle,
+        message: `Route "${route}" bundle contains forbidden dependency "${needle}"`,
+      });
+    }
+  }
+
+  return { violations, hits };
+}
+
+function diffAgainstBaseline(currentRoutes, baselinePath) {
+  const baseline = baselinePath ? readJSON(baselinePath) : null;
+  const previous = baseline?.measurement?.routes || {};
+  const delta = {};
+
+  const routes = new Set([...Object.keys(currentRoutes), ...Object.keys(previous)]);
+  for (const route of routes) {
+    const now = currentRoutes[route] ? parseFloat(currentRoutes[route].totalKB) : null;
+    const was = previous[route] ? parseFloat(previous[route].totalKB) : null;
+    delta[route] = {
+      previousKB: was,
+      currentKB: now,
+      deltaKB: now !== null && was !== null ? Number((now - was).toFixed(1)) : null,
+    };
+  }
+  return delta;
+}
+
+function writeReport(filePath, payload) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2));
+}
+
+function printReport(measurement, result, isJson, extra = {}) {
+  const routesJson = Object.fromEntries(
+    Object.entries(measurement.routes).map(([route, data]) => [
+      route,
+      { totalKB: formatKB(data.totalSize), routeKB: formatKB(data.routeSize), sharedKB: formatKB(data.sharedSize), gzipKB: formatKB(data.gzipSize) },
+    ])
+  );
+
   if (isJson) {
     console.log(JSON.stringify({
       timestamp: new Date().toISOString(),
       measurement: {
         totalJS: formatKB(measurement.totalChunkSize),
-        routes: Object.fromEntries(
-          Object.entries(measurement.routes).map(([route, data]) => [
-            route,
-            { totalKB: formatKB(data.totalSize), routeKB: formatKB(data.routeSize), sharedKB: formatKB(data.sharedSize), gzipKB: formatKB(data.gzipSize) },
-          ])
-        ),
+        routes: routesJson,
         sharedChunks: measurement.sharedChunks.map(c => ({ name: c.name, sizeKB: formatKB(c.size) })),
+        forbidden: extra.forbiddenHits || {},
       },
+      delta: extra.delta || {},
       result,
     }));
     return;
@@ -332,7 +394,17 @@ function printReport(measurement, result, isJson) {
 }
 
 function main() {
-  const isJson = process.argv.includes('--json');
+  const argv = process.argv;
+  const isJson = argv.includes('--json');
+  const noFail = argv.includes('--no-fail');
+  const writeFlag = argv.find(a => a.startsWith('--write-report='));
+  const baselineFlag = argv.find(a => a.startsWith('--baseline='));
+  const reportPath = writeFlag
+    ? path.resolve(writeFlag.slice('--write-report='.length))
+    : path.join(ROOT, '.next', 'route-bundle-report.json');
+  const baselinePath = baselineFlag
+    ? path.resolve(baselineFlag.slice('--baseline='.length))
+    : (argv.includes('--baseline') ? path.join(ROOT, 'bundle-size-baseline.json') : null);
 
   const budgets = loadBudgets();
   const buildManifest = readJSON(BUILD_MANIFEST_PATH);
@@ -344,10 +416,31 @@ function main() {
 
   const measurement = measureBuild(buildManifest);
   const result = checkBudgets(measurement, budgets);
+  const forbidden = scanForbiddenModules(measurement, budgets, ROOT);
+  result.violations.push(...forbidden.violations);
 
-  printReport(measurement, result, isJson);
+  const routesJson = Object.fromEntries(
+    Object.entries(measurement.routes).map(([route, data]) => [
+      route,
+      { totalKB: formatKB(data.totalSize), routeKB: formatKB(data.routeSize), sharedKB: formatKB(data.sharedSize), gzipKB: formatKB(data.gzipSize) },
+    ])
+  );
+  const delta = diffAgainstBaseline(routesJson, baselinePath);
 
-  if (result.violations.length > 0) {
+  writeReport(reportPath, {
+    timestamp: new Date().toISOString(),
+    measurement: {
+      totalJS: formatKB(measurement.totalChunkSize),
+      routes: routesJson,
+      sharedChunks: measurement.sharedChunks.map(c => ({ name: c.name, sizeKB: formatKB(c.size) })),
+      forbidden: forbidden.hits,
+    },
+    delta,
+    result,
+  });
+  printReport(measurement, result, isJson, { forbiddenHits: forbidden.hits, delta });
+
+  if (!noFail && result.violations.length > 0) {
     process.exit(1);
   }
 }
@@ -364,4 +457,6 @@ module.exports = {
   checkBudgets,
   measureBuild,
   loadBudgets,
+  scanForbiddenModules,
+  diffAgainstBaseline,
 };

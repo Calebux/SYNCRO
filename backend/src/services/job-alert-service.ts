@@ -6,6 +6,7 @@
 import * as Sentry from '@sentry/node';
 import { supabase } from '../config/database';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import {
   evaluateJobThresholds,
   getCriticalJobById,
@@ -17,7 +18,7 @@ import {
 
 const HOURLY_WINDOW_MS = 60 * 60 * 1000;
 const ALERT_COOLDOWN_MS =
-  parseInt(process.env.JOB_ALERT_COOLDOWN_MS || String(15 * 60 * 1000), 10);
+  parseInt(env.JOB_ALERT_COOLDOWN_MS, 10);
 
 interface JobRuntimeState {
   consecutiveFailures: number;

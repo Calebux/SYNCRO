@@ -1,6 +1,9 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::{Address as _, Ledger}, vec, Address, Env};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    vec, Address, Env,
+};
 
 use super::*;
 
@@ -13,7 +16,12 @@ fn setup() -> (Env, Address, Address, Address, Address) {
     let guardian3 = Address::generate(&env);
 
     let contract_id = env.register_contract(None, FeeCollector);
-    let guardians = vec![&env, guardian1.clone(), guardian2.clone(), guardian3.clone()];
+    let guardians = vec![
+        &env,
+        guardian1.clone(),
+        guardian2.clone(),
+        guardian3.clone(),
+    ];
     let client = FeeCollectorClient::new(&env, &contract_id);
     client.init(&admin, &guardians);
 
@@ -40,7 +48,8 @@ fn test_deposit_accrue_and_withdraw_with_timelock() {
     assert_eq!(request.amount, 60);
     assert!(!request.executed);
 
-    env.ledger().set_timestamp(env.ledger().timestamp() + DEFAULT_TIMELOCK_SECONDS + 1);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + DEFAULT_TIMELOCK_SECONDS + 1);
     client.execute_withdrawal(&guardian2, &withdrawal_id);
 
     let updated = client.get_balance();
@@ -71,7 +80,12 @@ fn test_guardian_update_and_timelock_change() {
     let contract_id = env.register_contract(None, FeeCollector);
     let client = FeeCollectorClient::new(&env, &contract_id);
 
-    let guardians = vec![&env, guardian1.clone(), guardian2.clone(), guardian3.clone()];
+    let guardians = vec![
+        &env,
+        guardian1.clone(),
+        guardian2.clone(),
+        guardian3.clone(),
+    ];
     client.init(&admin, &guardians);
 
     let new_guardians = vec![&env, guardian2.clone(), guardian3.clone()];

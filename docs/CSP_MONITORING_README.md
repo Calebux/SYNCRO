@@ -348,7 +348,7 @@ tail -f logs/combined-*.log | grep "CSP alert"
 
 - [Policy Tuning Workflow](./CSP_POLICY_TUNING.md) - Complete guide for tuning CSP policies
 - [Incident Response Runbook](./CSP_INCIDENT_RESPONSE.md) - Step-by-step response procedures
-- [Implementation Summary](../ISSUE_498_IMPLEMENTATION_SUMMARY.md) - Technical details
+- [Implementation Summary](archive/ISSUE_498_IMPLEMENTATION_SUMMARY.md) - Technical details
 
 ## Support
 

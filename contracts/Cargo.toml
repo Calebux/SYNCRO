@@ -1,9 +1,10 @@
+# Reproducible builds: the Rust toolchain is pinned in rust-toolchain.toml.
+# All CI builds use --locked so Cargo.lock is authoritative.
+# Run `bash scripts/build-reproducible.sh` to reproduce hashes locally.
 [workspace]
 resolver = "2"
 members = [
-  "contracts",
-  "contracts/subscription_renewal",
-  "contracts/subscription_logging",
+  "contracts/common",
   "contracts/virtual-card",
   "contracts/escrow",
   "contracts/agent-registry",
@@ -12,24 +13,22 @@ members = [
   "contracts/contract-upgrade",
   "contracts/allowance",
   "contracts/payment-adapter",
-  "contracts/voucher-ledger",
   "contracts/fee-collector",
   "contracts/resolver-registry",
-  "contracts/subscription_refund",
-  "contracts/recurring_allowance",
-  "contracts/loyalty_rewards",
-  "contracts/subscription_nft",
   "contracts/attestation",
   "contracts/guardian",
   "contracts/fx-oracle",
   "contracts/payment-splitter",
   "contracts/stealth-announcement",
-  "integration_tests",
 ]
 
 [workspace.dependencies]
-soroban-sdk = "27"
+soroban-sdk = "=29.0.1"
 proptest = "1.6"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+hmac = "0.13"
+sha2 = "0.11"
 
 [profile.release]
 opt-level = "z"
@@ -45,3 +44,6 @@ lto = true
 [profile.release-with-logs]
 inherits = "release"
 debug-assertions = true
+
+[workspace.dependencies.base64ct]
+version = "=1.6.0"

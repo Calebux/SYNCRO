@@ -1,0 +1,18 @@
+{
+  "id": "amazon-prime-en-yearly",
+  "merchant": "Amazon Prime",
+  "locale": "en",
+  "kind": "positive",
+  "notes": "Annual Prime membership renewal.",
+  "email": {
+    "subject": "Your Amazon Prime membership has renewed",
+    "from": "Amazon Prime <no-reply@amazon.com>",
+    "body": "Your Amazon Prime membership was renewed. You were charged $139.00 per year.\nThis is your invoice."
+  },
+  "expected": {
+    "name": "Amazon Prime",
+    "amount": 139.0,
+    "currency": "USD",
+    "interval": "yearly"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "id": "audible-en-monthly",
+  "merchant": "Audible",
+  "locale": "en",
+  "kind": "positive",
+  "notes": "Audible membership receipt.",
+  "email": {
+    "subject": "Your Audible membership receipt",
+    "from": "Audible <no-reply@audible.com>",
+    "body": "Thanks for being a member. Your subscription was billed $14.95/month."
+  },
+  "expected": {
+    "name": "Audible",
+    "amount": 14.95,
+    "currency": "USD",
+    "interval": "monthly"
+  }
+}

@@ -25,6 +25,7 @@ use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,
     Address, Env,
 };
+use syncro_contract_common as syncro_common;
 
 // ── Storage keys ────────────────────────────────────────────────────────────────
 
@@ -73,19 +74,19 @@ pub struct Allowance {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum AllowanceError {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    AllowanceNotFound = 3,
-    Unauthorized = 4,
-    InvalidAmount = 5,
-    InvalidCap = 6,
-    InvalidPeriod = 7,
-    SelfAsMerchant = 8,
-    NotActive = 9,
-    PeriodCapExceeded = 10,
-    AbsoluteCapExceeded = 11,
-    CapBelowSpent = 12,
-    Paused = 13,
+    AlreadyInitialized = 1800,
+    NotInitialized = 1801,
+    AllowanceNotFound = 1802,
+    Unauthorized = 1803,
+    InvalidAmount = 1804,
+    InvalidCap = 1805,
+    InvalidPeriod = 1806,
+    SelfAsMerchant = 1807,
+    NotActive = 1808,
+    PeriodCapExceeded = 1809,
+    AbsoluteCapExceeded = 1810,
+    CapBelowSpent = 1811,
+    Paused = 1812,
 }
 
 // ── Events ──────────────────────────────────────────────────────────────────────
@@ -123,6 +124,22 @@ pub struct AllowanceCapsUpdated {
     pub absolute_cap: i128,
 }
 
+/// Emitted when the contract is paused or unpaused (suspend lifecycle).
+#[contractevent]
+pub struct AllowancePaused {
+    pub paused: bool,
+    pub schema_version: u32,
+}
+
+/// Emitted when a consumption or caps update crosses into a new period
+/// window. Indexers tracking per-period spend must reset their window on this.
+#[contractevent]
+pub struct PeriodRolledOver {
+    pub allowance_id: u64,
+    pub new_period_start: u64,
+    pub schema_version: u32,
+}
+
 // ── Contract ────────────────────────────────────────────────────────────────────
 
 #[contract]
@@ -154,12 +171,22 @@ impl AllowanceContract {
     pub fn pause(env: Env) {
         Self::require_admin(&env);
         env.storage().instance().set(&DataKey::Paused, &true);
+        AllowancePaused {
+            paused: true,
+            schema_version: syncro_common::event_schema_version(),
+        }
+        .publish(&env);
     }
 
     /// Resume the contract. Admin only.
     pub fn unpause(env: Env) {
         Self::require_admin(&env);
         env.storage().instance().set(&DataKey::Paused, &false);
+        AllowancePaused {
+            paused: false,
+            schema_version: syncro_common::event_schema_version(),
+        }
+        .publish(&env);
     }
 
     /// Whether the contract is currently paused.
@@ -196,6 +223,10 @@ impl AllowanceContract {
         absolute_cap: i128,
         period_length: u64,
     ) -> u64 {
+        if Self::is_paused(env.clone()) {
+            panic_with_error!(&env, AllowanceError::Paused);
+        }
+
         owner.require_auth();
 
         if owner == merchant {
@@ -258,6 +289,10 @@ impl AllowanceContract {
     /// Revoke an allowance, immediately blocking further pulls.
     /// Only the owner may revoke.
     pub fn revoke_allowance(env: Env, allowance_id: u64) {
+        if Self::is_paused(env.clone()) {
+            panic_with_error!(&env, AllowanceError::Paused);
+        }
+
         let mut allowance = Self::load(&env, allowance_id);
 
         allowance.owner.require_auth();
@@ -285,6 +320,10 @@ impl AllowanceContract {
     /// or in total, respectively), and the per-period cap may not exceed the
     /// absolute cap.
     pub fn update_caps(env: Env, allowance_id: u64, period_cap: i128, absolute_cap: i128) {
+        if Self::is_paused(env.clone()) {
+            panic_with_error!(&env, AllowanceError::Paused);
+        }
+
         let mut allowance = Self::load(&env, allowance_id);
         allowance.owner.require_auth();
 
@@ -299,7 +338,10 @@ impl AllowanceContract {
         }
 
         // Reconcile the current period before validating against spent amounts.
-        Self::roll_period(&env, &mut allowance);
+        let rolled = Self::roll_period(&env, &mut allowance);
+        if rolled {
+            Self::publish_rollover(&env, allowance_id, allowance.period_start);
+        }
 
         if absolute_cap < allowance.total_spent || period_cap < allowance.period_spent {
             panic_with_error!(&env, AllowanceError::CapBelowSpent);
@@ -347,7 +389,10 @@ impl AllowanceContract {
         allowance.merchant.require_auth();
 
         // Reset the period window if the current one has fully elapsed.
-        Self::roll_period(&env, &mut allowance);
+        let rolled = Self::roll_period(&env, &mut allowance);
+        if rolled {
+            Self::publish_rollover(&env, allowance_id, allowance.period_start);
+        }
 
         // Enforce caps. Use checked arithmetic to be defensive against overflow.
         let new_period_spent = allowance
@@ -435,22 +480,48 @@ impl AllowanceContract {
     /// Advance `period_start` and reset `period_spent` if one or more full
     /// periods have elapsed since the current window began. The new window is
     /// aligned to period boundaries so caps track fixed cycles rather than
-    /// drifting with each pull.
-    fn roll_period(env: &Env, allowance: &mut Allowance) {
+    /// drifting with each pull. Returns true when the window actually rolled.
+    /// Callers that persist the allowance afterwards publish the rollover.
+    fn roll_period(env: &Env, allowance: &mut Allowance) -> bool {
         let now = env.ledger().timestamp();
         let elapsed = now.saturating_sub(allowance.period_start);
         if elapsed >= allowance.period_length {
             let periods = elapsed / allowance.period_length;
             allowance.period_start += periods * allowance.period_length;
             allowance.period_spent = 0;
+            return true;
         }
+        false
+    }
+
+    fn publish_rollover(env: &Env, allowance_id: u64, new_period_start: u64) {
+        PeriodRolledOver {
+            allowance_id,
+            new_period_start,
+            schema_version: syncro_common::event_schema_version(),
+        }
+        .publish(env);
+    }
+
+    /// Returns the contract version.
+    /// Incremented when the implementation changes (used for deployments).
+    pub fn version(_env: Env) -> u32 {
+        syncro_common::version(&_env)
+    }
+
+    /// Returns the contract interface version.
+    /// Incremented when public methods or error handling changes.
+    /// Used to detect API mismatches at runtime.
+    pub fn interface_version(_env: Env) -> u32 {
+        syncro_common::interface_version_call(&_env)
     }
 }
 
-// ── Tests ───────────────────────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod negative;
+
 
 #[cfg(test)]
 mod fuzz;

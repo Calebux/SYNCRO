@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import Stripe from 'stripe';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { webhookSignatureAlertService } from './webhook-signature-alert-service';
 
 export type PaymentWebhookProvider = 'stripe' | 'paystack' | 'paypal' | 'telegram';
@@ -36,7 +37,7 @@ export function verifyStripeWebhook(
   }
 
   try {
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder', {
+    const stripe = new Stripe(env.STRIPE_SECRET_KEY || 'sk_test_placeholder', {
       apiVersion: '2025-02-24.acacia',
     });
     const body = typeof rawBody === 'string' ? rawBody : rawBody.toString('utf8');
@@ -63,7 +64,7 @@ export function verifyPaystackWebhook(
   const provider: PaymentWebhookProvider = 'paystack';
 
   if (!secret) {
-    if (process.env.NODE_ENV === 'production') {
+    if (env.NODE_ENV === 'production') {
       webhookSignatureAlertService.recordFailure(provider, { reason: 'secret_not_configured' });
       return { valid: false, provider, error: 'PAYSTACK_SECRET_KEY not configured' };
     }
@@ -108,7 +109,7 @@ export async function verifyPayPalWebhook(
   const { webhookId, clientId, clientSecret, mode = 'sandbox' } = config;
 
   if (!webhookId) {
-    if (process.env.NODE_ENV === 'production') {
+    if (env.NODE_ENV === 'production') {
       webhookSignatureAlertService.recordFailure(provider, { reason: 'webhook_id_not_configured' });
       return { valid: false, provider, error: 'PAYPAL_WEBHOOK_ID not configured' };
     }
@@ -211,7 +212,7 @@ export function verifyTelegramWebhook(
   const provider: PaymentWebhookProvider = 'telegram';
 
   if (!secret) {
-    if (process.env.NODE_ENV === 'production') {
+    if (env.NODE_ENV === 'production') {
       webhookSignatureAlertService.recordFailure(provider, { reason: 'secret_not_configured' });
       return { valid: false, provider, error: 'TELEGRAM_WEBHOOK_SECRET not configured' };
     }

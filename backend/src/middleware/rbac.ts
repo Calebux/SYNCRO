@@ -3,9 +3,10 @@ import { AuthenticatedRequest, UserRole } from './auth';
 
 export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
   owner: ['*'],
+  operator: ['team:read', 'team:write', 'agents:register', 'channels:read'],
   admin: ['subscriptions:*', 'team:read', 'team:write', 'billing:read'],
   member: ['subscriptions:read', 'subscriptions:create'],
-  viewer: ['subscriptions:read'],
+  viewer: ['subscriptions:read', 'team:read', 'channels:read'],
 };
 
 /**

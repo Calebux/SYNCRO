@@ -7,10 +7,13 @@ import { supabase } from '../../config/database';
 
 const router = Router();
 
-// Strict JWT + role gate (admin only)
-router.use(createAdminLimiter());
-router.use(authenticate);
-router.use(requireRole('admin', 'owner'));
+// Strict JWT + role gate (admin only). Scoped to this router's own paths:
+// it is mounted at /api/admin, so a bare router.use() would also intercept
+// every /api/admin/* route mounted after it.
+const PRIVACY_METRICS_PATHS = ['/privacy-metrics', '/privacy-metrics.csv'];
+router.use(PRIVACY_METRICS_PATHS, createAdminLimiter());
+router.use(PRIVACY_METRICS_PATHS, authenticate);
+router.use(PRIVACY_METRICS_PATHS, requireRole('admin', 'owner'));
 
 type PrivacyMetrics = {
   privacy_mode_enabled_rate_percent: number | null;
@@ -29,16 +32,11 @@ function safeDivide(n: number, d: number): number | null {
   return (n / d) * 100;
 }
 
-async function getPrivacyMetricsAggregates(): Promise<Omit<PrivacyMetrics, 'generated_at'>> {
-  // NOTE: These queries are placeholders until we confirm exact table/column names.
+async function getPrivacyMetricsAggregates(): Promise<PrivacyMetrics> {
+  // NOTE: Aggregations use exact counts with head: true.
   // We intentionally avoid returning user-level rows.
 
   // 1) Privacy mode enabled rate
-  const { data: privacyEnabledAgg } = await supabase
-    .from('profiles')
-    .select('privacy_mode_enabled')
-    .eq('privacy_mode_enabled', true);
-
   const { count: privacyEnabledCount } = await supabase
     .from('profiles')
     .select('*', { count: 'exact', head: true })
@@ -85,11 +83,7 @@ async function getPrivacyMetricsAggregates(): Promise<Omit<PrivacyMetrics, 'gene
     .select('*', { count: 'exact', head: true })
     .not('stealth_meta_address', 'is', null);
 
-  const { count: totalProfilesCount2 } = await supabase
-    .from('profiles')
-    .select('*', { count: 'exact', head: true });
-
-  const stealthAdoptionRate = safeDivide(Number(stealthConfiguredCount ?? 0), Number(totalProfilesCount2 ?? 0));
+  const stealthAdoptionRate = safeDivide(Number(stealthConfiguredCount ?? 0), Number(totalProfilesCount ?? 0));
 
   // 6) GDPR export/deletion requests counts
   const { count: gdprExportCount } = await supabase
@@ -111,16 +105,13 @@ async function getPrivacyMetricsAggregates(): Promise<Omit<PrivacyMetrics, 'gene
     stealth_address_adoption_rate_percent: stealthAdoptionRate,
     gdpr_export_requests_count: Number(gdprExportCount ?? 0),
     gdpr_deletion_requests_count: Number(gdprDeletionCount ?? 0),
+    generated_at: new Date().toISOString(),
   };
 }
 
 router.get('/privacy-metrics', async (_req: AuthenticatedRequest, res: Response) => {
   try {
-    const metricsBase = await getPrivacyMetricsAggregates();
-    const payload: PrivacyMetrics = {
-      ...metricsBase,
-      generated_at: new Date().toISOString(),
-    };
+    const payload = await getPrivacyMetricsAggregates();
 
     res.json({
       success: true,
@@ -139,7 +130,7 @@ router.get('/privacy-metrics', async (_req: AuthenticatedRequest, res: Response)
  * Sanitizes a CSV cell to prevent formula injection.
  * Cells starting with =, +, -, @, tab, or carriage return are prefixed with a single quote.
  */
-function sanitizeCSVCell(value: any): string {
+function sanitizeCSVCell(value: unknown): string {
   if (value === null || value === undefined) return '';
   
   const stringValue = String(value);
@@ -160,11 +151,7 @@ function sanitizeCSVCell(value: any): string {
 
 router.get('/privacy-metrics.csv', async (_req: AuthenticatedRequest, res: Response) => {
   try {
-    const metricsBase = await getPrivacyMetricsAggregates();
-    const payload: PrivacyMetrics = {
-      ...metricsBase,
-      generated_at: new Date().toISOString(),
-    };
+    const payload = await getPrivacyMetricsAggregates();
 
     const headers = [
       'privacy_mode_enabled_rate_percent',

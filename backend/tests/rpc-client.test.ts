@@ -1,4 +1,4 @@
-import { RpcClient } from '../../shared/src/rpc-client';
+import { RpcClient } from '@syncro/shared/rpc-client';
 
 describe('RpcClient', () => {
   let client: RpcClient;

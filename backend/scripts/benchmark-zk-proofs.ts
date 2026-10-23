@@ -6,7 +6,7 @@ import { performance } from 'node:perf_hooks';
 import {
   createPaymentCommitment,
   verifyPaymentCommitment,
-} from '../../shared/src/crypto/payment-commitment';
+} from '@syncro/shared/crypto';
 
 const ITERATIONS = 200;
 const WARMUP = 20;

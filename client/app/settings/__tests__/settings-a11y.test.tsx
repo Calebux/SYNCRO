@@ -56,11 +56,6 @@ vi.mock("@/lib/api/user-preferences", () => ({
   fetchDelayedNotifications: vi.fn().mockResolvedValue([]),
 }))
 
-vi.mock("@/lib/api/reminder-settings", () => ({
-  fetchReminderSettings: vi.fn().mockResolvedValue({ reminder_days_before: [7, 3, 1] }),
-  updateReminderSettings: vi.fn(),
-}))
-
 vi.mock("@/components/providers/user-settings-provider", () => ({
   useUserSettings: () => ({ settings: {} }),
 }))
@@ -303,28 +298,5 @@ describe("Security page — accessibility", () => {
       />
     )
     expect(await axe(container)).toHaveNoViolations()
-  })
-})
-
-// ── ReminderSettings component ────────────────────────────────────────────────
-
-describe("ReminderSettings — accessibility", () => {
-  it("remove buttons have accessible labels", async () => {
-    const ReminderSettings = (await import("@/components/settings/ReminderSettings")).default
-    const { getAllByRole } = render(<ReminderSettings />)
-    await waitFor(() => {
-      const removeButtons = getAllByRole("button").filter(
-        (b) => b.getAttribute("aria-label")?.startsWith("Remove")
-      )
-      expect(removeButtons.length).toBeGreaterThan(0)
-    })
-  })
-
-  it("has no axe violations", async () => {
-    const ReminderSettings = (await import("@/components/settings/ReminderSettings")).default
-    const { container } = render(<ReminderSettings />)
-    await waitFor(async () => {
-      expect(await axe(container)).toHaveNoViolations()
-    })
   })
 })

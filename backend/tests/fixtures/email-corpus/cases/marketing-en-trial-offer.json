@@ -1,0 +1,13 @@
+{
+  "id": "marketing-en-trial-offer",
+  "merchant": "Unknown",
+  "locale": "en",
+  "kind": "negative",
+  "notes": "Ambiguous negative: promotional email full of subscription vocabulary but no plan exists.",
+  "email": {
+    "subject": "Start your free trial today",
+    "from": "Bright Notes <hello@bright-notes.example>",
+    "body": "Try any plan free for 30 days. Subscription plans start at $8.00/month. No card needed to start."
+  },
+  "expected": null
+}

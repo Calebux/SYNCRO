@@ -8,7 +8,14 @@ A change is **breaking** if it removes or renames an endpoint, removes or rename
 
 ## [Unreleased]
 
-_Changes staged for the next release._
+### Non-breaking
+
+- **v2 API** (`/api/v2`) — success envelope `{ data, meta }`, RFC 7807 Problem Details errors, and opaque cursor pagination. Contract: [docs/api/v2-envelope.md](./api/v2-envelope.md).
+- `/api/v1` mounted as a frozen alias of existing v1 handlers. Unversioned `/api/*` is unchanged.
+
+### Deprecated
+
+- **Legacy v1 payloads** on unversioned `/api/*` and `/api/v1/*` — deprecated 2026-08-26, sunset **2027-02-26**. Migrate to `/api/v2`.
 
 ---
 

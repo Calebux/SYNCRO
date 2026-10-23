@@ -1,5 +1,6 @@
 import webpush from 'web-push';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { NotificationPayload, DeliveryResult } from '../types/reminder';
 import { withRetry, RetryableError, NonRetryableError } from '../utils/retry';
 import { sanitizeUrl } from '../utils/sanitize-url';
@@ -19,9 +20,9 @@ export class PushService {
   private vapidSubject: string;
 
   constructor() {
-    this.vapidPublicKey = process.env.VAPID_PUBLIC_KEY || '';
+    this.vapidPublicKey = env.VAPID_PUBLIC_KEY || '';
     this.vapidPrivateKey = ''; // Will be fetched from secretProvider
-    this.vapidSubject = process.env.VAPID_SUBJECT || process.env.FRONTEND_URL || 'mailto:noreply@synchro.app';
+    this.vapidSubject = env.VAPID_SUBJECT || env.FRONTEND_URL || 'mailto:noreply@synchro.app';
 
     if (this.vapidPublicKey) {
       logger.info('Push service initialized with public key');
@@ -43,75 +44,15 @@ export class PushService {
   }
 
   /**
-   * Send push notification with retry logic
+   * Deprecated stub — subscription reminders removed in v3. Use send().
    */
-  async sendPushNotification(
-    pushSubscription: PushSubscription,
-    payload: NotificationPayload,
-    options: { maxAttempts?: number } = {}
-  ): Promise<DeliveryResult> {
-    const { maxAttempts = 3 } = options;
-
-    const vapidDetails = await this.getVapidDetails().catch(() => null);
-    if (!vapidDetails || !vapidDetails.publicKey || !vapidDetails.privateKey) {
-      return {
-        success: false,
-        error: 'Push service not configured (missing VAPID keys)',
-        metadata: { retryable: false },
-      };
-    }
-
-    try {
-      return await withRetry(
-        async () => {
-          const notificationPayload = JSON.stringify({
-            title: payload.title,
-            body: payload.body,
-            icon: '/icon.svg',
-            badge: '/icon.svg',
-            data: {
-              subscriptionId: payload.subscription.id,
-              reminderType: payload.reminderType,
-              renewalDate: payload.renewalDate,
-              url: payload.subscription.renewal_url ? sanitizeUrl(payload.subscription.renewal_url) : '/dashboard',
-            },
-            requireInteraction: payload.reminderType === 'renewal' && payload.daysBefore <= 1,
-          });
-
-          await webpush.sendNotification(pushSubscription, notificationPayload, {
-            vapidDetails,
-          });
-
-          logger.info('Push notification sent successfully', {
-            subscriptionId: payload.subscription.id,
-          });
-
-          return {
-            success: true,
-            metadata: {
-              timestamp: new Date().toISOString(),
-            },
-          };
-        },
-        { maxAttempts }
-      );
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      
-      // Determine if error is retryable
-      const isRetryable = this.isRetryableError(error);
-
-      logger.error('Failed to send push notification:', errorMessage);
-
-      return {
-        success: false,
-        error: errorMessage,
-        metadata: {
-          retryable: isRetryable,
-        },
-      };
-    }
+  async sendPushNotification(): Promise<DeliveryResult> {
+    logger.warn('[PushService] sendPushNotification deprecated — subscription reminders removed in v3. Use send() with V3 render output.');
+    return {
+      success: false,
+      error: 'Subscription reminder templates have been removed in v3. Use send() via V3 notification dispatch.',
+      metadata: { retryable: false, deprecated: true },
+    };
   }
 
   /**

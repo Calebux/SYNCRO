@@ -9,7 +9,7 @@ import {
   WebhookCreateInput, 
   WebhookUpdateInput 
 } from '../types/webhook';
-import { webhookDeadLetterService } from './webhook-dead-letter-service';
+import { webhookDeadLetterService, WebhookDeadLetterReplay } from './webhook-dead-letter-service';
 import { ExternalServiceClient } from '../utils/external-service-client';
 import { emitSecurityEvent } from './audit-service';
 import { getRequestId } from '../middleware/requestContext';
@@ -252,7 +252,7 @@ export class WebhookService {
     // ─────────────────────────────────────────────────────────────────────
 
     try {
-      const data = await this.client.request<any>(webhook.url, {
+      const data = await this.client.request<unknown>(webhook.url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -264,9 +264,11 @@ export class WebhookService {
 
       // ExternalServiceClient throws on !response.ok, so we handle it in catch
       return await this.updateDeliverySuccess(deliveryId, 200, JSON.stringify(data).substring(0, 1000));
-    } catch (err: any) {
-      const status = err.message.includes('status') ? parseInt(err.message.match(/\d+/)?.[0] || '0') : 0;
+    } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : String(err);
+      const status = errorMsg.includes('status')
+        ? parseInt(errorMsg.match(/\d+/)?.[0] || '0', 10)
+        : 0;
       return await this.handleDeliveryFailure(deliveryId, webhook.id, status, errorMsg);
     }
   }
@@ -485,7 +487,7 @@ export class WebhookService {
   /**
    * Execute a replay for a dead-letter delivery
    */
-  async executeDeadLetterReplay(userId: string, replayId: string): Promise<any> {
+  async executeDeadLetterReplay(userId: string, replayId: string): Promise<WebhookDeadLetterReplay> {
     // Fetch the replay
     const { data: replay, error: replayError } = await supabase
       .from('webhook_dead_letter_replays')
@@ -497,7 +499,7 @@ export class WebhookService {
       throw new Error('Replay request not found');
     }
 
-    const delivery = replay.webhook_deliveries;
+    const delivery = replay.webhook_deliveries as WebhookDelivery & { webhooks: Webhook };
     const webhook = delivery.webhooks;
 
     // Verify ownership

@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { env } from '../config/env';
 
 const CSRF_HEADER = 'x-csrf-token';
 const CSRF_COOKIE = 'csrf-token';
@@ -20,7 +21,7 @@ export function csrfProtection(req: Request, res: Response, next: NextFunction):
     res.cookie(CSRF_COOKIE, token, {
       httpOnly: false, // must be readable by JS so the client can copy it into the header
       sameSite: 'strict',
-      secure: process.env.NODE_ENV === 'production',
+      secure: env.NODE_ENV === 'production',
     });
     // Attach to req.cookies so the validation below works in the same request
     if (!req.cookies) (req as any).cookies = {};

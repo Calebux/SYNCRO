@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import * as stellarSdk from '@stellar/stellar-sdk';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest } from '../middleware/auth';
 import { supabase } from '../config/database';
 import logger from '../config/logger';
 import { emitSecurityEvent } from '../services/audit-service';
@@ -14,8 +14,6 @@ type WalletVerificationMetadata = {
 const VERIFICATION_SOFT_EXPIRY_DAYS = 365;
 
 const router = Router();
-
-router.use(authenticate);
 
 /**
  * POST /api/wallet/verify

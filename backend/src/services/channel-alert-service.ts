@@ -3,6 +3,7 @@ import logger from '../config/logger';
 import { sendSlackAlert } from './slack-service';
 import { channelStateService } from './channel-state';
 import { paymentChannelService } from './payment-channel-service';
+import { v3NotificationDispatch } from './v3-notification-dispatch';
 
 type ChannelAlertType =
   | 'channel_expiry_7d'
@@ -118,6 +119,22 @@ export async function checkChannelAlertsForUser(userId: string): Promise<void> {
       const alertType = `channel_expiry_${expiryThreshold}d` as ChannelAlertType;
       if (!(await wasAlertSent(userId, channel.id, alertType))) {
         const message = `Payment channel expires in ${health.expiryDaysRemaining} day(s). Close or renew to avoid disputes.`;
+        // Channel expiration approaching is classified as channel_close_initiated
+        // (cooperative, with low dispute-window days left).
+        await v3NotificationDispatch.dispatch({
+          eventType: 'channel_close_initiated',
+          targetUserId: userId,
+          payload: {
+            userId,
+            channelId: channel.id,
+            unilateral: false,
+            disputeWindowDays: health.expiryDaysRemaining,
+            remainingBalance: Number(channel.balance ?? 0),
+            currency: 'USD',
+          },
+        }).catch((err) => {
+          logger.error('channel_expiry v3 dispatch failed', { userId, channelId: channel.id, error: err instanceof Error ? err.message : String(err) });
+        });
         await dispatchAlert(userId, alertType, message, {
           channelId: channel.id,
           daysRemaining: health.expiryDaysRemaining,
@@ -130,6 +147,21 @@ export async function checkChannelAlertsForUser(userId: string): Promise<void> {
       const alertType: ChannelAlertType = 'channel_low_balance';
       if (!(await wasAlertSent(userId, channel.id, alertType))) {
         const message = `Payment channel balance covers fewer than 2 renewal cycles. Consider topping up.`;
+        await v3NotificationDispatch.dispatch({
+          eventType: 'channel_nearing_exhaustion',
+          targetUserId: userId,
+          payload: {
+            userId,
+            channelId: channel.id,
+            currentBalance: Number(channel.balance ?? 0),
+            averageRenewalAmount: avgRenewal,
+            renewalsRemaining: health.renewalsRemaining,
+            currency: 'USD',
+            autoTopUpEnabled: !!prefs.autoTopUp,
+          },
+        }).catch((err) => {
+          logger.error('channel_low_balance v3 dispatch failed', { userId, channelId: channel.id, error: err instanceof Error ? err.message : String(err) });
+        });
         await dispatchAlert(userId, alertType, message, {
           channelId: channel.id,
           renewalsRemaining: health.renewalsRemaining,

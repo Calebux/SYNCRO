@@ -11,7 +11,14 @@ export interface GracefulShutdownDeps {
   stopBackgroundJobs: () => void;
   stopEventListener: () => void;
   stopTelegram: () => void;
+  stopOutboxPublisher: () => void;
   clearHealthSnapshotInterval: () => void;
+  /** Stop accepting new paid calls (e.g. flip a gate / reject new metered requests). */
+  stopAcceptingPaidCalls?: () => void;
+  /** Flush unflushed meter write-ahead log entries to durable storage. */
+  flushMeterWal?: () => Promise<void>;
+  /** Drain queued settlement channel states / pending settlement batches. */
+  drainSettlementBatcher?: () => Promise<void>;
 }
 
 let shuttingDown = false;
@@ -38,6 +45,32 @@ function closeServerWithTimeout(server: Server): Promise<void> {
   });
 }
 
+async function runWithDeadline(
+  phase: string,
+  fn: () => Promise<void>,
+  timeoutMs: number,
+): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      recordPhase(`${phase}_timeout`);
+      logger.warn(`${phase} exceeded ${timeoutMs}ms — continuing shutdown`);
+      resolve();
+    }, timeoutMs);
+  });
+
+  try {
+    await Promise.race([fn(), timeout]);
+  } catch (error) {
+    recordPhase(`${phase}_failed`);
+    logger.error(`${phase} failed`, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export function registerGracefulShutdown(
   server: Server,
   deps: GracefulShutdownDeps,
@@ -54,22 +87,53 @@ export function registerGracefulShutdown(
     logger.info(`Graceful shutdown initiated (${signal})`);
 
     try {
+      // Stop accepting new paid calls first so no new usage enters the WAL.
+      if (deps.stopAcceptingPaidCalls) {
+        recordPhase('stop_accepting_paid_calls');
+        try {
+          deps.stopAcceptingPaidCalls();
+        } catch (error) {
+          logger.error('Failed to stop accepting paid calls', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
       recordPhase('stop_background_jobs');
       deps.stopBackgroundJobs();
       deps.stopEventListener();
       deps.stopTelegram();
+      deps.stopOutboxPublisher();
       deps.clearHealthSnapshotInterval();
 
       recordPhase('bullmq_shutdown_start');
       await shutdownNotificationQueue();
       recordPhase('bullmq_shutdown_complete');
 
+      // Drain in-flight paid calls with a deadline before flushing usage.
+      recordPhase('http_drain_start');
+      await closeServerWithTimeout(server);
+
+      // Persist unflushed meter WAL entries and queued settlement states.
+      if (deps.flushMeterWal) {
+        recordPhase('meter_wal_flush_start');
+        await runWithDeadline('meter_wal_flush', deps.flushMeterWal, DRAIN_TIMEOUT_MS);
+        recordPhase('meter_wal_flush_complete');
+      }
+
+      if (deps.drainSettlementBatcher) {
+        recordPhase('settlement_drain_start');
+        await runWithDeadline(
+          'settlement_drain',
+          deps.drainSettlementBatcher,
+          DRAIN_TIMEOUT_MS,
+        );
+        recordPhase('settlement_drain_complete');
+      }
+
       recordPhase('redis_shutdown_start');
       await redisStoreInstance.shutdown();
       recordPhase('redis_shutdown_complete');
-
-      recordPhase('http_drain_start');
-      await closeServerWithTimeout(server);
 
       recordPhase('sentry_flush_start');
       await Sentry.close(2_000);

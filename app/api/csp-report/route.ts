@@ -1,6 +1,53 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3001';
+const CSP_INTERNAL_TOKEN = process.env.CSP_INTERNAL_TOKEN;
+
+const MAX_CONTENT_LENGTH_BYTES = 16 * 1024;
+const MAX_REPORTS_PER_REQUEST = 20;
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const MAX_REPORTS_PER_IP_PER_WINDOW = 60;
+
+const ipWindow = new Map<string, { count: number; windowStart: number }>();
+
+const CspReportSchema = z.object({
+  'document-uri': z.string().url().max(2048),
+  'violated-directive': z.string().min(1).max(256),
+  'blocked-uri': z.string().max(2048).optional(),
+  'source-file': z.string().max(2048).optional(),
+  'line-number': z.number().int().nonnegative().max(10_000_000).optional(),
+  'column-number': z.number().int().nonnegative().max(10_000_000).optional(),
+  'disposition': z.enum(['enforce', 'report']).optional(),
+  'status-code': z.number().int().min(100).max(599).optional(),
+  'script-sample': z.string().max(2000).optional(),
+}).strict();
+
+function getClientIp(req: NextRequest): string {
+  return (
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    req.headers.get('x-real-ip') ||
+    'unknown'
+  );
+}
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const current = ipWindow.get(ip);
+
+  if (!current || now - current.windowStart > RATE_LIMIT_WINDOW_MS) {
+    ipWindow.set(ip, { count: 1, windowStart: now });
+    return false;
+  }
+
+  if (current.count >= MAX_REPORTS_PER_IP_PER_WINDOW) {
+    return true;
+  }
+
+  current.count += 1;
+  ipWindow.set(ip, current);
+  return false;
+}
 
 const EXTENSION_BLOCKLIST = [
   'chrome-extension://',
@@ -75,6 +122,17 @@ function normalizeCspReport(body: unknown): {
 
 export async function POST(req: NextRequest) {
   try {
+    const contentLengthHeader = req.headers.get('content-length');
+    const contentLength = contentLengthHeader ? Number(contentLengthHeader) : 0;
+    if (Number.isFinite(contentLength) && contentLength > MAX_CONTENT_LENGTH_BYTES) {
+      return new NextResponse(null, { status: 204 });
+    }
+
+    const clientIp = getClientIp(req);
+    if (isRateLimited(clientIp)) {
+      return new NextResponse(null, { status: 204 });
+    }
+
     let rawBody: unknown;
 
     try {
@@ -85,9 +143,16 @@ export async function POST(req: NextRequest) {
 
     // Handle application/reports+json (array of reports) or single report
     const reports: unknown[] = Array.isArray(rawBody) ? rawBody : [rawBody];
+    const boundedReports = reports.slice(0, MAX_REPORTS_PER_REQUEST);
 
-    for (const item of reports) {
-      const report = normalizeCspReport(item);
+    for (const item of boundedReports) {
+      const rawReport = normalizeCspReport(item);
+      if (!rawReport) continue;
+
+      const parsed = CspReportSchema.safeParse(rawReport);
+      if (!parsed.success) continue;
+
+      const report = parsed.data;
       if (!report) continue;
 
       if (!report['document-uri'] || !report['violated-directive']) continue;
@@ -109,6 +174,7 @@ export async function POST(req: NextRequest) {
         headers: {
           'Content-Type': 'application/json',
           'x-internal-request': 'true',
+          ...(CSP_INTERNAL_TOKEN ? { 'x-csp-internal-token': CSP_INTERNAL_TOKEN } : {}),
         },
         body: JSON.stringify({ report, context }),
       }).catch(() => {

@@ -1,0 +1,35 @@
+{
+  "ttl": {
+    "bumpThreshold": 7,
+    "bumpThresholdUnit": "days",
+    "defaultTtlExtension": 90,
+    "defaultTtlExtensionUnit": "days",
+    "minBumpInterval": 24,
+    "minBumpIntervalUnit": "hours",
+    "archivalGracePeriod": 14,
+    "archivalGracePeriodUnit": "days",
+    "archivalRetentionWindow": 365,
+    "archivalRetentionWindowUnit": "days",
+    "batchSize": 50,
+    "maxGasPerBatch": 10000000,
+    "workerSchedule": "0 0 * * *",
+    "archivalSchedule": "0 2 * * *",
+    "snapshotStorage": "s3",
+    "snapshotBucket": "syncro-archival-snapshots",
+    "snapshotEncryption": true,
+    "redactSensitiveFields": true,
+    "auditLevel": "full",
+    "retryMaxAttempts": 5,
+    "retryBackoffMs": 1000,
+    "rateLimitPerEntry": {
+      "bumpsPerDay": 2,
+      "archivals": 1
+    },
+    "features": {
+      "enableTtlBumping": true,
+      "enableArchival": true,
+      "enableAutoDelete": false,
+      "dryRun": false
+    }
+  }
+}

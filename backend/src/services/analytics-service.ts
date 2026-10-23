@@ -10,7 +10,8 @@ import {
   roundMoney,
 } from '@syncro/shared/subscription-math';
 import { AnalyticsSummary, MonthlySpend, CategorySpend, SubscriptionSpend, Budget } from '../types/analytics';
-import { Subscription } from '../types/reminder';
+import { Subscription, UserPreferences } from '../types/reminder';
+import { CurrencyConverter } from './currency-converter';
 import { groupBy, uniqueIds } from '../utils/db-query-metrics';
 import { queryCacheService } from './query-cache-service';
 
@@ -18,6 +19,12 @@ import { queryCacheService } from './query-cache-service';
 type SuggestionSaving = { user_id: string; savings_per_year: number | null };
 
 export class AnalyticsService {
+  private readonly currencyConverter: CurrencyConverter;
+
+  constructor(currencyConverter?: CurrencyConverter) {
+    this.currencyConverter = currencyConverter ?? new CurrencyConverter();
+  }
+
   /**
    * Get analytics summary for a user
    */
@@ -28,7 +35,7 @@ export class AnalyticsService {
     }
 
     const summaries = await this.getSummaries([userId]);
-    const summary = summaries.get(userId) ?? this.composeSummary([], [], []);
+    const summary = summaries.get(userId) ?? this.composeSummary([], [], [], 'USD');
 
     await queryCacheService.set(
       userId,
@@ -44,14 +51,6 @@ export class AnalyticsService {
   /**
    * Get analytics summaries for many users in a fixed number of queries
    * (issue #1095).
-   *
-   * The per-user path costs three queries, so composing summaries for N users
-   * in a loop cost 3N. This issues one subscriptions, one budgets and one
-   * suggestions query for the whole set and fans the rows out in memory.
-   *
-   * The cache is deliberately left to `getSummary`: it is keyed per user, so
-   * reading it here would reintroduce the per-user round trip this exists to
-   * remove.
    */
   async getSummaries(userIds: readonly string[]): Promise<Map<string, AnalyticsSummary>> {
     const summaries = new Map<string, AnalyticsSummary>();
@@ -59,7 +58,7 @@ export class AnalyticsService {
     if (ids.length === 0) return summaries;
 
     try {
-      const [subsRes, budgetsRes, suggestionsRes] = await Promise.all([
+      const [subsRes, budgetsRes, suggestionsRes, prefsRes] = await Promise.all([
         supabase.from('subscriptions').select('*').in('user_id', ids).eq('status', 'active'),
         supabase.from('monthly_budgets').select('*').in('user_id', ids),
         supabase
@@ -67,11 +66,16 @@ export class AnalyticsService {
           .select('user_id, savings_per_year')
           .in('user_id', ids)
           .eq('dismissed_until', null),
+        supabase
+          .from('user_preferences')
+          .select('user_id, currency')
+          .in('user_id', ids),
       ]);
 
       if (subsRes.error) throw subsRes.error;
       if (budgetsRes.error) throw budgetsRes.error;
       if (suggestionsRes.error) throw suggestionsRes.error;
+      if (prefsRes.error) throw prefsRes.error;
 
       const subsByUser = groupBy((subsRes.data || []) as Subscription[], (sub) => sub.user_id);
       const budgetsByUser = groupBy((budgetsRes.data || []) as Budget[], (b) => b.user_id);
@@ -79,14 +83,20 @@ export class AnalyticsService {
         (suggestionsRes.data || []) as SuggestionSaving[],
         (s) => s.user_id,
       );
+      const prefsByUser = new Map<string, string>();
+      for (const row of (prefsRes.data || []) as UserPreferences[]) {
+        prefsByUser.set(row.user_id, row.currency || 'USD');
+      }
 
       for (const userId of ids) {
+        const displayCurrency = prefsByUser.get(userId) || 'USD';
         summaries.set(
           userId,
           this.composeSummary(
             subsByUser.get(userId) ?? [],
             budgetsByUser.get(userId) ?? [],
             suggestionsByUser.get(userId) ?? [],
+            displayCurrency,
           ),
         );
       }
@@ -102,15 +112,21 @@ export class AnalyticsService {
    * Turn one user's subscription, budget and suggestion rows into a summary.
    * Pure — all DB access happens in `getSummaries`.
    */
-  private composeSummary(
+  private async composeSummary(
     subscriptions: Subscription[],
     budgets: Budget[],
     suggestions: SuggestionSaving[],
-  ): AnalyticsSummary {
-    const totalMonthlySpend = calculateMonthlySpend(subscriptions);
-    const categoryBreakdown = this.formatCategoryBreakdown(subscriptions);
+    displayCurrency: string,
+  ): Promise<AnalyticsSummary> {
+    const items = subscriptions.map((sub) => ({
+      monthlyAmount: normalizeToMonthlyAmount(sub.price, sub.billing_cycle),
+      currency: sub.currency || 'USD',
+    }));
+
+    const totalMonthlySpend = await this.currencyConverter.convertMonthlyAmounts(items, displayCurrency);
+    const categoryBreakdown = await this.convertCategoryBreakdown(subscriptions, displayCurrency);
     const topSubscriptions = this.formatTopSubscriptions(subscriptions);
-    const monthlyTrend = this.getMonthlyTrend(subscriptions);
+    const monthlyTrend = await this.convertMonthlyTrend(subscriptions, displayCurrency);
 
     const overallBudget = budgets.find(b => b.category === null);
     const budgetStatus = {
@@ -132,17 +148,37 @@ export class AnalyticsService {
       category_breakdown: categoryBreakdown,
       top_subscriptions: topSubscriptions,
       budget_status: budgetStatus,
-      potential_savings_monthly: parseFloat(potentialSavingsMonthly.toFixed(2))
+      potential_savings_monthly: parseFloat(potentialSavingsMonthly.toFixed(2)),
+      display_currency: displayCurrency,
     };
   }
 
-  private formatCategoryBreakdown(subscriptions: Subscription[]): CategorySpend[] {
-    return buildCategoryMonthlySpend(subscriptions).map((category) => ({
-      category: category.category,
-      total_spend: category.totalMonthlySpend,
-      percentage: category.percentage,
-      count: category.count,
-    }));
+  private async convertCategoryBreakdown(
+    subscriptions: Subscription[],
+    displayCurrency: string,
+  ): Promise<CategorySpend[]> {
+    const categories = new Map<string, { total: number; count: number }>();
+
+    for (const sub of subscriptions) {
+      const category = sub.category || 'Other';
+      const monthlyAmount = normalizeToMonthlyAmount(sub.price, sub.billing_cycle);
+      const converted = await this.currencyConverter.convert(monthlyAmount, sub.currency || 'USD', displayCurrency);
+      const current = categories.get(category) ?? { total: 0, count: 0 };
+      current.total += converted;
+      current.count += 1;
+      categories.set(category, current);
+    }
+
+    const totalMonthlySpend = Array.from(categories.values()).reduce((sum, c) => sum + c.total, 0);
+
+    return Array.from(categories.entries())
+      .map(([category, data]) => ({
+        category,
+        total_spend: roundMoney(data.total),
+        count: data.count,
+        percentage: totalMonthlySpend > 0 ? (data.total / totalMonthlySpend) * 100 : 0,
+      }))
+      .sort((a, b) => b.total_spend - a.total_spend);
   }
 
   private formatTopSubscriptions(subscriptions: Subscription[]): SubscriptionSpend[] {
@@ -157,18 +193,58 @@ export class AnalyticsService {
 
   /**
    * Get monthly spend trend for the last 6 months.
-   *
-   * Projected from the subscription rows the caller already holds — it never
-   * touched the database, so it no longer takes a userId or returns a promise.
    */
-  private getMonthlyTrend(currentSubs: Subscription[]): MonthlySpend[] {
-    // In a real app, this would query historical data or logs.
-    // For now, we'll project the trend based on current subscriptions and created_at dates
-    return buildPastMonthlySpendTrend(currentSubs).map((point) => ({
-      month: point.month,
-      total_spend: point.totalMonthlySpend,
-      count: point.count,
-    }));
+  private async getMonthlyTrend(currentSubs: Subscription[]): Promise<MonthlySpend[]> {
+    const trend: MonthlySpend[] = [];
+    const months = 6;
+    const now = new Date();
+
+    for (let index = months - 1; index >= 0; index--) {
+      const targetDate = new Date(now.getFullYear(), now.getMonth() - index, 1);
+      const monthEnd = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0);
+      const subsAtTime = currentSubs.filter((sub) => {
+        const createdAt = sub.created_at;
+        if (!createdAt) return true;
+        return new Date(createdAt) <= monthEnd;
+      });
+
+      const items = subsAtTime.map((sub) => ({
+        monthlyAmount: normalizeToMonthlyAmount(sub.price, sub.billing_cycle),
+        currency: sub.currency || 'USD',
+      }));
+
+      const totalSpend = await this.currencyConverter.convertMonthlyAmounts(items, 'USD');
+
+      trend.push({
+        month: `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}`,
+        total_spend: roundMoney(totalSpend),
+        count: subsAtTime.length,
+      });
+    }
+
+    return trend;
+  }
+
+  /**
+   * Get monthly spend trend converted to a display currency.
+   */
+  private async convertMonthlyTrend(
+    currentSubs: Subscription[],
+    displayCurrency: string,
+  ): Promise<MonthlySpend[]> {
+    const rawTrend = await this.getMonthlyTrend(currentSubs);
+
+    const converted = await Promise.all(
+      rawTrend.map((point) =>
+        this.currencyConverter.convert(point.total_spend, 'USD', displayCurrency).then((convertedSpend) => ({
+          month: point.month,
+          total_spend: convertedSpend,
+          count: point.count,
+        })),
+      ),
+    );
+
+    return converted;
   }
 
   /**
@@ -215,10 +291,6 @@ export class AnalyticsService {
   /**
    * Check budget thresholds for many users and raise any needed alerts
    * (issue #1095).
-   *
-   * Costs five queries for the whole set — three for the summaries, one
-   * de-duplication read and one batched notification insert — instead of the
-   * four-per-user the single-user path needed.
    */
   async checkBudgetThresholds(userIds: readonly string[]): Promise<void> {
     const ids = uniqueIds(userIds);
@@ -228,7 +300,6 @@ export class AnalyticsService {
       const summaries = await this.getSummaries(ids);
       const monthStr = new Date().toISOString().substring(0, 7);
 
-      // Users at or over the alert threshold.
       const breached = ids
         .map((userId) => ({ userId, summary: summaries.get(userId) }))
         .filter((entry): entry is { userId: string; summary: AnalyticsSummary } =>
@@ -239,13 +310,12 @@ export class AnalyticsService {
 
       if (breached.length === 0) return;
 
-      // Check which users were already notified this month, to prevent spam.
       const { data: existing } = await supabase
         .from('notifications')
         .select('user_id')
         .in('user_id', breached.map((entry) => entry.userId))
         .eq('type', 'budget_alert')
-        .like('message', `%${monthStr}%`); // Simple deduplication for the month
+        .like('message', `%${monthStr}%`);
 
       const alreadyNotified = new Set(
         ((existing ?? []) as { user_id: string }[]).map((row) => row.user_id),
@@ -264,7 +334,7 @@ export class AnalyticsService {
           return {
             user_id: userId,
             type: 'budget_alert',
-            message: `${message} (Current spend: $${budget_status.current_spend.toFixed(2)})`,
+            message: `${message} (Current spend: ${summary.display_currency === 'USD' ? '$' : summary.display_currency + ' '}${budget_status.current_spend.toFixed(2)})`,
             metadata: {
               month: monthStr,
               percentage: budget_status.percentage,
@@ -296,11 +366,26 @@ export class AnalyticsService {
       if (subError) throw subError;
 
       const typedSubs = (subscriptions || []) as Subscription[];
-      const monthlyTrend = this.getMonthlyTrend(typedSubs);
-      const categoryBreakdown = this.formatCategoryBreakdown(typedSubs);
+
+      const { data: prefs } = await supabase
+        .from('user_preferences')
+        .select('currency')
+        .eq('user_id', userId)
+        .single();
+
+      const displayCurrency = (prefs as any)?.currency || 'USD';
+
+      const monthlyTrend = await this.convertMonthlyTrend(typedSubs, displayCurrency);
+      const categoryBreakdown = await this.convertCategoryBreakdown(typedSubs, displayCurrency);
+
+      const items = typedSubs.map((sub) => ({
+        monthlyAmount: normalizeToMonthlyAmount(sub.price, sub.billing_cycle),
+        currency: sub.currency || 'USD',
+      }));
+      const currentMonthSpend = await this.currencyConverter.convertMonthlyAmounts(items, displayCurrency);
 
       return {
-        current_month_spend: calculateMonthlySpend(typedSubs),
+        current_month_spend: currentMonthSpend,
         monthly_trend: monthlyTrend,
         category_breakdown: categoryBreakdown,
         active_subscriptions: typedSubs.length
@@ -325,10 +410,18 @@ export class AnalyticsService {
       if (subError) throw subError;
 
       const typedSubs = (subscriptions || []) as Subscription[];
+
+      const { data: prefs } = await supabase
+        .from('user_preferences')
+        .select('currency')
+        .eq('user_id', userId)
+        .single();
+
+      const displayCurrency = (prefs as any)?.currency || 'USD';
+
       const forecast: MonthlySpend[] = [];
       const now = new Date();
 
-      // Generate forecast for next 6 months
       for (let i = 0; i < 6; i++) {
         const targetDate = new Date(now.getFullYear(), now.getMonth() + i, 1);
         const monthStr = targetDate.toISOString().substring(0, 7);
@@ -336,28 +429,36 @@ export class AnalyticsService {
         let monthlyTotal = 0;
         let count = 0;
 
-        // Calculate spend for each active subscription in this month
+        const items: Array<{ monthlyAmount: number; currency: string }> = [];
+
         for (const sub of typedSubs) {
           const createdAt = new Date(sub.created_at);
-          const nextBillingDate = sub.next_billing_date ? new Date(sub.next_billing_date) : createdAt;
           
-          // Check if subscription will be active in this month
           if (createdAt <= new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0)) {
-            monthlyTotal += normalizeToMonthlyAmount(sub.price, sub.billing_cycle);
+            items.push({
+              monthlyAmount: normalizeToMonthlyAmount(sub.price, sub.billing_cycle),
+              currency: sub.currency || 'USD',
+            });
             count++;
           }
         }
 
+        monthlyTotal = await this.currencyConverter.convertMonthlyAmounts(items, displayCurrency);
+
         forecast.push({
           month: monthStr,
           total_spend: roundMoney(monthlyTotal),
-          count: count
+          count
         });
       }
 
+      const avgProjected = forecast.length > 0
+        ? roundMoney(forecast.reduce((sum, m) => sum + m.total_spend, 0) / forecast.length)
+        : 0;
+
       return {
         forecast,
-        avg_projected_monthly_spend: parseFloat((forecast.reduce((sum, m) => sum + m.total_spend, 0) / forecast.length).toFixed(2))
+        avg_projected_monthly_spend: avgProjected
       };
     } catch (error) {
       logger.error('Error fetching forecast data:', error);

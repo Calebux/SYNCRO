@@ -228,9 +228,9 @@ Add these to your repository secrets:
 ## 📖 Documentation
 
 ### Complete Guides
-- **[SMOKE_TESTS.md](./docs/SMOKE_TESTS.md)** - Comprehensive documentation
-- **[SMOKE_TESTS_QUICK_REFERENCE.md](./docs/SMOKE_TESTS_QUICK_REFERENCE.md)** - Quick reference
-- **[backend/tests/smoke/README.md](./backend/tests/smoke/README.md)** - Developer docs
+- **[SMOKE_TESTS.md](../SMOKE_TESTS.md)** - Comprehensive documentation
+- **[SMOKE_TESTS_QUICK_REFERENCE.md](../SMOKE_TESTS_QUICK_REFERENCE.md)** - Quick reference
+- **[backend/tests/smoke/README.md](../../README.md)** - Developer docs
 
 ### Implementation Details
 - **[ISSUE_101_IMPLEMENTATION_SUMMARY.md](./ISSUE_101_IMPLEMENTATION_SUMMARY.md)** - Full implementation details
@@ -306,7 +306,7 @@ Track these after deployment:
 → Expected behavior - RLS should block unauthorized access
 
 ### Get Help
-- Check [SMOKE_TESTS.md](./docs/SMOKE_TESTS.md)
+- Check [SMOKE_TESTS.md](../SMOKE_TESTS.md)
 - Review workflow logs in GitHub Actions
 - Contact DevOps team
 

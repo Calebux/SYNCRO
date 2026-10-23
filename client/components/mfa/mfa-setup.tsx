@@ -2,8 +2,8 @@
 
 import { useState } from "react"
 import { Copy, CheckCircle2, X, Shield, Smartphone } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { Button } from "@syncro/ui"
+import { Input } from "@syncro/ui"
 import { useMFA } from "@/hooks/use-mfa"
 import { useToast } from "@/hooks/use-toast"
 

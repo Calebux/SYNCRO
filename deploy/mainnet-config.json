@@ -1,0 +1,46 @@
+{
+  "network": "mainnet",
+  "initialCaps": {
+    "globalCap": 1000000,
+    "perUserCap": 10000,
+    "maxCardBalance": 5000
+  },
+  "rampSchedule": [
+    {
+      "delayDays": 30,
+      "globalCap": 5000000,
+      "perUserCap": 50000,
+      "maxCardBalance": 20000
+    },
+    {
+      "delayDays": 60,
+      "globalCap": 20000000,
+      "perUserCap": 100000,
+      "maxCardBalance": 50000
+    },
+    {
+      "delayDays": 90,
+      "globalCap": 50000000,
+      "perUserCap": 250000,
+      "maxCardBalance": 100000
+    }
+  ],
+  "soakPeriod": {
+    "durationDays": 14,
+    "owner": "security@syncro.io",
+    "rollbackCriteria": {
+      "maxDailyLossUsd": 5000,
+      "maxErrorRate": 0.01,
+      "maxSlaMisses": 3
+    }
+  },
+  "guardianSet": [
+    "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABB",
+    "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACC"
+  ],
+  "escapeHatch": {
+    "testedOnTestnet": true,
+    "evidenceUrl": "https://github.com/syncro/contracts/actions/runs/123"
+  }
+}

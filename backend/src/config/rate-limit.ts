@@ -1,4 +1,5 @@
 import logger from './logger';
+import { env } from './env';
 
 export interface RateLimitConfig {
   windowMs: number;
@@ -77,6 +78,10 @@ export interface RateLimitSettings {
   simulation: RateLimitConfig & {
     windowHours: number;
   };
+  /** Session challenge endpoints (IP-keyed). */
+  sessionChallenge: RateLimitConfig & {
+    windowMinutes: number;
+  };
   privacy: PrivacyRateLimitConfig;
 }
 
@@ -110,61 +115,65 @@ function parseBooleanEnv(envVar: string | undefined, defaultValue: boolean): boo
  */
 export function loadRateLimitConfig(): RateLimitSettings {
   // Redis configuration
-  const redisUrl = process.env.RATE_LIMIT_REDIS_URL;
-  const redisEnabled = parseBooleanEnv(process.env.RATE_LIMIT_REDIS_ENABLED, !!redisUrl);
+  const redisUrl = env.RATE_LIMIT_REDIS_URL;
+  const redisEnabled = parseBooleanEnv(env.RATE_LIMIT_REDIS_ENABLED, !!redisUrl);
 
   // Team invitation limits
-  const teamInviteMax = parseIntEnv(process.env.RATE_LIMIT_TEAM_INVITE_MAX, 20);
-  const teamInviteWindowHours = parseIntEnv(process.env.RATE_LIMIT_TEAM_INVITE_WINDOW_HOURS, 1);
+  const teamInviteMax = parseIntEnv(env.RATE_LIMIT_TEAM_INVITE_MAX, 20);
+  const teamInviteWindowHours = parseIntEnv(env.RATE_LIMIT_TEAM_INVITE_WINDOW_HOURS, 1);
 
   // MFA limits
-  const mfaMax = parseIntEnv(process.env.RATE_LIMIT_MFA_MAX, 10);
-  const mfaWindowMinutes = parseIntEnv(process.env.RATE_LIMIT_MFA_WINDOW_MINUTES, 15);
+  const mfaMax = parseIntEnv(env.RATE_LIMIT_MFA_MAX, 10);
+  const mfaWindowMinutes = parseIntEnv(env.RATE_LIMIT_MFA_WINDOW_MINUTES, 15);
 
   // Login / auth credential endpoints (IP-based)
-  const loginMax = parseIntEnv(process.env.RATE_LIMIT_LOGIN_MAX, 5);
-  const loginWindowMinutes = parseIntEnv(process.env.RATE_LIMIT_LOGIN_WINDOW_MINUTES, 15);
+  const loginMax = parseIntEnv(env.RATE_LIMIT_LOGIN_MAX, 5);
+  const loginWindowMinutes = parseIntEnv(env.RATE_LIMIT_LOGIN_WINDOW_MINUTES, 15);
 
   // Import mutations
-  const importMax = parseIntEnv(process.env.RATE_LIMIT_IMPORT_MAX, 5);
-  const importWindowHours = parseIntEnv(process.env.RATE_LIMIT_IMPORT_WINDOW_HOURS, 1);
+  const importMax = parseIntEnv(env.RATE_LIMIT_IMPORT_MAX, 5);
+  const importWindowHours = parseIntEnv(env.RATE_LIMIT_IMPORT_WINDOW_HOURS, 1);
 
   // Payment mutations
-  const paymentMax = parseIntEnv(process.env.RATE_LIMIT_PAYMENT_MAX, 10);
-  const paymentWindowHours = parseIntEnv(process.env.RATE_LIMIT_PAYMENT_WINDOW_HOURS, 1);
+  const paymentMax = parseIntEnv(env.RATE_LIMIT_PAYMENT_MAX, 10);
+  const paymentWindowHours = parseIntEnv(env.RATE_LIMIT_PAYMENT_WINDOW_HOURS, 1);
 
   // Refund mutations (stricter)
-  const refundMax = parseIntEnv(process.env.RATE_LIMIT_REFUND_MAX, 5);
-  const refundWindowHours = parseIntEnv(process.env.RATE_LIMIT_REFUND_WINDOW_HOURS, 1);
+  const refundMax = parseIntEnv(env.RATE_LIMIT_REFUND_MAX, 5);
+  const refundWindowHours = parseIntEnv(env.RATE_LIMIT_REFUND_WINDOW_HOURS, 1);
 
   // API key mutations
-  const apiKeyMax = parseIntEnv(process.env.RATE_LIMIT_API_KEY_MAX, 10);
-  const apiKeyWindowHours = parseIntEnv(process.env.RATE_LIMIT_API_KEY_WINDOW_HOURS, 1);
+  const apiKeyMax = parseIntEnv(env.RATE_LIMIT_API_KEY_MAX, 10);
+  const apiKeyWindowHours = parseIntEnv(env.RATE_LIMIT_API_KEY_WINDOW_HOURS, 1);
 
   // Admin limits
-  const adminMax = parseIntEnv(process.env.RATE_LIMIT_ADMIN_MAX, 100);
-  const adminWindowHours = parseIntEnv(process.env.RATE_LIMIT_ADMIN_WINDOW_HOURS, 1);
+  const adminMax = parseIntEnv(env.RATE_LIMIT_ADMIN_MAX, 100);
+  const adminWindowHours = parseIntEnv(env.RATE_LIMIT_ADMIN_WINDOW_HOURS, 1);
 
   // Simulation limits
-  const simulationMax = parseIntEnv(process.env.RATE_LIMIT_SIMULATION_MAX, 5);
-  const simulationWindowHours = parseIntEnv(process.env.RATE_LIMIT_SIMULATION_WINDOW_HOURS, 1);
+  const simulationMax = parseIntEnv(env.RATE_LIMIT_SIMULATION_MAX, 5);
+  const simulationWindowHours = parseIntEnv(env.RATE_LIMIT_SIMULATION_WINDOW_HOURS, 1);
+
+  // Session challenge limits (IP-keyed, for unauthenticated endpoints)
+  const sessionChallengeMax = parseIntEnv(env.RATE_LIMIT_SESSION_CHALLENGE_MAX, 5);
+  const sessionChallengeWindowMinutes = parseIntEnv(env.RATE_LIMIT_SESSION_CHALLENGE_WINDOW_MINUTES, 15);
 
   // Privacy feature rate limits
-  const stealthAddressMax = parseIntEnv(process.env.RATE_LIMIT_STEALTH_ADDRESS_MAX, 100);
-  const stealthAddressWindowHours = parseIntEnv(process.env.RATE_LIMIT_STEALTH_ADDRESS_WINDOW_HOURS, 1);
+  const stealthAddressMax = parseIntEnv(env.RATE_LIMIT_STEALTH_ADDRESS_MAX, 100);
+  const stealthAddressWindowHours = parseIntEnv(env.RATE_LIMIT_STEALTH_ADDRESS_WINDOW_HOURS, 1);
 
-  const zkProofMax = parseIntEnv(process.env.RATE_LIMIT_ZK_PROOF_MAX, 10);
-  const zkProofWindowMinutes = parseIntEnv(process.env.RATE_LIMIT_ZK_PROOF_WINDOW_MINUTES, 1);
+  const zkProofMax = parseIntEnv(env.RATE_LIMIT_ZK_PROOF_MAX, 10);
+  const zkProofWindowMinutes = parseIntEnv(env.RATE_LIMIT_ZK_PROOF_WINDOW_MINUTES, 1);
 
-  const paymentChannelMaxOpen = parseIntEnv(process.env.RATE_LIMIT_PAYMENT_CHANNEL_MAX_OPEN, 5);
-  const paymentChannelMaxStateUpdates = parseIntEnv(process.env.RATE_LIMIT_PAYMENT_CHANNEL_MAX_STATE_UPDATES, 1000);
-  const paymentChannelStateUpdateMax = parseIntEnv(process.env.RATE_LIMIT_PAYMENT_CHANNEL_STATE_UPDATE_RATE_MAX, 1000);
-  const paymentChannelStateUpdateWindowHours = parseIntEnv(process.env.RATE_LIMIT_PAYMENT_CHANNEL_STATE_UPDATE_WINDOW_HOURS, 1);
+  const paymentChannelMaxOpen = parseIntEnv(env.RATE_LIMIT_PAYMENT_CHANNEL_MAX_OPEN, 5);
+  const paymentChannelMaxStateUpdates = parseIntEnv(env.RATE_LIMIT_PAYMENT_CHANNEL_MAX_STATE_UPDATES, 1000);
+  const paymentChannelStateUpdateMax = parseIntEnv(env.RATE_LIMIT_PAYMENT_CHANNEL_STATE_UPDATE_RATE_MAX, 1000);
+  const paymentChannelStateUpdateWindowHours = parseIntEnv(env.RATE_LIMIT_PAYMENT_CHANNEL_STATE_UPDATE_WINDOW_HOURS, 1);
 
-  const settlementMaxBatchSize = parseIntEnv(process.env.RATE_LIMIT_SETTLEMENT_MAX_BATCH_SIZE, 50);
+  const settlementMaxBatchSize = parseIntEnv(env.RATE_LIMIT_SETTLEMENT_MAX_BATCH_SIZE, 50);
 
-  const selectiveDisclosureMax = parseIntEnv(process.env.RATE_LIMIT_SELECTIVE_DISCLOSURE_MAX, 20);
-  const selectiveDisclosureWindowHours = parseIntEnv(process.env.RATE_LIMIT_SELECTIVE_DISCLOSURE_WINDOW_HOURS, 24);
+  const selectiveDisclosureMax = parseIntEnv(env.RATE_LIMIT_SELECTIVE_DISCLOSURE_MAX, 20);
+  const selectiveDisclosureWindowHours = parseIntEnv(env.RATE_LIMIT_SELECTIVE_DISCLOSURE_WINDOW_HOURS, 24);
 
   const config: RateLimitSettings = {
     redis: {
@@ -261,6 +270,16 @@ export function loadRateLimitConfig(): RateLimitSettings {
       standardHeaders: true,
       legacyHeaders: false,
     },
+    sessionChallenge: {
+      windowMs: sessionChallengeWindowMinutes * 60 * 1000,
+      windowMinutes: sessionChallengeWindowMinutes,
+      max: sessionChallengeMax,
+      message: {
+        error: `Too many session challenge requests. You can make up to ${sessionChallengeMax} attempts per ${sessionChallengeWindowMinutes} minute${sessionChallengeWindowMinutes > 1 ? 's' : ''}. Please try again later.`,
+      },
+      standardHeaders: true,
+      legacyHeaders: false,
+    },
     privacy: {
       stealthAddress: {
         windowMs: stealthAddressWindowHours * 60 * 60 * 1000,
@@ -328,6 +347,7 @@ export function loadRateLimitConfig(): RateLimitSettings {
       apiKey: `${config.apiKey.max}/${config.apiKey.windowHours}h`,
       admin: `${config.admin.max}/${config.admin.windowHours}h`,
       simulation: `${config.simulation.max}/${config.simulation.windowHours}h`,
+      sessionChallenge: `${config.sessionChallenge.max}/${config.sessionChallenge.windowMinutes}m`,
     },
     privacy: {
       stealthAddress: `${config.privacy.stealthAddress.max}/${config.privacy.stealthAddress.windowHours}h`,

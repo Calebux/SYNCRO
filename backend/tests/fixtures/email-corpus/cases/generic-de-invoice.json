@@ -1,0 +1,18 @@
+{
+  "id": "generic-de-invoice",
+  "merchant": "Unknown",
+  "locale": "de",
+  "kind": "positive",
+  "notes": "German invoice from an unknown merchant.",
+  "email": {
+    "subject": "Ihre monatliche Rechnung",
+    "from": "Werkstatt Digital <rechnung@werkstatt-digital.example>",
+    "body": "Guten Tag,\n\nIhr Abonnement wurde abgerechnet. Betrag: EUR 19,00 pro Monat.\n\nVielen Dank."
+  },
+  "expected": {
+    "name": "Werkstatt Digital",
+    "amount": 19.0,
+    "currency": "EUR",
+    "interval": "monthly"
+  }
+}

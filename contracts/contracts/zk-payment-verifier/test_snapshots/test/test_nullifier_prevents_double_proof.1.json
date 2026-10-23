@@ -10,7 +10,7 @@
     []
   ],
   "ledger": {
-    "protocol_version": 26,
+    "protocol_version": 27,
     "sequence_number": 0,
     "timestamp": 0,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -38,7 +38,7 @@
                 "map": [
                   {
                     "key": {
-                      "bytes": "544ad75808272f6ed4b09d8c023bc5f065a06c5ddfdccaaed4ac51a8cf6b7a63"
+                      "bytes": "780a198d88447d0b651491b4703cc29474ce98bdb7c0feeb11a0f7d545fda327"
                     },
                     "val": {
                       "bool": true

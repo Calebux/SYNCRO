@@ -1,4 +1,5 @@
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { ExchangeRateService } from './exchange-rate/exchange-rate-service';
 import { blockchainService } from './blockchain-service';
 import { SUPPORTED_FIAT, SUPPORTED_CRYPTO } from '../constants/currencies';
@@ -296,7 +297,7 @@ export function initializeOracleFeeder(
   oracleFeeder = new FxOracleFeeder(exchangeRateService, config);
   
   // Auto-start if enabled
-  if (process.env.FX_ORACLE_ENABLED === 'true') {
+  if (env.FX_ORACLE_ENABLED === 'true') {
     oracleFeeder.start();
   }
 }

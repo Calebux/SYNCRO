@@ -6,10 +6,42 @@
   "types": "src/index.ts",
   "typesVersions": {
     "*": {
-      "subscription-math": ["src/subscription-math.ts"],
-      "security": ["src/security.ts"],
-      "crypto": ["src/crypto/index.ts"],
-      "*": ["src/*"]
+      "subscription-math": [
+        "src/logic/subscription-math.ts"
+      ],
+      "security": [
+        "src/logic/security.ts"
+      ],
+      "common": [
+        "src/logic/common.ts"
+      ],
+      "crypto": [
+        "src/logic/crypto/index.ts"
+      ],
+      "stellar/memo": [
+        "src/logic/stellar/memo.ts"
+      ],
+      "stealth-derive": [
+        "src/logic/stealth-memo.ts"
+      ],
+      "stealth-meta-address": [
+        "src/logic/stealth-meta-address.ts"
+      ],
+      "soroban-contract-interfaces": [
+        "src/logic/soroban-contract-interfaces.ts"
+      ],
+      "bigint-balance": [
+        "src/logic/bigint-balance.ts"
+      ],
+      "format-amount": [
+        "src/logic/format-amount.ts"
+      ],
+      "rpc-client": [
+        "src/platform/rpc-client.ts"
+      ],
+      "sentry": [
+        "src/platform/sentry.ts"
+      ]
     }
   },
   "exports": {
@@ -18,43 +50,139 @@
       "import": "./src/index.ts",
       "require": "./dist/index.js"
     },
+    "./generated": {
+      "types": "./src/generated/index.ts",
+      "import": "./src/generated/index.ts",
+      "require": "./dist/generated/index.js"
+    },
+    "./domain": {
+      "types": "./src/domain/index.ts",
+      "import": "./src/domain/index.ts",
+      "require": "./dist/domain/index.js"
+    },
     "./subscription-math": {
-      "types": "./src/subscription-math.ts",
-      "import": "./src/subscription-math.ts",
-      "require": "./dist/subscription-math.js"
+      "types": "./src/logic/subscription-math.ts",
+      "import": "./src/logic/subscription-math.ts",
+      "require": "./dist/logic/subscription-math.js"
     },
     "./security": {
-      "types": "./src/security.ts",
-      "import": "./src/security.ts",
-      "require": "./dist/security.js"
+      "types": "./src/logic/security.ts",
+      "import": "./src/logic/security.ts",
+      "require": "./dist/logic/security.js"
+    },
+    "./common": {
+      "types": "./src/logic/common.ts",
+      "import": "./src/logic/common.ts",
+      "require": "./dist/logic/common.js"
     },
     "./crypto": {
-      "types": "./src/crypto/index.ts",
-      "import": "./src/crypto/index.ts",
-      "require": "./dist/crypto/index.js"
+      "types": "./src/logic/crypto/index.ts",
+      "import": "./src/logic/crypto/index.ts",
+      "require": "./dist/logic/crypto/index.js"
+    },
+    "./crypto/runtime": {
+      "types": "./src/crypto/runtime/types.ts",
+      "browser": "./src/crypto/runtime/browser.ts",
+      "node": "./src/crypto/runtime/node.ts",
+      "import": "./src/crypto/runtime/node.ts",
+      "require": "./dist/crypto/runtime/node.js",
+      "default": "./src/crypto/runtime/node.ts"
+    },
+    "./crypto/runtime/node": {
+      "types": "./src/crypto/runtime/types.ts",
+      "import": "./src/crypto/runtime/node.ts",
+      "require": "./dist/crypto/runtime/node.js"
+    },
+    "./crypto/runtime/browser": {
+      "types": "./src/crypto/runtime/types.ts",
+      "import": "./src/crypto/runtime/browser.ts",
+      "require": "./dist/crypto/runtime/browser.js"
     },
     "./stellar/memo": {
-      "types": "./src/stellar/memo.ts",
-      "import": "./src/stellar/memo.ts",
-      "require": "./dist/stellar/memo.js"
+      "types": "./src/logic/stellar/memo.ts",
+      "import": "./src/logic/stellar/memo.ts",
+      "require": "./dist/logic/stellar/memo.js"
+    },
+    "./stealth-derive": {
+      "types": "./src/logic/stealth-memo.ts",
+      "import": "./src/logic/stealth-memo.ts",
+      "require": "./dist/logic/stealth-memo.js"
+    },
+    "./stealth-meta-address": {
+      "types": "./src/logic/stealth-meta-address.ts",
+      "import": "./src/logic/stealth-meta-address.ts",
+      "require": "./dist/logic/stealth-meta-address.js"
+    },
+    "./soroban-contract-interfaces": {
+      "types": "./src/logic/soroban-contract-interfaces.ts",
+      "import": "./src/logic/soroban-contract-interfaces.ts",
+      "require": "./dist/logic/soroban-contract-interfaces.js"
+    },
+    "./bigint-balance": {
+      "types": "./src/logic/bigint-balance.ts",
+      "import": "./src/logic/bigint-balance.ts",
+      "require": "./dist/logic/bigint-balance.js"
+    },
+    "./format-amount": {
+      "types": "./src/logic/format-amount.ts",
+      "import": "./src/logic/format-amount.ts",
+      "require": "./dist/logic/format-amount.js"
+    },
+    "./rpc-client": {
+      "types": "./src/platform/rpc-client.ts",
+      "import": "./src/platform/rpc-client.ts",
+      "require": "./dist/platform/rpc-client.js"
+    },
+    "./sentry": {
+      "types": "./src/platform/sentry.ts",
+      "import": "./src/platform/sentry.ts",
+      "require": "./dist/platform/sentry.js"
     }
   },
+  "browser": {
+    "./src/crypto/runtime/node.ts": "./src/crypto/runtime/browser.ts",
+    "./dist/crypto/runtime/node.js": "./dist/crypto/runtime/browser.js"
+  },
   "scripts": {
+    "generate:db": "node ../scripts/generate-db-types.mjs",
+    "generate:contracts": "node ../scripts/generate-contract-types.mjs",
+    "generate": "npm run generate:db && npm run generate:contracts",
+    "check:generated": "node ../scripts/check-generated-types.mjs",
+    "prebuild": "npm run generate",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "watch": "tsc --watch",
-    "test": "jest"
+    "test": "jest && jest --config jest.browser.config.js",
+    "check-imports": "depcruise src --config .dependency-cruiser.cjs",
+    "test": "jest",
+    "prepublishOnly": "node ../scripts/assert-ci-publish.mjs && npm run build"
   },
-  "keywords": ["syncro", "types", "domain-models", "crypto"],
+  "keywords": [
+    "syncro",
+    "types",
+    "domain-models",
+    "crypto"
+  ],
   "license": "ISC",
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "dependencies": {
     "@noble/curves": "^1.8.1",
     "@noble/hashes": "^1.7.1",
     "libsodium-wrappers": "^0.7.15"
   },
   "devDependencies": {
-    "@types/libsodium-wrappers": "^0.7.14",
     "@types/jest": "^30.0.0",
+    "@types/libsodium-wrappers": "^0.7.14",
+    "dependency-cruiser": "^17.4.3",
+    "esbuild": "^0.28.2",
     "jest": "^30.4.2",
     "ts-jest": "^29.2.5",
     "typescript": "^5.9.3"

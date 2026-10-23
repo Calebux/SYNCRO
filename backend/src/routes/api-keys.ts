@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import crypto from 'crypto';
 import { supabase } from '../config/database';
-import { authenticate, AuthenticatedRequest, requireScope } from '../middleware/auth';
+import { AuthenticatedRequest, requireScope } from '../middleware/auth';
 import { requireRole } from '../middleware/rbac';
 import { validate } from '../middleware/validate';
 import logger from '../config/logger';
@@ -12,7 +12,6 @@ import { createApiKeyLimiter } from '../middleware/rate-limit-factory';
 
 const router: Router = Router();
 
-router.use(authenticate);
 
 function generateApiKey(): { key: string; hash: string } {
   const key = `sk_${crypto.randomBytes(32).toString('hex')}`;

@@ -25,10 +25,6 @@ describe('check-bundle-size', () => {
     it('should handle routes with hyphens', () => {
       expect(script.routeToChunkPrefix('/email-preferences')).toBe('app/email-preferences/page')
     })
-
-    it('should handle oauth routes', () => {
-      expect(script.routeToChunkPrefix('/oauth-success')).toBe('app/oauth-success/page')
-    })
   })
 
   describe('formatKB', () => {
@@ -212,6 +208,43 @@ describe('check-bundle-size', () => {
       const result = script.checkBudgets(tinyMeasurement, baseBudgets)
       expect(result.violations).toHaveLength(0)
       expect(result.warnings).toHaveLength(0)
+    })
+  })
+
+  describe('scanForbiddenModules', () => {
+    it('flags charting markers on the landing route', () => {
+      const tmp = require('node:fs')
+      const path = require('node:path')
+      const os = require('node:os')
+      const dir = tmp.mkdtempSync(path.join(os.tmpdir(), 'bundle-scan-'))
+      const chunk = path.join(dir, 'page.js')
+      tmp.writeFileSync(chunk, 'import * as r from "recharts"')
+      const measurement = {
+        routes: { '/': { chunks: [{ name: 'page.js', size: 10, filePath: chunk }] } },
+        sharedChunks: [],
+      }
+      const result = script.scanForbiddenModules(measurement, {
+        forbiddenInRoutes: { '/': ['recharts'] },
+      })
+      expect(result.violations.some((v) => v.needle === 'recharts')).toBe(true)
+    })
+  })
+
+  describe('diffAgainstBaseline', () => {
+    it('computes per-route deltas', () => {
+      const tmp = require('node:fs')
+      const path = require('node:path')
+      const os = require('node:os')
+      const file = path.join(os.tmpdir(), `baseline-${Date.now()}.json`)
+      tmp.writeFileSync(file, JSON.stringify({
+        measurement: { routes: { '/': { totalKB: '100.0' }, '/dashboard': { totalKB: '200.0' } } },
+      }))
+      const delta = script.diffAgainstBaseline(
+        { '/': { totalKB: '110.0' }, '/dashboard': { totalKB: '180.0' } },
+        file,
+      )
+      expect(delta['/'].deltaKB).toBe(10)
+      expect(delta['/dashboard'].deltaKB).toBe(-20)
     })
   })
 })

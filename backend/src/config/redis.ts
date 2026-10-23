@@ -1,7 +1,8 @@
 import { createClient, RedisClientType } from 'redis';
 import logger from './logger';
+import { env } from './env';
 
-const REDIS_URL = process.env.REDIS_URL;
+const REDIS_URL = env.REDIS_URL;
 
 let redis: RedisClientType | null = null;
 

@@ -390,9 +390,9 @@ If rotation causes critical issues:
 
 ## Related Documentation
 
-- [Secret Handling Audit Report](../SECRET_HANDLING_AUDIT_REPORT.md)
-- [Secret Handling Action Items](../SECRET_HANDLING_ACTION_ITEMS.md)
-- [Security Audit Matrix](../SECURITY_AUDIT_MATRIX_API_ROUTES.md)
+- [Secret Handling Audit Report](archive/SECRET_HANDLING_AUDIT_REPORT.md)
+- [Secret Handling Action Items](archive/SECRET_HANDLING_ACTION_ITEMS.md)
+- [Security Audit Matrix](archive/SECURITY_AUDIT_MATRIX_API_ROUTES.md)
 - [RLS Audit Guide](./RLS_AUDIT_GUIDE.md)
 
 ## Support

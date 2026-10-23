@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { supabase } from '../config/database';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { emailService } from './email-service';
 import { executeGdprDeletionPipeline } from './gdpr-deletion-pipeline';
 
@@ -29,7 +30,7 @@ const TOKEN_EXPIRY_DAYS = 90;
 
 export class ComplianceService {
   private getSecret(): string {
-    const secret = process.env.UNSUBSCRIBE_SECRET;
+    const secret = env.UNSUBSCRIBE_SECRET;
     if (!secret) {
       throw new Error('UNSUBSCRIBE_SECRET environment variable is required');
     }

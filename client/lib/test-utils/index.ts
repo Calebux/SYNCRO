@@ -18,7 +18,6 @@ export {
   mockMFAStatus,
   mockTag,
   mockWebhookEvent,
-  mockCancellationGuide,
   type MockUser,
   type MockPayment,
   type MockNotification,

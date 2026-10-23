@@ -101,10 +101,20 @@ const CONSTRAINT_MESSAGES: Record<
     message: 'Amount must not be zero.',
     field: 'amount',
   },
+  gift_card_ledger_postings_amount_check: {
+    status: 422,
+    message: 'Amount must not be zero.',
+    field: 'amount',
+  },
   gift_card_ledger_type_check: {
     status: 422,
     message: 'type must be one of: top_up, deduction, refund, adjustment, expiry.',
     field: 'type',
+  },
+  gift_card_ledger_transactions_reason_code_check: {
+    status: 422,
+    message: 'reason_code must be one of: PURCHASE, REDEMPTION, EXPIRY, ADJUSTMENT, REVERSAL, TOP_UP, DEDUCTION.',
+    field: 'reason_code',
   },
   gift_card_ledger_type_amount_sign_check: {
     status: 422,
@@ -122,6 +132,11 @@ const CONSTRAINT_MESSAGES: Record<
     field: 'amount',
   },
   gift_card_ledger_reference_id_user_idx: {
+    status: 409,
+    message: 'A ledger entry with this reference_id already exists. This looks like a duplicate transaction.',
+    field: 'reference_id',
+  },
+  gift_card_ledger_transactions_reference_idx: {
     status: 409,
     message: 'A ledger entry with this reference_id already exists. This looks like a duplicate transaction.',
     field: 'reference_id',

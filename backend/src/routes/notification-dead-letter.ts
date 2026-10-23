@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { notificationDeadLetterService } from '../services/notification-dead-letter-service';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { idempotent } from '../middleware/idempotency';
 import logger from '../config/logger';
 
 const router: Router = Router();
@@ -64,7 +65,7 @@ router.get('/:dlqId', async (req: AuthenticatedRequest, res: Response) => {
  * POST /api/notifications/dead-letter/:dlqId/replay
  * Create a replay request for a dead-letter notification
  */
-router.post('/:dlqId/replay', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/:dlqId/replay', idempotent(), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { idempotency_key } = req.body;
     const dlqId = Array.isArray(req.params.dlqId) ? req.params.dlqId[0] : req.params.dlqId;
@@ -106,7 +107,7 @@ router.get('/:dlqId/replay-history', async (req: AuthenticatedRequest, res: Resp
  * POST /api/notifications/dead-letter/replay/:replayId/execute
  * Execute a replay for a dead-letter notification
  */
-router.post('/replay/:replayId/execute', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/replay/:replayId/execute', idempotent(), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const replayId = Array.isArray(req.params.replayId) ? req.params.replayId[0] : req.params.replayId;
     const result = await notificationDeadLetterService.executeReplay(replayId);

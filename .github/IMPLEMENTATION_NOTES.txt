@@ -1,48 +1,69 @@
-Issue Resolution Summary - Type Safety & Testing Improvements
-================================================================
+# Implementation Notes
 
-#442 - Stripe API Version Cast Removal
---------------------------------------
-✓ Removed `as any` cast in client/app/api/webhooks/stripe/route.ts
-✓ Changed error handling from `err: any` to proper Error type checking
-✓ Added STRIPE_API_VERSION constant in stripe-config.ts for compile-time checking
-✓ Route compiles cleanly under strict mode with no diagnostics
+## #1453 [v3][settlement] Settlement engine service skeleton and responsibilities
 
-#447 - TelegramBotService Unit Tests
-------------------------------------
-✓ Created backend/tests/telegram-bot-service.test.ts
-✓ Added 5 test cases covering:
-  - Log metadata validation
-  - Successful delivery path (placeholder for future implementation)
-  - Network/API failure handling
-  - Parameter validation
-  - Various renewal day scenarios
-✓ All tests passing (5/5)
+### Boundary
 
-#448 - Incremental no-explicit-any Rollout
-------------------------------------------
-✓ Backend ESLint: Changed no-explicit-any from "error" to "warn" globally
-✓ Backend ESLint: Added strict override for config/, middleware/, schemas/ directories
-✓ Client ESLint: Changed no-explicit-any from "error" to "warn" globally  
-✓ Client ESLint: Added strict override for lib/ and components/ui/ directories
-✓ Enables tracking of any debt while preventing new unreviewed usage in critical paths
+The settlement engine is a distinct service that translates metered usage into
+on-chain value movement. It owns exactly one translation:
 
-#449 - Shared Domain Models Package
------------------------------------
-✓ Created shared/ package with TypeScript compilation
-✓ Implemented domain models:
-  - subscription.ts: Core subscription types, status, billing cycles
-  - payment.ts: Payment entities and transaction types
-  - user.ts: User profiles and preferences
-  - analytics.ts: Analytics summaries and trends
-  - common.ts: Paginated results, API responses, utilities
-✓ Package built successfully with type declarations
-✓ Documented versioning strategy (semver) in README
-✓ Ready for integration into client/backend/sdk
+    closed meter window  ->  signed channel state  ->  (maybe) chain tx  ->  reconciliation
 
-Next Steps
-----------
-- Integrate @syncro/shared into client, backend, and sdk package.json
-- Migrate existing type definitions to use shared package
-- Update DTO transformation functions to use shared types
-- Remove duplicate type definitions across layers
+It is deliberately narrow. The service:
+
+- **reads** closed meter windows (it never opens or mutates them),
+- **produces** signed channel states,
+- **decides** when a channel state is worth submitting on-chain,
+- **reconciles** what the chain reports back into local channel state.
+
+### Explicitly out of scope
+
+The settlement engine does **not**:
+
+- admit calls,
+- price routes,
+- talk to providers.
+
+Those responsibilities live in the gateway / pricing / provider services. The
+settlement engine only consumes their outputs (closed meter windows) and emits
+signed channel states.
+
+### Dependencies (interfaces)
+
+The service depends on four interfaces, injected at construction so the
+skeleton can run against fakes in tests:
+
+| Interface        | Responsibility                                                        |
+| ---------------- | --------------------------------------------------------------------- |
+| `MeterReader`    | List closed meter windows that have not yet been settled.             |
+| `ChannelClient`  | Submit signed channel states on-chain and read back channel status.   |
+| `KeyProvider`    | Provide the signing key for a given channel (never logs key material).|
+| `EventStream`    | Deliver chain-reported events used for reconciliation.                |
+
+### Lifecycle
+
+The service has an explicit lifecycle:
+
+1. `start()` — validate config, open the event stream, begin the settle loop.
+2. `health()` — report liveness plus the last successful settle/reconcile tick.
+3. `stop()` — stop the settle loop, drain in-flight work, close the event stream.
+
+A health endpoint is exposed over the service's own HTTP listener and reports
+`ok` only when the settle loop has ticked within the configured interval.
+
+### Concurrency
+
+**Exactly one settlement engine instance may run per channel.** The service is
+safe to run as a single active instance; if more than one instance is deployed
+for availability, they must not both sign state for the same channel.
+
+To guarantee this, the service acquires a per-channel lease before producing a
+signed channel state. The lease is held for the duration of the sign-and-submit
+step and released on completion or failure. An instance that cannot acquire the
+lease skips that channel for the tick and retries on the next interval. This
+keeps signing single-writer per channel without requiring a global singleton.
+
+### Done when
+
+The service runs, reports healthy on its health endpoint, and this boundary is
+documented here in the architecture notes.

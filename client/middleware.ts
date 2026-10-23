@@ -25,6 +25,7 @@ const securityHeaders = {
  */
 function generateCSP(
   nonce: string,
+  apiOrigin: string,
   reportOnly: boolean = false,
 ): { headerName: string; policy: string } {
   const isDev = process.env.NODE_ENV === 'development';
@@ -32,10 +33,10 @@ function generateCSP(
   const cspHeader = [
     `default-src 'self'`,
     `script-src 'self' 'nonce-${nonce}' ${isDev ? "'unsafe-eval'" : "'strict-dynamic'"}`,
-    `style-src 'self' 'unsafe-inline'`, // 'unsafe-inline' is needed for Tailwind/CSS-in-JS, nonce would disable it
+    `style-src 'self' 'nonce-${nonce}'${isDev ? " 'unsafe-inline'" : ''}`,
     `img-src 'self' blob: data: https://res.cloudinary.com https://*.supabase.co https://ui-avatars.com`,
     `font-src 'self' data:`,
-    `connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com https://*.stellar.org`,
+    `connect-src 'self' ${apiOrigin} https://*.supabase.co wss://*.supabase.co https://api.stripe.com https://*.stellar.org${isDev ? " http://localhost:* http://127.0.0.1:*" : ""}`,
     `frame-src 'self' https://js.stripe.com`,
     `object-src 'none'`,
     `base-uri 'self'`,
@@ -87,8 +88,15 @@ export async function middleware(request: NextRequest) {
   }
 
   // Generate CSP policy (enforcing mode)
+  const apiBase =
+    process.env.NEXT_PUBLIC_API_URL ||
+    process.env.NEXT_PUBLIC_API_BASE ||
+    (process.env.NEXT_PUBLIC_APP_ENV === "staging"
+      ? "https://backend-staging.onrender.com"
+      : "https://backend-ai-sub.onrender.com");
   const { headerName: cspHeaderName, policy: cspPolicy } = generateCSP(
     nonce,
+    new URL(apiBase, request.nextUrl.origin).origin,
     false,
   );
 

@@ -5,7 +5,7 @@ import {
   resolveEnvironment,
   scrubEvent,
   SENTRY_TAG_KEYS,
-} from '../../../shared/src/sentry';
+} from '@syncro/shared/sentry';
 
 // ---------------------------------------------------------------------------
 // buildRelease

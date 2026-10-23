@@ -5,18 +5,20 @@ import * as Sentry from '@sentry/node';
 import { nodeProfilingIntegration } from '@sentry/profiling-node';
 import swaggerUi from 'swagger-ui-express';
 import * as bip39 from 'bip39';
-import { resolveRelease, resolveEnvironment, scrubEvent, SENTRY_TAG_KEYS } from '../../shared/src/sentry';
+import { resolveRelease, resolveEnvironment, scrubEvent, SENTRY_TAG_KEYS } from '@syncro/shared/sentry';
+import { validateEnv, env } from './config/env';
 
 // Load environment variables before importing other modules
 dotenv.config();
+validateEnv();
 
 // Sentry Initialization
 Sentry.init({
-  dsn: process.env.SENTRY_DSN,
+  dsn: env.SENTRY_DSN,
   release: resolveRelease(),
   environment: resolveEnvironment(),
   integrations: [nodeProfilingIntegration()],
-  tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
+  tracesSampleRate: env.NODE_ENV === 'production' ? 0.1 : 1.0,
   profilesSampleRate: 0.1,
   initialScope: {
     tags: { [SENTRY_TAG_KEYS.service]: 'backend' },
@@ -28,14 +30,9 @@ import logger from './config/logger';
 import { requestIdMiddleware } from './middleware/requestContext';
 import { requestLoggerMiddleware } from './middleware/requestLogger';
 import { schedulerService } from './services/scheduler';
-import { reminderEngine } from './services/reminder-engine';
+import { container } from './services/container';
 import { notificationPreferenceService } from './services/notification-preference-service';
-import subscriptionRoutes from './routes/subscriptions';
-import subscriptionShareRoutes from './routes/subscription-shares';
-import subscriptionDedupRoutes from './routes/subscription-dedup';
 import riskScoreRoutes from './routes/risk-score';
-import simulationRoutes from './routes/simulation';
-import merchantRoutes from './routes/merchants';
 import teamRoutes from './routes/team';
 import auditRoutes from './routes/audit';
 import webhookRoutes from './routes/webhooks';
@@ -44,13 +41,11 @@ import tagsRoutes from './routes/tags';
 import userRoutes from './routes/user';
 import sessionRoutes from './routes/sessions';
 import apiKeysRoutes from './routes/api-keys';
-import digestRoutes from './routes/digest';
 import mfaRoutes from './routes/mfa';
 import pushNotificationRoutes from './routes/push-notifications';
 import walletRoutes from './routes/wallet';
 import keyRotationRoutes from './routes/key-rotation';
 import privacyRoutes from './routes/privacy';
-import emailRescanRoutes from './routes/email-rescan';
 import gmailRouter from './routes/integrations/gmail'
 import outlookRouter from './routes/integrations/outlook'
 import yahooRouter from './routes/integrations/yahoo'
@@ -68,6 +63,14 @@ import { healthService } from './services/health-service';
 import { dependencyHealthService } from './services/dependency-health-service';
 import { eventListener } from './services/event-listener';
 import { expiryService } from './services/expiry-service';
+import { outboxPublisher } from './lib/outbox-publisher';
+import {
+  auditLogSubscriber,
+  riskScoreSubscriber,
+  reminderScheduleSubscriber,
+  analyticsInvalidationSubscriber,
+  digestUpdateSubscriber,
+} from './services/subscribers';
 import { authenticate } from './middleware/auth'
 import { adminAuth } from './middleware/admin';
 import { createAdminLimiter, RateLimiterFactory } from './middleware/rate-limit-factory';
@@ -75,23 +78,28 @@ import { scheduleAutoResume, stopAutoResume } from './jobs/auto-resume';
 import { startSettlementBatchJob, stopSettlementBatchJob } from './jobs/settlement-batch-job';
 import { startStealthScanJob } from './jobs/stealth-scan-job';
 import { startChannelMonitorJob } from './jobs/channel-monitor-job';
+import { startUsageRetentionJob } from './jobs/usage-retention-job';
 import { startChannelSettlementJob, stopChannelSettlementJob } from './jobs/channel-settlement-job';
+import { startSettlementReconciliationJob, stopSettlementReconciliationJob } from './jobs/settlement-reconciliation-job';
+import { startSettlementSignerBalanceJob, stopSettlementSignerBalanceJob } from './jobs/settlement-signer-balance-job';
+import { startUsageReconciliationJob, stopUsageReconciliationJob } from './jobs/usage-reconciliation-job';
 import { startJobAlertMonitor, stopJobAlertMonitor } from './jobs/job-alert-monitor';
+import { startWebhookRetryJob, stopWebhookRetryJob } from './jobs/webhook-retry-job';
+import { startPaidCallAlertJob, stopPaidCallAlertJob } from './jobs/paid-call-alert-job';
 import { isDraining } from './lib/shutdown-state';
 import { registerGracefulShutdown } from './lib/graceful-shutdown';
-import giftCardLedgerRoutes from './routes/gift-card-ledger';
 import notificationDeadLetterRoutes from './routes/notification-dead-letter';
-import renewalDeadLetterRoutes from './routes/renewal-dead-letter';
 import telegramWebhookRoutes from './routes/telegram-webhook';
 import { telegramCommandService } from './services/telegram-command-service';
-import calendarRouter from './routes/calendar';
 import userPreferencesRoutes from './routes/user-preferences';
-import reminderSettingsRoutes from './routes/reminder-settings';
 import { blockchainReconciliationService } from './services/blockchain-reconciliation-service';
+import { settlementReconciliationService } from './services/settlement-reconciliation-service';
 import paymentsRoutes from './routes/payments';
 import paystackWebhookRoutes from './routes/paystack-webhook';
 import stripeWebhookRoutes from './routes/stripe-webhook';
 import paypalWebhookRoutes from './routes/paypal-webhook';
+import adminWebhookEventsRoutes from './routes/admin/webhook-events';
+import { registerWebhookHandlers } from './services/webhook-handlers';
 import adminDeletionsRoutes from './routes/admin-deletions';
 import adminQueuesRoutes, { getQueueHealthMetrics } from './routes/admin-queues';
 import agentWalletsRoutes from './routes/agent-wallets';
@@ -99,17 +107,19 @@ import paymentChannelsRoutes from './routes/payment-channels';
 import { errorHandler } from './middleware/errorHandler';
 import { swaggerSpec } from './swagger';
 import privacyMetricsAdminRoutes from './routes/admin/privacy-metrics';
+import agentKeyCompromiseAdminRoutes from './routes/admin/agent-key-compromise';
 import metricsRoutes from './routes/metrics';
+import analyticsV3Routes from './routes/analytics-v3';
+import v3GatewayRoutes from './routes/v3/gateway';
+import v3ProviderRoutes from './routes/v3-gateway';
+import receiptKeysRoutes from './routes/v3/receipt-keys';
 
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = env.PORT;
 
 // Validate Admin API Key
-const ADMIN_API_KEY = process.env.ADMIN_API_KEY;
-if (!ADMIN_API_KEY && process.env.NODE_ENV === 'production') {
-  throw new Error('ADMIN_API_KEY environment variable is required in production.');
-}
+const ADMIN_API_KEY = env.ADMIN_API_KEY;
 
 // Exchange Rate Service Setup
 // Provider fallback order:
@@ -129,7 +139,7 @@ const exchangeRateService = new ExchangeRateService([
 app.use(Sentry.Handlers.requestHandler());
 
 // CORS configuration
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+const FRONTEND_URL = env.FRONTEND_URL;
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', FRONTEND_URL);
   res.header('Access-Control-Allow-Credentials', 'true');
@@ -141,6 +151,10 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// Inbound webhook handlers must be registered before any delivery is ingested
+// (issue #1283): an unregistered event type is treated as a successful no-op.
+registerWebhookHandlers();
 
 // Payment webhooks require raw body for cryptographic signature verification
 app.use('/api/webhooks/paystack', express.raw({ type: 'application/json' }), paystackWebhookRoutes);
@@ -225,8 +239,8 @@ app.get('/health', async (req, res) => {
       status: overallStatus,
       timestamp: new Date().toISOString(),
       uptime_ms: liveness.uptime_ms,
-      version: process.env.npm_package_version || '1.0.0',
-      environment: process.env.NODE_ENV || 'development',
+      version: '1.0.0',
+      environment: env.NODE_ENV,
       dependencies: readiness.dependencies,
       queues: queueHealth.queues,
       message: readiness.message,
@@ -244,6 +258,9 @@ app.get('/health', async (req, res) => {
 app.use('/metrics', metricsRoutes);
 app.use('/api/metrics', metricsRoutes);
 
+// V3 Analytics Endpoints
+app.use('/api/analytics/v3', analyticsV3Routes);
+
 // Swagger Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.get('/api-docs.json', (_req, res) => {
@@ -257,14 +274,17 @@ app.get('/api/docs.json', (_req, res) => {
   res.send(swaggerSpec);
 });
 
+// Versioned APIs. Unversioned `/api/*` below is the frozen v1 surface.
+app.use('/api/v1', v1Router);
+app.use('/api/v2', v2Router);
+app.use('/api/v3/gateway', v3GatewayRoutes);
+app.use('/api/v3', v3ProviderRoutes);
+app.use('/.well-known/syncro-receipt-keys', receiptKeysRoutes);
+app.use('/api/v3/receipt-keys', receiptKeysRoutes);
+
 // API Routes
 app.use('/api/keys', apiKeysRoutes);
-app.use('/api/subscriptions', subscriptionShareRoutes);
-app.use('/api/subscriptions', subscriptionRoutes);
-app.use('/api/subscriptions', subscriptionDedupRoutes);
 app.use('/api/risk-score', riskScoreRoutes);
-app.use('/api/simulation', simulationRoutes);
-app.use('/api/merchants', merchantRoutes);
 app.use('/api/team', teamRoutes);
 app.use('/api/audit', auditRoutes);
 app.use('/api/integrations/gmail', authenticate, gmailRouter)
@@ -272,7 +292,6 @@ app.use('/api/integrations/outlook', authenticate, outlookRouter)
 app.use('/api/integrations/yahoo', authenticate, yahooRouter)
 app.use('/api/integrations/icloud', authenticate, icloudRouter)
 app.use('/api/integrations/slack', authenticate, slackRouter);
-app.use('/api/integrations/email', authenticate, emailRescanRoutes);
 // No blanket `authenticate` here: POST / is called server-to-server by the
 // Next.js CSP report handler (gated by its own X-Internal-Request check);
 // the admin-only routes (stats/refresh-stats/user) apply authenticate
@@ -283,22 +302,18 @@ app.use('/api/compliance', complianceRoutes);
 app.use('/api/tags', tagsRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/sessions', sessionRoutes);
-app.use('/api/digest', digestRoutes);
 app.use('/api/mfa', mfaRoutes);
 app.use('/api/notifications/push', pushNotificationRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/key-rotation', keyRotationRoutes);
 app.use('/api/privacy', privacyRoutes);
 app.use('/api/notifications/dead-letter', notificationDeadLetterRoutes);
-app.use('/api/renewals/dead-letter', renewalDeadLetterRoutes);
 app.use('/api/exchange-rates', createExchangeRatesRouter(exchangeRateService));
-app.use('/api/gift-card-ledger', giftCardLedgerRoutes);
 app.use('/api/payments', authenticate, paymentsRoutes);
 app.use('/api/payment-channels', authenticate, paymentChannelsRoutes);
+app.use('/api/admin/webhook-events', adminWebhookEventsRoutes);
 app.use('/api/telegram', telegramWebhookRoutes);
-app.use('/api/calendar', calendarRouter);
 app.use('/api/user-preferences', authenticate, userPreferencesRoutes);
-app.use('/api/reminder-settings', authenticate, reminderSettingsRoutes);
 
 app.get('/api/reminders/status', (req, res) => {
   const status = schedulerService.getStatus();
@@ -310,6 +325,7 @@ app.use('/admin/queues', adminQueuesRoutes);
 app.use('/api/admin/deletions', adminDeletionsRoutes);
 app.use('/api/admin/agent-wallets', createAdminLimiter(), agentWalletsRoutes);
 app.use('/api/admin', privacyMetricsAdminRoutes);
+app.use('/api/admin/agent-keys', createAdminLimiter(), agentKeyCompromiseAdminRoutes);
 
 
 app.get('/api/admin/metrics/subscriptions', createAdminLimiter(), adminAuth, async (req, res) => {
@@ -502,7 +518,7 @@ app.get('/api/admin/health', createAdminLimiter(), adminAuth, async (req, res) =
 // Admin Process Triggers
 app.post('/api/reminders/process', createAdminLimiter(), adminAuth, async (req, res) => {
   try {
-    await reminderEngine.processReminders();
+    await container.reminderEngine.processReminders();
     res.json({ success: true, message: 'Reminders processed' });
   } catch (error) {
     logger.error('Error processing reminders:', error);
@@ -513,7 +529,7 @@ app.post('/api/reminders/process', createAdminLimiter(), adminAuth, async (req, 
 app.post('/api/reminders/schedule', createAdminLimiter(), adminAuth, async (req, res) => {
   try {
     const daysBefore = req.body.daysBefore || [7, 3, 1];
-    await reminderEngine.scheduleReminders(daysBefore);
+    await container.reminderEngine.scheduleReminders(daysBefore);
     res.json({ success: true, message: 'Reminders scheduled' });
   } catch (error) {
     logger.error('Error scheduling reminders:', error);
@@ -523,7 +539,7 @@ app.post('/api/reminders/schedule', createAdminLimiter(), adminAuth, async (req,
 
 app.post('/api/reminders/retry', createAdminLimiter(), adminAuth, async (req, res) => {
   try {
-    await reminderEngine.processRetries();
+    await container.reminderEngine.processRetries();
     res.json({ success: true, message: 'Retries processed' });
   } catch (error) {
     logger.error('Error processing retries:', error);
@@ -556,6 +572,30 @@ app.post('/api/admin/reconciliation/run', createAdminLimiter(), adminAuth, async
       error: error instanceof Error ? error.message : 'Reconciliation failed',
     });
   }
+});
+
+// ── Settlement Three-Way Reconciliation Endpoints ─────────────────────────────
+
+app.post('/api/admin/settlement-reconciliation/run', createAdminLimiter(), adminAuth, async (_req, res) => {
+  try {
+    const result = await settlementReconciliationService.run();
+    res.json({ success: true, data: result });
+  } catch (error) {
+    logger.error('Error running settlement reconciliation:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Settlement reconciliation failed',
+    });
+  }
+});
+
+app.post('/api/admin/settlement-reconciliation/unblock', createAdminLimiter(), adminAuth, (_req, res) => {
+  settlementReconciliationService.unblock();
+  res.json({ success: true, blocked: settlementReconciliationService.isBlocked() });
+});
+
+app.get('/api/admin/settlement-reconciliation/status', createAdminLimiter(), adminAuth, (_req, res) => {
+  res.json({ blocked: settlementReconciliationService.isBlocked() });
 });
 
 // Error Handlers
@@ -599,12 +639,12 @@ function clearHealthSnapshotInterval() {
 // Start Server
 const server = app.listen(PORT, async () => {
   logger.info(`Server running on port ${PORT}`);
-  logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  logger.info(`Environment: ${env.NODE_ENV}`);
 
   // Validation
-  const criticalEnvVars = ['SOROBAN_CONTRACT_ADDRESS', 'STELLAR_NETWORK_URL'];
+  const criticalEnvVars = ['SOROBAN_CONTRACT_ADDRESS', 'STELLAR_NETWORK_URL'] as const;
   for (const envVar of criticalEnvVars) {
-    if (!process.env[envVar]) {
+    if (!env[envVar]) {
       logger.warn(`${envVar} not configured — EventListener will be disabled`);
     }
   }
@@ -616,6 +656,29 @@ const server = app.listen(PORT, async () => {
   } catch (error) {
     logger.warn('Rate limiting initialization failed, using memory store:', error);
   }
+
+  outboxPublisher.register('subscription.created', auditLogSubscriber.handle.bind(auditLogSubscriber));
+  outboxPublisher.register('subscription.updated', auditLogSubscriber.handle.bind(auditLogSubscriber));
+  outboxPublisher.register('subscription.deleted', auditLogSubscriber.handle.bind(auditLogSubscriber));
+  outboxPublisher.register('subscription.cancelled', auditLogSubscriber.handle.bind(auditLogSubscriber));
+  outboxPublisher.register('subscription.created', riskScoreSubscriber.handle.bind(riskScoreSubscriber));
+  outboxPublisher.register('renewal.succeeded', riskScoreSubscriber.handle.bind(riskScoreSubscriber));
+  outboxPublisher.register('renewal.failed', riskScoreSubscriber.handle.bind(riskScoreSubscriber));
+  outboxPublisher.register('payment.failed', riskScoreSubscriber.handle.bind(riskScoreSubscriber));
+  outboxPublisher.register('subscription.created', reminderScheduleSubscriber.handle.bind(reminderScheduleSubscriber));
+  outboxPublisher.register('subscription.restored', reminderScheduleSubscriber.handle.bind(reminderScheduleSubscriber));
+  outboxPublisher.register('subscription.updated', reminderScheduleSubscriber.handle.bind(reminderScheduleSubscriber));
+  outboxPublisher.register('subscription.deleted', reminderScheduleSubscriber.handle.bind(reminderScheduleSubscriber));
+  outboxPublisher.register('subscription.cancelled', reminderScheduleSubscriber.handle.bind(reminderScheduleSubscriber));
+  outboxPublisher.register('subscription.created', analyticsInvalidationSubscriber.handle.bind(analyticsInvalidationSubscriber));
+  outboxPublisher.register('subscription.updated', analyticsInvalidationSubscriber.handle.bind(analyticsInvalidationSubscriber));
+  outboxPublisher.register('subscription.deleted', analyticsInvalidationSubscriber.handle.bind(analyticsInvalidationSubscriber));
+  outboxPublisher.register('subscription.cancelled', analyticsInvalidationSubscriber.handle.bind(analyticsInvalidationSubscriber));
+  outboxPublisher.register('subscription.created', digestUpdateSubscriber.handle.bind(digestUpdateSubscriber));
+  outboxPublisher.register('subscription.updated', digestUpdateSubscriber.handle.bind(digestUpdateSubscriber));
+  outboxPublisher.register('subscription.deleted', digestUpdateSubscriber.handle.bind(digestUpdateSubscriber));
+  outboxPublisher.register('subscription.cancelled', digestUpdateSubscriber.handle.bind(digestUpdateSubscriber));
+  outboxPublisher.start();
 
   startHealthSnapshotInterval();
   await eventListener.start();
@@ -630,11 +693,17 @@ const server = app.listen(PORT, async () => {
   startSettlementBatchJob();
   startStealthScanJob();
   startChannelMonitorJob();
+  startUsageRetentionJob();
   startChannelSettlementJob();
+  startSettlementReconciliationJob();
+  startSettlementSignerBalanceJob();
+  startUsageReconciliationJob();
   startJobAlertMonitor();
+  startWebhookRetryJob();
+  startPaidCallAlertJob();
 
   telegramCommandService.init();
-  if (process.env.TELEGRAM_BOT_TOKEN && !process.env.TELEGRAM_WEBHOOK_SECRET) {
+  if (env.TELEGRAM_BOT_TOKEN && !env.TELEGRAM_WEBHOOK_SECRET) {
     logger.warn('[Telegram] TELEGRAM_WEBHOOK_SECRET not set — webhook origin is unverified');
   }
 });
@@ -645,9 +714,15 @@ registerGracefulShutdown(server, {
     stopAutoResume();
     stopSettlementBatchJob();
     stopChannelSettlementJob();
+    stopSettlementReconciliationJob();
+    stopSettlementSignerBalanceJob();
+    stopUsageReconciliationJob();
     stopJobAlertMonitor();
+    stopWebhookRetryJob();
+    stopPaidCallAlertJob();
   },
   stopEventListener: () => eventListener.stop(),
   stopTelegram: () => telegramCommandService.stop(),
+  stopOutboxPublisher: () => outboxPublisher.stop(),
   clearHealthSnapshotInterval,
 });

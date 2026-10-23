@@ -1,35 +1,29 @@
 import express from 'express';
-import subscriptionRoutes from '../subscriptions';
 import riskScoreRoutes from '../risk-score';
-import simulationRoutes from '../simulation';
-import merchantRoutes from '../merchants';
 import teamRoutes from '../team';
-import digestRoutes from '../digest';
 import pushNotificationsRoutes from '../push-notifications';
 import userRoutes from '../user';
 import integrationRoutes from '../integrations';
 import telegramRoutes from '../telegram';
 
 import { schedulerService } from '../../services/scheduler';
-import { reminderEngine } from '../../services/reminder-engine';
+import { container } from '../../services/container';
 import { monitoringService } from '../../services/monitoring-service';
 import { healthService } from '../../services/health-service';
 import { expiryService } from '../../services/expiry-service';
 import { adminAuth } from '../../middleware/admin';
 import logger from '../../config/logger';
+import renewalSagaRoutes from '../admin/renewal-sagas';
 
 const v1Router = express.Router();
 
 // Standard API Routes
-v1Router.use('/subscriptions', subscriptionRoutes);
 v1Router.use('/risk-score', riskScoreRoutes);
-v1Router.use('/simulation', simulationRoutes);
-v1Router.use('/merchants', merchantRoutes);
 v1Router.use('/team', teamRoutes);
-v1Router.use('/digest', digestRoutes);
 v1Router.use('/push-notifications', pushNotificationsRoutes);
 v1Router.use('/user', userRoutes);
 v1Router.use('/integrations', integrationRoutes);
+v1Router.use('/admin/renewal-sagas', renewalSagaRoutes);
 
 // Auth alias (some parts of frontend might use /api/v1/auth)
 v1Router.use('/auth', userRoutes);
@@ -47,7 +41,7 @@ v1Router.get('/reminders/status', (req: express.Request, res: express.Response) 
 // VALIDATION_BYPASS: No request body or params needed
 v1Router.post('/reminders/process', adminAuth, async (req: express.Request, res: express.Response) => {
   try {
-    await reminderEngine.processReminders();
+    await container.reminderEngine.processReminders();
     res.json({ success: true, message: 'Reminders processed' });
   } catch (error) {
     logger.error('Error processing reminders:', error);
@@ -62,7 +56,7 @@ v1Router.post('/reminders/process', adminAuth, async (req: express.Request, res:
 v1Router.post('/reminders/schedule', adminAuth, async (req: express.Request, res: express.Response) => {
   try {
     const daysBefore = req.body.daysBefore || [7, 3, 1];
-    await reminderEngine.scheduleReminders(daysBefore);
+    await container.reminderEngine.scheduleReminders(daysBefore);
     res.json({ success: true, message: 'Reminders scheduled' });
   } catch (error) {
     logger.error('Error scheduling reminders:', error);
@@ -76,7 +70,7 @@ v1Router.post('/reminders/schedule', adminAuth, async (req: express.Request, res
 // VALIDATION_BYPASS: No request body or params needed
 v1Router.post('/reminders/retry', adminAuth, async (req: express.Request, res: express.Response) => {
   try {
-    await reminderEngine.processRetries();
+    await container.reminderEngine.processRetries();
     res.json({ success: true, message: 'Retries processed' });
   } catch (error) {
     logger.error('Error processing retries:', error);

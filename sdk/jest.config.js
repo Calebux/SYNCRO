@@ -17,6 +17,9 @@ export default {
   moduleNameMapper: {
     '^(\\.\\.?\\/.+)\\.js$': '$1',
     '^@syncro/shared/stellar/memo$': '<rootDir>/../shared/src/stellar/memo.ts',
+    '^@syncro/shared/crypto/runtime/node$': '<rootDir>/../shared/src/crypto/runtime/node.ts',
+    '^@syncro/shared/crypto/runtime/browser$': '<rootDir>/../shared/src/crypto/runtime/browser.ts',
+    '^@syncro/shared/crypto$': '<rootDir>/../shared/src/crypto/index.ts',
   },
   // Coverage collection for the per-package gate (issue #1090).
   // Minimums live in ../coverage-thresholds.json; they are 0 until the first

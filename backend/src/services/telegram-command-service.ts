@@ -1,6 +1,7 @@
 import { Telegraf, Context } from 'telegraf';
 import { randomUUID } from 'crypto';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { supabase, trackDbRequest } from '../config/database';
 import { Subscription } from '../types/subscription';
 import { UserRole } from '../middleware/auth';
@@ -582,7 +583,7 @@ export class TelegramCommandService {
 
   /** Initialises the Telegraf bot and registers command handlers. */
   init(): Telegraf | null {
-    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const token = env.TELEGRAM_BOT_TOKEN;
     if (!token) {
       logger.warn(
         '[TelegramCommandService] TELEGRAM_BOT_TOKEN not set — command bot disabled'

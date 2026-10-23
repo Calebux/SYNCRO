@@ -1,0 +1,67 @@
+name: "Install Dependencies"
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: "Working directory containing package.json"
+        type: string
+        default: "."
+      node-version:
+        description: "Node.js version"
+        type: string
+        default: "20"
+      use-ci:
+        description: "Use 'npm ci' instead of 'npm install'"
+        type: boolean
+        default: true
+      ignore-scripts:
+        description: "Pass --ignore-scripts to npm install"
+        type: boolean
+        default: false
+      legacy-peer-deps:
+        description: "Pass --legacy-peer-deps to npm install"
+        type: boolean
+        default: false
+
+jobs:
+  install-deps:
+    name: Install Dependencies
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Resolve npm cache lockfile
+        id: cache-lockfile
+        working-directory: ${{ github.workspace }}
+        env:
+          WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        run: |
+          path="${WORKING_DIRECTORY}/package-lock.json"
+          if [ ! -f "$path" ]; then path=package-lock.json; fi
+          if [ ! -f "$path" ]; then echo "No npm lockfile found: $path" >&2; exit 1; fi
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: "npm"
+          cache-dependency-path: ${{ steps.cache-lockfile.outputs.path }}
+
+      - name: Install dependencies
+        run: |
+          npm_args=()
+          if [ ! -f package-lock.json ]; then
+            cd "$GITHUB_WORKSPACE"
+            if ! ${{ inputs.legacy-peer-deps }}; then npm_args+=(--legacy-peer-deps); fi
+          fi
+          if ${{ inputs.use-ci }}; then
+            npm ci "${npm_args[@]}"${{ inputs.ignore-scripts && ' --ignore-scripts' || '' }}${{ inputs.legacy-peer-deps && ' --legacy-peer-deps' || '' }}
+          else
+            npm install "${npm_args[@]}"${{ inputs.ignore-scripts && ' --ignore-scripts' || '' }}${{ inputs.legacy-peer-deps && ' --legacy-peer-deps' || '' }}
+          fi

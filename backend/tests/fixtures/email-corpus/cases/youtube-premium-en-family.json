@@ -1,0 +1,18 @@
+{
+  "id": "youtube-premium-en-family",
+  "merchant": "YouTube Premium",
+  "locale": "en",
+  "kind": "positive",
+  "notes": "Family plan variant.",
+  "email": {
+    "subject": "YouTube Premium family plan renewal",
+    "from": "YouTube <no-reply@youtube.com>",
+    "body": "Your family plan has been renewed and charged $22.99 per month."
+  },
+  "expected": {
+    "name": "YouTube Premium",
+    "amount": 22.99,
+    "currency": "USD",
+    "interval": "monthly"
+  }
+}

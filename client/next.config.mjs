@@ -6,7 +6,7 @@ const nextConfig = {
   env: {
     NEXT_TELEMETRY_DISABLED: '1',
   },
-  transpilePackages: ['@syncro/shared'],
+  transpilePackages: ['@syncro/shared', '@syncro/ui'],
   eslint: {
     ignoreDuringBuilds: true,
   },
@@ -21,6 +21,40 @@ const nextConfig = {
   },
   experimental: {
     reactCompiler: true,
+  },
+  // Next.js 16: tree-shake heavy barrels so chart/wallet/pdf stay out of the
+  // shared graph. Combined with `next/dynamic` on those routes.
+  optimizePackageImports: ['lucide-react', 'recharts', '@tremor/react', 'date-fns'],
+  webpack: (webpackConfig, { isServer }) => {
+    if (!isServer && webpackConfig.optimization) {
+      const existing = webpackConfig.optimization.splitChunks
+      const cacheGroups = existing && typeof existing === 'object' ? existing.cacheGroups || {} : {}
+      webpackConfig.optimization.splitChunks = {
+        ...(typeof existing === 'object' ? existing : {}),
+        cacheGroups: {
+          ...cacheGroups,
+          charts: {
+            test: /[\\/]node_modules[\\/](recharts|@tremor[\\/]react|victory-vendor)[\\/]/,
+            name: 'charts',
+            chunks: 'async',
+            priority: 40,
+          },
+          pdf: {
+            test: /[\\/]node_modules[\\/]@react-pdf[\\/]/,
+            name: 'pdf',
+            chunks: 'async',
+            priority: 40,
+          },
+          wallet: {
+            test: /[\\/](stellar-wallet|key-rotation-client|use-wallet)/,
+            name: 'wallet',
+            chunks: 'async',
+            priority: 40,
+          },
+        },
+      }
+    }
+    return webpackConfig
   },
   async headers() {
     return [

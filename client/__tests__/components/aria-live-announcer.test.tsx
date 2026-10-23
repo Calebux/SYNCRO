@@ -4,7 +4,7 @@ import {
   AriaLiveAnnouncer,
   announcePolite,
   announceAssertive,
-} from '@/components/ui/aria-live-announcer'
+} from "@syncro/ui"
 
 /**
  * Issue #956 – ARIA live announcer component tests

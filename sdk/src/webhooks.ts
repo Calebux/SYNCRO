@@ -1,4 +1,4 @@
-import * as crypto from 'node:crypto';
+import { cryptoPrimitives } from './crypto/node.js';
 
 /**
  * Canonical SYNCRO outbound webhook event types.
@@ -123,18 +123,27 @@ export function verifyWebhookSignature(
     return false;
   }
 
-  const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+  const expectedBytes = cryptoPrimitives.hmacSha256(
+    new TextEncoder().encode(secret),
+    new TextEncoder().encode(payload),
+  );
 
-  try {
-    const received = Buffer.from(signature, 'hex');
-    const expectedBuf = Buffer.from(expected, 'hex');
-    if (received.length !== expectedBuf.length) {
-      return false;
-    }
-    return crypto.timingSafeEqual(received, expectedBuf);
-  } catch {
+  const received = hexToBytes(signature);
+  if (!received || received.length !== expectedBytes.length) {
     return false;
   }
+  return cryptoPrimitives.timingSafeEqual(received, expectedBytes);
+}
+
+function hexToBytes(hex: string): Uint8Array | null {
+  if (!/^[0-9a-fA-F]+$/.test(hex) || hex.length % 2 !== 0) {
+    return null;
+  }
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16);
+  }
+  return bytes;
 }
 
 /**

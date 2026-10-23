@@ -1,10 +1,11 @@
 import { Queue, Worker, Job } from 'bullmq';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { pushService } from './push-service';
 import { notificationDeadLetterService } from '../services/notification-dead-letter-service';
 import { jobAlertService } from '../services/job-alert-service';
 
-const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+const REDIS_URL = env.REDIS_URL || 'redis://localhost:6379';
 const connection = { url: REDIS_URL };
 
 // Retry delays: 5m, 30m, 2h (in ms)

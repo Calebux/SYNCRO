@@ -17,7 +17,11 @@ on:
 jobs:
   deploy-staging:
     name: Deploy to Staging (Vercel)
+    if: github.repository == 'Calebux/SYNCRO' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Checkout repository

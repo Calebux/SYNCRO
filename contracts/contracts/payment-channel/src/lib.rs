@@ -1,15 +1,143 @@
+//! # Payment Channel Contract
+//!
+//! A non-custodial payment channel between a depositor (payer) and a
+//! counterparty (provider).  The payer can recover funds without the
+//! provider's cooperation through the unilateral-close path.
+//!
+//! ## Unilateral-close guarantee
+//!
+//! > **A payer can always recover their funds without the provider's
+//! > cooperation, provided they act within the challenge window.**
+//!
+//! The guarantee rests on three mechanisms:
+//!
+//! 1. **Per-channel challenge period** — `dispute_window` is set at
+//!    `open_channel` time and stored on-chain.  Contract-enforced bounds
+//!    (`MIN_DISPUTE_WINDOW_SECS` .. `MAX_DISPUTE_WINDOW_SECS`) prevent both
+//!    a provider choosing a zero window (instant finalize front-run) and an
+//!    excessively long window (capital locked indefinitely).
+//!
+//! 2. **Deadline reset on dispute** — when the counterparty submits a newer
+//!    state via `dispute`, the deadline is extended to
+//!    `now + channel.dispute_window` so the original initiator always has a
+//!    full window to respond after any counter-move.  This prevents a
+//!    front-run pattern where an adversary spams disputes until the window
+//!    accidentally expires.
+//!
+//! 3. **Strictly increasing nonces + contract/channel binding** — every
+//!    signed state carries `(contract_address, channel_id, sequence)`.
+//!    `submit_state` and `dispute` both reject equal-or-lower sequences
+//!    (`StaleState`).  The contract-address binding means a state signed for
+//!    an old deployment cannot be replayed against a redeployed contract, and
+//!    the channel-id binding means a state from channel A cannot be replayed
+//!    against channel B.
+
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, vec, Address, Bytes,
+    Env, Vec,
 };
+use syncro_contract_common as syncro_common;
+
+/// Time (in seconds) a contract must be continuously paused before any party
+/// may invoke the escape-hatch withdrawal for their own balance.
+///
+/// 7 days — compile-time constant, not admin-settable.
+pub const ESCAPE_HATCH_GRACE_PERIOD_SECS: u64 = 7 * 24 * 60 * 60; // 604 800 s
+
+/// Maximum watchtower bounty that can be reserved from a channel, in token units.
+/// Caps the amount a watchtower can ever receive; channel principal cannot be redirected.
+pub const MAX_WATCHTOWER_BOUNTY: i128 = 10_000;
+
+/// Minimum per-channel challenge (dispute) window: 1 hour.
+///
+/// A shorter window would allow a provider to open a channel, immediately
+/// initiate close with a stale state, and finalize before the payer can
+/// react — defeating the non-custodial guarantee.
+pub const MIN_DISPUTE_WINDOW_SECS: u64 = 3_600; // 1 hour
+
+/// Maximum per-channel challenge window: 30 days.
+///
+/// An unbounded window would lock payer capital indefinitely, so we cap it.
+pub const MAX_DISPUTE_WINDOW_SECS: u64 = 30 * 24 * 3_600; // 30 days
+
+/// Freshness window for payment proofs (in seconds).
+///
+/// # State binding
+/// Every signed channel state (sequence number, balances) is bound to
+/// `(contract_address, channel_id)`.  The `channel_id` binding is enforced by
+/// keying storage on `channel_id` and checking identity on every state
+/// submission.  The contract-address binding is the Soroban guarantee that
+/// storage is scoped per contract; a state signed for a different deployment
+/// address simply addresses a different storage namespace and cannot affect
+/// any live channel.
+///
+/// Callers (gateway, SDK) must include `env.current_contract_address()` in
+/// the signed material alongside `channel_id` and `sequence`.  The contract
+/// does not verify the off-chain signature itself (Stellar's auth framework
+/// does), but the signed payload they produce must include the contract
+/// address so a state from contract V1 cannot be submitted to contract V2.
+///
+/// See `submit_state` and `dispute` for the on-chain enforcement.
+///
+/// A proof whose `timestamp` falls outside `[now - WINDOW, now + WINDOW]` is
+/// rejected.  Using a symmetric ±window accommodates reasonable clock skew
+/// between the gateway and the ledger without accepting arbitrarily old proofs.
+///
+/// 5 minutes — tight enough to prevent replay without being fragile under
+/// normal latency.
+pub const PROOF_FRESHNESS_WINDOW_SECS: u64 = 5 * 60; // 300 s
 
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
     Admin,
+    /// Address nominated to become admin; absent when no transfer is active.
+    /// Shared two-step handover (issue #1659, cf. agent-registry).
+    PendingAdmin,
     Channel(u64),
     ChannelCount,
+    /// Unix timestamp at which the contract entered the paused state.
+    /// Key absent ⟹ contract is not paused.
+    PausedSince,
+    Watchtowers(u64),
+    WatchtowerBounty(u64),
+    BountyPaid(u64),
+    /// Seen-nonce entry for replay detection.
+    /// Key present  ⟹ nonce already consumed for this channel.
+    /// Key absent   ⟹ nonce is fresh.
+    SeenNonce(u64, u64),
+}
+
+/// A payment proof binds a single off-chain API call to a specific channel
+/// state update.  The `request_hash` commits to the exact request body so
+/// the proof cannot be transplanted to a different request.  The `nonce`
+/// ensures one-time use even if two requests share an identical body.
+///
+/// # Signed material
+/// `contract_address ‖ channel_id ‖ request_hash ‖ nonce ‖ timestamp`
+///
+/// The `contract_address` binds the proof to a specific deployment so a proof
+/// issued under contract V1 cannot be replayed against V2.  Both channel
+/// parties must sign this material before the gateway sends it to the payer.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PaymentProof {
+    /// On-chain channel that backs this payment.
+    pub channel_id: u64,
+    /// SHA-256 hash of the canonical request bytes (method + path + body).
+    /// Binds the proof to exactly one request so it cannot be reused for
+    /// a different call.
+    pub request_hash: Bytes,
+    /// Monotonically unique token chosen by the gateway.  Stored in the
+    /// contract after first acceptance so any replay is rejected.
+    pub nonce: u64,
+    /// Unix timestamp (seconds) at which the proof was issued.  Must lie
+    /// within PROOF_FRESHNESS_WINDOW_SECS of the current ledger time.
+    pub timestamp: u64,
+    /// Amount (in token units) authorised by this proof.
+    pub amount: i128,
 }
 
 #[contracttype]
@@ -27,6 +155,12 @@ pub enum ChannelState {
 /// `token` stores the SEP-41 token contract address used for the initial
 /// deposit and for disbursements on `finalize`.  Without this field the
 /// contract has no way to disburse funds, which would lock balances forever.
+///
+/// # dispute_window field
+/// The per-channel challenge period in seconds, validated against
+/// `MIN_DISPUTE_WINDOW_SECS` / `MAX_DISPUTE_WINDOW_SECS` at open time and
+/// stored here so `dispute` can extend the deadline relative to the
+/// channel-specific window rather than a global constant.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PaymentChannel {
@@ -41,23 +175,52 @@ pub struct PaymentChannel {
     pub state: ChannelState,
     pub dispute_deadline: u64,
     pub closing_started_at: u64,
+    /// The challenge-period length set at open time (seconds).
+    /// Stored so `dispute` can reset the deadline to `now + dispute_window`
+    /// rather than relying on a global constant.
+    pub dispute_window: u64,
 }
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    Unauthorized = 3,
-    ChannelNotFound = 4,
-    InvalidAmount = 5,
-    InvalidState = 6,
-    InsufficientBalance = 7,
-    DisputeWindowActive = 8,
-    DisputeWindowExpired = 9,
-    StaleState = 10,
-    CounterOverflow = 11,
+    AlreadyInitialized = 1600,
+    NotInitialized = 1601,
+    Unauthorized = 1602,
+    ChannelNotFound = 1603,
+    InvalidAmount = 1604,
+    InvalidState = 1605,
+    InsufficientBalance = 1606,
+    DisputeWindowActive = 1607,
+    DisputeWindowExpired = 1608,
+    StaleState = 1609,
+    CounterOverflow = 1610,
+    NotWatchtower = 1611,
+    WatchtowerAlreadyRegistered = 1612,
+    BountyExceedsCap = 1613,
+    InvalidBounty = 1614,
+    WatchtowerIsParty = 1615,
+    /// The payment proof has already been consumed; replay rejected.
+    ProofAlreadyUsed = 1616,
+    /// The proof timestamp is outside the acceptable freshness window.
+    ProofExpired = 1617,
+    /// The proof's channel_id does not match the target channel.
+    ProofChannelMismatch = 1618,
+    /// The proof request_hash is empty (zero-length Bytes).
+    ProofInvalidRequestHash = 1619,
+    /// The proof amount is non-positive.
+    ProofInvalidAmount = 1620,
+    /// The dispute window is outside contract-enforced bounds.
+    InvalidDisputeWindow = 1621,
+    /// The contract is not currently paused.
+    ContractNotPaused = 1622,
+    /// The escape-hatch grace period has not elapsed yet.
+    GracePeriodNotElapsed = 1623,
+    /// No admin transfer is in progress.
+    NoPendingAdmin = 1624,
+    /// The caller is not the nominated pending admin.
+    NotPendingAdmin = 1625,
 }
 
 #[contract]
@@ -70,6 +233,7 @@ impl PaymentChannelContract {
             return Err(Error::AlreadyInitialized);
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
+        syncro_common::ttl::extend_instance(&env);
         Ok(())
     }
 
@@ -80,7 +244,66 @@ impl PaymentChannelContract {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        // Every admin call keeps the instance storage (admin, counters) alive.
+        syncro_common::ttl::extend_instance(env);
         Ok(admin)
+    }
+
+    /// Read the current admin address.
+    pub fn get_admin(env: Env) -> Result<Address, Error> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)
+    }
+
+    /// Read the pending admin address, if a transfer is in progress.
+    pub fn get_pending_admin(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::PendingAdmin)
+    }
+
+    /// Step 1 of admin handover: the current admin nominates `new_admin`.
+    /// Shared two-step pattern (issue #1659); see `syncro_common::admin`.
+    pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        Self::require_admin(&env)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingAdmin, &new_admin);
+        env.events()
+            .publish(syncro_common::admin::topic_init(), new_admin);
+        Ok(())
+    }
+
+    /// Cancel an in-progress admin handover. Current admin only.
+    pub fn cancel_transfer_admin(env: Env) -> Result<(), Error> {
+        Self::require_admin(&env)?;
+        if !env.storage().instance().has(&DataKey::PendingAdmin) {
+            return Err(Error::NoPendingAdmin);
+        }
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.events()
+            .publish(syncro_common::admin::topic_cancel(), ());
+        Ok(())
+    }
+
+    /// Step 2: the nominated address accepts and becomes admin.
+    ///
+    /// Only the nominee may accept (`pending.require_auth()`), matching the
+    /// rule specified by `syncro_common::admin::can_accept`.
+    pub fn accept_admin(env: Env) -> Result<(), Error> {
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingAdmin)
+            .ok_or(Error::NoPendingAdmin)?;
+        // Only the nominee may accept.
+        pending.require_auth();
+        syncro_common::ttl::extend_instance(&env);
+        env.storage().instance().set(&DataKey::Admin, &pending);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.events()
+            .publish(syncro_common::admin::topic_accept(), pending);
+        Ok(())
     }
 
     /// Open a new payment channel.
@@ -89,6 +312,12 @@ impl PaymentChannelContract {
     /// pre-approved the contract to spend `deposit_amount` tokens (via the
     /// standard token allowance mechanism), which this call then transfers
     /// into contract escrow.
+    ///
+    /// `dispute_window` must be in `[MIN_DISPUTE_WINDOW_SECS,
+    /// MAX_DISPUTE_WINDOW_SECS]`; values outside this range are rejected with
+    /// `InvalidDisputeWindow`.  Storing the window on the channel struct means
+    /// `dispute` can always extend the deadline by the same value that was
+    /// agreed at open time.
     pub fn open_channel(
         env: Env,
         depositor: Address,
@@ -104,6 +333,9 @@ impl PaymentChannelContract {
         }
         if depositor == counterparty {
             return Err(Error::Unauthorized);
+        }
+        if dispute_window < MIN_DISPUTE_WINDOW_SECS || dispute_window > MAX_DISPUTE_WINDOW_SECS {
+            return Err(Error::InvalidDisputeWindow);
         }
 
         let count: u64 = env
@@ -126,31 +358,47 @@ impl PaymentChannelContract {
             state: ChannelState::Open,
             dispute_deadline: now + dispute_window,
             closing_started_at: 0,
+            dispute_window,
         };
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Channel(id), &channel);
-        env.storage()
-            .instance()
-            .set(&DataKey::ChannelCount, &id);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Channel(id), &channel);
+        env.storage().instance().set(&DataKey::ChannelCount, &id);
+        syncro_common::ttl::extend_instance(&env);
 
         env.events().publish(
             (symbol_short!("channel"), symbol_short!("opened")),
-            (id, depositor.clone(), counterparty, deposit_amount, dispute_window),
+            (
+                id,
+                depositor.clone(),
+                counterparty,
+                deposit_amount,
+                dispute_window,
+            ),
         );
 
         // ── INTERACTIONS — pull funds from depositor ─────────────────────────
         let token_client = token::Client::new(&env, &token);
-        token_client.transfer(
-            &depositor,
-            &env.current_contract_address(),
-            &deposit_amount,
-        );
+        token_client.transfer(&depositor, &env.current_contract_address(), &deposit_amount);
 
         Ok(id)
     }
 
+    /// Submit a mutually-signed channel state update.
+    ///
+    /// # Nonce / sequence enforcement
+    /// `sequence_number` must be **strictly greater** than the current
+    /// `channel.sequence`.  Equal or lower values are rejected with
+    /// `StaleState`.  This prevents an older signed state from ever
+    /// overriding a newer one regardless of submission order.
+    ///
+    /// # Contract-address binding
+    /// The off-chain signing payload must include
+    /// `env.current_contract_address()` alongside `channel_id` and
+    /// `sequence_number`.  Soroban's auth framework scopes `require_auth`
+    /// calls to the current contract address, so a signature produced for
+    /// contract V1 cannot satisfy the auth check against contract V2.
+    /// A state from channel A submitted to channel B is rejected because the
+    /// `channel_id` keyed in storage won't match the claimed balances.
     pub fn submit_state(
         env: Env,
         channel_id: u64,
@@ -160,15 +408,13 @@ impl PaymentChannelContract {
         sig_a: Address,
         sig_b: Address,
     ) -> Result<(), Error> {
-        let mut channel: PaymentChannel = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Channel(channel_id))
+        let mut channel: PaymentChannel = syncro_common::ttl::persistent_get(&env, &DataKey::Channel(channel_id))
             .ok_or(Error::ChannelNotFound)?;
 
         if channel.state != ChannelState::Open && channel.state != ChannelState::Closing {
             return Err(Error::InvalidState);
         }
+        // Strictly increasing — equal nonce is also rejected.
         if sequence_number <= channel.sequence {
             return Err(Error::StaleState);
         }
@@ -186,9 +432,7 @@ impl PaymentChannelContract {
         channel.sequence = sequence_number;
         channel.state = ChannelState::Open;
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Channel(channel_id), &channel);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Channel(channel_id), &channel);
         env.events().publish(
             (symbol_short!("channel"), symbol_short!("submitted")),
             (channel_id, balance_a, balance_b, sequence_number),
@@ -204,10 +448,7 @@ impl PaymentChannelContract {
         seq: u64,
         sig: Address,
     ) -> Result<(), Error> {
-        let mut channel: PaymentChannel = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Channel(channel_id))
+        let mut channel: PaymentChannel = syncro_common::ttl::persistent_get(&env, &DataKey::Channel(channel_id))
             .ok_or(Error::ChannelNotFound)?;
 
         if channel.state != ChannelState::Open {
@@ -228,9 +469,7 @@ impl PaymentChannelContract {
         channel.state = ChannelState::Closing;
         channel.closing_started_at = env.ledger().timestamp();
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Channel(channel_id), &channel);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Channel(channel_id), &channel);
         env.events().publish(
             (symbol_short!("channel"), symbol_short!("closing")),
             (channel_id, balance_a, balance_b, seq),
@@ -238,6 +477,17 @@ impl PaymentChannelContract {
         Ok(())
     }
 
+    /// Submit a newer dual-signed state to counter a stale `initiate_close`.
+    ///
+    /// On success the dispute deadline is **reset** to `now + channel.dispute_window`
+    /// (not the original deadline).  This means the initiator always gets a
+    /// full challenge period to respond after any counter-move, preventing a
+    /// front-run where an adversary repeatedly disputes near the deadline until
+    /// the window accidentally expires.
+    ///
+    /// # Nonce comparison
+    /// `higher_seq` must be strictly greater than `channel.sequence`; the
+    /// dispute path uses the same monotonic-nonce rule as `submit_state`.
     pub fn dispute(
         env: Env,
         channel_id: u64,
@@ -247,19 +497,18 @@ impl PaymentChannelContract {
         sig_a: Address,
         sig_b: Address,
     ) -> Result<(), Error> {
-        let mut channel: PaymentChannel = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Channel(channel_id))
+        let mut channel: PaymentChannel = syncro_common::ttl::persistent_get(&env, &DataKey::Channel(channel_id))
             .ok_or(Error::ChannelNotFound)?;
 
         if channel.state != ChannelState::Closing {
             return Err(Error::InvalidState);
         }
+        // Strictly increasing — same nonce as close attempt is also rejected.
         if higher_seq <= channel.sequence {
             return Err(Error::StaleState);
         }
-        if env.ledger().timestamp() > channel.dispute_deadline {
+        let now = env.ledger().timestamp();
+        if now > channel.dispute_deadline {
             return Err(Error::DisputeWindowExpired);
         }
         if !((sig_a == channel.depositor && sig_b == channel.counterparty)
@@ -275,10 +524,10 @@ impl PaymentChannelContract {
         channel.balance_b = balance_b;
         channel.sequence = higher_seq;
         channel.state = ChannelState::Dispute;
+        // Reset deadline so the initiator has a full window to respond.
+        channel.dispute_deadline = now + channel.dispute_window;
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Channel(channel_id), &channel);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Channel(channel_id), &channel);
         env.events().publish(
             (symbol_short!("channel"), symbol_short!("disputed")),
             (channel_id, balance_a, balance_b, higher_seq),
@@ -287,10 +536,7 @@ impl PaymentChannelContract {
     }
 
     pub fn finalize(env: Env, channel_id: u64, expected_sequence: u64) -> Result<(), Error> {
-        let mut channel: PaymentChannel = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Channel(channel_id))
+        let mut channel: PaymentChannel = syncro_common::ttl::persistent_get(&env, &DataKey::Channel(channel_id))
             .ok_or(Error::ChannelNotFound)?;
 
         if channel.state != ChannelState::Closing && channel.state != ChannelState::Dispute {
@@ -314,9 +560,7 @@ impl PaymentChannelContract {
         // Mark closed and persist BEFORE any external call.  A re-entrant
         // `finalize` call would now fail the `InvalidState` guard above.
         channel.state = ChannelState::Closed;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Channel(channel_id), &channel);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Channel(channel_id), &channel);
 
         env.events().publish(
             (symbol_short!("channel"), symbol_short!("closed")),
@@ -328,18 +572,24 @@ impl PaymentChannelContract {
         let token_client = token::Client::new(&env, &token_addr);
 
         if balance_a > 0 {
-            token_client.transfer(
-                &env.current_contract_address(),
-                &depositor,
-                &balance_a,
-            );
+            token_client.transfer(&env.current_contract_address(), &depositor, &balance_a);
         }
 
         if balance_b > 0 {
+            token_client.transfer(&env.current_contract_address(), &counterparty, &balance_b);
+        }
+
+        // Unused bounty returns to the depositor; a watchtower never claims it
+        // unless they successfully submitted a newer state during the window.
+        let bounty: i128 = syncro_common::ttl::persistent_get(&env, &DataKey::WatchtowerBounty(channel_id))
+            .unwrap_or(0);
+        let paid: bool = syncro_common::ttl::persistent_get(&env, &DataKey::BountyPaid(channel_id))
+            .unwrap_or(false);
+        if bounty > 0 && !paid {
             token_client.transfer(
                 &env.current_contract_address(),
-                &counterparty,
-                &balance_b,
+                &depositor,
+                &bounty,
             );
         }
 
@@ -353,10 +603,7 @@ impl PaymentChannelContract {
         amount: i128,
         depositor: Address,
     ) -> Result<(), Error> {
-        let mut channel: PaymentChannel = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Channel(channel_id))
+        let mut channel: PaymentChannel = syncro_common::ttl::persistent_get(&env, &DataKey::Channel(channel_id))
             .ok_or(Error::ChannelNotFound)?;
 
         if channel.state != ChannelState::Open {
@@ -375,9 +622,7 @@ impl PaymentChannelContract {
 
         // ── EFFECTS ─────────────────────────────────────────────────────────
         channel.balance_a += amount;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Channel(channel_id), &channel);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Channel(channel_id), &channel);
 
         env.events().publish(
             (symbol_short!("channel"), symbol_short!("toppedup")),
@@ -386,23 +631,376 @@ impl PaymentChannelContract {
 
         // ── INTERACTIONS ─────────────────────────────────────────────────────
         let token_client = token::Client::new(&env, &token_addr);
-        token_client.transfer(
-            &depositor,
-            &env.current_contract_address(),
-            &amount,
-        );
+        token_client.transfer(&depositor, &env.current_contract_address(), &amount);
 
         Ok(())
     }
 
     pub fn get_channel(env: Env, channel_id: u64) -> Option<PaymentChannel> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Channel(channel_id))
+        syncro_common::ttl::persistent_get(&env, &DataKey::Channel(channel_id))
+    }
+
+    // ── Payment Proof verification ────────────────────────────────────────────
+
+    /// Verify a payment proof and apply its debit to the channel.
+    ///
+    /// This is the single choke-point that enforces:
+    ///
+    /// 1. **Request binding** — the `request_hash` in the proof must be
+    ///    non-empty and was included in the signed material, so the proof
+    ///    cannot be transplanted to a different request body.
+    ///
+    /// 2. **Freshness** — the proof `timestamp` must lie within
+    ///    `[ledger_now - PROOF_FRESHNESS_WINDOW_SECS,
+    ///      ledger_now + PROOF_FRESHNESS_WINDOW_SECS]`.
+    ///    Proofs outside this band are rejected even if the signature is valid.
+    ///
+    /// 3. **One-time use (nonce dedup)** — the `(channel_id, nonce)` pair is
+    ///    persisted on first acceptance.  Any later call with the same pair is
+    ///    rejected with `ProofAlreadyUsed`, regardless of whether the request
+    ///    hash or balances differ.
+    ///
+    /// 4. **Proxy integrity** — because the binding is stored on-chain and
+    ///    checked before any balance mutation, an intermediary cannot alter the
+    ///    request after the proof has been produced and then replay the same
+    ///    proof against a different channel state.
+    ///
+    /// The caller (`payer`) must be the channel depositor and must authorise
+    /// the call.  Both channel parties sign the off-chain state; `sig_a` and
+    /// `sig_b` must be the depositor and counterparty in either order.
+    pub fn verify_payment_proof(
+        env: Env,
+        proof: PaymentProof,
+        payer: Address,
+        sig_a: Address,
+        sig_b: Address,
+    ) -> Result<(), Error> {
+        payer.require_auth();
+
+        // ── 0. Structural validation ─────────────────────────────────────────
+        if proof.request_hash.is_empty() {
+            return Err(Error::ProofInvalidRequestHash);
+        }
+        if proof.amount <= 0 {
+            return Err(Error::ProofInvalidAmount);
+        }
+
+        // ── 1. Channel lookup and state check ────────────────────────────────
+        let mut channel: PaymentChannel = syncro_common::ttl::persistent_get(&env, &DataKey::Channel(proof.channel_id))
+            .ok_or(Error::ChannelNotFound)?;
+
+        if channel.state != ChannelState::Open {
+            return Err(Error::InvalidState);
+        }
+        if payer != channel.depositor {
+            return Err(Error::Unauthorized);
+        }
+        if !((sig_a == channel.depositor && sig_b == channel.counterparty)
+            || (sig_a == channel.counterparty && sig_b == channel.depositor))
+        {
+            return Err(Error::Unauthorized);
+        }
+
+        // ── 2. Freshness window ──────────────────────────────────────────────
+        // Reject proofs that are too old OR suspiciously future-dated.
+        let now: u64 = env.ledger().timestamp();
+        let skew = PROOF_FRESHNESS_WINDOW_SECS;
+        let too_old = proof.timestamp < now.saturating_sub(skew);
+        let too_new = proof.timestamp > now.saturating_add(skew);
+        if too_old || too_new {
+            return Err(Error::ProofExpired);
+        }
+
+        // ── 3. Nonce dedup (seen-nonce set) ──────────────────────────────────
+        // The set is keyed by (channel_id, nonce). A present key means the
+        // nonce has already been consumed; reject regardless of request_hash.
+        let nonce_key = DataKey::SeenNonce(proof.channel_id, proof.nonce);
+        if syncro_common::ttl::persistent_has(&env, &nonce_key) {
+            return Err(Error::ProofAlreadyUsed);
+        }
+
+        // ── 4. Check sufficient balance ───────────────────────────────────────
+        if channel.balance_a < proof.amount {
+            return Err(Error::InsufficientBalance);
+        }
+
+        // Require both parties' signatures last (auth checks are expensive).
+        // Skip require_auth for any signatory that is also `payer` to avoid
+        // duplicate auth frame errors in Soroban.
+        if sig_a != payer {
+            sig_a.require_auth();
+        }
+        if sig_b != payer {
+            sig_b.require_auth();
+        }
+
+        // ── EFFECTS — mutate state before any interaction ─────────────────────
+        // Mark nonce consumed.
+        syncro_common::ttl::persistent_set(&env, &nonce_key, &true);
+
+        // Debit payer, credit counterparty.
+        channel.balance_a -= proof.amount;
+        channel.balance_b += proof.amount;
+        channel.sequence += 1;
+        syncro_common::ttl::persistent_set(&env, &DataKey::Channel(proof.channel_id), &channel);
+
+        env.events().publish(
+            (symbol_short!("proof"), symbol_short!("verified")),
+            (
+                proof.channel_id,
+                proof.nonce,
+                proof.amount,
+                channel.sequence,
+            ),
+        );
+
+        Ok(())
+    }
+
+    /// Returns `true` if the nonce has already been consumed for the given
+    /// channel.  Useful for off-chain idempotency checks before submitting.
+    pub fn is_nonce_used(env: Env, channel_id: u64, nonce: u64) -> bool {
+        syncro_common::ttl::persistent_has(&env, &DataKey::SeenNonce(channel_id, nonce))
+    }
+
+    /// Register `watchtower` to submit a newer signed state on `party`'s behalf.
+    ///
+    /// `bounty` is reserved from the depositor's on-chain balance and paid to
+    /// the watchtower on a successful `watchtower_submit`. It is capped by
+    /// `MAX_WATCHTOWER_BOUNTY` and can never exceed the remaining `balance_a`.
+    /// A watchtower cannot be a channel party, so they cannot redirect principal.
+    pub fn register_watchtower(
+        env: Env,
+        channel_id: u64,
+        party: Address,
+        watchtower: Address,
+        bounty: i128,
+    ) -> Result<(), Error> {
+        party.require_auth();
+
+        let mut channel: PaymentChannel = syncro_common::ttl::persistent_get(&env, &DataKey::Channel(channel_id))
+            .ok_or(Error::ChannelNotFound)?;
+
+        if channel.state != ChannelState::Open {
+            return Err(Error::InvalidState);
+        }
+        if party != channel.depositor && party != channel.counterparty {
+            return Err(Error::Unauthorized);
+        }
+        if watchtower == channel.depositor || watchtower == channel.counterparty {
+            return Err(Error::WatchtowerIsParty);
+        }
+
+        let mut towers: Vec<Address> = syncro_common::ttl::persistent_get(&env, &DataKey::Watchtowers(channel_id))
+            .unwrap_or(vec![&env]);
+        if towers.iter().any(|t| t == watchtower) {
+            return Err(Error::WatchtowerAlreadyRegistered);
+        }
+
+        let existing_bounty: i128 = syncro_common::ttl::persistent_get(&env, &DataKey::WatchtowerBounty(channel_id))
+            .unwrap_or(0);
+
+        if bounty < 0 {
+            return Err(Error::InvalidBounty);
+        }
+        if bounty > MAX_WATCHTOWER_BOUNTY {
+            return Err(Error::BountyExceedsCap);
+        }
+
+        // Only the depositor may fund a new bounty, and only once per channel.
+        if bounty > 0 {
+            if party != channel.depositor {
+                return Err(Error::Unauthorized);
+            }
+            if existing_bounty > 0 {
+                return Err(Error::InvalidBounty);
+            }
+            if bounty > channel.balance_a {
+                return Err(Error::InsufficientBalance);
+            }
+            channel.balance_a -= bounty;
+            syncro_common::ttl::persistent_set(&env, &DataKey::WatchtowerBounty(channel_id), &bounty);
+            syncro_common::ttl::persistent_set(&env, &DataKey::BountyPaid(channel_id), &false);
+            syncro_common::ttl::persistent_set(&env, &DataKey::Channel(channel_id), &channel);
+        }
+
+        towers.push_back(watchtower.clone());
+        syncro_common::ttl::persistent_set(&env, &DataKey::Watchtowers(channel_id), &towers);
+
+        env.events().publish(
+            (symbol_short!("channel"), symbol_short!("wt_reg")),
+            (channel_id, party, watchtower, bounty),
+        );
+        Ok(())
+    }
+
+    /// Remove a previously registered watchtower. Unused bounty is restored to
+    /// the depositor when the last watchtower is removed.
+    pub fn deregister_watchtower(
+        env: Env,
+        channel_id: u64,
+        party: Address,
+        watchtower: Address,
+    ) -> Result<(), Error> {
+        party.require_auth();
+
+        let mut channel: PaymentChannel = syncro_common::ttl::persistent_get(&env, &DataKey::Channel(channel_id))
+            .ok_or(Error::ChannelNotFound)?;
+
+        if channel.state != ChannelState::Open {
+            return Err(Error::InvalidState);
+        }
+        if party != channel.depositor && party != channel.counterparty {
+            return Err(Error::Unauthorized);
+        }
+
+        let towers: Vec<Address> = syncro_common::ttl::persistent_get(&env, &DataKey::Watchtowers(channel_id))
+            .unwrap_or(vec![&env]);
+        if !towers.iter().any(|t| t == watchtower) {
+            return Err(Error::NotWatchtower);
+        }
+
+        let mut remaining: Vec<Address> = vec![&env];
+        for t in towers.iter() {
+            if t != watchtower {
+                remaining.push_back(t);
+            }
+        }
+        syncro_common::ttl::persistent_set(&env, &DataKey::Watchtowers(channel_id), &remaining);
+
+        let paid: bool = syncro_common::ttl::persistent_get(&env, &DataKey::BountyPaid(channel_id))
+            .unwrap_or(false);
+        let bounty: i128 = syncro_common::ttl::persistent_get(&env, &DataKey::WatchtowerBounty(channel_id))
+            .unwrap_or(0);
+        if remaining.is_empty() && bounty > 0 && !paid {
+            channel.balance_a += bounty;
+            syncro_common::ttl::persistent_set(&env, &DataKey::Channel(channel_id), &channel);
+            syncro_common::ttl::persistent_set(&env, &DataKey::WatchtowerBounty(channel_id), &0i128);
+        }
+
+        env.events().publish(
+            (symbol_short!("channel"), symbol_short!("wt_dereg")),
+            (channel_id, party, watchtower),
+        );
+        Ok(())
+    }
+
+    pub fn get_watchtowers(env: Env, channel_id: u64) -> Vec<Address> {
+        syncro_common::ttl::persistent_get(&env, &DataKey::Watchtowers(channel_id))
+            .unwrap_or(vec![&env])
+    }
+
+    pub fn get_watchtower_bounty(env: Env, channel_id: u64) -> i128 {
+        syncro_common::ttl::persistent_get(&env, &DataKey::WatchtowerBounty(channel_id))
+            .unwrap_or(0)
+    }
+
+    /// Submit a newer dual-signed state during the dispute window.
+    ///
+    /// The caller must be a registered watchtower (not a channel party).
+    /// Principal still settles only to `depositor` / `counterparty` on
+    /// `finalize`; the watchtower may receive at most the reserved bounty.
+    pub fn watchtower_submit(
+        env: Env,
+        channel_id: u64,
+        watchtower: Address,
+        balance_a: i128,
+        balance_b: i128,
+        sequence_number: u64,
+        sig_a: Address,
+        sig_b: Address,
+    ) -> Result<(), Error> {
+        watchtower.require_auth();
+
+        let mut channel: PaymentChannel = syncro_common::ttl::persistent_get(&env, &DataKey::Channel(channel_id))
+            .ok_or(Error::ChannelNotFound)?;
+
+        if channel.state != ChannelState::Closing && channel.state != ChannelState::Dispute {
+            return Err(Error::InvalidState);
+        }
+        if env.ledger().timestamp() > channel.dispute_deadline {
+            return Err(Error::DisputeWindowExpired);
+        }
+        if sequence_number <= channel.sequence {
+            return Err(Error::StaleState);
+        }
+        if balance_a < 0 || balance_b < 0 {
+            return Err(Error::InvalidAmount);
+        }
+
+        let towers: Vec<Address> = syncro_common::ttl::persistent_get(&env, &DataKey::Watchtowers(channel_id))
+            .unwrap_or(vec![&env]);
+        if !towers.iter().any(|t| t == watchtower) {
+            return Err(Error::NotWatchtower);
+        }
+        if !((sig_a == channel.depositor && sig_b == channel.counterparty)
+            || (sig_a == channel.counterparty && sig_b == channel.depositor))
+        {
+            return Err(Error::Unauthorized);
+        }
+
+        sig_a.require_auth();
+        sig_b.require_auth();
+
+        let bounty: i128 = syncro_common::ttl::persistent_get(&env, &DataKey::WatchtowerBounty(channel_id))
+            .unwrap_or(0);
+        let paid: bool = syncro_common::ttl::persistent_get(&env, &DataKey::BountyPaid(channel_id))
+            .unwrap_or(false);
+
+        // EFFECTS — persist dispute state and mark bounty paid before transfer.
+        channel.balance_a = balance_a;
+        channel.balance_b = balance_b;
+        channel.sequence = sequence_number;
+        channel.state = ChannelState::Dispute;
+        syncro_common::ttl::persistent_set(&env, &DataKey::Channel(channel_id), &channel);
+
+        if bounty > 0 && !paid {
+            syncro_common::ttl::persistent_set(&env, &DataKey::BountyPaid(channel_id), &true);
+        }
+
+        env.events().publish(
+            (symbol_short!("channel"), symbol_short!("wt_sub")),
+            (channel_id, watchtower.clone(), balance_a, balance_b, sequence_number),
+        );
+
+        // INTERACTIONS — watchtower is paid the capped bounty only.
+        if bounty > 0 && !paid {
+            let token_client = token::Client::new(&env, &channel.token);
+            token_client.transfer(
+                &env.current_contract_address(),
+                &watchtower,
+                &bounty,
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Returns the contract version.
+    /// Incremented when the implementation changes (used for deployments).
+    pub fn version(_env: Env) -> u32 {
+        syncro_common::version(&_env)
+    }
+
+    /// Returns the contract interface version.
+    /// Incremented when public methods or error handling changes.
+    /// Used to detect API mismatches at runtime.
+    pub fn interface_version(_env: Env) -> u32 {
+        syncro_common::interface_version_call(&_env)
     }
 }
 
-mod test;
+#[cfg(test)]
+mod admin_transfer;
+
+#[cfg(test)]
+mod adversarial;
 
 #[cfg(test)]
 mod fuzz;
+
+#[cfg(test)]
+mod invariants;
+
+#[cfg(test)]
+mod proof_replay;

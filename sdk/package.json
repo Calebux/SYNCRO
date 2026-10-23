@@ -1,76 +1,189 @@
 {
   "name": "@syncro/sdk",
-  "version": "1.1.0",
-  "description": "Official SDK for the SYNCRO Subscription Management Platform",
+  "version": "3.0.0",
+  "description": "Official SDK for the SYNCRO Payments Platform — v3 major release with subscription APIs removed",
   "packageManager": "npm@10.9.2",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./types": {
-      "import": "./dist/types.js",
-      "types": "./dist/types.d.ts"
+      "import": {
+        "types": "./dist/types.d.ts",
+        "default": "./dist/types.js"
+      },
+      "require": {
+        "types": "./dist/types.d.cts",
+        "default": "./dist/types.cjs"
+      }
     },
     "./errors": {
-      "import": "./dist/errors.js",
-      "types": "./dist/errors.d.ts"
+      "import": {
+        "types": "./dist/errors.d.ts",
+        "default": "./dist/errors.js"
+      },
+      "require": {
+        "types": "./dist/errors.d.cts",
+        "default": "./dist/errors.cjs"
+      }
     },
     "./webhooks": {
-      "import": "./dist/webhooks.js",
-      "types": "./dist/webhooks.d.ts"
+      "import": {
+        "types": "./dist/webhooks.d.ts",
+        "default": "./dist/webhooks.js"
+      },
+      "require": {
+        "types": "./dist/webhooks.d.cts",
+        "default": "./dist/webhooks.cjs"
+      }
     },
     "./stellar": {
-      "import": "./dist/stellar/index.js",
-      "types": "./dist/stellar/index.d.ts"
+      "import": {
+        "types": "./dist/stellar/index.d.ts",
+        "default": "./dist/stellar/index.js"
+      },
+      "require": {
+        "types": "./dist/stellar/index.d.cts",
+        "default": "./dist/stellar/index.cjs"
+      }
     },
     "./zk": {
-      "import": "./dist/zk/index.js",
-      "types": "./dist/zk/index.d.ts"
+      "import": {
+        "types": "./dist/zk/index.d.ts",
+        "default": "./dist/zk/index.js"
+      },
+      "require": {
+        "types": "./dist/zk/index.d.cts",
+        "default": "./dist/zk/index.cjs"
+      }
+    },
+    "./crypto": {
+      "types": "./dist/crypto/node.d.ts",
+      "browser": "./dist/crypto/browser.js",
+      "node": "./dist/crypto/node.js",
+      "import": "./dist/crypto/node.js",
+      "default": "./dist/crypto/node.js"
     },
     "./contracts": {
-      "import": "./dist/generated/index.js",
-      "types": "./dist/generated/index.d.ts"
-    }
+      "import": {
+        "types": "./dist/generated/index.d.ts",
+        "default": "./dist/generated/index.js"
+      },
+      "require": {
+        "types": "./dist/generated/index.d.cts",
+        "default": "./dist/generated/index.cjs"
+      }
+    },
+    "./v3": {
+      "import": {
+        "types": "./dist/v3/index.d.ts",
+        "default": "./dist/v3/index.js"
+      },
+      "require": {
+        "types": "./dist/v3/index.d.cts",
+        "default": "./dist/v3/index.cjs"
+      }
+    },
+    "./v3/receipt-browser": {
+      "import": {
+        "types": "./dist/v3/receipt-browser.d.ts",
+        "default": "./dist/v3/receipt-browser.js"
+      },
+      "require": {
+        "types": "./dist/v3/receipt-browser.d.cts",
+        "default": "./dist/v3/receipt-browser.cjs"
+      }
+    },
+    "./testing": {
+      "import": {
+        "types": "./dist/testing/index.d.ts",
+        "default": "./dist/testing/index.js"
+      },
+      "require": {
+        "types": "./dist/testing/index.d.cts",
+        "default": "./dist/testing/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "syncro-verify-receipt": "./dist/cli/verify-receipt.js",
+    "syncro-receipt-verify": "./dist/cli/receipt-verify.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "browser": {
+    "./dist/crypto/node.js": "./dist/crypto/browser.js",
+    "./src/crypto/node.ts": "./src/crypto/browser.ts"
   },
   "files": [
     "dist",
     "README.md"
   ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "lint": "eslint \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit",
     "generate:contracts": "node scripts/generate-contract-bindings.cjs",
-    "prebuild": "npm run generate:contracts",
-    "build": "tsc",
+    "generate:gateway-errors": "node scripts/generate-gateway-errors.cjs",
+    "check:api-surface": "node scripts/check-api-surface.cjs",
+    "check:gateway-taxonomy": "node scripts/check-gateway-taxonomy.cjs",
+    "generate": "npm run generate:contracts && npm run generate:gateway-errors",
+    "prebuild": "npm run generate:contracts && npm run generate:gateway-errors",
+    "build": "tsup",
     "test": "jest",
-    "prepublishOnly": "npm run lint && npm run typecheck && npm run build"
+    "test:integration": "bash scripts/run-integration.sh",
+    "test:browser": "jest --config jest.browser.config.js",
+    "assert:no-node-crypto": "node scripts/assert-no-node-crypto.mjs",
+    "check:layout": "node scripts/check-package-layout.mjs",
+    "check:tree-shake": "node scripts/check-tree-shake.mjs",
+    "check:size": "node scripts/check-package-size.mjs",
+    "check:package": "npm run check:layout && npm run check:tree-shake && npm run check:size",
+    "prepublishOnly": "node ../scripts/assert-ci-publish.mjs && npm run lint && npm run typecheck && npm run check:gateway-taxonomy && npm run build && npm run check:package"
   },
   "keywords": [
     "syncro",
-    "subscriptions",
-    "sdk"
+    "payments",
+    "sdk",
+    "x402"
   ],
   "author": "SYNCRO",
   "license": "MIT",
   "dependencies": {
-    "@syncro/shared": "file:../shared",
+    "@syncro/shared": "1.0.0",
     "axios": "^1.13.5",
     "events": "^3.3.0"
   },
   "devDependencies": {
-    "@stellar/stellar-sdk": "^16.0.1",
+    "@arethetypeswrong/cli": "^0.18.2",
+    "@stellar/stellar-sdk": "^17.0.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.0.0",
     "@typescript-eslint/eslint-plugin": "^8.60.0",
     "@typescript-eslint/parser": "^8.59.4",
+    "esbuild": "^0.28.2",
     "eslint": "^10.4.0",
     "jest": "^30.4.2",
+    "publint": "^0.3.12",
     "ts-jest": "^29.2.5",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "tsup": "^9.0.0",
+    "typescript": "^7.0.2"
   }
 }

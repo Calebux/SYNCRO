@@ -1,9 +1,10 @@
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { ExternalServiceClient } from '../utils/external-service-client';
 
 const paystackClient = new ExternalServiceClient('paystack');
 const PAYSTACK_BASE = 'https://api.paystack.co';
-const SECRET_KEY = process.env.PAYSTACK_SECRET_KEY ?? '';
+const SECRET_KEY = env.PAYSTACK_SECRET_KEY ?? '';
 
 async function paystackRequest<T>(
   method: 'GET' | 'POST',

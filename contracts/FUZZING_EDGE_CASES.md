@@ -18,6 +18,20 @@ cargo test fuzz_
 | Approval reuse after successful renewal | Panics — approvals are single-use | `fuzz_approval_single_use` |
 | Admin operations on uninitialized contract | Panics — no admin in storage | `fuzz_uninitialized_contract_rejects_admin_ops` |
 | Random amounts/intervals on init | Stored values match inputs; state stays `Active` | `fuzz_init_sub_amounts_and_intervals` |
+| Random entrypoint sequences | All renewal invariants hold (caps, cycle guard, state graph, lock release) | `fuzz_renewal_state_machine` |
+
+The `fuzz_renewal_state_machine` property test drives a proptest state machine
+through random sequences of `init_sub`, `approve_renewal`, `renew`, `cancel_sub`,
+`set_window` and `set_user_cap`, asserting after every step:
+
+1. Every accepted renewal respects the per-subscription spending cap.
+2. Cumulative `UserSpent` never exceeds the global `UserCap` as a result of a renewal.
+3. At most one successful renewal per billing window (cycle guard).
+4. `SubscriptionState` transitions follow the declared graph.
+5. The renewal lock is never held after a completed call.
+
+The invariant list is documented on the crate root (`subscription_renewal/src/lib.rs`)
+and mirrored in `fuzz.rs`.
 
 ## escrow
 
@@ -43,6 +57,7 @@ cargo test fuzz_
 ## Notes
 
 - Fuzz tests use 8 cases per property (`ProptestConfig::with_cases(8)`) for fast CI runs.
+- CI runs the fuzz/state-machine suite on every PR with a fixed `PROPTEST_SEED` and a bounded case count (`PROPTEST_CASES=8`) for reproducibility, and a separate nightly job (`fuzz-nightly` in `.github/workflows/contracts.yml`) with an extended case count (`PROPTEST_CASES=512`).
 - Fuzz tests disable Soroban snapshot capture (`EnvTestConfig::capture_snapshot_at_drop = false`); no snapshot JSON files are committed.
 - Integer overflow is guarded by Rust `overflow-checks = true` in release profile and explicit `saturating_add` checks in fuzz assertions where applicable.
 - Panic-based contracts (`subscription_renewal`, `escrow`) use `catch_unwind` to verify rejection paths; `Result`-based `payment-channel` checks `Err` variants directly.

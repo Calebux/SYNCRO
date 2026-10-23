@@ -11,7 +11,7 @@ From the repo root:
 npm run generate:contracts -w sdk
 
 # From compiled WASM (extracts ABI via @stellar/stellar-sdk)
-node sdk/scripts/generate-contract-bindings.cjs --wasm contracts/target/wasm32-unknown-unknown/release/subscription_registry.wasm
+node sdk/scripts/generate-contract-bindings.cjs --wasm contracts/target/wasm32-unknown-unknown/release/<contract>.wasm
 ```
 
 Generated files are written to `sdk/src/generated/` and included in the SDK build via `prebuild`.
@@ -20,19 +20,18 @@ Generated files are written to `sdk/src/generated/` and included in the SDK buil
 
 ```typescript
 import {
-  buildSubscriptionRegistryCreateSubscription,
+  buildContractInvoke,
   type BuiltTransaction,
 } from '@syncro/sdk/contracts';
 
-const tx: BuiltTransaction = buildSubscriptionRegistryCreateSubscription(
+const tx: BuiltTransaction = buildContractInvoke(
   'CCONTRACTID...',
-  'GUSERACCOUNT...',
+  'methodName',
   {
-    arg0: 'GUSERACCOUNT...',
-    arg1: 'Netflix',
-    arg2: 30n,
-    arg3: 999n,
-    arg4: 1n,
+    contractId: 'CCONTRACTID...',
+    method: 'methodName',
+    args: { arg0: 'value' },
+    sourceAccount: 'GUSERACCOUNT...',
   },
 );
 
@@ -47,4 +46,5 @@ console.log(tx.method, tx.args);
 | `@syncro/sdk/contracts` | Generated interfaces + typed transaction builders |
 | `GeneratedContractMap` | Map of contract name → interface |
 | `buildContractInvoke` | Generic typed invoke builder |
-| `build{Contract}{Method}` | Per-method typed builders |
+| `ContractInvokeParams<TArgs>` | Typed parameters for `buildContractInvoke` |
+| `BuiltTransaction` | Result of `buildContractInvoke` |

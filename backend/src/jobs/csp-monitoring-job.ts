@@ -16,6 +16,7 @@ import {
     cleanupOldCspViolations,
 } from '../services/csp-monitoring';
 import logger from '../config/logger';
+import { env } from '../config/env';
 
 /**
  * Refresh CSP violation statistics
@@ -74,7 +75,7 @@ export const cspCleanupJob = cron.schedule('0 2 * * *', async () => {
  * Start all CSP monitoring jobs
  */
 export function startCspMonitoringJobs(): void {
-    const enabled = process.env.CSP_MONITORING_ENABLED !== 'false';
+    const enabled = env.CSP_MONITORING_ENABLED !== 'false';
 
     if (!enabled) {
         logger.info('CSP monitoring jobs are disabled');

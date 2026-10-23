@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { suggestionService, SuggestionType } from '../services/suggestion-service';
 import logger from '../config/logger';
@@ -12,7 +12,7 @@ const router = Router();
  * Returns money-saving suggestions for the authenticated user.
  */
 // VALIDATION_BYPASS: No request body or params needed
-router.get('/', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const suggestions = await suggestionService.generateSuggestions(req.user!.id);
     res.json({ suggestions });
@@ -38,7 +38,7 @@ const dismissSchema = z.object({
  * Dismisses a suggestion for 30 days.
  * Body: { subscriptionId: string, suggestionType: SuggestionType }
  */
-router.post('/dismiss', authenticate, validate(dismissSchema), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/dismiss', validate(dismissSchema), async (req: AuthenticatedRequest, res: Response) => {
   const parsed = req.body;
 
   try {

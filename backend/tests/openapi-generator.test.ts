@@ -1,38 +1,39 @@
-import { collectRouteDefinitions, generateOpenApiPathsFile } from '../src/openapi/route-generator';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import { buildRouteRegistry } from '../src/routes/route-registry';
+import { generateOpenApiFromRegistry } from '../src/routes/registry/openapi';
+import { RouteRegistry } from '../src/routes/registry/registry';
 
-describe('openapi route generator', () => {
-  test('collects routes from route files and index.ts', () => {
-    const routes = collectRouteDefinitions();
-    expect(routes.length).toBeGreaterThan(150);
+describe('openapi registry generator', () => {
+  let registry: RouteRegistry;
 
-    const subscriptionList = routes.find(
-      (route) => route.method === 'get' && route.path === '/api/subscriptions',
-    );
-    expect(subscriptionList).toBeDefined();
-    expect(subscriptionList?.summary).toMatch(/subscription/i);
+  beforeAll(() => {
+    registry = buildRouteRegistry();
   });
 
-  test('marks payment routes as x402-capable', () => {
-    const routes = collectRouteDefinitions();
-    const paystackInit = routes.find(
-      (route) => route.path === '/api/payments/paystack/initialize' && route.method === 'post',
-    );
-    expect(paystackInit?.x402).toBe(true);
+  test('registry contains all declared descriptors', () => {
+    const descriptors = registry.getDescriptors();
+    expect(descriptors.length).toBeGreaterThanOrEqual(40);
   });
 
-  test('generates valid OpenAPI JSDoc output', () => {
-    const tmpFile = path.join(os.tmpdir(), `syncro-openapi-${Date.now()}.ts`);
-    const count = generateOpenApiPathsFile(tmpFile);
-    const content = fs.readFileSync(tmpFile, 'utf8');
+  test('generates valid OpenAPI document from registry', () => {
+    const spec = generateOpenApiFromRegistry(registry);
+    expect(spec.openapi).toBe('3.1.0');
+    expect(spec.paths).toBeDefined();
 
-    expect(count).toBeGreaterThan(150);
-    expect(content).toContain('@openapi');
-    expect(content).toContain('PAYMENT-SIGNATURE');
-    expect(content).not.toContain("PaymentSignatureHeader' *     responses:");
+    const paths = Object.keys(spec.paths ?? {});
+    expect(paths.length).toBeGreaterThanOrEqual(10);
+  });
 
-    fs.unlinkSync(tmpFile);
+  test('generates plain-text inventory from registry', () => {
+    const inventory = registry.generateInventory();
+    expect(inventory).toContain('SYNCRO API Route Inventory');
+    expect(inventory).toContain('Total descriptors:');
+  });
+
+  test('all descriptors have explicit auth policy', () => {
+    const descriptors = registry.getDescriptors();
+    for (const d of descriptors) {
+      expect(d.auth).toBeDefined();
+      expect(['public', 'user', 'admin']).toContain(d.auth);
+    }
   });
 });

@@ -5,5 +5,9 @@ target
 .soroban
 .stellar
 
-# Fuzz tests do not commit Soroban snapshot JSON
+# Fuzz / negative / adversarial tests do not commit Soroban snapshot JSON
 contracts/*/test_snapshots/fuzz/
+contracts/*/test_snapshots/negative/
+contracts/*/test_snapshots/adversarial/
+contracts/*/test_snapshots/**/neg_*.json
+**/proptest-regressions/

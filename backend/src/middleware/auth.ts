@@ -30,7 +30,7 @@ async function loadPrivacyPreferences(userId: string): Promise<void> {
 import { roleService } from '../services/role-service';
 import { auditApiKeyEvent, emitSecurityEvent } from '../services/audit-service';
 
-export type UserRole = 'owner' | 'admin' | 'member' | 'viewer';
+export type UserRole = 'owner' | 'operator' | 'admin' | 'member' | 'viewer';
 
 export interface AuthenticatedRequest extends Request {
   user?: {

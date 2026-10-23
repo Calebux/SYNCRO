@@ -1,6 +1,8 @@
 import { supabase } from '../config/database';
 import logger from '../config/logger';
 import { emitSecurityEvent } from './audit-service';
+import { v3NotificationDispatch } from './v3-notification-dispatch';
+import crypto from 'crypto';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -189,10 +191,11 @@ class BlockchainReconciliationService {
       });
     }
 
+    const completedAt = new Date().toISOString();
     const result: ReconciliationResult = {
       runId,
       startedAt,
-      completedAt: new Date().toISOString(),
+      completedAt,
       totalContractEvents: contractEvents?.length || 0,
       totalRenewalRecords: renewalRecords?.length || 0,
       matched,
@@ -200,11 +203,46 @@ class BlockchainReconciliationService {
       repaired,
     };
 
+    const totalContractEventsCount = result.totalContractEvents;
+    const mismatchPct = totalContractEventsCount > 0
+      ? (mismatches.length / totalContractEventsCount) * 100
+      : 0;
+    const tolerance = Number(env.RECONCILIATION_TOLERANCE_PCT ?? 1);
+
+    if (mismatches.length > 0 && mismatchPct > tolerance) {
+      const mismatchesByType = {
+        missing_from_history: mismatches.filter((m) => m.mismatchType === 'missing_from_history').length,
+        orphan_event: mismatches.filter((m) => m.mismatchType === 'orphan_event').length,
+        hash_mismatch: mismatches.filter((m) => m.mismatchType === 'hash_mismatch').length,
+      };
+      v3NotificationDispatch.dispatch({
+        eventType: 'reconciliation_delta_outside_tolerance',
+        payload: {
+          runId,
+          startedAt,
+          completedAt,
+          totalMismatches: mismatches.length,
+          mismatchesByType,
+          totalContractEvents: totalContractEventsCount,
+          totalRenewalRecords: result.totalRenewalRecords,
+          matched,
+          tolerance,
+        },
+      }).catch((err) => {
+        logger.error('reconciliation_delta_outside_tolerance v3 dispatch failed', {
+          runId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+
     logger.info(`Reconciliation ${runId} completed`, {
       total: result.totalContractEvents,
       matched: result.matched,
       mismatches: result.mismatches.length,
       repaired: result.repaired,
+      tolerance,
+      mismatchPct,
     });
 
     return result;
@@ -242,7 +280,5 @@ class BlockchainReconciliationService {
     return false;
   }
 }
-
-import crypto from 'crypto';
 
 export const blockchainReconciliationService = new BlockchainReconciliationService();

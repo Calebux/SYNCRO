@@ -92,7 +92,7 @@ fn test_register_contract_success() {
 
     let contracts = client.get_registered_contracts();
     assert_eq!(contracts.len(), 1);
-    
+
     let registered = contracts.get(0).unwrap();
     assert_eq!(registered.address, mock_contract);
     assert_eq!(registered.name, name);
@@ -278,7 +278,7 @@ fn test_only_guardian_can_register() {
     client.initialize(&guardian);
 
     let mock_contract = create_mock_contract(&env);
-    
+
     // Mock auth for guardian
     env.mock_all_auths();
     client.register_contract(&mock_contract, &String::from_str(&env, "Test"));

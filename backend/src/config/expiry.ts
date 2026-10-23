@@ -1,3 +1,5 @@
+import { env } from './env';
+
 export interface ExpiryConfig {
   monthly: number | null;
   quarterly: number | null;
@@ -11,10 +13,10 @@ export interface ExpiryConfig {
  */
 export function loadExpiryConfig(): ExpiryConfig {
   return {
-    monthly: parseEnvInt(process.env.EXPIRY_DAYS_MONTHLY),
-    quarterly: parseEnvInt(process.env.EXPIRY_DAYS_QUARTERLY),
-    yearly: parseEnvInt(process.env.EXPIRY_DAYS_YEARLY),
-    warningDays: parseWarningDays(process.env.EXPIRY_WARNING_DAYS),
+    monthly: parseEnvInt(env.EXPIRY_DAYS_MONTHLY),
+    quarterly: parseEnvInt(env.EXPIRY_DAYS_QUARTERLY),
+    yearly: parseEnvInt(env.EXPIRY_DAYS_YEARLY),
+    warningDays: parseWarningDays(env.EXPIRY_WARNING_DAYS),
   };
 }
 

@@ -1,0 +1,18 @@
+{
+  "id": "netflix-fr-monthly-receipt",
+  "merchant": "Netflix",
+  "locale": "fr",
+  "kind": "positive",
+  "notes": "French receipt with comma decimal separator.",
+  "email": {
+    "subject": "Votre recu Netflix",
+    "from": "Netflix <facturation@netflix.com>",
+    "body": "Bonjour,\n\nVotre abonnement est renouvele le 1er juin. Paiement recu de EUR 13,49 par mois.\n\nMerci."
+  },
+  "expected": {
+    "name": "Netflix",
+    "amount": 13.49,
+    "currency": "EUR",
+    "interval": "monthly"
+  }
+}

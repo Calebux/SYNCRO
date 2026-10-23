@@ -249,7 +249,6 @@ Google OAuth callback (automatically handled by backend, **no frontend code need
 **Redirect URLs**:
 
 - Success: `${FRONTEND_URL}/oauth-success`
-- Error: `${FRONTEND_URL}/oauth-error?reason=authentication_failed`
 
 **Frontend `/oauth-success` Page Example**:
 

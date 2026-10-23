@@ -9,7 +9,7 @@ The backend is responsible for:
 - **Authentication**: JWT-based auth with HTTP-only cookies; role-based access control (RBAC)
 - **Email Integration**: Gmail and Outlook OAuth scanning for subscription detection
 - **Payment Processing**: Stripe and Paystack webhook handling
-- **Notifications**: Telegram bot, Slack webhooks, push notifications (Web Push/VAPID), email digests, and quiet-hours support
+- **Notifications**: Telegram bot, Slack webhooks, push notifications (Web Push/VAPID), and quiet-hours support
 - **Blockchain**: Soroban/Stellar event indexing with Redis-backed dead-letter queue fallback
 - **Observability**: Sentry error tracking, Winston structured logging, health snapshots
 

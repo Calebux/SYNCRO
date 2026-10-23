@@ -1,5 +1,6 @@
 import { createClient, RedisClientType } from 'redis';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import { rateLimitConfig } from '../config/rate-limit';
 
 /**
@@ -22,7 +23,7 @@ export class SharedRedisClient {
   }
 
   private resolveUrl(): string | undefined {
-    return rateLimitConfig.redis.url || process.env.REDIS_URL;
+    return rateLimitConfig.redis.url || env.REDIS_URL;
   }
 
   async initialize(): Promise<void> {

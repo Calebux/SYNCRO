@@ -32,18 +32,6 @@ const envSchema = z.object({
   RATE_LIMIT_TAG_MUTATION_MAX: z.string().optional(),
   RATE_LIMIT_TAG_MUTATION_WINDOW_MINUTES: z.string().optional(),
 
-  // External Services — Stripe
-  STRIPE_SECRET_KEY: z.string().optional(),
-  STRIPE_WEBHOOK_SECRET: z.string().optional(),
-
-  // External Services — Paystack
-  PAYSTACK_SECRET_KEY: z.string().optional(),
-
-  // External Services — PayPal
-  PAYPAL_CLIENT_ID: z.string().optional(),
-  PAYPAL_CLIENT_SECRET: z.string().optional(),
-  PAYPAL_MODE: z.enum(['sandbox', 'live']).default('sandbox'),
-
   // System
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
@@ -90,12 +78,6 @@ export function getEnv(): Env {
       RATE_LIMIT_TAG_MUTATION_MAX: process.env.RATE_LIMIT_TAG_MUTATION_MAX,
       RATE_LIMIT_TAG_MUTATION_WINDOW_MINUTES:
         process.env.RATE_LIMIT_TAG_MUTATION_WINDOW_MINUTES,
-      STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
-      STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
-      PAYSTACK_SECRET_KEY: process.env.PAYSTACK_SECRET_KEY,
-      PAYPAL_CLIENT_ID: process.env.PAYPAL_CLIENT_ID,
-      PAYPAL_CLIENT_SECRET: process.env.PAYPAL_CLIENT_SECRET,
-      PAYPAL_MODE: process.env.PAYPAL_MODE,
       NODE_ENV: process.env.NODE_ENV,
       LOG_LEVEL: process.env.LOG_LEVEL,
       MAINTENANCE_MODE: process.env.MAINTENANCE_MODE,
@@ -147,7 +129,7 @@ export function isMaintenanceMode(): boolean {
  */
 export function getApiConfig() {
   const env = getEnv()
-  const stagingApi  = 'https://backend-staging.onrender.com'
+  const stagingApi = 'https://backend-staging.onrender.com'
   const productionApi = 'https://backend-ai-sub.onrender.com'
   const defaultBase =
     process.env.NEXT_PUBLIC_APP_ENV === 'staging' ? stagingApi : productionApi

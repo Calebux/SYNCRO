@@ -1,12 +1,35 @@
 import { supabase } from '../config/database';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import crypto from 'crypto';
+import {
+  auditChannelOpened,
+  auditChannelCloseInitiated,
+  auditChannelDisputed,
+  auditChannelFinalized,
+} from './audit-service';
+import {
+  paymentProofVerifier,
+  computeRequestHash,
+  type PaymentProof,
+} from './payment-proof-verifier';
+import { v3NotificationDispatch } from './v3-notification-dispatch';
+
+export interface WatchtowerRecord {
+  address: string;
+  bounty: number;
+  registeredAt: string;
+}
 
 export interface ChannelState {
   sequenceNumber: number;
   userBalance: number;
   executorBalance: number;
   totalDeposited: number;
+  watchtowers?: WatchtowerRecord[];
+  watchtowerBountyPaid?: number;
+  closeInitiatedAt?: string;
+  challengePeriodEndsAt?: string;
 }
 
 export interface PaymentChannelRecord {
@@ -17,6 +40,7 @@ export interface PaymentChannelRecord {
   state: 'active' | 'closing' | 'closed' | 'dispute';
   lastUpdated: string;
   expiry?: string;
+  challengePeriodEndsAt?: string;
   channelState?: ChannelState;
   onChainChannelId?: string;
 }
@@ -25,12 +49,14 @@ const STORAGE_KEY_PREFIX = 'syncro:channel:';
 
 function signState(state: ChannelState, channelId: string): string {
   const payload = JSON.stringify({ channelId, ...state });
-  return crypto.createHmac('sha256', process.env.CHANNEL_SIGNING_SECRET ?? 'dev-channel-secret')
+  return crypto.createHmac('sha256', env.CHANNEL_SIGNING_SECRET)
     .update(payload)
     .digest('hex');
 }
 
 export class PaymentChannelService {
+  private readonly challengePeriodMs = 24 * 60 * 60 * 1000;
+
   async listChannels(userId: string): Promise<PaymentChannelRecord[]> {
     const { data, error } = await supabase
       .from('payment_channels')
@@ -87,14 +113,56 @@ export class PaymentChannelService {
 
     if (error) throw error;
     logger.info('Payment channel opened', { userId, channelId: data.id, depositAmount });
+
+    // Audit log channel open
+    await auditChannelOpened(userId, {
+      channelId: data.id,
+      counterparty,
+      depositAmount,
+      after: { state: 'active', depositAmount, counterparty },
+    });
+
     return this.toRecord(data);
   }
 
+  /**
+   * Apply an off-chain renewal (debit) to the channel.
+   *
+   * The caller **must** supply a `proof` produced by the SYNCRO gateway and
+   * the raw `requestHash` computed from the live request bytes.  The proof is
+   * verified before any state mutation:
+   *
+   *  - `proof.requestHash` must match `requestHash` — the proof cannot be
+   *    transplanted to a different request.
+   *  - `proof.timestamp` must be within ±PROOF_FRESHNESS_WINDOW_MS.
+   *  - `proof.nonce` must not have been consumed previously (replay guard).
+   *  - `proof.signature` must be valid.
+   *
+   * If any check fails, the function throws with the error code from the
+   * verifier so the gateway can surface a typed 402 / 409 response.
+   */
   async applyOffChainRenewal(
     channelId: string,
     userId: string,
     amount: number,
+    proof: PaymentProof,
+    requestHash: string,
   ): Promise<PaymentChannelRecord> {
+    // ── Payment proof gate ────────────────────────────────────────────────────
+    const proofResult = paymentProofVerifier.verify(proof, channelId, requestHash);
+    if (!proofResult.ok) {
+      logger.warn('applyOffChainRenewal: proof rejected', {
+        channelId,
+        userId,
+        code: proofResult.code,
+        message: proofResult.message,
+      });
+      const err = new Error(proofResult.message) as Error & { code: string };
+      err.code = proofResult.code;
+      throw err;
+    }
+
+    // ── Channel state mutation ────────────────────────────────────────────────
     const channel = await this.getChannel(userId, channelId);
     if (!channel || channel.state !== 'active') {
       throw new Error('Channel not found or not active');
@@ -106,6 +174,7 @@ export class PaymentChannelService {
     }
 
     const nextState: ChannelState = {
+      ...state,
       sequenceNumber: state.sequenceNumber + 1,
       userBalance: state.userBalance - amount,
       executorBalance: state.executorBalance + amount,
@@ -137,6 +206,7 @@ export class PaymentChannelService {
 
     const state = channel.channelState!;
     const nextState: ChannelState = {
+      ...state,
       sequenceNumber: state.sequenceNumber + 1,
       userBalance: state.userBalance + amount,
       executorBalance: state.executorBalance,
@@ -170,10 +240,27 @@ export class PaymentChannelService {
       throw new Error('Channel not found or not active');
     }
 
+    const beforeState = channel.state;
+    const balance = Number(channel.balance ?? 0);
+    const disputeWindowDays = 7;
+
+    const now = new Date();
+    const nextState: ChannelState = {
+      ...(channel.channelState ?? {
+        sequenceNumber: 0,
+        userBalance: Number(channel.balance),
+        executorBalance: 0,
+        totalDeposited: Number(channel.balance),
+      }),
+      closeInitiatedAt: now.toISOString(),
+      challengePeriodEndsAt: new Date(now.getTime() + this.challengePeriodMs).toISOString(),
+    };
+
     const { data, error } = await supabase
       .from('payment_channels')
       .update({
         state: unilateral ? 'dispute' : 'closing',
+        channel_state: nextState,
         updated_at: new Date().toISOString(),
       })
       .eq('id', channelId)
@@ -182,10 +269,62 @@ export class PaymentChannelService {
       .single();
 
     if (error) throw error;
+
+    // Audit log channel close initiation or dispute
+    if (unilateral) {
+      await auditChannelDisputed(userId, {
+        channelId,
+        before: { state: beforeState },
+        after: { state: 'dispute' },
+      });
+    } else {
+      await auditChannelCloseInitiated(userId, {
+        channelId,
+        unilateral: false,
+        before: { state: beforeState },
+        after: { state: 'closing' },
+      });
+    }
+
+    // Principal-facing: channel close initiated
+    v3NotificationDispatch.dispatch({
+      eventType: 'channel_close_initiated',
+      targetUserId: userId,
+      payload: {
+        userId,
+        channelId,
+        unilateral,
+        disputeWindowDays,
+        remainingBalance: balance,
+        currency: 'USD',
+      },
+    }).catch((err) => {
+      logger.error('channel_close_initiated v3 dispatch failed', { userId, channelId, error: err instanceof Error ? err.message : String(err) });
+    });
+
+    // Operator-facing: unilateral close is a dispute_detected critical
+    if (unilateral) {
+      v3NotificationDispatch.dispatch({
+        eventType: 'dispute_detected',
+        payload: {
+          channelId,
+          userId,
+          sequenceNumber: channel.channelState?.sequenceNumber ?? 0,
+          cause: 'unilateral_close',
+          currentBalance: balance,
+          currency: 'USD',
+        },
+      }).catch((err) => {
+        logger.error('dispute_detected (unilateral) v3 dispatch failed', { channelId, error: err instanceof Error ? err.message : String(err) });
+      });
+    }
+
     return this.toRecord(data);
   }
 
   async finalizeClose(userId: string, channelId: string): Promise<PaymentChannelRecord> {
+    const channel = await this.getChannel(userId, channelId);
+
     const { data, error } = await supabase
       .from('payment_channels')
       .update({
@@ -198,6 +337,14 @@ export class PaymentChannelService {
       .single();
 
     if (error) throw error;
+
+    // Audit log channel finalization
+    await auditChannelFinalized(userId, {
+      channelId,
+      before: { state: channel?.state },
+      after: { state: 'closed' },
+    });
+
     return this.toRecord(data);
   }
 
@@ -214,6 +361,7 @@ export class PaymentChannelService {
       state: row.state as PaymentChannelRecord['state'],
       lastUpdated: (row.updated_at ?? row.created_at) as string,
       expiry: row.expiry as string | undefined,
+      challengePeriodEndsAt: (row.channel_state as ChannelState | null)?.challengePeriodEndsAt,
       channelState: row.channel_state as ChannelState | undefined,
       onChainChannelId: row.on_chain_channel_id as string | undefined,
     };

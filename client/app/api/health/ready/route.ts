@@ -1,7 +1,7 @@
 /**
  * Readiness Check Endpoint
  * Verifies that the service is ready to accept traffic
- * Checks critical dependencies (database, external services, etc.)
+ * Checks critical dependencies (database, external services, blockchain RPC, FX rates, etc.)
  */
 
 import { NextResponse } from 'next/server'
@@ -11,7 +11,7 @@ import { HttpStatus } from '@/lib/api/types'
 
 type DependencyStatus = {
   name: string
-  status: 'healthy' | 'unhealthy'
+  status: 'healthy' | 'degraded' | 'unhealthy'
   responseTime?: number
   error?: string
 }
@@ -70,6 +70,112 @@ async function checkEnvironment(): Promise<DependencyStatus> {
   }
 }
 
+/**
+ * Check Stellar RPC/Horizon connectivity.
+ * Returns degraded if the RPC URL is not configured.
+ */
+async function checkRpcHorizon(): Promise<DependencyStatus> {
+  const start = Date.now()
+  try {
+    const rpcUrl = process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || process.env.SOROBAN_RPC_URL
+
+    if (!rpcUrl) {
+      return {
+        name: 'rpc_horizon',
+        status: 'degraded',
+        responseTime: Date.now() - start,
+        error: 'RPC URL not configured',
+      }
+    }
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10_000)
+    const response = await fetch(rpcUrl, {
+      method: 'HEAD',
+      signal: controller.signal,
+    })
+    clearTimeout(timeout)
+
+    if (!response.ok) {
+      return {
+        name: 'rpc_horizon',
+        status: 'unhealthy',
+        responseTime: Date.now() - start,
+        error: `RPC endpoint returned status ${response.status}`,
+      }
+    }
+
+    return {
+      name: 'rpc_horizon',
+      status: 'healthy',
+      responseTime: Date.now() - start,
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'RPC check failed'
+    if (message.includes('abort') || message.includes('timeout')) {
+      return {
+        name: 'rpc_horizon',
+        status: 'unhealthy',
+        responseTime: Date.now() - start,
+        error: 'RPC endpoint timed out',
+      }
+    }
+    return {
+      name: 'rpc_horizon',
+      status: 'unhealthy',
+      responseTime: Date.now() - start,
+      error: message,
+    }
+  }
+}
+
+/**
+ * Check FX (foreign exchange) provider connectivity.
+ */
+async function checkFxProvider(): Promise<DependencyStatus> {
+  const start = Date.now()
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10_000)
+    const response = await fetch('https://api.exchangerate-api.com/v4/latest/USD', {
+      method: 'HEAD',
+      signal: controller.signal,
+    })
+    clearTimeout(timeout)
+
+    if (!response.ok) {
+      return {
+        name: 'fx_provider',
+        status: 'unhealthy',
+        responseTime: Date.now() - start,
+        error: `FX provider returned status ${response.status}`,
+      }
+    }
+
+    return {
+      name: 'fx_provider',
+      status: 'healthy',
+      responseTime: Date.now() - start,
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'FX provider check failed'
+    if (message.includes('abort') || message.includes('timeout')) {
+      return {
+        name: 'fx_provider',
+        status: 'unhealthy',
+        responseTime: Date.now() - start,
+        error: 'FX provider timed out',
+      }
+    }
+    return {
+      name: 'fx_provider',
+      status: 'unhealthy',
+      responseTime: Date.now() - start,
+      error: message,
+    }
+  }
+}
+
 export async function GET() {
   const checks: DependencyStatus[] = []
 
@@ -79,7 +185,21 @@ export async function GET() {
   // Check database connection
   checks.push(await checkSupabase())
 
-  const allHealthy = checks.every((check) => check.status === 'healthy')
+  // Check Stellar RPC/Horizon connectivity
+  checks.push(await checkRpcHorizon())
+
+  // Check FX provider connectivity
+  checks.push(await checkFxProvider())
+
+  // Readiness: all critical dependencies must be healthy
+  // Critical deps: supabase (database), environment
+  // Degraded: rpc_horizon, fx_provider (graceful when not configured)
+  const critical = ['supabase', 'environment']
+  const criticalUnhealthy = checks.filter(
+    (c) => critical.includes(c.name) && c.status === 'unhealthy'
+  )
+
+  const allHealthy = criticalUnhealthy.length === 0
   const status = allHealthy ? 'ready' : 'not_ready'
 
   const response = {
@@ -89,6 +209,7 @@ export async function GET() {
     summary: {
       total: checks.length,
       healthy: checks.filter((c) => c.status === 'healthy').length,
+      degraded: checks.filter((c) => c.status === 'degraded').length,
       unhealthy: checks.filter((c) => c.status === 'unhealthy').length,
     },
   }

@@ -6,7 +6,7 @@ import { env } from '../config/env';
 import {
   PRIVACY_FLAGS_CONFIG,
   PrivacyFlag,
-} from '../../../shared/src/blockchain-flags';
+} from '@syncro/shared';
 
 export class PrivacyService {
   /**
@@ -37,7 +37,7 @@ export class PrivacyService {
     }
 
     // Fallback to env var
-    const envVal = process.env[flag];
+    const envVal = (env as Record<string, unknown>)[flag];
     if (envVal !== undefined) {
       return envVal === 'true';
     }
@@ -98,7 +98,7 @@ export class PrivacyService {
     }
 
     if (config.scope === 'global') {
-      const envVal = process.env[flag];
+      const envVal = (env as Record<string, unknown>)[flag];
       if (envVal !== undefined) {
         return envVal === 'true';
       }
@@ -113,8 +113,8 @@ export class PrivacyService {
       }
     }
 
-    // If context check was not possible, check process.env or fallback to default
-    const envVal = process.env[flag];
+    // If context check was not possible, check env or fallback to default
+    const envVal = (env as Record<string, unknown>)[flag];
     if (envVal !== undefined) {
       return envVal === 'true';
     }

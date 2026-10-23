@@ -8,7 +8,7 @@
 import {
   SOROBAN_CONTRACT_INTERFACES,
   findContractFunction,
-} from '../../../shared/src/soroban-contract-interfaces';
+} from '@syncro/shared/soroban-contract-interfaces';
 import { getBackendContractBindings } from '../../src/blockchain/backend-contract-bindings';
 
 describe('Contract interface drift detection', () => {

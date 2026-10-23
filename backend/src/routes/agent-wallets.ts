@@ -15,7 +15,6 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { adminAuth } from '../middleware/admin';
 import {
   agentWalletRotationService,
   AgentWalletRotationService,
@@ -24,9 +23,6 @@ import { AgentName, AGENT_NAMES } from '../services/agent-hd-wallet';
 import logger from '../config/logger';
 
 const router = Router();
-
-// All routes require admin authentication
-router.use(adminAuth);
 
 /**
  * @swagger

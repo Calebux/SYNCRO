@@ -22,6 +22,19 @@ vi.mock("../paypal-service", () => ({
   getPayPalService: vi.fn(),
 }))
 
+vi.mock("../api/audit", () => ({
+  emitAuditEvent: vi.fn(),
+}))
+
+vi.mock("../logger", () => ({
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  },
+}))
+
 describe("PaymentService", () => {
   let supabase: any
   let stripe: any
@@ -91,6 +104,55 @@ describe("PaymentService", () => {
 
       expect(result.success).toBe(false)
       expect(result.error).toBe("Stripe not configured")
+    })
+
+    it("should map requires_action to requiresAction with clientSecret", async () => {
+      const service = new PaymentService({ provider: "stripe" })
+
+      stripe.paymentIntents.create.mockResolvedValue({
+        id: "pi_act",
+        status: "requires_action",
+        client_secret: "pi_act_secret_abc123",
+      })
+
+      const result = await service.processPayment(100, "usd", "pm_act")
+
+      expect(result.success).toBe(true)
+      expect(result.requiresAction).toBe(true)
+      expect(result.clientSecret).toBe("pi_act_secret_abc123")
+      expect(result.transactionId).toBe("pi_act")
+    })
+
+    it("should map requires_confirmation to requiresAction with clientSecret", async () => {
+      const service = new PaymentService({ provider: "stripe" })
+
+      stripe.paymentIntents.create.mockResolvedValue({
+        id: "pi_conf",
+        status: "requires_confirmation",
+        client_secret: "pi_conf_secret_def456",
+      })
+
+      const result = await service.processPayment(100, "usd", "pm_conf")
+
+      expect(result.success).toBe(true)
+      expect(result.requiresAction).toBe(true)
+      expect(result.clientSecret).toBe("pi_conf_secret_def456")
+      expect(result.transactionId).toBe("pi_conf")
+    })
+
+    it("should surface an unknown PaymentIntent status as a failure", async () => {
+      const service = new PaymentService({ provider: "stripe" })
+
+      stripe.paymentIntents.create.mockResolvedValue({
+        id: "pi_unknown",
+        status: "processing",
+      })
+
+      const result = await service.processPayment(100, "usd", "pm_unknown")
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain("processing")
+      expect(result.transactionId).toBe("pi_unknown")
     })
   })
 
@@ -400,21 +462,64 @@ describe("PaymentService", () => {
   // ─── DB error handling ─────────────────────────────────────────────────────
 
   describe("Database Error Handling", () => {
-    it("should catch and log DB errors but still return a successful payment result", async () => {
+    it("returns a degraded result when insert fails after provider success", async () => {
       const service = new PaymentService({ provider: "mock" })
-      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
 
-      supabase.insert.mockRejectedValue(new Error("DB Connection Error"))
+      supabase.single.mockResolvedValue({ data: null, error: { code: "PGRST116" } })
+      supabase.insert.mockResolvedValue({
+        data: null,
+        error: { message: "insert failed" },
+      })
 
-      const result = await service.processPayment(100, "usd", "pm_123")
+      const result = await service.processPayment(100, "usd", "pm_123", {
+        userId: "user_123",
+        requestId: "req_abc",
+      })
 
       expect(result.success).toBe(true)
-      expect(consoleSpy).toHaveBeenCalledWith(
-        "Failed to save payment to database:",
-        expect.any(Error)
-      )
+      expect(result.persistenceDegraded).toBe(true)
+      expect(result.needsReconciliation).toBe(true)
+      expect(result.transactionId).toContain("mock_")
+      expect(result.error).toContain("insert failed")
+    })
 
-      consoleSpy.mockRestore()
+    it("returns a degraded result when update fails after provider success", async () => {
+      const service = new PaymentService({ provider: "mock" })
+
+      supabase.single.mockResolvedValue({ data: { id: "pay_existing" }, error: null })
+      supabase.update.mockReturnValue({
+        eq: vi.fn().mockResolvedValue({
+          data: null,
+          error: { message: "update failed" },
+        }),
+      })
+
+      const result = await service.processPayment(100, "usd", "pm_123", {
+        userId: "user_123",
+        requestId: "req_upd",
+      })
+
+      expect(result.success).toBe(true)
+      expect(result.persistenceDegraded).toBe(true)
+      expect(result.needsReconciliation).toBe(true)
+      expect(result.error).toContain("update failed")
+    })
+
+    it("surfaces thrown DB errors as degraded persistence instead of swallowing them", async () => {
+      const service = new PaymentService({ provider: "mock" })
+
+      supabase.single.mockResolvedValue({ data: null, error: null })
+      supabase.insert.mockRejectedValue(new Error("DB Connection Error"))
+
+      const result = await service.processPayment(100, "usd", "pm_123", {
+        userId: "user_123",
+        requestId: "req_throw",
+      })
+
+      expect(result.success).toBe(true)
+      expect(result.persistenceDegraded).toBe(true)
+      expect(result.needsReconciliation).toBe(true)
+      expect(result.error).toContain("DB Connection Error")
     })
   })
 })

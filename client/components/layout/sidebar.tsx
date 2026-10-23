@@ -2,9 +2,6 @@
 
 import {
     Home,
-    CreditCard,
-    BarChart3,
-    Plug,
     Settings,
     Users,
 } from "lucide-react";
@@ -32,9 +29,6 @@ export function Sidebar({
 }: SidebarProps) {
     const navItems = [
         { id: "dashboard", label: "Dashboard", icon: Home },
-        { id: "subscriptions", label: "Subscriptions", icon: CreditCard },
-        { id: "analytics", label: "Analytics", icon: BarChart3 },
-        { id: "integrations", label: "Integrations", icon: Plug },
         ...(mode === "enterprise"
             ? [{ id: "teams", label: "Teams", icon: Users }]
             : []),
@@ -77,7 +71,6 @@ export function Sidebar({
                                     onViewChange(item.id);
                                     onMobileMenuToggle();
                                 }}
-                                data-tour={item.id === "integrations" ? "connect-email" : item.id === "settings" ? "wallet-settings" : undefined}
                                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
                                     isActive
                                         ? darkMode

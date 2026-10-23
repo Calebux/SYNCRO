@@ -1,6 +1,6 @@
 # ADR-001: Frontend/Backend API Split
 
-**Status:** Accepted  
+**Status:** Accepted (Retrospective)  
 **Date:** 2026-05-27  
 **Deciders:** Engineering team  
 **Issue:** #604

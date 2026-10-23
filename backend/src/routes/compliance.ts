@@ -24,7 +24,10 @@ const exportRateLimit = RateLimiterFactory.createCustomLimiter({
   windowMs: 60 * 60 * 1000,
   max: 1,
   message: { error: 'Export rate limit exceeded. Try again in 1 hour.' },
-  keyGenerator: (req: any) => req.user?.id || req.ip,
+  keyGenerator: (req: Request) => {
+    const authReq = req as AuthenticatedRequest;
+    return authReq.user?.id || req.ip || 'anonymous';
+  },
   endpointType: 'data-export',
 });
 
@@ -70,8 +73,8 @@ async function resolveUserFromTokenOrSession(
   let sessionToken: string | null = null;
   if (authHeader?.startsWith('Bearer ')) {
     sessionToken = authHeader.substring(7);
-  } else if ((req as any).cookies?.authToken) {
-    sessionToken = (req as any).cookies.authToken;
+  } else if (req.cookies?.authToken) {
+    sessionToken = req.cookies.authToken;
   }
   if (!sessionToken) return null;
 
