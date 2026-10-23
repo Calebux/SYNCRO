@@ -36,8 +36,8 @@ export interface ProviderRouteAuditMetadata {
   pathPattern?: string;
   unit?: string;
   scopeKey?: string;
-  oldPrice: number | null;
-  newPrice: number | null;
+  oldPriceStroops: number | null;
+  newPriceStroops: number | null;
   oldQuantityExtractor: string | null;
   newQuantityExtractor: string | null;
   rateCardVersion?: string;
@@ -60,8 +60,8 @@ export function buildProviderRouteAuditMetadata(
     pathPattern: route?.pathPattern,
     unit: route?.unit,
     scopeKey: route?.scopeKey,
-    oldPrice: oldRoute ? oldRoute.price : null,
-    newPrice: newRoute ? newRoute.price : null,
+    oldPriceStroops: oldRoute ? oldRoute.priceStroops : null,
+    newPriceStroops: newRoute ? newRoute.priceStroops : null,
     oldQuantityExtractor: oldRoute ? oldRoute.quantityExtractor : null,
     newQuantityExtractor: newRoute ? newRoute.quantityExtractor : null,
     rateCardVersion: meta.rateCardVersion,

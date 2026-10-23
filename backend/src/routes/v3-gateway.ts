@@ -15,6 +15,7 @@ import { FileDegradedUsageLog } from '../../../packages/metering/src/degraded-lo
 import { RateLimiter } from '../../../packages/metering/src/rate-limit';
 import { sendGatewayError } from '../errors/gateway-error-response';
 import { authenticateProvider } from '../middleware/provider-auth';
+import { ROUTE_UNITS } from '../v3/pricing';
 
 const degradedModeFields = {
   failMode: z.enum(['fail_open', 'fail_closed']).optional(),
@@ -146,8 +147,9 @@ const registerProviderSchema = z.object({
 const registerRouteSchema = z.object({
   pathPattern: z.string().min(1),
   method: z.string().min(1),
-  unit: z.string().min(1),
-  price: z.number().positive(),
+  unit: z.enum(ROUTE_UNITS),
+  priceStroops: z.number().int().positive().safe(),
+  maxBillableUnits: z.number().int().positive().safe().optional(),
   quantityExtractor: z.string().min(1).default('constant:1'),
   /** Per-route rate-limit override; inherits the provider default (#1447). */
   rateLimit: z.object(rateLimitFields).optional(),
@@ -157,9 +159,11 @@ const reviseRouteSchema = z
   .object({
     pathPattern: z.string().min(1).optional(),
     method: z.string().min(1).optional(),
-    unit: z.string().min(1).optional(),
-    price: z.number().positive().optional(),
+    unit: z.enum(ROUTE_UNITS).optional(),
+    priceStroops: z.number().int().positive().safe().optional(),
+    maxBillableUnits: z.number().int().positive().safe().optional(),
     quantityExtractor: z.string().min(1).optional(),
+    effectiveFrom: z.string().datetime().optional(),
     rateLimit: z.object(rateLimitFields).optional(),
   })
   .refine((value) => Object.values(value).some((field) => field !== undefined), {
@@ -239,10 +243,8 @@ const paidCallSchema = z.object({
   providerId: z.string().uuid(),
   path: z.string().min(1),
   upstreamMethod: z.string().min(1).default('POST'),
-  quantity: z.number().positive().optional(),
   channelId: z.string().min(1),
   stateNonce: z.number().int().nonnegative(),
-  rateCardVersion: z.string().min(1),
   exchangeRate: z.number().positive().optional().nullable(),
   body: z.unknown().optional(),
 });
@@ -672,11 +674,9 @@ router.post('/gateway/paid', async (req: Request, res: Response) => {
       body: parsed.data.body,
       query: req.query as Record<string, unknown>,
       agentId,
-      quantity: parsed.data.quantity,
       exchangeRate: parsed.data.exchangeRate,
       channelId: parsed.data.channelId,
       stateNonce: parsed.data.stateNonce,
-      rateCardVersion: parsed.data.rateCardVersion,
     });
 
     const receiptUrl = `/api/v3/receipts/${result.receipt.receiptId}`;

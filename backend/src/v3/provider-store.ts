@@ -13,6 +13,7 @@ import {
   RegisteredRoute,
   SettlementStatus,
 } from './types';
+import { assertPositiveSafeInteger, ROUTE_UNITS, type RouteUnit } from './pricing';
 
 export interface RegisterProviderInput {
   identity: string;
@@ -43,8 +44,10 @@ export interface RegisterRouteInput {
   providerId: string;
   pathPattern: string;
   method: string;
-  unit: string;
-  price: number;
+  unit: RouteUnit;
+  /** Integer stroops per billable unit. */
+  priceStroops: number;
+  maxBillableUnits?: number;
   quantityExtractor: string;
   /** Optional per-route rate-limit override; inherits the provider default (#1447). */
   rateLimit?: Partial<RateLimitPolicy>;
@@ -53,9 +56,11 @@ export interface RegisterRouteInput {
 export interface ReviseRouteInput {
   pathPattern?: string;
   method?: string;
-  unit?: string;
-  price?: number;
+  unit?: RouteUnit;
+  priceStroops?: number;
+  maxBillableUnits?: number;
   quantityExtractor?: string;
+  effectiveFrom?: string;
   /** Replaces the route's rate-limit override; omit to keep it (#1447). */
   rateLimit?: Partial<RateLimitPolicy>;
 }
@@ -68,7 +73,7 @@ export interface RecordSettlementInput {
   pathPattern: string;
   unit: string;
   quantity: number;
-  price: number;
+  priceStroops: number;
   amount: number;
   rateCardVersion: string;
   rateCardEffectiveFrom: string;
@@ -389,6 +394,15 @@ export class InMemoryProviderStore {
   registerRoute(input: RegisterRouteInput): RegisteredRoute {
     const method = normalizeMethod(input.method);
     const pattern = input.pathPattern.trim();
+    assertPositiveSafeInteger(input.priceStroops, 'priceStroops');
+    if (!ROUTE_UNITS.includes(input.unit)) {
+      throw new Error(`unit must be one of: ${ROUTE_UNITS.join(', ')}`);
+    }
+    const maxBillableUnits = input.maxBillableUnits ?? 1;
+    assertPositiveSafeInteger(maxBillableUnits, 'maxBillableUnits');
+    if (input.quantityExtractor !== 'constant:1' && input.maxBillableUnits === undefined) {
+      throw new Error('maxBillableUnits is required when quantity is measured after execution');
+    }
     const duplicate = [...this.routes.values()].find(
       (route) => route.providerId === input.providerId && route.method === method && route.pathPattern === pattern,
     );
@@ -402,14 +416,15 @@ export class InMemoryProviderStore {
       pathPattern: pattern,
       method,
       unit: input.unit,
-      price: input.price,
+      priceStroops: input.priceStroops,
+      maxBillableUnits,
       quantityExtractor: input.quantityExtractor,
       scopeKey: buildScopeKey(input.method, pattern),
       rateLimit: input.rateLimit !== undefined ? normalizeRateLimitPolicy(input.rateLimit) : undefined,
       createdAt: nowIso(),
     };
+    this.appendVersion(route, route.createdAt);
     this.routes.set(routeId, route);
-    this.appendVersion(route);
     this.emitRouteChange({ kind: 'created', oldRoute: null, newRoute: { ...route } });
     return route;
   }
@@ -417,10 +432,21 @@ export class InMemoryProviderStore {
   listRoutes(providerId: string, atIso: string = nowIso()): ProviderRouteView[] {
     return [...this.routes.values()]
       .filter((route) => route.providerId === providerId)
-      .map((route) => ({
-        ...route,
-        applicableVersion: this.applicableVersion(route.routeId, atIso),
-      }))
+      .map((route) => {
+        const applicableVersion = this.applicableVersion(route.routeId, atIso);
+        return {
+          ...route,
+          ...(applicableVersion
+            ? {
+                unit: applicableVersion.unit,
+                priceStroops: applicableVersion.priceStroops,
+                maxBillableUnits: applicableVersion.maxBillableUnits,
+                quantityExtractor: applicableVersion.quantityExtractor,
+              }
+            : {}),
+          applicableVersion,
+        };
+      })
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
@@ -442,8 +468,9 @@ export class InMemoryProviderStore {
       ...existing,
       pathPattern: patch.pathPattern?.trim() || existing.pathPattern,
       method: patch.method !== undefined ? normalizeMethod(patch.method) : existing.method,
-      unit: patch.unit?.trim() || existing.unit,
-      price: patch.price !== undefined ? patch.price : existing.price,
+      unit: patch.unit ?? existing.unit,
+      priceStroops: patch.priceStroops !== undefined ? patch.priceStroops : existing.priceStroops,
+      maxBillableUnits: patch.maxBillableUnits ?? existing.maxBillableUnits,
       quantityExtractor: patch.quantityExtractor?.trim() || existing.quantityExtractor,
       rateLimit:
         patch.rateLimit !== undefined
@@ -452,8 +479,11 @@ export class InMemoryProviderStore {
     };
     next.scopeKey = buildScopeKey(next.method, next.pathPattern);
 
-    if (!Number.isFinite(next.price) || next.price <= 0) {
-      throw new Error('price must be greater than zero');
+    assertPositiveSafeInteger(next.priceStroops, 'priceStroops');
+    assertPositiveSafeInteger(next.maxBillableUnits, 'maxBillableUnits');
+    if (!ROUTE_UNITS.includes(next.unit)) throw new Error(`unit must be one of: ${ROUTE_UNITS.join(', ')}`);
+    if (next.quantityExtractor !== 'constant:1' && patch.maxBillableUnits === undefined && existing.maxBillableUnits === 1) {
+      throw new Error('maxBillableUnits is required when quantity is measured after execution');
     }
     if (!next.pathPattern || !next.method || !next.unit || !next.quantityExtractor) {
       throw new Error('route fields must not be empty');
@@ -474,7 +504,8 @@ export class InMemoryProviderStore {
       next.pathPattern === existing.pathPattern &&
       next.method === existing.method &&
       next.unit === existing.unit &&
-      next.price === existing.price &&
+      next.priceStroops === existing.priceStroops &&
+      next.maxBillableUnits === existing.maxBillableUnits &&
       next.quantityExtractor === existing.quantityExtractor &&
       next.rateLimit?.requestsPerInterval === existing.rateLimit?.requestsPerInterval &&
       next.rateLimit?.intervalMs === existing.rateLimit?.intervalMs &&
@@ -483,8 +514,8 @@ export class InMemoryProviderStore {
       throw new Error('no route changes');
     }
 
+    const version = this.appendVersion(next, patch.effectiveFrom);
     this.routes.set(routeId, next);
-    const version = this.appendVersion(next);
     this.emitRouteChange({
       kind: 'updated',
       oldRoute: { ...existing },
@@ -539,7 +570,7 @@ export class InMemoryProviderStore {
       pathPattern: input.pathPattern,
       unit: input.unit,
       quantity: input.quantity,
-      price: input.price,
+      priceStroops: input.priceStroops,
       amount: input.amount,
       rateCardVersion: input.rateCardVersion,
       rateCardEffectiveFrom: input.rateCardEffectiveFrom,
@@ -612,12 +643,22 @@ export class InMemoryProviderStore {
     return [...this.rateCards.values()].filter((version) => version.routeId === routeId);
   }
 
-  private appendVersion(route: RegisteredRoute): RateCardVersion {
+  private appendVersion(route: RegisteredRoute, requestedEffectiveFrom?: string): RateCardVersion {
     const existing = this.versionsFor(route.routeId);
     const sequence = existing.reduce((max, version) => Math.max(max, version.sequence), 0) + 1;
     const previous = existing.find((version) => version.sequence === sequence - 1);
-    let effectiveFrom = nowIso();
-    if (previous && Date.parse(effectiveFrom) <= Date.parse(previous.effectiveFrom)) {
+    let effectiveFrom = requestedEffectiveFrom ?? nowIso();
+    const effectiveTime = Date.parse(effectiveFrom);
+    if (Number.isNaN(effectiveTime)) {
+      throw new Error('effectiveFrom must be a valid ISO date');
+    }
+    if (requestedEffectiveFrom && effectiveTime < Date.now()) {
+      throw new Error('effectiveFrom cannot be in the past');
+    }
+    if (previous && effectiveTime <= Date.parse(previous.effectiveFrom)) {
+      if (requestedEffectiveFrom) {
+        throw new Error('effectiveFrom must be later than the previous rate-card version');
+      }
       effectiveFrom = new Date(Date.parse(previous.effectiveFrom) + 1).toISOString();
     }
     const version: RateCardVersion = {
@@ -626,8 +667,9 @@ export class InMemoryProviderStore {
       routeId: route.routeId,
       sequence,
       label: `v${sequence}`,
-      price: route.price,
+      priceStroops: route.priceStroops,
       unit: route.unit,
+      maxBillableUnits: route.maxBillableUnits,
       quantityExtractor: route.quantityExtractor,
       pathPattern: route.pathPattern,
       method: route.method,

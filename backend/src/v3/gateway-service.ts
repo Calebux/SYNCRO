@@ -38,6 +38,7 @@ import {
   UpstreamUnavailableError,
 } from './types';
 import type { Meter, MeterReservation, MeterReading } from '../../../packages/metering/src/meter';
+import { calculateChargeStroops, extractMeasuredQuantity, roundBillableUnits } from './pricing';
 
 export interface UpstreamResult {
   status: number;
@@ -60,11 +61,9 @@ export interface PaidCallInput {
   body: unknown;
   query: Record<string, unknown>;
   agentId: string;
-  quantity?: number;
   exchangeRate?: number | null;
   channelId: string;
   stateNonce: number;
-  rateCardVersion: string;
 }
 
 // ========= On-chain agent registry (added by #1624) =========
@@ -503,9 +502,13 @@ export class V3GatewayService {
       throw new MeterRateLimitedError(route.scopeKey, rateDecision.retryAfterMs);
     }
 
-    const quantity = input.quantity ?? 1;
-    // upperBound: reserve for the worst-case quantity (may exceed actual).
-    const upperBound = quantity;
+    const admittedAt = new Date().toISOString();
+    const rateCard = this.providers.applicableVersion(route.routeId, admittedAt);
+    if (!rateCard) {
+      throw new PaidCallRequestError('route has no applicable rate-card version');
+    }
+    const upperBoundUnits = rateCard.maxBillableUnits;
+    const upperBoundStroops = calculateChargeStroops(rateCard.priceStroops, upperBoundUnits);
 
     // -----------------------------------------------------------------------
     // 1. Degraded admission — decide what happens if the counter store is
@@ -517,7 +520,7 @@ export class V3GatewayService {
     //    admission holds that much headroom against the provider's ceiling
     //    so concurrent calls cannot jointly overshoot it.
     // -----------------------------------------------------------------------
-    const exposure = route.price * upperBound;
+    const exposure = upperBoundStroops;
     const admission = this.degraded?.admit(provider.providerId, exposure) ?? null;
     if (admission && !admission.admitted) {
       throw new MeterDegradedError(
@@ -537,14 +540,14 @@ export class V3GatewayService {
       reservation = this.meter.reserve(
         input.agentId,
         route.scopeKey,
-        upperBound,
+        upperBoundStroops,
       );
     } catch (err) {
       if (err instanceof OverageError) {
         throw new MeterInsufficientFundsError(
           route.scopeKey,
           err.available ?? 0,
-          err.needed ?? upperBound,
+          err.needed ?? upperBoundStroops,
           err.limit ?? 0,
         );
       }
@@ -576,21 +579,26 @@ export class V3GatewayService {
     }
 
     // -----------------------------------------------------------------------
-    // 2. Commit — settle against actual usage; releases unused headroom.
+    // 2. Commit — settle against measured whole units; releases unused headroom.
     // -----------------------------------------------------------------------
-    const { charged } = this.meter.commit(reservation.id, quantity);
+    const measuredQuantity = extractMeasuredQuantity(rateCard.quantityExtractor, upstream.body);
+    const actualUnits = roundBillableUnits(measuredQuantity);
+    if (actualUnits > upperBoundUnits) {
+      this.meter.commit(reservation.id, upperBoundStroops);
+      throw new PaidCallRequestError('measured usage exceeded the route admission maximum');
+    }
+    const amount = calculateChargeStroops(rateCard.priceStroops, actualUnits);
+    this.meter.commit(reservation.id, amount);
 
-    const meteredAt = new Date().toISOString();
-    const applicable = this.providers.applicableVersion(route.routeId, meteredAt);
-    const amount = route.price * charged;
+    const meteredAt = admittedAt;
 
     const receipt = await this.receipts.issueReceipt({
       receiptId: randomUUID(),
       route: route.scopeKey,
-      unit: route.unit,
-      quantity: charged,
+      unit: rateCard.unit,
+      quantity: actualUnits,
       amount,
-      rateCardVersion: input.rateCardVersion,
+      rateCardVersion: rateCard.versionId,
       exchangeRate: input.exchangeRate ?? null,
       channelId: input.channelId,
       stateNonce: input.stateNonce,
@@ -605,12 +613,12 @@ export class V3GatewayService {
       receiptId: receipt.receiptId,
       method: route.method,
       pathPattern: route.pathPattern,
-      unit: route.unit,
-      quantity: charged,
-      price: applicable?.price ?? route.price,
+      unit: rateCard.unit,
+      quantity: actualUnits,
+      priceStroops: rateCard.priceStroops,
       amount,
-      rateCardVersion: applicable?.label ?? input.rateCardVersion,
-      rateCardEffectiveFrom: applicable?.effectiveFrom ?? meteredAt,
+      rateCardVersion: rateCard.versionId,
+      rateCardEffectiveFrom: rateCard.effectiveFrom,
       status: 'unsettled',
       meteredAt,
       channelId: input.channelId,
@@ -631,7 +639,7 @@ export class V3GatewayService {
         route: route.scopeKey,
         reservationId: reservation.id,
         receiptId: receipt.receiptId,
-        units: charged,
+        units: actualUnits,
         amount,
         meteredAt,
       });
