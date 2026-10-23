@@ -13,13 +13,14 @@ interface X402PaymentRequirement {
 
 interface X402PaymentRequired {
   x402Version: number;
+  signature?: string;
   error?: string;
   resource?: {
     url: string;
     description?: string;
     mimeType?: string;
   };
-  accepts: X402PaymentRequirement[];
+  accepts?: X402PaymentRequirement[];
 }
 
 interface X402PaymentPayload {
@@ -55,6 +56,11 @@ export interface PaidFetchConfig {
   sign?: (payload: string) => Promise<string> | string;
   /** Optional provider public key for receipt verification. */
   providerPublicKey?: string;
+  /**
+   * Trusted PEM-encoded Ed25519 gateway public key used to verify every
+   * PAYMENT-REQUIRED challenge before any payment proof is signed.
+   */
+  gatewayPublicKey?: string;
   /** Custom fetch implementation (defaults to global fetch). */
   fetchImpl?: typeof fetch;
 }
@@ -92,7 +98,10 @@ export interface PaidResponse extends Response {
  * ```ts
  * import { createPaidFetch } from '@syncro/sdk/v3';
  *
- * const fetch = createPaidFetch({ spendingKey: '...' });
+ * const fetch = createPaidFetch({
+ *   spendingKey: '...',
+ *   gatewayPublicKey: '-----BEGIN PUBLIC KEY-----...',
+ * });
  * const res = await fetch('https://api.example.com/endpoint');
  * if (res.receipt) {
  *   console.log('Payment settled:', res.receipt.transaction);
@@ -100,7 +109,7 @@ export interface PaidResponse extends Response {
  * ```
  */
 export function createPaidFetch(config: PaidFetchConfig): typeof fetch {
-  const { spendingKey, sign, providerPublicKey, fetchImpl = fetch } = config;
+  const { spendingKey, sign, providerPublicKey, gatewayPublicKey, fetchImpl = fetch } = config;
 
   if (!sign && !spendingKey) {
     throw new Error(
@@ -149,7 +158,11 @@ export function createPaidFetch(config: PaidFetchConfig): typeof fetch {
       return response as PaidResponse;
     }
 
-    const accepted = paymentRequired.accepts[0];
+    if (!gatewayPublicKey || !(await verifyPaymentRequired(paymentRequired, gatewayPublicKey))) {
+      return response as PaidResponse;
+    }
+
+    const accepted = paymentRequired.accepts?.[0];
     if (!accepted) {
       return response as PaidResponse;
     }
@@ -198,6 +211,41 @@ function parsePaymentRequiredHeader(
   } catch {
     return null;
   }
+}
+
+async function verifyPaymentRequired(
+  paymentRequired: X402PaymentRequired,
+  publicKeyPem: string,
+): Promise<boolean> {
+  if (typeof paymentRequired.signature !== "string") return false;
+  const { signature, ...unsignedChallenge } = paymentRequired;
+  try {
+    const publicKey = await globalThis.crypto.subtle.importKey(
+      "spki",
+      decodePem(publicKeyPem),
+      { name: "Ed25519" },
+      false,
+      ["verify"],
+    );
+    return await globalThis.crypto.subtle.verify(
+      { name: "Ed25519" },
+      publicKey,
+      decodeBase64(signature),
+      new TextEncoder().encode(canonicalizeJson(unsignedChallenge)),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function decodeBase64(value: string): Uint8Array {
+  const binary = atob(value);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+function decodePem(value: string): Uint8Array {
+  const encoded = value.replace(/-----BEGIN PUBLIC KEY-----|-----END PUBLIC KEY-----|\s/g, "");
+  return decodeBase64(encoded);
 }
 
 function extractReceipt(

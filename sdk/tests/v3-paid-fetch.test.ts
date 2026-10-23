@@ -1,10 +1,27 @@
 import { describe, it, expect, beforeEach, jest } from "@jest/globals";
+import { generateKeyPairSync, sign as signChallenge } from "node:crypto";
 import { createPaidFetch } from "../src/v3/paid-fetch.js";
 
 describe("createPaidFetch", () => {
+  const gatewayKeys = generateKeyPairSync("ed25519");
+  const gatewayPublicKey = gatewayKeys.publicKey.export({ type: "spki", format: "pem" }).toString();
+
+  const canonicalize = (value: unknown): string => {
+    if (value === null || typeof value !== "object") return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map(canonicalize).join(",")}]`;
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalize(entry)}`).join(",")}}`;
+  };
+
+  const signedChallenge = <T extends Record<string, unknown>>(challenge: T): T & { signature: string } => ({
+    ...challenge,
+    signature: signChallenge(null, Buffer.from(canonicalize(challenge)), gatewayKeys.privateKey).toString("base64"),
+  });
+
   const makeConfig = (overrides: Record<string, unknown> = {}) => ({
     spendingKey:
       "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIBiY8Kz3L5vF9xH2Q1nR8Y7Kz3L5vF9xH2Q1nR8Y7Kz3L\n-----END PRIVATE KEY-----",
+    gatewayPublicKey,
     ...overrides,
   });
 
@@ -54,7 +71,7 @@ describe("createPaidFetch", () => {
     const fetchImpl = jest.fn(async (_input: RequestInfo, init?: RequestInit) => {
       callCount++;
       if (callCount === 1) {
-        const paymentRequired = {
+        const paymentRequired = signedChallenge({
           x402Version: 2,
           accepts: [
             {
@@ -66,7 +83,7 @@ describe("createPaidFetch", () => {
               maxTimeoutSeconds: 60,
             },
           ],
-        };
+        });
         return new Response(
           JSON.stringify({ code: "GATEWAY_CHANNEL_EXHAUSTED" }),
           {
@@ -149,6 +166,7 @@ describe("createPaidFetch", () => {
   });
 
   it("returns 402 response as-is when no accepts are present", async () => {
+    const challenge = signedChallenge({ x402Version: 2, accepts: [] });
     const fetchImpl = jest.fn().mockResolvedValue(
       new Response(
         JSON.stringify({ code: "GATEWAY_CHANNEL_EXHAUSTED" }),
@@ -157,7 +175,7 @@ describe("createPaidFetch", () => {
           headers: {
             "content-type": "application/json",
             "PAYMENT-REQUIRED": btoa(
-              JSON.stringify({ x402Version: 2, accepts: [] }),
+              JSON.stringify(challenge),
             ),
           },
         },
@@ -171,6 +189,32 @@ describe("createPaidFetch", () => {
     expect(response.receipt).toBeUndefined();
   });
 
+  it("verifies a signed channel-state challenge and does not sign unsupported payloads", async () => {
+    const challenge = signedChallenge({
+      challengeId: "challenge-1",
+      scheme: "channel-state",
+      chain: "stellar:testnet",
+      contract: "C_CONFIGURED_CONTRACT",
+      channelAddress: "G_PROVIDER_CHANNEL",
+      settlementAsset: "USDC:STELLAR",
+      amount: "10",
+      rate: "1",
+      nonce: "nonce-1",
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    const fetchImpl = jest.fn().mockResolvedValue(new Response("payment required", {
+      status: 402,
+      headers: { "PAYMENT-REQUIRED": btoa(JSON.stringify(challenge)) },
+    }));
+    const sign = jest.fn(() => "signature");
+    const fetch = createPaidFetch({ ...makeConfig(), fetchImpl, sign });
+    const response = await fetch("https://example.com/pay");
+
+    expect(response.status).toBe(402);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(sign).not.toHaveBeenCalled();
+  });
+
   it("propagates idempotency-key header through retry", async () => {
     let callCount = 0;
     const fetchImpl = jest.fn(async (_input: RequestInfo, init?: RequestInit) => {
@@ -179,7 +223,7 @@ describe("createPaidFetch", () => {
       const idempotencyKey = headers.get("idempotency-key");
 
       if (callCount === 1) {
-        const paymentRequired = {
+        const paymentRequired = signedChallenge({
           x402Version: 2,
           accepts: [
             {
@@ -191,7 +235,7 @@ describe("createPaidFetch", () => {
               maxTimeoutSeconds: 60,
             },
           ],
-        };
+        });
         return new Response(
           JSON.stringify({ code: "GATEWAY_CHANNEL_EXHAUSTED" }),
           {
@@ -247,7 +291,7 @@ describe("createPaidFetch", () => {
     const fetchImpl = jest.fn(async (_input: RequestInfo, init?: RequestInit) => {
       callCount++;
       if (callCount === 1) {
-        const paymentRequired = {
+        const paymentRequired = signedChallenge({
           x402Version: 2,
           accepts: [
             {
@@ -259,7 +303,7 @@ describe("createPaidFetch", () => {
               maxTimeoutSeconds: 60,
             },
           ],
-        };
+        });
         return new Response(
           JSON.stringify({ code: "GATEWAY_CHANNEL_EXHAUSTED" }),
           {
@@ -300,7 +344,7 @@ describe("createPaidFetch", () => {
     const fetchImpl = jest.fn(async (_input: RequestInfo, init?: RequestInit) => {
       callCount++;
       if (callCount === 1) {
-        const paymentRequired = {
+        const paymentRequired = signedChallenge({
           x402Version: 2,
           accepts: [
             {
@@ -312,7 +356,7 @@ describe("createPaidFetch", () => {
               maxTimeoutSeconds: 60,
             },
           ],
-        };
+        });
         return new Response(
           JSON.stringify({ code: "GATEWAY_CHANNEL_EXHAUSTED" }),
           {
@@ -360,7 +404,7 @@ describe("createPaidFetch", () => {
           headers: {
             "content-type": "application/json",
             "PAYMENT-REQUIRED": btoa(
-              JSON.stringify({
+              JSON.stringify(signedChallenge({
                 x402Version: 2,
                 accepts: [
                   {
@@ -372,7 +416,7 @@ describe("createPaidFetch", () => {
                     maxTimeoutSeconds: 60,
                   },
                 ],
-              }),
+              })),
             ),
           },
         },
@@ -394,5 +438,46 @@ describe("createPaidFetch", () => {
     expect(response.status).toBe(402);
     expect(fetchImpl).toHaveBeenCalledTimes(2); // First call + one retry
     expect(sign).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not sign or retry when a PAYMENT-REQUIRED challenge is modified after signing", async () => {
+    const challenge = signedChallenge({
+      x402Version: 2,
+      accepts: [{
+        scheme: "exact",
+        network: "eip155:84532",
+        amount: "1000",
+        asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+        payTo: "0x209693Bc6afc0C5328bA36FaF03C514EF312287C",
+      }],
+    });
+    challenge.accepts[0]!.payTo = "0xattacker";
+
+    const fetchImpl = jest.fn().mockResolvedValue(new Response("payment required", {
+      status: 402,
+      headers: { "PAYMENT-REQUIRED": btoa(JSON.stringify(challenge)) },
+    }));
+    const sign = jest.fn(() => "signature");
+    const fetch = createPaidFetch({ ...makeConfig(), fetchImpl, sign });
+    const response = await fetch("https://example.com/pay");
+
+    expect(response.status).toBe(402);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(sign).not.toHaveBeenCalled();
+  });
+
+  it("does not sign a challenge when no trusted gateway key is configured", async () => {
+    const challenge = signedChallenge({ x402Version: 2, accepts: [{ scheme: "exact" }] });
+    const fetchImpl = jest.fn().mockResolvedValue(new Response("payment required", {
+      status: 402,
+      headers: { "PAYMENT-REQUIRED": btoa(JSON.stringify(challenge)) },
+    }));
+    const sign = jest.fn(() => "signature");
+    const fetch = createPaidFetch({ ...makeConfig(), gatewayPublicKey: "", fetchImpl, sign });
+    const response = await fetch("https://example.com/pay");
+
+    expect(response.status).toBe(402);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(sign).not.toHaveBeenCalled();
   });
 });

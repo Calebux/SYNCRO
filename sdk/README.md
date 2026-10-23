@@ -61,13 +61,24 @@ npm install @syncro/sdk
 ```typescript
 import { createPaidFetch } from "@syncro/sdk/v3";
 
-const fetch = createPaidFetch({ spendingKey: "..." });
+const fetch = createPaidFetch({
+  spendingKey: "...",
+  gatewayPublicKey: "<trusted Ed25519 PEM from the gateway's well-known receipt-key endpoint>",
+});
 const res = await fetch("https://api.syncro.example.com/charge");
 
 if (res.receipt) {
   console.log("Payment settled:", res.receipt.transaction);
 }
 ```
+
+`createPaidFetch` only signs a `PAYMENT-REQUIRED` challenge after verifying its
+Ed25519 signature with `gatewayPublicKey`. Obtain and pin that key from the
+gateway's `/.well-known/syncro-receipt-keys` endpoint over a trusted channel.
+The gateway deployment must keep its receipt signing key pair persistent so
+the published public key remains stable across restarts.
+Unsigned challenges, invalid signatures, and responses without a configured
+gateway key are returned as 402 responses without signing or retrying.
 
 ## Configuration
 

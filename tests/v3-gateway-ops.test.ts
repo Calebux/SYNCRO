@@ -29,7 +29,7 @@ describe('V3 Gateway, 402 Challenges, Cap Admission & Unit Economics', () => {
         contract: 'CA_V3_CHANNEL',
         chain: 'stellar:testnet',
         ttlSeconds: 120,
-      });
+      }, () => 'test-signature');
 
       expect(challenge.scheme).toBe('channel-state');
       expect(challenge.chain).toBe('stellar:testnet');
@@ -39,6 +39,7 @@ describe('V3 Gateway, 402 Challenges, Cap Admission & Unit Economics', () => {
       expect(challenge.amount).toBe('10');
       expect(challenge.nonce).toMatch(/^ch_nonce_/);
       expect(challenge.expiresAt).toBeDefined();
+      expect(challenge.signature).toBe('test-signature');
 
       const decoded = JSON.parse(Buffer.from(headerValue, 'base64').toString('utf8'));
       expect(decoded.nonce).toBe(challenge.nonce);
