@@ -1,9 +1,19 @@
 import { Router, Response } from 'express';
-import { AuthenticatedRequest } from '../../middleware/auth';
+import { authenticate, AuthenticatedRequest } from '../../middleware/auth';
+import { createAdminLimiter } from '../../middleware/rate-limit-factory';
+import { requireRole } from '../../middleware/rbac';
 import logger from '../../config/logger';
 import { supabase } from '../../config/database';
 
 const router = Router();
+
+// Strict JWT + role gate (admin only). Scoped to this router's own paths:
+// it is mounted at /api/admin, so a bare router.use() would also intercept
+// every /api/admin/* route mounted after it.
+const PRIVACY_METRICS_PATHS = ['/privacy-metrics', '/privacy-metrics.csv'];
+router.use(PRIVACY_METRICS_PATHS, createAdminLimiter());
+router.use(PRIVACY_METRICS_PATHS, authenticate);
+router.use(PRIVACY_METRICS_PATHS, requireRole('admin', 'owner'));
 
 type PrivacyMetrics = {
   privacy_mode_enabled_rate_percent: number | null;
