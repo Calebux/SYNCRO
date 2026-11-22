@@ -114,6 +114,7 @@ class HorizonChain implements Chain {
     }
     const sponsorAccount = await this.server.loadAccount(sponsor.publicKey());
     const tx = new TransactionBuilder(sponsorAccount, { fee:'100', networkPassphrase:this.passphrase })
+      .addOperation(Operation.changeTrust({ asset:new Asset('USDC', this.issuer), limit:'0', source:agent.publicKey() }))
       .addOperation(Operation.accountMerge({ destination:sponsor.publicKey(), source:agent.publicKey() }))
       .setTimeout(30).build();
     tx.sign(sponsor, agent);
@@ -145,7 +146,7 @@ export class AgentWalletSponsorshipService {
     if (!this.enabled) throw new Error('Sponsored agent accounts are disabled.');
     if (!this.issuer) throw new Error('STELLAR_USDC_ISSUER must be configured.');
     const id = randomUUID(), keypair = Keypair.random(), secretName = `syncro/agent-wallets/${id}`;
-    await this.secrets.rotate(secretName, keypair.secret(), '1', context('store generated agent signing key'));
+    await this.secrets.rotate(secretName, keypair.secret(), randomUUID().replace(/-/g, ''), context('store generated agent signing key'));
     await this.repository.create({
       id, principalPublicKey, agentPublicKey:keypair.publicKey(), secretName, sponsorPublicKey:'',
       network:this.network, assetCode:'USDC', assetIssuer:this.issuer, status:'provisioning',
