@@ -13,6 +13,7 @@ import {
   ChannelHealth,
   PrincipalAlert,
 } from '@syncro/shared/domain';
+import { DEFAULT_BURN_WINDOW_DAYS, DAY_MS, forecastFromPayments } from '../v3/spend-forecast';
 
 /** Default period: last 30 days */
 const DEFAULT_GRANULARITY: AnalyticsPeriod['granularity'] = 'day';
@@ -97,13 +98,11 @@ export class AnalyticsV3Service {
       activeChannels,
       capUtilizationPerAgent: capUtilization.map((agent) => {
         const channel = channelHealth.find((item) => item.channelId === agent.agentId);
-        const projectedCapAt = channel?.burnRatePerDay && agent.currentBalance > 0
-          ? new Date(Date.now() + (agent.currentBalance / channel.burnRatePerDay) * 86_400_000).toISOString()
-          : null;
         return {
           ...agent,
           dailySpendRate: channel?.burnRatePerDay ?? 0,
-          projectedCapAt,
+          projectedCapAt: channel?.projectedExhaustionAt ?? null,
+          hoursToCap: channel?.hoursToExhaustion ?? null,
         };
       }),
       routeMix,
@@ -237,8 +236,10 @@ export class AnalyticsV3Service {
     });
   }
 
-  /** Derive channel burn and exhaustion from the last 30 days of metered payments. */
-  private async getChannelHealth(userId: string, period: AnalyticsPeriod): Promise<ChannelHealth[]> {
+  /** Derive channel burn and exhaustion from a rolling window of metered payments. */
+  private async getChannelHealth(userId: string, _period: AnalyticsPeriod): Promise<ChannelHealth[]> {
+    const nowMs = Date.now();
+    const windowStart = new Date(nowMs - DEFAULT_BURN_WINDOW_DAYS * DAY_MS).toISOString();
     const [{ data: channels }, { data: payments }] = await Promise.all([
       supabase
         .from('payment_channels')
@@ -249,23 +250,22 @@ export class AnalyticsV3Service {
         .from('channel_payments')
         .select('channel_id, amount, created_at')
         .eq('user_id', userId)
-        .gte('created_at', period.start)
-        .lte('created_at', period.end),
+        .gte('created_at', windowStart)
+        .lte('created_at', new Date(nowMs).toISOString()),
     ]);
 
-    const paymentTotals = new Map<string, number>();
+    const paymentsByChannel = new Map<string, { amount: number; createdAt: string }[]>();
     for (const payment of payments ?? []) {
-      paymentTotals.set(payment.channel_id, (paymentTotals.get(payment.channel_id) ?? 0) + Number(payment.amount || 0));
+      const list = paymentsByChannel.get(payment.channel_id) ?? [];
+      list.push({ amount: Number(payment.amount || 0), createdAt: payment.created_at });
+      paymentsByChannel.set(payment.channel_id, list);
     }
-    const days = Math.max(1, (Date.parse(period.end) - Date.parse(period.start)) / 86_400_000);
 
     return (channels ?? []).map((channel) => {
       const balance = Number(channel.balance) || 0;
       const capacity = Number(channel.deposit_amount) || balance;
-      const burnRatePerDay = (paymentTotals.get(channel.channel_id) ?? 0) / days;
-      const exhaustion = burnRatePerDay > 0
-        ? new Date(Date.now() + (balance / burnRatePerDay) * 86_400_000).toISOString()
-        : null;
+      const forecast = forecastFromPayments(balance, paymentsByChannel.get(channel.channel_id) ?? [], nowMs);
+      const { burnRatePerDay, projectedExhaustionAt: exhaustion } = forecast;
       return {
         channelId: channel.channel_id,
         agentName: channel.counterparty || `Channel ${channel.channel_id.slice(0, 8)}`,
@@ -274,6 +274,7 @@ export class AnalyticsV3Service {
         capacity,
         burnRatePerDay,
         projectedExhaustionAt: exhaustion,
+        hoursToExhaustion: forecast.hoursToExhaustion,
         pendingClose: channel.state === 'closing' || channel.state === 'dispute',
       };
     });

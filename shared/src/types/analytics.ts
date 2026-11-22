@@ -114,6 +114,8 @@ export interface CapUtilization {
   currentSpend?: number;
   dailySpendRate?: number;
   projectedCapAt?: string | null;
+  /** Hours until the cap binds at the rolling burn rate; null when not burning. */
+  hoursToCap?: number | null;
 }
 
 export interface ChannelHealth {
@@ -124,6 +126,8 @@ export interface ChannelHealth {
   capacity: number;
   burnRatePerDay: number;
   projectedExhaustionAt: string | null;
+  /** Hours until the channel balance runs out at the rolling burn rate. */
+  hoursToExhaustion?: number | null;
   pendingClose: boolean;
 }
 

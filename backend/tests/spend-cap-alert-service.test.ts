@@ -48,6 +48,7 @@ describe('SpendCapAlertService', () => {
       if (table === 'user_preferences') {
         return query({ data: { spend_cap_alert_channels: [] }, error: null });
       }
+      if (table === 'channel_payments') return query({ data: [], error: null });
       return query({ data: { id: 'alert-log' }, error: null });
     });
     getUserById.mockResolvedValue({ data: { user: { email: 'principal@example.test' } }, error: null });
@@ -70,6 +71,7 @@ describe('SpendCapAlertService', () => {
       if (table === 'user_preferences') {
         return query({ data: { spend_cap_alert_channels: ['email'] }, error: null });
       }
+      if (table === 'channel_payments') return query({ data: [], error: null });
       return query({ data: { id: 'alert-log' }, error: null });
     });
 
@@ -79,5 +81,30 @@ describe('SpendCapAlertService', () => {
       'SYNCRO spend-cap 80% alert',
       'SYNCRO spend-cap 100% alert',
     ]);
+  });
+
+  it('sends a forecast alert when exhaustion is projected inside the window', async () => {
+    const now = new Date('2026-10-20T00:00:00.000Z');
+    const recent = new Date(now.getTime() - 3_600_000).toISOString();
+    const setup = (payments: unknown[]) =>
+      from.mockImplementation((table: string) => {
+        if (table === 'payment_channels') {
+          // 50 remaining; 7 day window total 350 => 50/day => 24h to exhaustion
+          return query({ data: [{ channel_id: 'agent-1', user_id: 'principal-1', balance: 50, deposit_amount: 100 }], error: null });
+        }
+        if (table === 'user_preferences') return query({ data: { spend_cap_alert_channels: ['email'] }, error: null });
+        if (table === 'channel_payments') return query({ data: payments, error: null });
+        return query({ data: { id: 'alert-log' }, error: null });
+      });
+
+    setup([{ channel_id: 'agent-1', amount: 350, created_at: recent }]);
+    await expect(spendCapAlertService.run(now)).resolves.toBe(1);
+    expect(sendSimpleEmail.mock.calls[0][1]).toBe('SYNCRO spend forecast alert');
+
+    sendSimpleEmail.mockClear();
+    // 7/day => ~7 days to exhaustion: outside the 24h window
+    setup([{ channel_id: 'agent-1', amount: 49, created_at: recent }]);
+    await expect(spendCapAlertService.run(now)).resolves.toBe(0);
+    expect(sendSimpleEmail).not.toHaveBeenCalled();
   });
 });

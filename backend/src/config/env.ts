@@ -56,6 +56,7 @@ export const envSchema = z.object({
   STEALTH_PAYMENTS_ENABLED: z.string().optional(),
   STEALTH_SCAN_BATCH_SIZE: z.string().default('50'),
   PAYMENT_CHANNELS_ENABLED: z.string().optional(),
+  SPEND_FORECAST_ALERT_WINDOW_HOURS: z.string().default('24'),
   FX_ORACLE_ENABLED: z.string().optional(),
   SETTLEMENT_MIN_BATCH: z.string().default('3'),
   SETTLEMENT_MAX_BATCH: z.string().default('20'),
