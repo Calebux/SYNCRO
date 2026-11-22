@@ -10,6 +10,7 @@ export type SettlementStatus = 'settled' | 'unsettled' | 'in_dispute';
 
 export interface ProviderRegistration {
   providerId: string;
+  providerSecret?: string;
   identity: string;
   payoutAddress: string;
   upstreamBaseUrl: string;
@@ -135,6 +136,7 @@ export interface RouteDraft {
 }
 
 export const PROVIDER_SESSION_KEY = 'syncro.providerConsole.providerId';
+export const PROVIDER_SECRET_SESSION_KEY = 'syncro.providerConsole.providerSecret';
 
 export const RATE_CARD_NON_RETROACTIVE_NOTICE =
   'Price changes are not retroactive. Each version applies only to calls metered on or after its effective time. Calls already metered keep the version that was in force then.';
@@ -229,10 +231,12 @@ function errorMessage(body: unknown): string {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const providerKey = typeof window !== 'undefined' ? window.sessionStorage.getItem(PROVIDER_SECRET_SESSION_KEY) : null;
   const response = await fetch(`${apiBase()}${path}`, {
     ...init,
     headers: {
       'content-type': 'application/json',
+      ...(providerKey ? { 'x-provider-key': providerKey } : {}),
       ...(init?.headers ?? {}),
     },
   });

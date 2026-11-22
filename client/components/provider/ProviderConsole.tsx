@@ -20,11 +20,13 @@ import {
 import {
   PAYOUT_CHANGE_COOLING_OFF_MS,
   PROVIDER_SESSION_KEY,
+  PROVIDER_SECRET_SESSION_KEY,
   RATE_CARD_NON_RETROACTIVE_NOTICE,
   SEPARATE_REVENUE_NOTICE,
   ProviderConsoleClient,
   ProviderConsoleError,
   ProviderConsoleSnapshot,
+  ProviderRegistration,
   ProviderMode,
   ProviderRevenue,
   ProviderSettlement,
@@ -115,13 +117,15 @@ export function ProviderConsole({ client = providerConsoleClient }: ProviderCons
     setChallenge(next.provider.payoutChallenge);
   }
 
-  function rememberProvider(id: string) {
-    sessionStorage.setItem(PROVIDER_SESSION_KEY, id);
-    setProviderId(id);
+  function rememberProvider(provider: ProviderRegistration) {
+    sessionStorage.setItem(PROVIDER_SESSION_KEY, provider.providerId);
+    if (provider.providerSecret) sessionStorage.setItem(PROVIDER_SECRET_SESSION_KEY, provider.providerSecret);
+    setProviderId(provider.providerId);
   }
 
   function forgetProvider() {
     sessionStorage.removeItem(PROVIDER_SESSION_KEY);
+    sessionStorage.removeItem(PROVIDER_SECRET_SESSION_KEY);
     setProviderId(null);
     setSnapshot(null);
     setChallenge(null);
@@ -152,9 +156,9 @@ export function ProviderConsole({ client = providerConsoleClient }: ProviderCons
 
       {!snapshot ? (
         <RegistrationForm
-          onRegistered={async (id) => {
+          onRegistered={async (provider) => {
             setError(null);
-            rememberProvider(id);
+            rememberProvider(provider);
           }}
           client={client}
           onError={setError}
@@ -215,7 +219,7 @@ function RegistrationForm({
   onError,
 }: {
   client: ProviderConsoleClient;
-  onRegistered: (providerId: string) => Promise<void>;
+  onRegistered: (provider: ProviderRegistration) => Promise<void>;
   onError: (message: string) => void;
 }) {
   const [identity, setIdentity] = useState('');
@@ -236,7 +240,7 @@ function RegistrationForm({
         agreementTerms: agreementTerms.trim(),
         mode,
       });
-      await onRegistered(provider.providerId);
+      await onRegistered(provider);
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Registration failed.');
     } finally {
