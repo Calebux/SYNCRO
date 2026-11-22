@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -108,11 +109,16 @@ export default function ProviderPage() {
 
   return (
     <div className="space-y-6 p-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Provider console</h1>
-        <p className="text-sm text-muted-foreground">
-          Manage the routes that connect your agents to model providers.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Provider console</h1>
+          <p className="text-sm text-muted-foreground">
+            Manage the routes that connect your agents to model providers.
+          </p>
+        </div>
+        <Link href="/provider/pricing-simulator" className="inline-flex h-9 items-center rounded-md border px-3 text-sm font-medium hover:bg-muted">
+          Open pricing simulator
+        </Link>
       </div>
 
       <Card>
