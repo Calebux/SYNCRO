@@ -917,6 +917,12 @@ function RateCardSection({ versions }: { versions: RateCardVersion[] }) {
                     </p>
                     <p className="mt-1 text-muted-foreground">{describeRateCardVersion(version, rows)}</p>
                     <p className="mt-1 font-mono text-xs">Extractor {version.quantityExtractor}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Free units per call: {version.freeUnits ?? 0}.{' '}
+                      {version.tiers?.length
+                        ? `Tiers: ${version.tiers.map((tier) => `${tier.upToUnits ?? '∞'} units @ ${tier.priceStroops} stroops`).join(' · ')}`
+                        : 'Flat per-unit pricing.'}
+                    </p>
                   </li>
                 ))}
               </ul>
