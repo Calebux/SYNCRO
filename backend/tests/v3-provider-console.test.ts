@@ -3,6 +3,7 @@ import request from 'supertest';
 import { Keypair } from '@stellar/stellar-sdk';
 import v3GatewayRouter from '../src/routes/v3-gateway';
 import { InMemoryProviderStore } from '../src/v3/provider-store';
+import { calculateChargeStroops } from '../src/v3/pricing';
 
 describe('provider console reads', () => {
   beforeEach(() => {
@@ -225,5 +226,47 @@ describe('rate card applicability', () => {
       inDispute: 6,
     });
     expect(store.revenue(provider.providerId)).not.toHaveProperty('total');
+  });
+});
+
+
+describe('gateway tiered pricing', () => {
+  it('preserves flat pricing when no schedule is supplied', () => {
+    expect(calculateChargeStroops(7, 3)).toBe(21);
+  });
+
+  it('deducts the per-call free allowance before charging', () => {
+    expect(calculateChargeStroops(7, 5, { freeUnits: 2 })).toBe(21);
+    expect(calculateChargeStroops(7, 2, { freeUnits: 2 })).toBe(0);
+  });
+
+  it('applies marginal tiers after the free allowance', () => {
+    const schedule = {
+      freeUnits: 2,
+      tiers: [
+        { upToUnits: 3, priceStroops: 10 },
+        { upToUnits: 8, priceStroops: 6 },
+        { upToUnits: null, priceStroops: 2 },
+      ],
+    };
+    // 10 units: 2 free, then 3 @ 10, 5 @ 6.
+    expect(calculateChargeStroops(10, 10, schedule)).toBe(60);
+  });
+
+  it('rejects malformed tier schedules instead of silently mispricing', () => {
+    expect(() => calculateChargeStroops(10, 5, {
+      tiers: [
+        { upToUnits: 5, priceStroops: 10 },
+        { upToUnits: 4, priceStroops: 5 },
+        { upToUnits: null, priceStroops: 1 },
+      ],
+    })).toThrow(/strictly increasing/);
+    expect(() => calculateChargeStroops(10, 5, {
+      tiers: [{ upToUnits: 5, priceStroops: 10 }],
+    })).toThrow(/unlimited upper bound/);
+  });
+
+  it('rejects charges that exceed safe integer precision', () => {
+    expect(() => calculateChargeStroops(Number.MAX_SAFE_INTEGER, 2)).toThrow(/maximum safe integer/);
   });
 });

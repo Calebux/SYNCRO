@@ -508,7 +508,7 @@ export class V3GatewayService {
       throw new PaidCallRequestError('route has no applicable rate-card version');
     }
     const upperBoundUnits = rateCard.maxBillableUnits;
-    const upperBoundStroops = calculateChargeStroops(rateCard.priceStroops, upperBoundUnits);
+    const upperBoundStroops = calculateChargeStroops(rateCard.priceStroops, upperBoundUnits, rateCard);
 
     // -----------------------------------------------------------------------
     // 1. Degraded admission — decide what happens if the counter store is
@@ -587,7 +587,7 @@ export class V3GatewayService {
       this.meter.commit(reservation.id, upperBoundStroops);
       throw new PaidCallRequestError('measured usage exceeded the route admission maximum');
     }
-    const amount = calculateChargeStroops(rateCard.priceStroops, actualUnits);
+    const amount = calculateChargeStroops(rateCard.priceStroops, actualUnits, rateCard);
     this.meter.commit(reservation.id, amount);
 
     const meteredAt = admittedAt;
