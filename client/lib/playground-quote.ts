@@ -4,7 +4,7 @@ function stroops(value: string): bigint {
     throw new Error('Enter an amount with up to seven decimal places.');
   }
   const [whole, fraction = ''] = value.split('.');
-  return BigInt(whole) * 10_000_000n + BigInt(fraction.padEnd(7, '0'));
+  return BigInt(whole) * BigInt(10_000_000) + BigInt(fraction.padEnd(7, '0'));
 }
 
 export async function getPlaygroundQuote(
@@ -13,7 +13,7 @@ export async function getPlaygroundQuote(
   fetchImpl: typeof fetch = fetch,
 ) {
   const limit = stroops(budget);
-  if (limit <= 0n) throw new Error('The budget must be positive.');
+  if (limit <= BigInt(0)) throw new Error('The budget must be positive.');
   const url = new URL('/api/v3/gateway/challenge?routeId=proxy', apiOrigin);
   const response = await fetchImpl(url, { credentials: 'omit', redirect: 'error', cache: 'no-store' });
   if (response.status !== 402) throw new Error('The demo gateway did not return a payment challenge.');
