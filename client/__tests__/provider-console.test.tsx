@@ -135,6 +135,7 @@ function client(overrides: Partial<ProviderConsoleClient> = {}): ProviderConsole
     registerRoute: vi.fn(),
     reviseRoute: vi.fn(),
     loadConsole: vi.fn(),
+    simulatePricing: vi.fn(),
     ...overrides,
   };
 }

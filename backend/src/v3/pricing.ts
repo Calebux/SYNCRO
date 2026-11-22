@@ -98,7 +98,7 @@ export function calculateChargeStroops(
 export function extractMeasuredQuantity(extractor: string, responseBody: unknown): number {
   if (extractor === 'constant:1') return 1;
 
-  const segments = extractor.match(/^\\$\\.([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)$/)?.[1]
+  const segments = extractor.match(/^\$\.([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)$/)?.[1]
     .split('.');
   if (!segments || typeof responseBody !== 'object' || responseBody === null) {
     throw new Error(`unsupported quantity extractor: ${extractor}`);

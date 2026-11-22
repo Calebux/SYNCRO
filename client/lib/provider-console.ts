@@ -40,6 +40,9 @@ export interface RateCardVersion {
   sequence: number;
   label: string;
   price: number;
+  priceStroops?: number;
+  freeUnits?: number;
+  tiers?: { upToUnits: number | null; priceStroops: number }[];
   unit: string;
   quantityExtractor: string;
   pathPattern: string;
@@ -55,6 +58,9 @@ export interface ProviderRoute {
   method: string;
   unit: string;
   price: number;
+  priceStroops?: number;
+  freeUnits?: number;
+  tiers?: { upToUnits: number | null; priceStroops: number }[];
   quantityExtractor: string;
   scopeKey: string;
   createdAt: string;

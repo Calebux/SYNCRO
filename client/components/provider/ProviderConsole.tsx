@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
+import { PricingSimulator } from './PricingSimulator';
 import {
   Alert,
   AlertDescription,
@@ -200,6 +201,7 @@ export function ProviderConsole({ client = providerConsoleClient }: ProviderCons
           />
 
           <RateCardSection versions={snapshot.rateCards} />
+          <PricingSimulator snapshot={snapshot} client={client} />
           <SettlementHistory settlements={snapshot.settlements} />
         </>
       )}
