@@ -1,0 +1,49 @@
+# Property-based fuzzing for 402 challenge and payment header parsers (#1873).
+#
+# Runs a short fuzz sweep on every PR touching either the SDK or the Gateway
+# parsers, and a long nightly fuzz sweep (5,000+ iterations per property with
+# random seeds plus committed regression seeds) every night.
+name: Header Parser Fuzzing
+
+on:
+  schedule:
+    # 02:30 UTC daily
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+    inputs:
+      fuzz_mode:
+        description: 'Fuzzing mode (short or nightly)'
+        required: false
+        default: 'nightly'
+  pull_request:
+    paths:
+      - 'sdk/src/v3/**'
+      - 'sdk/tests/v3-header-parsers-fuzz.test.ts'
+      - 'backend/src/services/v3/**'
+      - 'backend/tests/v3-header-parsers-fuzz.test.ts'
+      - 'packages/metering/src/header-parsers.fuzz.test.ts'
+      - 'shared/fixtures/header-fuzz-regression-seeds.json'
+      - 'shared/src/testing/fast-check-harness.ts'
+      - 'scripts/run-header-fuzz.mjs'
+      - '.github/workflows/fuzz-nightly.yml'
+
+jobs:
+  fuzz-header-parsers:
+    name: Fuzz 402 Challenge & Payment Header Parsers
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '23.4.0'
+
+      - name: Run 402 challenge and payment header fuzzers
+        env:
+          FUZZ_MODE: ${{ github.event_name == 'schedule' && 'nightly' || github.event.inputs.fuzz_mode || 'short' }}
+          FC_SEED: ${{ github.event_name == 'schedule' && 'random' || '20261122' }}
+        run: node --experimental-strip-types scripts/run-header-fuzz.mjs

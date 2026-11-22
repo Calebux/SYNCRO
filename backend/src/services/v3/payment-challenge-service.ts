@@ -175,26 +175,232 @@ function canonicalizeChallenge(value: unknown): string {
   return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalizeChallenge(entry)}`).join(',')}}`;
 }
 
-export function parsePaymentProof(headerValue: string): PaymentProof | null {
+const MAX_HEADER_LENGTH = 16_384;
+const MAX_JSON_DEPTH = 16;
+const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const DECIMAL_AMOUNT_PATTERN = /^(?:0|[1-9]\d*)(?:\.\d+)?$/;
+const HEX_EVEN_PATTERN = /^(?:[0-9a-fA-F]{2})+$/;
+
+const CHALLENGE_KEYS = new Set([
+  'challengeId',
+  'scheme',
+  'chain',
+  'contract',
+  'channelAddress',
+  'settlementAsset',
+  'amount',
+  'rate',
+  'nonce',
+  'expiresAt',
+  'signature',
+]);
+
+const PROOF_REQUIRED_KEYS = [
+  'channelId',
+  'sequenceNumber',
+  'userBalance',
+  'executorBalance',
+  'totalDeposited',
+  'nonce',
+  'signature',
+  'payerAddress',
+] as const;
+
+const PROOF_ALLOWED_KEYS = new Set<string>([
+  ...PROOF_REQUIRED_KEYS,
+  'expiresAt',
+  'timestamp',
+  'requestHash',
+]);
+
+const FORBIDDEN_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+function exceedsJsonDepth(value: unknown, depth: number = 0): boolean {
+  if (depth > MAX_JSON_DEPTH) return true;
+  if (value === null || typeof value !== 'object') return false;
+  if (Array.isArray(value)) {
+    return value.some((item) => exceedsJsonDepth(item, depth + 1));
+  }
+  const record = value as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (FORBIDDEN_OBJECT_KEYS.has(key)) return true;
+    if (exceedsJsonDepth(record[key], depth + 1)) return true;
+  }
+  return false;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function isNonEmptyTrimmedString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.trim().length > 0;
+}
+
+function isPositiveDecimalString(value: unknown): value is string {
+  if (typeof value !== 'string' || !DECIMAL_AMOUNT_PATTERN.test(value)) return false;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0;
+}
+
+function isValidIsoTimestampString(value: unknown): value is string {
+  if (!isNonEmptyTrimmedString(value)) return false;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed);
+}
+
+function decodeCanonicalBase64Json(headerValue: string): Record<string, unknown> | null {
+  if (typeof headerValue !== 'string' || headerValue.length === 0 || headerValue.length > MAX_HEADER_LENGTH) {
+    return null;
+  }
+  if (headerValue.length % 4 !== 0 || !BASE64_PATTERN.test(headerValue)) {
+    return null;
+  }
   try {
-    const raw = Buffer.from(headerValue, 'base64').toString('utf8');
-    const parsed = JSON.parse(raw);
-    if (
-      !parsed ||
-      typeof parsed !== 'object' ||
-      !parsed.channelId ||
-      typeof parsed.sequenceNumber !== 'number' ||
-      !parsed.nonce ||
-      !parsed.signature ||
-      !parsed.payerAddress
-    ) {
+    const rawBuffer = Buffer.from(headerValue, 'base64');
+    const raw = rawBuffer.toString('utf8');
+    // Enforce strict base64 + UTF-8 canonical encoding so corrupted padding bits
+    // or invalid UTF-8 byte sequences are rejected.
+    if (Buffer.from(raw, 'utf8').toString('base64') !== headerValue) {
       return null;
     }
-    return parsed as PaymentProof;
+    if (raw.includes('"__proto__"') || raw.includes('"constructor"') || raw.includes('"prototype"')) {
+      return null;
+    }
+    const parsed: unknown = JSON.parse(raw);
+    if (!isPlainObject(parsed) || exceedsJsonDepth(parsed)) {
+      return null;
+    }
+    // Enforce canonical JSON representation (rejects duplicate keys, extra whitespace,
+    // non-canonical numbers like 1e2 or -0).
+    if (JSON.stringify(parsed) !== raw) {
+      return null;
+    }
+    return parsed;
   } catch {
     return null;
   }
 }
+
+export function isValidChallengeDetails(value: unknown): value is ChallengeDetails {
+  if (!isPlainObject(value) || exceedsJsonDepth(value)) return false;
+  const keys = Object.keys(value);
+  if (keys.length !== CHALLENGE_KEYS.size) return false;
+  for (const key of keys) {
+    if (!CHALLENGE_KEYS.has(key) || FORBIDDEN_OBJECT_KEYS.has(key)) return false;
+  }
+
+  return (
+    isNonEmptyTrimmedString(value.challengeId) &&
+    (value.scheme === 'channel-state' || value.scheme === 'exact') &&
+    isNonEmptyTrimmedString(value.chain) &&
+    isNonEmptyTrimmedString(value.contract) &&
+    isNonEmptyTrimmedString(value.channelAddress) &&
+    isNonEmptyTrimmedString(value.settlementAsset) &&
+    isPositiveDecimalString(value.amount) &&
+    isPositiveDecimalString(value.rate) &&
+    isNonEmptyTrimmedString(value.nonce) &&
+    isValidIsoTimestampString(value.expiresAt) &&
+    isNonEmptyTrimmedString(value.signature)
+  );
+}
+
+export function isValidPaymentProof(value: unknown): value is PaymentProof {
+  if (!isPlainObject(value) || exceedsJsonDepth(value)) return false;
+  const keys = Object.keys(value);
+  for (const key of keys) {
+    if (!PROOF_ALLOWED_KEYS.has(key) || FORBIDDEN_OBJECT_KEYS.has(key)) return false;
+  }
+  for (const reqKey of PROOF_REQUIRED_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(value, reqKey)) return false;
+  }
+
+  if (
+    !isNonEmptyTrimmedString(value.channelId) ||
+    typeof value.sequenceNumber !== 'number' ||
+    !Number.isSafeInteger(value.sequenceNumber) ||
+    value.sequenceNumber < 0 ||
+    typeof value.userBalance !== 'number' ||
+    !Number.isFinite(value.userBalance) ||
+    value.userBalance < 0 ||
+    Object.is(value.userBalance, -0) ||
+    typeof value.executorBalance !== 'number' ||
+    !Number.isFinite(value.executorBalance) ||
+    value.executorBalance < 0 ||
+    Object.is(value.executorBalance, -0) ||
+    typeof value.totalDeposited !== 'number' ||
+    !Number.isFinite(value.totalDeposited) ||
+    value.totalDeposited < 0 ||
+    Object.is(value.totalDeposited, -0) ||
+    !isNonEmptyTrimmedString(value.nonce) ||
+    !isNonEmptyTrimmedString(value.signature) ||
+    !isNonEmptyTrimmedString(value.payerAddress)
+  ) {
+    return false;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(value, 'expiresAt')) {
+    if (!isValidIsoTimestampString(value.expiresAt)) return false;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(value, 'timestamp')) {
+    if (
+      typeof value.timestamp !== 'number' ||
+      !Number.isFinite(value.timestamp) ||
+      value.timestamp <= 0
+    ) {
+      return false;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(value, 'requestHash')) {
+    if (
+      typeof value.requestHash !== 'string' ||
+      value.requestHash.length < 2 ||
+      !HEX_EVEN_PATTERN.test(value.requestHash)
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+export function parsePaymentChallenge(headerValue: string): ChallengeDetails | null {
+  const parsed = decodeCanonicalBase64Json(headerValue);
+  if (!parsed || !isValidChallengeDetails(parsed)) {
+    return null;
+  }
+  return parsed;
+}
+
+export function serialisePaymentChallenge(challenge: ChallengeDetails): string {
+  if (!isValidChallengeDetails(challenge)) {
+    throw new TypeError('Invalid ChallengeDetails object');
+  }
+  return Buffer.from(JSON.stringify(challenge), 'utf8').toString('base64');
+}
+
+export const serializePaymentChallenge = serialisePaymentChallenge;
+
+export function parsePaymentProof(headerValue: string): PaymentProof | null {
+  const parsed = decodeCanonicalBase64Json(headerValue);
+  if (!parsed || !isValidPaymentProof(parsed)) {
+    return null;
+  }
+  return parsed;
+}
+
+export function serialisePaymentProof(proof: PaymentProof): string {
+  if (!isValidPaymentProof(proof)) {
+    throw new TypeError('Invalid PaymentProof object');
+  }
+  return Buffer.from(JSON.stringify(proof), 'utf8').toString('base64');
+}
+
+export const serializePaymentProof = serialisePaymentProof;
 
 export function verifyPaymentProof(
   proof: PaymentProof,
@@ -211,6 +417,14 @@ export function verifyPaymentProof(
   const nStore = options?.nonceStore || challengeNonceStore;
   const signingSecret = options?.signingSecret || 'dev-channel-secret';
   const now = options?.nowMs ?? Date.now();
+
+  if (!isValidPaymentProof(proof)) {
+    return {
+      valid: false,
+      code: 'INVALID_PROOF_STRUCTURE',
+      error: 'Payment proof has invalid structure or field types',
+    };
+  }
 
   // 1. Freshness window check on timestamp if provided
   if (proof.timestamp !== undefined) {

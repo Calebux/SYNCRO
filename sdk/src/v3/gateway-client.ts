@@ -1,11 +1,11 @@
 import {
-  GatewayErrorCode,
+  type GatewayErrorCode,
   GatewaySdkError,
   createGatewayErrorFromCode,
   createGatewayErrorFromHttpStatus,
   isGatewayErrorCode,
 } from "../generated/gateway-errors.js";
-import { DefaultRetryPolicy, LogicalCallManager, LogicalCallOptions } from "./retry.js";
+import { type DefaultRetryPolicy, LogicalCallManager, type LogicalCallOptions } from "./retry.js";
 
 export interface GatewayClientOptions {
   fetchImpl?: typeof fetch;

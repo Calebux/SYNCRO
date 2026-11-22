@@ -1,0 +1,284 @@
+{
+  "contractVersion": "3.0.0",
+  "issue": "#1872",
+  "taxonomyIssue": "#1493",
+  "consumer": {
+    "name": "@syncro/sdk",
+    "modules": [
+      "sdk/src/v3/paid-fetch.ts",
+      "sdk/src/v3/gateway-client.ts",
+      "sdk/src/generated/gateway-errors.ts",
+      "sdk/src/provider/middleware.ts"
+    ]
+  },
+  "provider": {
+    "name": "@therapotics/backend",
+    "modules": [
+      "backend/src/services/v3/payment-challenge-service.ts",
+      "backend/src/services/v3/gateway-lifecycle.ts",
+      "backend/src/routes/v3/gateway.ts",
+      "backend/src/routes/v3-gateway.ts",
+      "backend/src/errors/gateway-taxonomy.json",
+      "backend/src/errors/gateway-error-response.ts"
+    ]
+  },
+  "headers": {
+    "paymentRequired": "PAYMENT-REQUIRED",
+    "paymentSignature": "PAYMENT-SIGNATURE",
+    "paymentResponse": "PAYMENT-RESPONSE",
+    "inlineReceipt": "X-SYNCRO-RECEIPT",
+    "receiptUrl": "X-SYNCRO-RECEIPT-URL",
+    "meterDegraded": "X-Meter-Degraded",
+    "retryAfter": "Retry-After",
+    "idempotencyKey": "idempotency-key",
+    "agentId": "x-syncro-agent-id",
+    "providerPaymentProof": "X-Syncro-Payment-Proof"
+  },
+  "challengeContracts": {
+    "gatewayChannelStateChallenge": {
+      "httpStatus": 402,
+      "headerName": "PAYMENT-REQUIRED",
+      "encoding": "base64-json",
+      "requiredFields": [
+        { "name": "challengeId", "type": "string" },
+        { "name": "scheme", "type": "string", "enum": ["channel-state", "exact"] },
+        { "name": "chain", "type": "string" },
+        { "name": "contract", "type": "string" },
+        { "name": "channelAddress", "type": "string" },
+        { "name": "settlementAsset", "type": "string" },
+        { "name": "amount", "type": "string" },
+        { "name": "rate", "type": "string" },
+        { "name": "nonce", "type": "string" },
+        { "name": "expiresAt", "type": "string", "format": "iso-date-time" },
+        { "name": "signature", "type": "string" }
+      ],
+      "responseBodyRequiredFields": [
+        { "name": "error", "type": "string" },
+        { "name": "challenge", "type": "object" }
+      ]
+    },
+    "x402V2Challenge": {
+      "httpStatus": 402,
+      "headerName": "PAYMENT-REQUIRED",
+      "encoding": "base64-json",
+      "requiredFields": [
+        { "name": "x402Version", "type": "number", "const": 2 },
+        { "name": "accepts", "type": "array" }
+      ],
+      "optionalFields": [
+        { "name": "signature", "type": "string" },
+        { "name": "error", "type": "string" },
+        { "name": "resource", "type": "object" }
+      ],
+      "acceptRequirementFields": [
+        { "name": "scheme", "type": "string" },
+        { "name": "network", "type": "string" },
+        { "name": "amount", "type": "string" },
+        { "name": "asset", "type": "string" },
+        { "name": "payTo", "type": "string" }
+      ]
+    }
+  },
+  "paymentProofContracts": {
+    "gatewayChannelStateProof": {
+      "headerName": "PAYMENT-SIGNATURE",
+      "encoding": "base64-json",
+      "requiredFields": [
+        { "name": "channelId", "type": "string" },
+        { "name": "sequenceNumber", "type": "number" },
+        { "name": "userBalance", "type": "number" },
+        { "name": "executorBalance", "type": "number" },
+        { "name": "totalDeposited", "type": "number" },
+        { "name": "nonce", "type": "string" },
+        { "name": "signature", "type": "string" },
+        { "name": "payerAddress", "type": "string" }
+      ],
+      "optionalFields": [
+        { "name": "expiresAt", "type": "string" },
+        { "name": "timestamp", "type": "number" },
+        { "name": "requestHash", "type": "string" }
+      ]
+    },
+    "x402SignedPayload": {
+      "headerName": "PAYMENT-SIGNATURE",
+      "encoding": "base64-json",
+      "requiredFields": [
+        { "name": "x402Version", "type": "number", "const": 2 },
+        { "name": "accepted", "type": "object" },
+        { "name": "payload", "type": "object" }
+      ]
+    }
+  },
+  "settlementResponseContracts": {
+    "x402PaymentResponse": {
+      "headerName": "PAYMENT-RESPONSE",
+      "encoding": "base64-json",
+      "requiredFields": [
+        { "name": "success", "type": "boolean" }
+      ],
+      "optionalFields": [
+        { "name": "transaction", "type": "string" },
+        { "name": "network", "type": "string" }
+      ]
+    },
+    "gatewayPaidCallHeaders": {
+      "inlineReceiptHeader": "X-SYNCRO-RECEIPT",
+      "receiptUrlHeader": "X-SYNCRO-RECEIPT-URL",
+      "meterDegradedHeader": "X-Meter-Degraded"
+    }
+  },
+  "errorBodyContract": {
+    "requiredFields": [
+      { "name": "code", "type": "string" },
+      { "name": "message", "type": "string" },
+      { "name": "action", "type": "string" },
+      { "name": "retryable", "type": "boolean" }
+    ],
+    "optionalFields": [
+      { "name": "retryAfterSeconds", "type": "number" },
+      { "name": "capResetAt", "type": "string" },
+      { "name": "details", "type": "object" }
+    ]
+  },
+  "errorTaxonomy": [
+    {
+      "code": "GATEWAY_PAYMENT_REQUIRED",
+      "className": "GatewayPaymentRequiredError",
+      "httpStatus": 402,
+      "action": "provide_payment",
+      "retryable": false,
+      "supportsRetryAfterHeader": false,
+      "defaultMessage": "Valid payment authorization is required."
+    },
+    {
+      "code": "GATEWAY_KEY_MISSING",
+      "className": "GatewayKeyMissingError",
+      "httpStatus": 401,
+      "action": "provide_credentials",
+      "retryable": false,
+      "supportsRetryAfterHeader": false,
+      "defaultMessage": "Gateway credentials are required."
+    },
+    {
+      "code": "GATEWAY_KEY_INVALID",
+      "className": "GatewayKeyInvalidError",
+      "httpStatus": 401,
+      "action": "refresh_credentials",
+      "retryable": false,
+      "supportsRetryAfterHeader": false,
+      "defaultMessage": "Gateway credentials are invalid."
+    },
+    {
+      "code": "GATEWAY_KEY_REVOKED",
+      "className": "GatewayKeyRevokedError",
+      "httpStatus": 403,
+      "action": "refresh_credentials",
+      "retryable": false,
+      "supportsRetryAfterHeader": false,
+      "defaultMessage": "Provider key has been revoked."
+    },
+    {
+      "code": "GATEWAY_SCOPE_DENIED",
+      "className": "GatewayScopeDeniedError",
+      "httpStatus": 403,
+      "action": "request_access",
+      "retryable": false,
+      "supportsRetryAfterHeader": false,
+      "defaultMessage": "The credential is not authorized for this scope."
+    },
+    {
+      "code": "GATEWAY_GRANT_EXPIRED",
+      "className": "GatewayGrantExpiredError",
+      "httpStatus": 403,
+      "action": "refresh_grant",
+      "retryable": false,
+      "supportsRetryAfterHeader": false,
+      "defaultMessage": "The payment grant has expired."
+    },
+    {
+      "code": "GATEWAY_CAP_EXCEEDED",
+      "className": "GatewayCapExceededError",
+      "httpStatus": 403,
+      "action": "request_cap_increase",
+      "retryable": false,
+      "supportsRetryAfterHeader": true,
+      "defaultMessage": "The credential spending cap has been exceeded."
+    },
+    {
+      "code": "GATEWAY_CHANNEL_EXHAUSTED",
+      "className": "GatewayChannelExhaustedError",
+      "httpStatus": 402,
+      "action": "fund_channel",
+      "retryable": false,
+      "supportsRetryAfterHeader": false,
+      "defaultMessage": "Payment channel balance is exhausted."
+    },
+    {
+      "code": "GATEWAY_METER_INSUFFICIENT",
+      "className": "GatewayMeterInsufficientError",
+      "httpStatus": 402,
+      "action": "fund_meter",
+      "retryable": false,
+      "supportsRetryAfterHeader": false,
+      "defaultMessage": "Meter balance is insufficient for this request."
+    },
+    {
+      "code": "GATEWAY_RATE_LIMITED",
+      "className": "GatewayRateLimitedError",
+      "httpStatus": 429,
+      "action": "wait",
+      "retryable": true,
+      "retryAfterSeconds": 1,
+      "supportsRetryAfterHeader": true,
+      "defaultMessage": "Gateway rate limit exceeded."
+    },
+    {
+      "code": "GATEWAY_UPSTREAM_UNAVAILABLE",
+      "className": "GatewayUpstreamUnavailableError",
+      "httpStatus": 503,
+      "action": "retry",
+      "retryable": true,
+      "retryAfterSeconds": 5,
+      "supportsRetryAfterHeader": true,
+      "defaultMessage": "Gateway upstream is unavailable."
+    },
+    {
+      "code": "GATEWAY_METER_DEGRADED",
+      "className": "GatewayMeterDegradedError",
+      "httpStatus": 503,
+      "action": "retry",
+      "retryable": true,
+      "retryAfterSeconds": 10,
+      "supportsRetryAfterHeader": true,
+      "defaultMessage": "Gateway metering is temporarily degraded."
+    },
+    {
+      "code": "GATEWAY_BAD_REQUEST",
+      "className": "GatewayBadRequestError",
+      "httpStatus": 400,
+      "action": "fix_request",
+      "retryable": false,
+      "supportsRetryAfterHeader": false,
+      "defaultMessage": "Gateway request is invalid."
+    },
+    {
+      "code": "GATEWAY_UNAUTHORIZED",
+      "className": "GatewayUnauthorizedError",
+      "httpStatus": 401,
+      "action": "provide_credentials",
+      "retryable": false,
+      "supportsRetryAfterHeader": false,
+      "defaultMessage": "Gateway credentials are invalid."
+    },
+    {
+      "code": "GATEWAY_INTERNAL",
+      "className": "GatewayInternalError",
+      "httpStatus": 500,
+      "action": "retry",
+      "retryable": true,
+      "retryAfterSeconds": 5,
+      "supportsRetryAfterHeader": true,
+      "defaultMessage": "Gateway internal error."
+    }
+  ]
+}
