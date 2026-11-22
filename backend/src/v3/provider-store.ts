@@ -84,6 +84,7 @@ export interface RecordSettlementInput {
   status: SettlementStatus;
   meteredAt: string;
   channelId: string;
+  agentId?: string;
 }
 
 /** Input for creating a pending payout address change (requires verified challenge). */
@@ -589,6 +590,7 @@ export class InMemoryProviderStore {
       status: input.status,
       meteredAt: input.meteredAt,
       channelId: input.channelId,
+      ...(input.agentId ? { agentId: input.agentId } : {}),
     };
     this.settlements.set(settlement.settlementId, settlement);
     return { ...settlement };
