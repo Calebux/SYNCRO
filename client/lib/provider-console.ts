@@ -84,6 +84,8 @@ export interface ProviderSettlement {
   status: SettlementStatus;
   meteredAt: string;
   channelId: string;
+  /** Missing on historical records created before agent attribution was added. */
+  agentId?: string;
 }
 
 export interface ProviderRevenue {
