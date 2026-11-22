@@ -99,6 +99,25 @@ export interface ProviderConsoleSnapshot {
   revenue: ProviderRevenue;
 }
 
+export interface PricingSimulationInput {
+  routeId: string;
+  source: 'historical' | 'hypothetical';
+  priceStroops: number;
+  freeUnits: number;
+  tiers?: { upToUnits: number | null; priceStroops: number }[];
+  platformFeeBps: number;
+  traffic?: { agentId: string; calls: number; unitsPerCall: number }[];
+}
+
+export interface PricingSimulationResult {
+  source: 'historical' | 'hypothetical';
+  feeRateBps: number;
+  feeIsEstimate: boolean;
+  currentRateCardVersion: string;
+  rows: { agentId: string; calls: number; draftGrossStroops: number; draftPlatformFeeStroops: number; draftProviderNetStroops: number; currentGrossStroops: number; differenceStroops: number }[];
+  totals: { calls: number; draftGrossStroops: number; draftPlatformFeeStroops: number; draftProviderNetStroops: number; currentGrossStroops: number; differenceStroops: number };
+}
+
 export interface RegisterProviderInput {
   identity: string;
   payoutAddress: string;
@@ -235,6 +254,7 @@ export interface ProviderConsoleClient {
   registerRoute(providerId: string, input: RouteDraft): Promise<ProviderRoute>;
   reviseRoute(providerId: string, routeId: string, input: Partial<RouteDraft>): Promise<{ route: ProviderRoute; version: RateCardVersion }>;
   loadConsole(providerId: string): Promise<ProviderConsoleSnapshot>;
+  simulatePricing(providerId: string, input: PricingSimulationInput): Promise<PricingSimulationResult>;
 }
 
 export const providerConsoleClient: ProviderConsoleClient = {
@@ -295,6 +315,9 @@ export const providerConsoleClient: ProviderConsoleClient = {
         body: JSON.stringify(input),
       },
     );
+  },
+  simulatePricing(providerId, input) {
+    return request<PricingSimulationResult>(`/api/v3/providers/${providerId}/pricing-simulator`, { method: 'POST', body: JSON.stringify(input) });
   },
   async loadConsole(providerId) {
     const [provider, routes, rateCards, settlements, revenue] = await Promise.all([

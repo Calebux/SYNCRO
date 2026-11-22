@@ -15,7 +15,7 @@ export function PricingSimulator({ snapshot, client }: { snapshot: ProviderConso
   const [priceStroops, setPriceStroops] = useState(String(currentVersion?.priceStroops ?? currentVersion?.price ?? selected?.priceStroops ?? selected?.price ?? 1));
   const [freeUnits, setFreeUnits] = useState('0');
   const [firstBandUnits, setFirstBandUnits] = useState('1000');
-  const [firstBandPrice, setFirstBandPrice] = useState(String(currentVersion?.price ?? selected?.price ?? 1));
+  const [firstBandPrice, setFirstBandPrice] = useState(String(currentVersion?.priceStroops ?? currentVersion?.price ?? selected?.priceStroops ?? selected?.price ?? 1));
   const [overflowPrice, setOverflowPrice] = useState(String(currentVersion?.price ?? selected?.price ?? 1));
   const [feeBps, setFeeBps] = useState('250');
   const [agentId, setAgentId] = useState('agent-1');
