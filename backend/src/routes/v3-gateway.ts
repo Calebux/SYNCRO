@@ -620,9 +620,11 @@ router.post('/providers/:providerId/pricing-simulator', requireProviderAuth, (re
     }>();
     if (parsed.data.source === 'historical') {
       for (const settlement of service.listSettlements(providerId).filter((row) => row.routeId === parsed.data.routeId)) {
-        const key = settlement.channelId || 'unknown-channel';
+        // New settlements retain the authenticated agent identity. Keep a
+        // channel-scoped fallback for historical records created before attribution.
+        const key = settlement.agentId || `legacy-channel:${settlement.channelId || 'unknown-channel'}`;
         const profile = profiles.get(key) ?? {
-          agentId: key,
+          agentId: settlement.agentId || `Unattributed (${settlement.channelId || 'unknown channel'})`,
           calls: 0,
           quantities: [],
           unitsPerCall: null,
