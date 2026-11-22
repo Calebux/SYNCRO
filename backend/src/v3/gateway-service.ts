@@ -540,7 +540,7 @@ export class V3GatewayService {
       reservation = this.meter.reserve(
         input.agentId,
         route.scopeKey,
-        upperBoundStroops,
+        Math.max(1, upperBoundStroops),
       );
     } catch (err) {
       if (err instanceof OverageError) {

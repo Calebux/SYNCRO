@@ -12,7 +12,7 @@ export function PricingSimulator({ snapshot, client }: { snapshot: ProviderConso
   const selected = snapshot.routes.find((route) => route.routeId === routeId);
   const currentVersion = selected?.applicableVersion;
   const [source, setSource] = useState<'historical' | 'hypothetical'>('historical');
-  const [priceStroops, setPriceStroops] = useState(String(currentVersion?.price ?? selected?.price ?? 1));
+  const [priceStroops, setPriceStroops] = useState(String(currentVersion?.priceStroops ?? currentVersion?.price ?? selected?.priceStroops ?? selected?.price ?? 1));
   const [freeUnits, setFreeUnits] = useState('0');
   const [firstBandUnits, setFirstBandUnits] = useState('1000');
   const [firstBandPrice, setFirstBandPrice] = useState(String(currentVersion?.price ?? selected?.price ?? 1));
