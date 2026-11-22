@@ -126,6 +126,59 @@ describe('provider console reads', () => {
     expect(revenue.body.data).not.toHaveProperty('total');
   });
 
+  it('simulates draft tier pricing against historical settlements using gateway math', async () => {
+    const app = buildApp();
+    const { providerId, providerSecret } = await onboardProvider(app);
+    const created = await request(app)
+      .post(`/api/v3/providers/${providerId}/routes`)
+      .set('x-provider-key', providerSecret)
+      .send({
+        pathPattern: '/free/echo',
+        method: 'POST',
+        unit: 'call',
+        priceStroops: 5,
+        freeUnits: 1,
+        tiers: [
+          { upToUnits: 10, priceStroops: 5 },
+          { upToUnits: null, priceStroops: 2 },
+        ],
+        quantityExtractor: 'constant:1',
+      })
+      .expect(201);
+
+    await request(app).post('/api/v3/registry/grants').send({
+      agentId: 'pricing-agent',
+      scopes: ['POST:/free/echo'],
+    }).expect(201);
+    await request(app).post('/api/v3/gateway/paid')
+      .set('x-syncro-agent-id', 'pricing-agent')
+      .send({ providerId, path: '/free/echo', channelId: 'pricing-channel', stateNonce: 1 })
+      .expect(200);
+
+    const simulation = await request(app)
+      .post(`/api/v3/providers/${providerId}/pricing-simulator`)
+      .set('x-provider-key', providerSecret)
+      .send({
+        routeId: created.body.data.routeId,
+        source: 'historical',
+        priceStroops: 3,
+        freeUnits: 0,
+        tiers: [{ upToUnits: null, priceStroops: 3 }],
+        platformFeeBps: 250,
+      })
+      .expect(200);
+
+    expect(simulation.body.data.totals).toMatchObject({
+      calls: 1,
+      draftGrossStroops: 3,
+      draftPlatformFeeStroops: 0,
+      draftProviderNetStroops: 3,
+      currentGrossStroops: 0,
+      differenceStroops: 3,
+    });
+    expect(simulation.body.data.feeIsEstimate).toBe(true);
+  });
+
   it('requires payout verification again after the address changes', async () => {
     const app = buildApp();
     const { providerId, providerSecret } = await onboardProvider(app);

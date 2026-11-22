@@ -23,7 +23,7 @@ export function PricingSimulator({ snapshot, client }: { snapshot: ProviderConso
   const [result, setResult] = useState<PricingSimulationResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const canRun = Boolean(selected) && Number(firstBandPrice) > 0 && Number.isSafeInteger(Number(freeUnits)) && Number(freeUnits) >= 0 && Number(firstBandUnits) > 0 && Number(firstBandPrice) > 0 && Number(overflowPrice) > 0 && Number.isInteger(Number(feeBps)) && Number(feeBps) >= 0 && Number(feeBps) <= 10000 && (source === 'historical' || (agentId.trim() && Number.isInteger(Number(calls)) && Number(calls) > 0 && Number(calls) <= 100000 && Number.isFinite(Number(unitsPerCall)) && Number(unitsPerCall) >= 0));
+  const canRun = Boolean(selected) && Number(firstBandPrice) > 0 && Number.isSafeInteger(Number(freeUnits)) && Number(freeUnits) >= 0 && Number.isSafeInteger(Number(firstBandUnits)) && Number(firstBandUnits) > 0 && Number.isSafeInteger(Number(firstBandPrice)) && Number(firstBandPrice) > 0 && Number.isSafeInteger(Number(overflowPrice)) && Number(overflowPrice) > 0 && Number.isInteger(Number(feeBps)) && Number(feeBps) >= 0 && Number(feeBps) <= 10000 && (source === 'historical' || (agentId.trim() && Number.isInteger(Number(calls)) && Number(calls) > 0 && Number(calls) <= 100000 && Number.isFinite(Number(unitsPerCall)) && Number(unitsPerCall) >= 0));
   const tiers = useMemo(() => [{ upToUnits: Number(firstBandUnits), priceStroops: Number(firstBandPrice) }, { upToUnits: null, priceStroops: Number(overflowPrice) }], [firstBandUnits, firstBandPrice, overflowPrice]);
 
   useEffect(() => {
@@ -31,7 +31,7 @@ export function PricingSimulator({ snapshot, client }: { snapshot: ProviderConso
     setFirstBandPrice(String(currentPrice));
     setOverflowPrice(String(currentPrice));
     setResult(null);
-  }, [routeId]);
+  }, [routeId, selected]);
 
   async function runSimulation() {
     if (!selected || !canRun) return;
