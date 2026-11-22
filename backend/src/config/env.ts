@@ -304,6 +304,8 @@ export function validateEnv(): Readonly<BackendEnv> {
     if (data.SPONSORED_AGENT_ACCOUNTS_ENABLED === 'true') {
       if (!data.STELLAR_USDC_ISSUER) prodErrors.push('STELLAR_USDC_ISSUER is required when sponsored agent accounts are enabled');
       if (!data.STELLAR_SPONSOR_SECRET_KEY && !data.STELLAR_SECRET_KEY) prodErrors.push('STELLAR_SPONSOR_SECRET_KEY or STELLAR_SECRET_KEY is required when sponsored agent accounts are enabled');
+      if (data.SECRET_PROVIDER_TYPE === 'local') prodErrors.push('SECRET_PROVIDER_TYPE must be aws or vault when sponsored agent accounts are enabled in production');
+      if (data.ENABLE_BLOCKCHAIN === 'false') prodErrors.push('ENABLE_BLOCKCHAIN must be true when sponsored agent accounts are enabled');
     }
 
     // Reject ENABLE_TESTNET_ACTIONS in production
