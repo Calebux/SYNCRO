@@ -603,23 +603,35 @@ router.post('/providers/:providerId/pricing-simulator', requireProviderAuth, (re
     const current = route.applicableVersion;
     if (!current) return res.status(409).json({ error: 'route has no applicable rate-card version' });
 
-    const profiles = parsed.data.source === 'historical'
-      ? service.listSettlements(providerId)
-          .filter((row) => row.routeId === parsed.data.routeId)
-          .reduce((groups, row) => {
-            const key = row.channelId || 'unknown-channel';
-            const profile = groups.get(key) ?? { agentId: key, calls: 0, quantities: [] as number[], unitsPerCall: null as number | null };
-            profile.calls += 1;
-            profile.quantities.push(row.quantity);
-            groups.set(key, profile);
-            return groups;
-          }, new Map<string, { agentId: string; calls: number; quantities: number[]; unitsPerCall: number | null }>())
-      : new Map((parsed.data.traffic ?? []).map((row) => [row.agentId, {
-          agentId: row.agentId,
-          calls: row.calls,
-          quantities: null as number[] | null,
-          unitsPerCall: row.unitsPerCall,
-        }]));
+    const profiles = new Map<string, {
+      agentId: string;
+      calls: number;
+      quantities: number[] | null;
+      unitsPerCall: number | null;
+    }>();
+    if (parsed.data.source === 'historical') {
+      for (const settlement of service.listSettlements(providerId).filter((row) => row.routeId === parsed.data.routeId)) {
+        const key = settlement.channelId || 'unknown-channel';
+        const profile = profiles.get(key) ?? {
+          agentId: key,
+          calls: 0,
+          quantities: [],
+          unitsPerCall: null,
+        };
+        profile.calls += 1;
+        profile.quantities!.push(settlement.quantity);
+        profiles.set(key, profile);
+      }
+    } else {
+      for (const traffic of parsed.data.traffic ?? []) {
+        profiles.set(traffic.agentId, {
+          agentId: traffic.agentId,
+          calls: traffic.calls,
+          quantities: null,
+          unitsPerCall: traffic.unitsPerCall,
+        });
+      }
+    }
 
     const draftSchedule = { freeUnits: parsed.data.freeUnits, tiers: parsed.data.tiers };
     const currentSchedule = { freeUnits: current.freeUnits ?? 0, tiers: current.tiers };
@@ -652,7 +664,196 @@ router.post('/providers/:providerId/pricing-simulator', requireProviderAuth, (re
       draftProviderNetStroops: sum.draftProviderNetStroops + row.draftProviderNetStroops,
       currentGrossStroops: sum.currentGrossStroops + row.currentGrossStroops,
       differenceStroops: sum.differenceStroops + row.differenceStroops,
-    }), { calls: 0, draftGrossStroops: 0, draftPlatformFeeStroops: 0, draftProviderNetStroops: 0, currentGrossStroops: 0, differenceStroops: 0 });
+    }),
+    if (Object.values(totals).some((value) => typeof value === 'number' && !Number.isSafeInteger(value))) {
+      throw new RangeError('projected totals exceed safe integer precision');
+    } { calls: 0, draftGrossStroops: 0, draftPlatformFeeStroops: 0, draftProviderNetStroops: 0, currentGrossStroops: 0, differenceStroops: 0 });
+
+    return res.json({ data: {
+      source: parsed.data.source,
+      feeRateBps: parsed.data.platformFeeBps,
+      feeIsEstimate: true,
+      currentRateCardVersion: current.versionId,
+      rows,
+      totals,
+    } });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+router.get('/providers/:providerId/settlements', requireProviderAuth, (req: Request, res: Response) => {
+  try {
+    return res.json({ data: service.listSettlements(routeParam(req.params.providerId)) });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+router.get('/providers/:providerId/revenue', requireProviderAuth, (req: Request, res: Response) => {
+  try {
+    return res.json({ data: service.revenue(routeParam(req.params.providerId)) });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+// ── Challenge endpoints (public — deliberate decision, documented in route registry) ──
+
+router.post('/providers/:providerId/payout-challenge', (req: Request, res: Response) => {
+  try {
+    const result = service.createPayoutChallenge(routeParam(req.params.providerId));
+    return res.json({ data: result });
+  } catch (error) {
+    return res.status(404).json({ error: error instanceof Error ? error.message : 'not found' });
+  }
+});
+
+router.post('/providers/:providerId/payout-verify', (req: Request, res: Response) => {
+  const signature = req.body?.signature;
+  if (typeof signature !== 'string' || signature.length === 0) {
+    return res.status(400).json({ error: 'signature is required' });
+  }
+  try {
+    const provider = service.verifyPayoutChallenge(routeParam(req.params.providerId), signature);
+    return res.json({ data: provider });
+  } catch (error) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : 'verification failed' });
+  }
+});
+
+// ── Mutating route registration (owner only) ────────────────────────
+
+router.post('/providers/:providerId/routes', requireProviderAuth, (req: Request, res: Response) => {
+  const parsed = registerRouteSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  try {
+    const route = service.registerRoute({
+      providerId: routeParam(req.params.providerId),
+      ...parsed.data,
+    });
+    return res.status(201).json({ data: route });
+  } catch (error) {
+    return sendRouteRegistrationError(res, error);
+  }
+});
+
+router.post('/providers/:providerId/routes/dry-run', requireProviderAuth, (req: Request, res: Response) => {
+  const parsed = dryRunRouteSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  try {
+    const match = service.dryRunRoute(
+      routeParam(req.params.providerId),
+      parsed.data.method,
+      parsed.data.path,
+    );
+    if (!match) {
+      return res.status(404).json({ error: 'no matching route' });
+    }
+    return res.json({ data: match });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+// ── Gateway paid call (agent auth, not provider auth) ──────────────
+
+router.post('/gateway/paid', async (req: Request, res: Response) => {
+  const parsed = paidCallSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+
+  const agentId = req.header('x-syncro-agent-id');
+  if (!agentId) {
+    return res.status(401).json({ error: 'missing x-syncro-agent-id' });
+  }
+
+  try {
+    const result = await service.processPaidCall({
+      providerId: parsed.data.providerId,
+      method: parsed.data.upstreamMethod,
+      path: parsed.data.path,
+      body: parsed.data.body,
+      query: req.query as Record<string, unknown>,
+      agentId,
+      exchangeRate: parsed.data.exchangeRate,
+      channelId: parsed.data.channelId,
+      stateNonce: parsed.data.stateNonce,
+    });
+
+    const receiptUrl = `/api/v3/receipts/${result.receipt.receiptId}`;
+    if (result.inlineReceiptHeader) {
+      res.setHeader('X-SYNCRO-RECEIPT', result.inlineReceiptHeader);
+    }
+    res.setHeader('X-SYNCRO-RECEIPT-URL', receiptUrl);
+    // The call was served while the counter store was down: tell the agent so
+    // it can decide whether to keep going on a meter it cannot see (#1444).
+    if (result.meterDegraded) {
+      res.setHeader('X-Meter-Degraded', '1');
+    }
+    return res.status(result.upstream.status).json(result.upstream.body);
+  } catch (error) {
+    // Everything that reaches here is classified against the shared gateway
+    // taxonomy (#1617): the client gets a stable `code`/status and the
+    // taxonomy's public message, while the internal `message` is logged with
+    // the request id and never echoed back.
+    return sendGatewayError(res, error);
+  }
+});
+
+router.post('/registry/grants', (req: Request, res: Response) => {
+  if (process.env.ENABLE_TESTNET_ACTIONS !== 'true') {
+    return res.status(403).json({
+      error: 'grant seeding is disabled outside testnet staging mode',
+    });
+  }
+
+  const parsed = grantSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+
+  registryReader.setGrant({
+    agentId: parsed.data.agentId,
+    scopes: parsed.data.scopes,
+    expiresAt: parsed.data.expiresAt ?? null,
+    revokedAt: parsed.data.revokedAt ?? null,
+  });
+  scopeEnforcer.invalidate(parsed.data.agentId);
+  return res.status(201).json({ data: parsed.data });
+});
+
+// Receipt lookup stays public (deliberate decision, documented in route registry)
+router.get('/receipts/:receiptId', async (req: Request, res: Response) => {
+  try {
+    const receipt = await service.getReceipt(routeParam(req.params.receiptId));
+    if (!receipt) {
+      return res.status(404).json({ error: 'receipt not found' });
+    }
+    return res.json({ data: receipt });
+  } catch (error) {
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Failed to retrieve receipt',
+    });
+  }
+});
+
+export default router;
+export {
+  registryReader,
+  service as v3GatewayService,
+  degradedAdmission,
+  degradedUsageLog,
+  rateLimiter,
+  meter,
+  providerStore,
+};
+
 
     return res.json({ data: {
       source: parsed.data.source,
