@@ -102,6 +102,8 @@ export interface ProviderSettlement {
   status: SettlementStatus;
   meteredAt: string;
   channelId: string;
+  /** Agent that made the paid call; optional for settlements recorded before attribution was added. */
+  agentId?: string;
 }
 
 /** Three buckets, kept separate. There is no combined total. */
