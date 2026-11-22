@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, formatSettlementAmount } from '@syncro/ui';
 import type { ProviderConsoleClient, ProviderConsoleSnapshot, PricingSimulationResult } from '@/lib/provider-console';
 
@@ -12,11 +12,10 @@ export function PricingSimulator({ snapshot, client }: { snapshot: ProviderConso
   const selected = snapshot.routes.find((route) => route.routeId === routeId);
   const currentVersion = selected?.applicableVersion;
   const [source, setSource] = useState<'historical' | 'hypothetical'>('historical');
-  const [priceStroops, setPriceStroops] = useState(String(currentVersion?.priceStroops ?? currentVersion?.price ?? selected?.priceStroops ?? selected?.price ?? 1));
   const [freeUnits, setFreeUnits] = useState('0');
   const [firstBandUnits, setFirstBandUnits] = useState('1000');
   const [firstBandPrice, setFirstBandPrice] = useState(String(currentVersion?.priceStroops ?? currentVersion?.price ?? selected?.priceStroops ?? selected?.price ?? 1));
-  const [overflowPrice, setOverflowPrice] = useState(String(currentVersion?.price ?? selected?.price ?? 1));
+  const [overflowPrice, setOverflowPrice] = useState(String(currentVersion?.priceStroops ?? currentVersion?.price ?? selected?.priceStroops ?? selected?.price ?? 1));
   const [feeBps, setFeeBps] = useState('250');
   const [agentId, setAgentId] = useState('agent-1');
   const [calls, setCalls] = useState('100');
@@ -24,15 +23,22 @@ export function PricingSimulator({ snapshot, client }: { snapshot: ProviderConso
   const [result, setResult] = useState<PricingSimulationResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const canRun = Boolean(selected) && Number(priceStroops) > 0 && Number.isSafeInteger(Number(freeUnits)) && Number(freeUnits) >= 0 && Number(firstBandUnits) > 0 && Number(firstBandPrice) > 0 && Number(overflowPrice) > 0 && Number.isInteger(Number(feeBps)) && Number(feeBps) >= 0 && Number(feeBps) <= 10000 && (source === 'historical' || (agentId.trim() && Number.isInteger(Number(calls)) && Number(calls) > 0 && Number(calls) <= 100000 && Number(unitsPerCall) >= 0));
+  const canRun = Boolean(selected) && Number(firstBandPrice) > 0 && Number.isSafeInteger(Number(freeUnits)) && Number(freeUnits) >= 0 && Number(firstBandUnits) > 0 && Number(firstBandPrice) > 0 && Number(overflowPrice) > 0 && Number.isInteger(Number(feeBps)) && Number(feeBps) >= 0 && Number(feeBps) <= 10000 && (source === 'historical' || (agentId.trim() && Number.isInteger(Number(calls)) && Number(calls) > 0 && Number(calls) <= 100000 && Number.isFinite(Number(unitsPerCall)) && Number(unitsPerCall) >= 0));
   const tiers = useMemo(() => [{ upToUnits: Number(firstBandUnits), priceStroops: Number(firstBandPrice) }, { upToUnits: null, priceStroops: Number(overflowPrice) }], [firstBandUnits, firstBandPrice, overflowPrice]);
+
+  useEffect(() => {
+    const currentPrice = selected?.applicableVersion?.priceStroops ?? selected?.applicableVersion?.price ?? selected?.priceStroops ?? selected?.price ?? 1;
+    setFirstBandPrice(String(currentPrice));
+    setOverflowPrice(String(currentPrice));
+    setResult(null);
+  }, [routeId]);
 
   async function runSimulation() {
     if (!selected || !canRun) return;
     setBusy(true); setError(null);
     try {
       const next = await client.simulatePricing(snapshot.provider.providerId, {
-        routeId, source, priceStroops: Number(priceStroops), freeUnits: Number(freeUnits), tiers, platformFeeBps: Number(feeBps),
+        routeId, source, priceStroops: Number(firstBandPrice), freeUnits: Number(freeUnits), tiers, platformFeeBps: Number(feeBps),
         ...(source === 'hypothetical' ? { traffic: [{ agentId: agentId.trim(), calls: Number(calls), unitsPerCall: Number(unitsPerCall) }] } : {}),
       });
       setResult(next);
@@ -47,9 +53,8 @@ export function PricingSimulator({ snapshot, client }: { snapshot: ProviderConso
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="grid gap-1 text-sm">Route<select className="h-9 rounded-md border bg-transparent px-3" value={routeId} onChange={(e) => { setRouteId(e.target.value); setResult(null); }}>{snapshot.routes.map((route) => <option key={route.routeId} value={route.routeId}>{route.method} {route.pathPattern}</option>)}</select></label>
           <label className="grid gap-1 text-sm">Traffic source<select className="h-9 rounded-md border bg-transparent px-3" value={source} onChange={(e) => { setSource(e.target.value as 'historical' | 'hypothetical'); setResult(null); }}><option value="historical">Historical settlements</option><option value="hypothetical">Hypothetical traffic</option></select></label>
-          <label className="grid gap-1 text-sm">Draft fallback price (stroops / unit)<Input type="number" min="1" step="1" value={priceStroops} onChange={(e) => setPriceStroops(e.target.value)} /></label>
           <label className="grid gap-1 text-sm">Free units per call<Input type="number" min="0" step="1" value={freeUnits} onChange={(e) => setFreeUnits(e.target.value)} /></label>
-          <label className="grid gap-1 text-sm">First tier limit (units)<Input type="number" min="1" step="1" value={firstBandUnits} onChange={(e) => setFirstBandUnits(e.target.value)} /></label>
+          <label className="grid gap-1 text-sm">First paid tier limit (units)<Input type="number" min="1" step="1" value={firstBandUnits} onChange={(e) => setFirstBandUnits(e.target.value)} /></label>
           <label className="grid gap-1 text-sm">First tier price (stroops / unit)<Input type="number" min="1" step="1" value={firstBandPrice} onChange={(e) => setFirstBandPrice(e.target.value)} /></label>
           <label className="grid gap-1 text-sm">Additional tier price (stroops / unit)<Input type="number" min="1" step="1" value={overflowPrice} onChange={(e) => setOverflowPrice(e.target.value)} /></label>
           <label className="grid gap-1 text-sm">Estimated platform fee (basis points)<Input type="number" min="0" max="10000" step="1" value={feeBps} onChange={(e) => setFeeBps(e.target.value)} /></label>

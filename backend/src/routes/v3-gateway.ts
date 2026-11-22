@@ -627,17 +627,20 @@ router.post('/providers/:providerId/pricing-simulator', requireProviderAuth, (re
       const draftGross = profile.quantities
         ? profile.quantities.reduce((sum, quantity) => sum + calculateChargeStroops(parsed.data.priceStroops, roundBillableUnits(quantity), draftSchedule), 0)
         : calculateChargeStroops(parsed.data.priceStroops, roundBillableUnits(profile.unitsPerCall ?? 0), draftSchedule) * profile.calls;
+      if (!Number.isSafeInteger(draftGross) || !Number.isSafeInteger(currentGross)) throw new RangeError('projected revenue exceeds safe integer stroops');
+      const fee = Number((BigInt(draftGross) * BigInt(parsed.data.platformFeeBps)) / 10_000n);
+      const currentGrossSafe = currentGross;
+      if (!Number.isSafeInteger(fee)) throw new RangeError('projected fee exceeds safe integer stroops');
       const currentGross = profile.quantities
         ? profile.quantities.reduce((sum, quantity) => sum + calculateChargeStroops(current.priceStroops, roundBillableUnits(quantity), currentSchedule), 0)
         : calculateChargeStroops(current.priceStroops, roundBillableUnits(profile.unitsPerCall ?? 0), currentSchedule) * profile.calls;
-      const fee = Math.floor(draftGross * parsed.data.platformFeeBps / 10_000);
       return {
         agentId: profile.agentId,
         calls: profile.calls,
         draftGrossStroops: draftGross,
         draftPlatformFeeStroops: fee,
         draftProviderNetStroops: draftGross - fee,
-        currentGrossStroops: currentGross,
+        currentGrossStroops: currentGrossSafe,
         differenceStroops: draftGross - currentGross,
       };
     });

@@ -227,6 +227,50 @@ describe('rate card applicability', () => {
     });
     expect(store.revenue(provider.providerId)).not.toHaveProperty('total');
   });
+
+  it('keeps tier schedules immutable across rate-card revisions', () => {
+    const store = new InMemoryProviderStore();
+    const provider = store.registerProvider({
+      identity: 'tiered-provider',
+      payoutAddress: 'GADDRESS',
+      upstreamBaseUrl: 'https://provider.example',
+      agreementTerms: 'tos:v1',
+      mode: 'staging',
+    });
+    const firstSchedule = {
+      freeUnits: 10,
+      tiers: [
+        { upToUnits: 100, priceStroops: 5 },
+        { upToUnits: null, priceStroops: 2 },
+      ],
+    };
+    const route = store.registerRoute({
+      providerId: provider.providerId,
+      pathPattern: '/tiered/*',
+      method: 'POST',
+      unit: 'token',
+      priceStroops: 5,
+      quantityExtractor: 'constant:1',
+      ...firstSchedule,
+    });
+    const first = store.applicableVersion(route.routeId, route.createdAt);
+    expect(first).toMatchObject(firstSchedule);
+
+    const secondSchedule = {
+      freeUnits: 20,
+      tiers: [
+        { upToUnits: 200, priceStroops: 4 },
+        { upToUnits: null, priceStroops: 1 },
+      ],
+    };
+    const second = store.reviseRoute(provider.providerId, route.routeId, {
+      ...secondSchedule,
+      priceStroops: 4,
+    }).version;
+    expect(second).toMatchObject(secondSchedule);
+    expect(store.listRateCards(provider.providerId).find((version) => version.versionId === first?.versionId)).toMatchObject(firstSchedule);
+  });
+
 });
 
 
