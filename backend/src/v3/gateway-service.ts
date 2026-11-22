@@ -620,6 +620,7 @@ export class V3GatewayService {
       status: 'unsettled',
       meteredAt,
       channelId: input.channelId,
+      agentId: input.agentId,
     };
     this.providers.recordSettlement(settlement);
 
