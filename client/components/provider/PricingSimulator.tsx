@@ -17,13 +17,11 @@ export function PricingSimulator({ snapshot, client }: { snapshot: ProviderConso
   const [firstBandPrice, setFirstBandPrice] = useState(String(currentVersion?.priceStroops ?? currentVersion?.price ?? selected?.priceStroops ?? selected?.price ?? 1));
   const [overflowPrice, setOverflowPrice] = useState(String(currentVersion?.priceStroops ?? currentVersion?.price ?? selected?.priceStroops ?? selected?.price ?? 1));
   const [feeBps, setFeeBps] = useState('250');
-  const [agentId, setAgentId] = useState('agent-1');
-  const [calls, setCalls] = useState('100');
-  const [unitsPerCall, setUnitsPerCall] = useState('1000');
+  const [trafficProfiles, setTrafficProfiles] = useState([{ agentId: 'agent-1', calls: '100', unitsPerCall: '1000' }]);
   const [result, setResult] = useState<PricingSimulationResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const canRun = Boolean(selected) && Number(firstBandPrice) > 0 && Number.isSafeInteger(Number(freeUnits)) && Number(freeUnits) >= 0 && Number.isSafeInteger(Number(firstBandUnits)) && Number(firstBandUnits) > 0 && Number.isSafeInteger(Number(firstBandPrice)) && Number(firstBandPrice) > 0 && Number.isSafeInteger(Number(overflowPrice)) && Number(overflowPrice) > 0 && Number.isInteger(Number(feeBps)) && Number(feeBps) >= 0 && Number(feeBps) <= 10000 && (source === 'historical' || (agentId.trim() && Number.isInteger(Number(calls)) && Number(calls) > 0 && Number(calls) <= 100000 && Number.isFinite(Number(unitsPerCall)) && Number(unitsPerCall) >= 0));
+  const canRun = Boolean(selected) && Number(firstBandPrice) > 0 && Number.isSafeInteger(Number(freeUnits)) && Number(freeUnits) >= 0 && Number.isSafeInteger(Number(firstBandUnits)) && Number(firstBandUnits) > 0 && Number.isSafeInteger(Number(firstBandPrice)) && Number(firstBandPrice) > 0 && Number.isSafeInteger(Number(overflowPrice)) && Number(overflowPrice) > 0 && Number.isInteger(Number(feeBps)) && Number(feeBps) >= 0 && Number(feeBps) <= 10000 && (source === 'historical' || trafficProfiles.length > 0 && trafficProfiles.every((profile) => profile.agentId.trim() && Number.isSafeInteger(Number(profile.calls)) && Number(profile.calls) > 0 && Number(profile.calls) <= 100000 && Number.isFinite(Number(profile.unitsPerCall)) && Number(profile.unitsPerCall) >= 0));
   const tiers = useMemo(() => [{ upToUnits: Number(firstBandUnits), priceStroops: Number(firstBandPrice) }, { upToUnits: null, priceStroops: Number(overflowPrice) }], [firstBandUnits, firstBandPrice, overflowPrice]);
 
   useEffect(() => {
@@ -39,7 +37,7 @@ export function PricingSimulator({ snapshot, client }: { snapshot: ProviderConso
     try {
       const next = await client.simulatePricing(snapshot.provider.providerId, {
         routeId, source, priceStroops: Number(firstBandPrice), freeUnits: Number(freeUnits), tiers, platformFeeBps: Number(feeBps),
-        ...(source === 'hypothetical' ? { traffic: [{ agentId: agentId.trim(), calls: Number(calls), unitsPerCall: Number(unitsPerCall) }] } : {}),
+        ...(source === 'hypothetical' ? { traffic: trafficProfiles.map((profile) => ({ agentId: profile.agentId.trim(), calls: Number(profile.calls), unitsPerCall: Number(profile.unitsPerCall) })) } : {}),
       });
       setResult(next);
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not run the pricing simulation.'); }
@@ -59,7 +57,15 @@ export function PricingSimulator({ snapshot, client }: { snapshot: ProviderConso
           <label className="grid gap-1 text-sm">Additional tier price (stroops / unit)<Input type="number" min="1" step="1" value={overflowPrice} onChange={(e) => setOverflowPrice(e.target.value)} /></label>
           <label className="grid gap-1 text-sm">Estimated platform fee (basis points)<Input type="number" min="0" max="10000" step="1" value={feeBps} onChange={(e) => setFeeBps(e.target.value)} /></label>
         </div>
-        {source === 'hypothetical' && <div className="grid gap-3 rounded-lg border p-3 sm:grid-cols-3"><label className="grid gap-1 text-sm">Agent identifier<Input value={agentId} onChange={(e) => setAgentId(e.target.value)} /></label><label className="grid gap-1 text-sm">Calls<Input type="number" min="1" max="100000" step="1" value={calls} onChange={(e) => setCalls(e.target.value)} /></label><label className="grid gap-1 text-sm">Units per call<Input type="number" min="0" step="any" value={unitsPerCall} onChange={(e) => setUnitsPerCall(e.target.value)} /></label></div>}
+        {source === 'hypothetical' && <div className="space-y-3 rounded-lg border p-3">
+          {trafficProfiles.map((profile, index) => <div key={index} className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto]">
+            <label className="grid gap-1 text-sm">Agent identifier<Input value={profile.agentId} onChange={(e) => setTrafficProfiles((rows) => rows.map((row, i) => i === index ? { ...row, agentId: e.target.value } : row))} /></label>
+            <label className="grid gap-1 text-sm">Calls<Input type="number" min="1" max="100000" step="1" value={profile.calls} onChange={(e) => setTrafficProfiles((rows) => rows.map((row, i) => i === index ? { ...row, calls: e.target.value } : row))} /></label>
+            <label className="grid gap-1 text-sm">Units per call<Input type="number" min="0" step="any" value={profile.unitsPerCall} onChange={(e) => setTrafficProfiles((rows) => rows.map((row, i) => i === index ? { ...row, unitsPerCall: e.target.value } : row))} /></label>
+            <Button type="button" variant="outline" disabled={trafficProfiles.length === 1} onClick={() => setTrafficProfiles((rows) => rows.filter((_, i) => i !== index))}>Remove</Button>
+          </div>)}
+          <Button type="button" variant="outline" onClick={() => setTrafficProfiles((rows) => [...rows, { agentId: `agent-${rows.length + 1}`, calls: '100', unitsPerCall: '1000' }])}>Add agent profile</Button>
+        </div>}
         <p className="text-xs text-muted-foreground">Tier prices are marginal. Free units apply first on each call. Historical mode groups stored settlement quantities by payment channel because the current settlement record does not retain an agent identifier.</p>
         <Button type="button" disabled={!canRun || busy} onClick={() => void runSimulation()}>{busy ? 'Calculating…' : 'Run simulation'}</Button>
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
