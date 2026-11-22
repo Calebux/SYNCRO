@@ -5,6 +5,11 @@ on:
     paths:
       - 'sdk/**'
       - 'shared/**'
+      - 'backend/src/v3/**'
+      - 'backend/src/services/v3/**'
+      - 'backend/src/routes/v3*'
+      - 'backend/src/routes/v3/**'
+      - 'backend/src/errors/**'
       - 'package.json'
       - 'package-lock.json'
   push:
@@ -12,6 +17,11 @@ on:
     paths:
       - 'sdk/**'
       - 'shared/**'
+      - 'backend/src/v3/**'
+      - 'backend/src/services/v3/**'
+      - 'backend/src/routes/v3*'
+      - 'backend/src/routes/v3/**'
+      - 'backend/src/errors/**'
 
 jobs:
   layout:

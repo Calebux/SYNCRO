@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import QuietHoursSettings from "@/components/settings/QuietHoursSettings"
 import Link from "next/link"
 import SpendCapNotificationSettings from "@/components/settings/SpendCapNotificationSettings"
+import { NotificationCenter } from "@/components/notifications/NotificationCenter"
 
 export default async function NotificationSettingsPage() {
   const supabase = await createClient()
@@ -64,6 +65,9 @@ export default async function NotificationSettingsPage() {
       {/* Quiet Hours Settings */}
       <QuietHoursSettings />
       <SpendCapNotificationSettings />
+      <div className="mt-8">
+        <NotificationCenter />
+      </div>
     </div>
   )
 }

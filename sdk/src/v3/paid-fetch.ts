@@ -1,35 +1,55 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// x402 protocol types (derived from backend openapi/x402-docs.ts)
+// x402 & Gateway v3 protocol types
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface X402PaymentRequirement {
+export interface X402PaymentRequirement {
   scheme: string;
-  network: string;
-  amount: string;
-  asset: string;
-  payTo: string;
+  network?: string;
+  amount?: string;
+  asset?: string;
+  payTo?: string;
   maxTimeoutSeconds?: number;
 }
 
-interface X402PaymentRequired {
-  x402Version: number;
+export interface X402ResourceDescriptor {
+  url: string;
+  description?: string;
+  mimeType?: string;
+}
+
+export interface X402PaymentRequired {
+  x402Version?: number;
+  challengeId?: string;
+  scheme?: "channel-state" | "exact";
+  chain?: string;
+  contract?: string;
+  channelAddress?: string;
+  settlementAsset?: string;
+  amount?: string;
+  rate?: string;
+  nonce?: string;
+  expiresAt?: string;
   signature?: string;
   error?: string;
-  resource?: {
-    url: string;
-    description?: string;
-    mimeType?: string;
-  };
+  resource?: X402ResourceDescriptor;
   accepts?: X402PaymentRequirement[];
 }
 
-interface X402PaymentPayload {
+export interface X402PaymentPayload {
   x402Version: number;
   accepted: X402PaymentRequirement;
   payload: Record<string, unknown>;
 }
 
-interface X402SettlementResponse {
+export interface X402SignedPaymentPayload {
+  x402Version: number;
+  accepted: X402PaymentRequirement;
+  payload: {
+    signature: string;
+  };
+}
+
+export interface X402SettlementResponse {
   success: boolean;
   transaction?: string;
   network?: string;
@@ -163,7 +183,7 @@ export function createPaidFetch(config: PaidFetchConfig): typeof fetch {
     }
 
     const accepted = paymentRequired.accepts?.[0];
-    if (!accepted) {
+    if (!accepted || !isCompletePaymentRequirement(accepted)) {
       return response as PaidResponse;
     }
 
@@ -177,13 +197,13 @@ export function createPaidFetch(config: PaidFetchConfig): typeof fetch {
     const s = await getSigner();
     const signature = await s(canonicalProof);
 
-    const signedPayload: X402PaymentPayload & { signature: string } = {
+    const signedPayload: X402SignedPaymentPayload = {
       ...paymentProof,
       payload: { signature },
     };
 
     const retryHeaders = new Headers(init.headers);
-    retryHeaders.set("PAYMENT-SIGNATURE", btoa(JSON.stringify(signedPayload)));
+    retryHeaders.set("PAYMENT-SIGNATURE", serialisePaymentSignatureHeader(signedPayload));
 
     const retryResponse = await fetchImpl(input, {
       ...init,
@@ -201,17 +221,349 @@ export function createPaidFetch(config: PaidFetchConfig): typeof fetch {
   };
 }
 
-function parsePaymentRequiredHeader(
-  response: Response,
-): X402PaymentRequired | null {
-  const header = response.headers.get("PAYMENT-REQUIRED");
-  if (!header) return null;
+const MAX_HEADER_LENGTH = 16_384;
+const MAX_JSON_DEPTH = 16;
+const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const DECIMAL_AMOUNT_PATTERN = /^(?:0|[1-9]\d*)(?:\.\d+)?$/;
+const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+const X402_CHALLENGE_KEYS = new Set([
+  "x402Version",
+  "signature",
+  "error",
+  "resource",
+  "accepts",
+]);
+
+const GATEWAY_CHALLENGE_KEYS = new Set([
+  "challengeId",
+  "scheme",
+  "chain",
+  "contract",
+  "channelAddress",
+  "settlementAsset",
+  "amount",
+  "rate",
+  "nonce",
+  "expiresAt",
+  "signature",
+]);
+
+const REQUIREMENT_KEYS = new Set([
+  "scheme",
+  "network",
+  "amount",
+  "asset",
+  "payTo",
+  "maxTimeoutSeconds",
+]);
+
+const RESOURCE_KEYS = new Set(["url", "description", "mimeType"]);
+const SIGNED_PAYLOAD_KEYS = new Set(["x402Version", "accepted", "payload"]);
+const RECEIPT_KEYS = new Set(["success", "transaction", "network"]);
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.trim().length > 0;
+}
+
+function isPositiveDecimalString(value: unknown): value is string {
+  if (typeof value !== "string" || !DECIMAL_AMOUNT_PATTERN.test(value)) return false;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0;
+}
+
+function exceedsJsonDepth(value: unknown, depth: number = 0): boolean {
+  if (depth > MAX_JSON_DEPTH) return true;
+  if (value === null || typeof value !== "object") return false;
+  if (Array.isArray(value)) {
+    return value.some((item) => exceedsJsonDepth(item, depth + 1));
+  }
+  const record = value as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (FORBIDDEN_KEYS.has(key)) return true;
+    if (exceedsJsonDepth(record[key], depth + 1)) return true;
+  }
+  return false;
+}
+
+function encodeUtf8Base64(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
+function decodeCanonicalBase64Json(headerValue: string): Record<string, unknown> | null {
+  if (
+    typeof headerValue !== "string" ||
+    headerValue.length === 0 ||
+    headerValue.length > MAX_HEADER_LENGTH ||
+    headerValue.length % 4 !== 0 ||
+    !BASE64_PATTERN.test(headerValue)
+  ) {
+    return null;
+  }
   try {
-    return JSON.parse(atob(header)) as X402PaymentRequired;
+    const bytes = decodeBase64(headerValue);
+    const raw = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    if (encodeUtf8Base64(raw) !== headerValue) {
+      return null;
+    }
+    if (raw.includes('"__proto__"') || raw.includes('"constructor"') || raw.includes('"prototype"')) {
+      return null;
+    }
+    const parsed: unknown = JSON.parse(raw);
+    if (!isPlainObject(parsed) || exceedsJsonDepth(parsed)) {
+      return null;
+    }
+    if (JSON.stringify(parsed) !== raw) {
+      return null;
+    }
+    return parsed;
   } catch {
     return null;
   }
 }
+
+export function isValidPaymentRequirement(value: unknown): value is X402PaymentRequirement {
+  if (!isPlainObject(value) || exceedsJsonDepth(value)) return false;
+  const keys = Object.keys(value);
+  for (const key of keys) {
+    if (!REQUIREMENT_KEYS.has(key) || FORBIDDEN_KEYS.has(key)) return false;
+  }
+  if (!isNonEmptyString(value.scheme)) return false;
+  if (Object.prototype.hasOwnProperty.call(value, "network") && !isNonEmptyString(value.network)) {
+    return false;
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "amount") && !isPositiveDecimalString(value.amount)) {
+    return false;
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "asset") && !isNonEmptyString(value.asset)) {
+    return false;
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "payTo") && !isNonEmptyString(value.payTo)) {
+    return false;
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "maxTimeoutSeconds")) {
+    if (
+      typeof value.maxTimeoutSeconds !== "number" ||
+      !Number.isFinite(value.maxTimeoutSeconds) ||
+      value.maxTimeoutSeconds <= 0 ||
+      Object.is(value.maxTimeoutSeconds, -0)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function isCompletePaymentRequirement(value: unknown): value is Required<
+  Pick<X402PaymentRequirement, "scheme" | "network" | "amount" | "asset" | "payTo">
+> &
+  X402PaymentRequirement {
+  if (!isValidPaymentRequirement(value)) return false;
+  return (
+    isNonEmptyString(value.scheme) &&
+    isNonEmptyString(value.network) &&
+    isPositiveDecimalString(value.amount) &&
+    isNonEmptyString(value.asset) &&
+    isNonEmptyString(value.payTo)
+  );
+}
+
+function isValidResourceDescriptor(value: unknown): value is X402ResourceDescriptor {
+  if (!isPlainObject(value) || exceedsJsonDepth(value)) return false;
+  for (const key of Object.keys(value)) {
+    if (!RESOURCE_KEYS.has(key) || FORBIDDEN_KEYS.has(key)) return false;
+  }
+  if (!isNonEmptyString(value.url)) return false;
+  if (Object.prototype.hasOwnProperty.call(value, "description") && typeof value.description !== "string") {
+    return false;
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "mimeType") && !isNonEmptyString(value.mimeType)) {
+    return false;
+  }
+  return true;
+}
+
+export function isValidPaymentRequired(value: unknown): value is X402PaymentRequired {
+  if (!isPlainObject(value) || exceedsJsonDepth(value)) return false;
+  const keys = Object.keys(value);
+  if (keys.length === 0) return false;
+
+  // Variant A: x402Version challenge
+  if (Object.prototype.hasOwnProperty.call(value, "x402Version")) {
+    for (const key of keys) {
+      if (!X402_CHALLENGE_KEYS.has(key) || FORBIDDEN_KEYS.has(key)) return false;
+    }
+    if (
+      typeof value.x402Version !== "number" ||
+      !Number.isSafeInteger(value.x402Version) ||
+      value.x402Version <= 0
+    ) {
+      return false;
+    }
+    if (Object.prototype.hasOwnProperty.call(value, "signature") && !isNonEmptyString(value.signature)) {
+      return false;
+    }
+    if (Object.prototype.hasOwnProperty.call(value, "error") && !isNonEmptyString(value.error)) {
+      return false;
+    }
+    if (Object.prototype.hasOwnProperty.call(value, "resource") && !isValidResourceDescriptor(value.resource)) {
+      return false;
+    }
+    if (Object.prototype.hasOwnProperty.call(value, "accepts")) {
+      if (!Array.isArray(value.accepts) || !value.accepts.every(isValidPaymentRequirement)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Variant B: Gateway v3 channel-state / exact ChallengeDetails
+  if (Object.prototype.hasOwnProperty.call(value, "challengeId")) {
+    for (const key of keys) {
+      if (!GATEWAY_CHALLENGE_KEYS.has(key) || FORBIDDEN_KEYS.has(key)) return false;
+    }
+    const expiresTime = typeof value.expiresAt === "string" ? Date.parse(value.expiresAt) : NaN;
+    if (
+      !isNonEmptyString(value.challengeId) ||
+      (value.scheme !== "channel-state" && value.scheme !== "exact") ||
+      !isNonEmptyString(value.chain) ||
+      !isNonEmptyString(value.contract) ||
+      !isNonEmptyString(value.channelAddress) ||
+      !isNonEmptyString(value.settlementAsset) ||
+      !isPositiveDecimalString(value.amount) ||
+      !isPositiveDecimalString(value.rate) ||
+      !isNonEmptyString(value.nonce) ||
+      !isNonEmptyString(value.expiresAt) ||
+      !Number.isFinite(expiresTime)
+    ) {
+      return false;
+    }
+    if (Object.prototype.hasOwnProperty.call(value, "signature") && !isNonEmptyString(value.signature)) {
+      return false;
+    }
+    return true;
+  }
+
+  return false;
+}
+
+export function isValidSignedPaymentPayload(value: unknown): value is X402SignedPaymentPayload {
+  if (!isPlainObject(value) || exceedsJsonDepth(value)) return false;
+  const keys = Object.keys(value);
+  if (keys.length !== SIGNED_PAYLOAD_KEYS.size) return false;
+  for (const key of keys) {
+    if (!SIGNED_PAYLOAD_KEYS.has(key) || FORBIDDEN_KEYS.has(key)) return false;
+  }
+  if (
+    typeof value.x402Version !== "number" ||
+    !Number.isSafeInteger(value.x402Version) ||
+    value.x402Version <= 0
+  ) {
+    return false;
+  }
+  if (!isCompletePaymentRequirement(value.accepted)) return false;
+  if (!isPlainObject(value.payload)) return false;
+  const payloadKeys = Object.keys(value.payload);
+  if (payloadKeys.length !== 1 || payloadKeys[0] !== "signature") return false;
+  return isNonEmptyString(value.payload.signature);
+}
+
+export function isValidPaymentReceipt(value: unknown): value is PaymentReceipt {
+  if (!isPlainObject(value) || exceedsJsonDepth(value)) return false;
+  const keys = Object.keys(value);
+  if (keys.length === 0) return false;
+  for (const key of keys) {
+    if (!RECEIPT_KEYS.has(key) || FORBIDDEN_KEYS.has(key)) return false;
+  }
+  if (typeof value.success !== "boolean") return false;
+  if (Object.prototype.hasOwnProperty.call(value, "transaction") && !isNonEmptyString(value.transaction)) {
+    return false;
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "network") && !isNonEmptyString(value.network)) {
+    return false;
+  }
+  return true;
+}
+
+export function parsePaymentRequiredHeader(
+  input: Response | Headers | string,
+): X402PaymentRequired | null {
+  const header =
+    typeof input === "string"
+      ? input
+      : "headers" in input
+        ? input.headers.get("PAYMENT-REQUIRED")
+        : input.get("PAYMENT-REQUIRED");
+  if (!header) return null;
+  const parsed = decodeCanonicalBase64Json(header);
+  if (!parsed || !isValidPaymentRequired(parsed)) {
+    return null;
+  }
+  return parsed;
+}
+
+export function serialisePaymentRequiredHeader(challenge: X402PaymentRequired): string {
+  if (!isValidPaymentRequired(challenge)) {
+    throw new TypeError("Invalid X402PaymentRequired challenge object");
+  }
+  return encodeUtf8Base64(JSON.stringify(challenge));
+}
+
+export const serializePaymentRequiredHeader = serialisePaymentRequiredHeader;
+
+export function parsePaymentSignatureHeader(headerValue: string): X402SignedPaymentPayload | null {
+  const parsed = decodeCanonicalBase64Json(headerValue);
+  if (!parsed || !isValidSignedPaymentPayload(parsed)) {
+    return null;
+  }
+  return parsed;
+}
+
+export function serialisePaymentSignatureHeader(payload: X402SignedPaymentPayload): string {
+  if (!isValidSignedPaymentPayload(payload)) {
+    throw new TypeError("Invalid X402SignedPaymentPayload object");
+  }
+  return encodeUtf8Base64(JSON.stringify(payload));
+}
+
+export const serializePaymentSignatureHeader = serialisePaymentSignatureHeader;
+
+export function parsePaymentResponseHeader(
+  input: Response | Headers | string,
+): PaymentReceipt | null {
+  const header =
+    typeof input === "string"
+      ? input
+      : "headers" in input
+        ? input.headers.get("PAYMENT-RESPONSE")
+        : input.get("PAYMENT-RESPONSE");
+  if (!header) return null;
+  const parsed = decodeCanonicalBase64Json(header);
+  if (!parsed || !isValidPaymentReceipt(parsed)) {
+    return null;
+  }
+  return parsed;
+}
+
+export function serialisePaymentResponseHeader(receipt: PaymentReceipt): string {
+  if (!isValidPaymentReceipt(receipt)) {
+    throw new TypeError("Invalid PaymentReceipt object");
+  }
+  return encodeUtf8Base64(JSON.stringify(receipt));
+}
+
+export const serializePaymentResponseHeader = serialisePaymentResponseHeader;
 
 async function verifyPaymentRequired(
   paymentRequired: X402PaymentRequired,
@@ -250,23 +602,18 @@ function decodePem(value: string): Uint8Array {
 
 function extractReceipt(
   response: Response,
-  providerPublicKey?: string,
+  _providerPublicKey?: string,
 ): PaymentReceipt | undefined {
-  const header = response.headers.get("PAYMENT-RESPONSE");
-  if (!header) return undefined;
-  try {
-    const settlement = JSON.parse(atob(header)) as X402SettlementResponse;
-    return {
-      success: settlement.success,
-      transaction: settlement.transaction,
-      network: settlement.network,
-    };
-  } catch {
-    return undefined;
-  }
+  const parsed = parsePaymentResponseHeader(response);
+  if (!parsed) return undefined;
+  return {
+    success: parsed.success,
+    ...(parsed.transaction !== undefined ? { transaction: parsed.transaction } : {}),
+    ...(parsed.network !== undefined ? { network: parsed.network } : {}),
+  };
 }
 
-function canonicalizeJson(value: unknown): string {
+export function canonicalizeJson(value: unknown): string {
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value);
   }

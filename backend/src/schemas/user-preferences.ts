@@ -12,6 +12,16 @@ export const userPreferencesUpdateSchema = z.object({
     .max(2)
     .refine((channels) => new Set(channels).size === channels.length, 'Notification channels must be unique')
     .optional(),
+  v3_notification_preferences: z
+    .record(
+      z.enum(['cap_warning', 'dispute_opened', 'payout_sent', 'agent_revoked']),
+      z.object({
+        in_app: z.boolean(),
+        email: z.boolean(),
+        webhook: z.boolean(),
+      }),
+    )
+    .optional(),
   reminder_timing: z
     .array(z.number().int().min(1).max(365))
     .min(1, 'At least one reminder timing is required')

@@ -46,6 +46,9 @@
     "dev": "docker compose up -d",
     "reset": "docker compose down -v",
     "doctor": "node scripts/doctor.mjs",
+    "test:contracts:sdk-gateway": "node --experimental-strip-types scripts/verify-sdk-gateway-contracts.mjs",
+    "test:fuzz:headers": "FUZZ_MODE=short node --experimental-strip-types scripts/run-header-fuzz.mjs",
+    "test:fuzz:headers:nightly": "FUZZ_MODE=nightly node --experimental-strip-types scripts/run-header-fuzz.mjs",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "changeset publish"

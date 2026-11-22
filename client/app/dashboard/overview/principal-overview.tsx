@@ -6,6 +6,8 @@ import { AlertTriangle, ArrowRight, CircleAlert, RefreshCw, ShieldAlert } from '
 import type { PrincipalAnalytics } from '@syncro/shared/domain';
 import { getPrincipalAnalytics } from '@/lib/api/v3-analytics';
 import { getSpendCapAlerts } from '@/lib/spend-cap-alerts';
+import { MonthlyStatementPanel } from '@/components/statements/MonthlyStatementPanel';
+import { NotificationCenter } from '@/components/notifications/NotificationCenter';
 
 const money = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
 const date = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -130,6 +132,9 @@ export function PrincipalOverview() {
 
                     <section aria-labelledby="activity-heading" className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm"><h2 id="activity-heading" className="text-lg font-semibold">Recent activity</h2><p className="mt-1 text-sm text-gray-500">Calls by route and rejected calls by reason.</p><div className="mt-4 space-y-5"><div><h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Routes</h3>{analytics.routeMix.length === 0 ? <Empty text="No calls recorded in this period." /> : <div className="mt-2 space-y-2">{analytics.routeMix.map((route) => <div key={route.route} className="flex items-center gap-3 text-sm"><span className="w-28 truncate font-medium">{route.route}</span><div className="h-2 flex-1 rounded-full bg-gray-100"><div className="h-full rounded-full bg-emerald-600" style={{ width: `${Math.max(2, route.percentage)}%` }} /></div><span className="w-20 text-right text-gray-600">{formatAmount(route.callsCount)} calls</span></div>)}</div>}</div><div><h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Rejections</h3>{analytics.rejectionReasonsByCategory.length === 0 ? <Empty text="No rejected calls recorded." /> : <div className="mt-2 grid gap-2 sm:grid-cols-2">{analytics.rejectionReasonsByCategory.map((reason) => <div key={reason.category} className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm"><span className="capitalize">{reason.category.replaceAll('_', ' ')}</span><span className="font-semibold text-red-700">{formatAmount(reason.count)} <span className="font-normal text-gray-500">({Math.round(reason.percentage)}%)</span></span></div>)}</div>}</div></div><Link href="/dashboard/analytics" className="mt-5 inline-flex items-center gap-1 text-sm font-medium text-emerald-700 hover:text-emerald-900">Open detailed analytics <ArrowRight className="h-4 w-4" /></Link></section>
                 </div>
+
+                <MonthlyStatementPanel role="principal" defaultMonth="2026-10" />
+                <NotificationCenter />
 
                 {criticalAlerts.length > 0 && <p className="text-xs text-gray-500">Critical conditions are shown at the top of this page and should be addressed before continuing to fund agents.</p>}
             </div>

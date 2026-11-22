@@ -81,10 +81,11 @@ function renderFile(taxonomyRaw) {
 export type GatewayErrorCode = ${codeUnion};
 
 export interface GatewayErrorDetails {
-  message?: string;
-  status?: number;
-  retryAfterMs?: number;
-  retryAfterSeconds?: number;
+  message?: string | undefined;
+  status?: number | undefined;
+  retryAfterMs?: number | undefined;
+  retryAfterSeconds?: number | undefined;
+  capResetAt?: string | undefined;
   cause?: unknown;
 }
 
@@ -92,7 +93,8 @@ export class GatewaySdkError extends Error {
   readonly code: GatewayErrorCode;
   readonly status: number;
   readonly retryable: boolean;
-  readonly retryAfterMs?: number;
+  readonly retryAfterMs?: number | undefined;
+  readonly capResetAt?: string | undefined;
   readonly action: string;
 
   constructor(input: {
@@ -100,7 +102,8 @@ export class GatewaySdkError extends Error {
     message: string;
     status: number;
     retryable: boolean;
-    retryAfterMs?: number;
+    retryAfterMs?: number | undefined;
+    capResetAt?: string | undefined;
     action: string;
     cause?: unknown;
   }) {
@@ -110,6 +113,7 @@ export class GatewaySdkError extends Error {
     this.status = input.status;
     this.retryable = input.retryable;
     this.retryAfterMs = input.retryAfterMs;
+    this.capResetAt = input.capResetAt;
     this.action = input.action;
     if (input.cause !== undefined) {
       (this as Error & { cause?: unknown }).cause = input.cause;

@@ -264,6 +264,41 @@ jobs:
         run: npm test -- --run
 
   # ──────────────────────────────────────────────
+  # SDK ↔ Gateway Consumer Contract Tests (#1872) & Header Parser Fuzzing (#1873)
+  # Runs on every PR touching either the SDK, the Gateway/Backend, or Shared contracts.
+  # ──────────────────────────────────────────────
+  sdk-gateway-contracts-and-fuzz:
+    name: SDK-Gateway Contracts & Header Fuzzing
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs.force_full_run == 'true' ||
+      needs.detect-changes.outputs.sdk == 'true' ||
+      needs.detect-changes.outputs.backend == 'true' ||
+      needs.detect-changes.outputs.shared == 'true' ||
+      needs.detect-changes.outputs.v3 == 'true' ||
+      needs.detect-changes.outputs.metering == 'true' ||
+      needs.detect-changes.outputs.root == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "23.4.0"
+
+      - name: Check gateway error taxonomy sync (#1493)
+        run: node sdk/scripts/check-gateway-taxonomy.cjs
+
+      - name: Verify consumer-driven SDK ↔ Gateway contracts (#1872)
+        run: node --experimental-strip-types scripts/verify-sdk-gateway-contracts.mjs
+
+      - name: Run short property-based fuzzing on 402 challenge & payment header parsers (#1873)
+        env:
+          FUZZ_MODE: short
+        run: node --experimental-strip-types scripts/run-header-fuzz.mjs
+
+  # ──────────────────────────────────────────────
   # Security Audit — dependency vulnerability scan per workspace
   # ──────────────────────────────────────────────
   security-audit:

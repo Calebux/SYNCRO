@@ -36,6 +36,8 @@ import {
   versionsForRoute,
   type PayoutChange,
 } from '@/lib/provider-console';
+import { MonthlyStatementPanel } from '@/components/statements/MonthlyStatementPanel';
+import { accountingRecordsFromProviderSettlements } from '@/lib/statements/monthly-statements';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 
@@ -201,6 +203,23 @@ export function ProviderConsole({ client = providerConsoleClient }: ProviderCons
 
           <RateCardSection versions={snapshot.rateCards} />
           <SettlementHistory settlements={snapshot.settlements} />
+          <MonthlyStatementPanel
+            role="provider"
+            accountId={snapshot.provider.providerId}
+            accountName={snapshot.provider.identity}
+            defaultMonth={
+              snapshot.settlements.find((s) => s.status === 'settled')?.meteredAt.slice(0, 7) ?? '2026-10'
+            }
+            records={
+              snapshot.settlements.some((s) => s.status === 'settled')
+                ? accountingRecordsFromProviderSettlements(
+                    snapshot.provider.providerId,
+                    snapshot.provider.identity,
+                    snapshot.settlements,
+                  )
+                : undefined
+            }
+          />
         </>
       )}
     </main>

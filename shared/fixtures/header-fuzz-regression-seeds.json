@@ -1,0 +1,103 @@
+{
+  "version": "2026-11-22",
+  "issue": "#1873",
+  "description": "Regression seeds discovered by fuzzing the 402 challenge (PAYMENT-REQUIRED), payment proof (PAYMENT-SIGNATURE), and receipt (PAYMENT-RESPONSE) header parsers across the Gateway and SDK.",
+  "seeds": [
+    {
+      "id": "seed-01-numeric-signature-typeerror",
+      "target": "gateway:parsePaymentProof",
+      "category": "crash",
+      "description": "Numeric signature field previously passed truthiness check in parsePaymentProof and threw TypeError on proof.signature.startsWith in verifyPaymentProof.",
+      "rawJson": "{\"channelId\":\"chan_1\",\"sequenceNumber\":1,\"userBalance\":100,\"executorBalance\":0,\"totalDeposited\":100,\"nonce\":\"n_1\",\"signature\":12345,\"payerAddress\":\"G_PAYER\"}",
+      "headerBase64": "eyJjaGFubmVsSWQiOiJjaGFuXzEiLCJzZXF1ZW5jZU51bWJlciI6MSwidXNlckJhbGFuY2UiOjEwMCwiZXhlY3V0b3JCYWxhbmNlIjowLCJ0b3RhbERlcG9zaXRlZCI6MTAwLCJub25jZSI6Im5fMSIsInNpZ25hdHVyZSI6MTIzNDUsInBheWVyQWRkcmVzcyI6IkdfUEFZRVIIfQ=="
+    },
+    {
+      "id": "seed-02-numeric-request-hash-typeerror",
+      "target": "gateway:parsePaymentProof",
+      "category": "crash",
+      "description": "Numeric requestHash previously passed parsePaymentProof and threw TypeError on proof.requestHash.toLowerCase() in verifyPaymentProof.",
+      "rawJson": "{\"channelId\":\"chan_1\",\"sequenceNumber\":1,\"userBalance\":100,\"executorBalance\":0,\"totalDeposited\":100,\"nonce\":\"n_1\",\"signature\":\"sig_valid_1\",\"payerAddress\":\"G_PAYER\",\"requestHash\":99999}",
+      "headerBase64": "eyJjaGFubmVsSWQiOiJjaGFuXzEiLCJzZXF1ZW5jZU51bWJlciI6MSwidXNlckJhbGFuY2UiOjEwMCwiZXhlY3V0b3JCYWxhbmNlIjowLCJ0b3RhbERlcG9zaXRlZCI6MTAwLCJub25jZSI6Im5fMSIsInNpZ25hdHVyZSI6InNpZ192YWxpZF8xIiwicGF5ZXJBZGRyZXNzIjoiR19QQVlFUiIsInJlcXVlc3RIYXNoIjo5OTk5OX0="
+    },
+    {
+      "id": "seed-03-float-sequence-number",
+      "target": "gateway:parsePaymentProof",
+      "category": "wrong-parse",
+      "description": "Fractional sequenceNumber (1.5) or negative sequenceNumber (-1) previously passed typeof sequenceNumber === 'number'.",
+      "rawJson": "{\"channelId\":\"chan_1\",\"sequenceNumber\":1.5,\"userBalance\":100,\"executorBalance\":0,\"totalDeposited\":100,\"nonce\":\"n_1\",\"signature\":\"sig_valid_1\",\"payerAddress\":\"G_PAYER\"}",
+      "headerBase64": "eyJjaGFubmVsSWQiOiJjaGFuXzEiLCJzZXF1ZW5jZU51bWJlciI6MS41LCJ1c2VyQmFsYW5jZSI6MTAwLCJleGVjdXRvckJhbGFuY2UiOjAsInRvdGFsRGVwb3NpdGVkIjoxMDAsIm5vbmNlIjoibl8xIiwic2lnbmF0dXJlIjoic2lnX3ZhbGlkXzEiLCJwYXllckFkZHJlc3MiOiJHX1BBWUVSIn0="
+    },
+    {
+      "id": "seed-04-missing-user-balance-bypass",
+      "target": "gateway:parsePaymentProof",
+      "category": "wrong-parse",
+      "description": "Missing userBalance caused undefined < expectedCost to evaluate to false in verifyPaymentProof, bypassing balance checks.",
+      "rawJson": "{\"channelId\":\"chan_1\",\"sequenceNumber\":1,\" nonce\":\"n_1\",\"nonce\":\"n_1\",\"signature\":\"sig_valid_1\",\"payerAddress\":\"G_PAYER\"}",
+      "headerBase64": "eyJjaGFubmVsSWQiOiJjaGFuXzEiLCJzZXF1ZW5jZU51bWJlciI6MSwibm9uY2UiOiJuXzEiLCJzaWduYXR1cmUiOiJzaWdfdmFsaWRfMSIsInBheWVyQWRkcmVzcyI6IkdfUEFZRVIIfQ=="
+    },
+    {
+      "id": "seed-05-odd-length-hex-request-hash",
+      "target": "gateway:parsePaymentProof",
+      "category": "wrong-parse",
+      "description": "Odd-length or non-hex requestHash truncated bytes during Buffer.from(requestHash, 'hex').",
+      "rawJson": "{\"channelId\":\"chan_1\",\"sequenceNumber\":1,\"userBalance\":100,\"executorBalance\":0,\"totalDeposited\":100,\"nonce\":\"n_1\",\"signature\":\"sig_valid_1\",\"payerAddress\":\"G_PAYER\",\"requestHash\":\"abc\"}",
+      "headerBase64": "eyJjaGFubmVsSWQiOiJjaGFuXzEiLCJzZXF1ZW5jZU51bWJlciI6MSwidXNlckJhbGFuY2UiOjEwMCwiZXhlY3V0b3JCYWxhbmNlIjowLCJ0b3RhbERlcG9zaXRlZCI6MTAwLCJub25jZSI6Im5fMSIsInNpZ25hdHVyZSI6InNpZ192YWxpZF8xIiwicGF5ZXJBZGRyZXNzIjoiR19QQVlFUiIsInJlcXVlc3RIYXNoIjoiYWJjIn0="
+    },
+    {
+      "id": "seed-06-sdk-string-accepts-indexing",
+      "target": "sdk:parsePaymentRequiredHeader",
+      "category": "wrong-parse",
+      "description": "String value for accepts allowed paymentRequired.accepts?.[0] to evaluate to a single character string.",
+      "rawJson": "{\"x402Version\":2,\"accepts\":\"exact\"}",
+      "headerBase64": "eyJ4NDAyVmVyc2lvbiI6MiwiYWNjZXB0cyI6ImV4YWN0In0="
+    },
+    {
+      "id": "seed-07-sdk-primitive-json-challenge",
+      "target": "sdk:parsePaymentRequiredHeader",
+      "category": "wrong-parse",
+      "description": "Base64-encoded JSON number or string literal was returned as truthy X402PaymentRequired object.",
+      "rawJson": "402",
+      "headerBase64": "NDAy"
+    },
+    {
+      "id": "seed-08-sdk-receipt-non-boolean-success",
+      "target": "sdk:parsePaymentResponseHeader",
+      "category": "wrong-parse",
+      "description": "Non-boolean success and numeric transaction fields in PAYMENT-RESPONSE were accepted without type validation.",
+      "rawJson": "{\"success\":\"yes\",\"transaction\":12345}",
+      "headerBase64": "eyJzdWNjZXNzIjoieWVzIiwidHJhbnNhY3Rpb24iOjEyMzQ1fQ=="
+    },
+    {
+      "id": "seed-09-dirty-base64-padding-bits",
+      "target": "both:round-trip",
+      "category": "round-trip",
+      "description": "Base64 string with non-zero padding bits decoded to valid JSON but re-serialized to a different base64 string.",
+      "rawJson": "{\"x402Version\":2}",
+      "headerBase64": "eyJ4NDAyVmVyc2lvbiI6Mn1="
+    },
+    {
+      "id": "seed-10-duplicate-json-keys",
+      "target": "both:round-trip",
+      "category": "wrong-parse",
+      "description": "Duplicate JSON keys (amount specified twice) caused parser ambiguity and violated serialise(parse(x)) === x.",
+      "rawJson": "{\"x402Version\":2,\"accepts\":[{\"scheme\":\"exact\",\"amount\":\"1\",\"amount\":\"999999\"}]}",
+      "headerBase64": "eyJ4NDAyVmVyc2lvbiI6MiwiYWNjZXB0cyI6W3sic2NoZW1lIjoiZXhhY3QiLCJhbW91bnQiOiIxIiwiYW1vdW50IjoiOTk5OTk5In1dfQ=="
+    },
+    {
+      "id": "seed-11-prototype-pollution-key",
+      "target": "both:security",
+      "category": "wrong-parse",
+      "description": "JSON payload containing __proto__ key must be rejected immediately.",
+      "rawJson": "{\"__proto__\":{\"polluted\":true},\"x402Version\":2}",
+      "headerBase64": "eyJfX3Byb3RvX18iOnsicG9sbHV0ZWQiOnRydWV9LCJ4NDAyVmVyc2lvbiI6Mn0="
+    },
+    {
+      "id": "seed-12-negative-zero-json",
+      "target": "gateway:parsePaymentProof",
+      "category": "round-trip",
+      "description": "Negative zero (-0) in JSON number fields violates canonical round-trip serialise(parse(x)) === x.",
+      "rawJson": "{\"channelId\":\"chan_1\",\"sequenceNumber\":1,\"userBalance\":-0,\"executorBalance\":0,\"totalDeposited\":0,\"nonce\":\"n_1\",\"signature\":\"sig_1\",\"payerAddress\":\"G_PAYER\"}",
+      "headerBase64": "eyJjaGFubmVsSWQiOiJjaGFuXzEiLCJzZXF1ZW5jZU51bWJlciI6MSwidXNlckJhbGFuY2UiOi0wLCJleGVjdXRvckJhbGFuY2UiOjAsInRvdGFsRGVwb3NpdGVkIjowLCJub25jZSI6Im5fMSIsInNpZ25hdHVyZSI6InNpZ18xIiwicGF5ZXJBZGRyZXNzIjoiR19QQVlFUiJ9"
+    }
+  ]
+}
