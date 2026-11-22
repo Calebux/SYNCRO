@@ -155,6 +155,17 @@ describe('provider console reads', () => {
       .send({ providerId, path: '/free/echo', channelId: 'pricing-channel', stateNonce: 1 })
       .expect(200);
 
+    await request(app).post('/api/v3/registry/grants').send({
+      agentId: 'pricing-agent-two',
+      scopes: ['POST:/free/echo'],
+    }).expect(201);
+    // A second agent shares the same payment channel; historical simulation
+    // must attribute this call to the authenticated agent, not the channel.
+    await request(app).post('/api/v3/gateway/paid')
+      .set('x-syncro-agent-id', 'pricing-agent-two')
+      .send({ providerId, path: '/free/echo', channelId: 'pricing-channel', stateNonce: 2 })
+      .expect(200);
+
     const simulation = await request(app)
       .post(`/api/v3/providers/${providerId}/pricing-simulator`)
       .set('x-provider-key', providerSecret)
@@ -169,13 +180,17 @@ describe('provider console reads', () => {
       .expect(200);
 
     expect(simulation.body.data.totals).toMatchObject({
-      calls: 1,
-      draftGrossStroops: 3,
+      calls: 2,
+      draftGrossStroops: 6,
       draftPlatformFeeStroops: 0,
-      draftProviderNetStroops: 3,
+      draftProviderNetStroops: 6,
       currentGrossStroops: 0,
-      differenceStroops: 3,
+      differenceStroops: 6,
     });
+    expect(simulation.body.data.rows.map((row: { agentId: string }) => row.agentId).sort()).toEqual([
+      'pricing-agent',
+      'pricing-agent-two',
+    ]);
     expect(simulation.body.data.feeIsEstimate).toBe(true);
   });
 
