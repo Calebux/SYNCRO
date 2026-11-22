@@ -222,4 +222,13 @@ export interface BatchingPolicy {
  * measured-cost-derived value so exposure never exceeds what a submission can
  * economically clear.
  */
-export function defaultBatchingPolicy(costs: GasCostModel = ME
+export function defaultBatchingPolicy(costs: GasCostModel = MEASURED_GAS_COSTS): BatchingPolicy {
+  return {
+    valueThreshold: deriveDefaultValueThreshold(costs),
+    maxIntervalMs: 60_000,
+    capApproachRatio: 0.8,
+    exposureCeiling: deriveDefaultValueThreshold(costs),
+  };
+}
+
+export * from './payout-schedule';
