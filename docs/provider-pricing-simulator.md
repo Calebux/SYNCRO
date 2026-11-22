@@ -9,7 +9,7 @@ The provider console's pricing simulator compares a draft rate card with the rou
 - Tiers are marginal bands: each tier price applies only to paid units above the preceding tier boundary.
 - Tier upper bounds are cumulative paid units; the final tier must use `upToUnits: null`.
 - The gateway reserves against the maximum billable usage using the same schedule and commits the actual charge after the upstream response.
-- A fully free maximum reservation still takes a one-stroop meter hold because the metering ledger requires a positive reservation; the actual committed amount remains zero.
+- A fully free maximum skips the monetary meter reservation entirely, so an agent does not need a positive balance to use a free allowance.
 
 The simulator calls the provider pricing endpoint, which uses the gateway's `calculateChargeStroops` and `roundBillableUnits` functions. Hypothetical profiles can model multiple agents. Historical mode replays recorded settlement quantities and groups them by payment channel because settlement records do not currently store agent IDs.
 
