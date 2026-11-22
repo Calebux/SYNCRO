@@ -664,11 +664,10 @@ router.post('/providers/:providerId/pricing-simulator', requireProviderAuth, (re
       draftProviderNetStroops: sum.draftProviderNetStroops + row.draftProviderNetStroops,
       currentGrossStroops: sum.currentGrossStroops + row.currentGrossStroops,
       differenceStroops: sum.differenceStroops + row.differenceStroops,
-    }),
-    if (Object.values(totals).some((value) => typeof value === 'number' && !Number.isSafeInteger(value))) {
+    }), { calls: 0, draftGrossStroops: 0, draftPlatformFeeStroops: 0, draftProviderNetStroops: 0, currentGrossStroops: 0, differenceStroops: 0 });
+    if (Object.values(totals).some((value) => !Number.isSafeInteger(value))) {
       throw new RangeError('projected totals exceed safe integer precision');
-    } { calls: 0, draftGrossStroops: 0, draftPlatformFeeStroops: 0, draftProviderNetStroops: 0, currentGrossStroops: 0, differenceStroops: 0 });
-
+    }
     return res.json({ data: {
       source: parsed.data.source,
       feeRateBps: parsed.data.platformFeeBps,
