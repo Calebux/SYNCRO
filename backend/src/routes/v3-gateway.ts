@@ -15,7 +15,7 @@ import { FileDegradedUsageLog } from '../../../packages/metering/src/degraded-lo
 import { RateLimiter } from '../../../packages/metering/src/rate-limit';
 import { sendGatewayError } from '../errors/gateway-error-response';
 import { authenticateProvider } from '../middleware/provider-auth';
-import { ROUTE_UNITS } from '../v3/pricing';
+import { ROUTE_UNITS, calculateChargeStroops, roundBillableUnits } from '../v3/pricing';
 
 const degradedModeFields = {
   failMode: z.enum(['fail_open', 'fail_closed']).optional(),
@@ -169,6 +169,23 @@ const reviseRouteSchema = z
   .refine((value) => Object.values(value).some((field) => field !== undefined), {
     message: 'at least one route field is required',
   });
+
+const pricingSimulationSchema = z.object({
+  routeId: z.string().uuid(),
+  source: z.enum(['historical', 'hypothetical']),
+  priceStroops: z.number().int().positive().safe(),
+  freeUnits: z.number().int().nonnegative().safe().default(0),
+  tiers: z.array(pricingTierSchema).min(1).optional(),
+  platformFeeBps: z.number().int().min(0).max(10_000).default(0),
+  traffic: z.array(z.object({
+    agentId: z.string().min(1),
+    calls: z.number().int().positive().max(100_000).safe(),
+    unitsPerCall: z.number().finite().nonnegative(),
+  })).optional(),
+}).refine((value) => value.source !== 'hypothetical' || (value.traffic?.length ?? 0) > 0, {
+  message: 'hypothetical traffic requires at least one agent profile',
+  path: ['traffic'],
+});
 
 const dryRunRouteSchema = z.object({
   method: z.string().min(1),
@@ -570,6 +587,77 @@ router.patch('/providers/:providerId/routes/:routeId', requireProviderAuth, (req
 router.get('/providers/:providerId/rate-cards', requireProviderAuth, (req: Request, res: Response) => {
   try {
     return res.json({ data: service.listRateCards(routeParam(req.params.providerId)) });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+router.post('/providers/:providerId/pricing-simulator', requireProviderAuth, (req: Request, res: Response) => {
+  const parsed = pricingSimulationSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  try {
+    const providerId = routeParam(req.params.providerId);
+    const route = service.listRoutes(providerId).find((item) => item.routeId === parsed.data.routeId);
+    if (!route) return res.status(404).json({ error: 'route not found' });
+    const current = route.applicableVersion;
+    if (!current) return res.status(409).json({ error: 'route has no applicable rate-card version' });
+
+    const profiles = parsed.data.source === 'historical'
+      ? service.listSettlements(providerId)
+          .filter((row) => row.routeId === parsed.data.routeId)
+          .reduce((groups, row) => {
+            const key = row.channelId || 'unknown-channel';
+            const profile = groups.get(key) ?? { agentId: key, calls: 0, quantities: [] as number[], unitsPerCall: null as number | null };
+            profile.calls += 1;
+            profile.quantities.push(row.quantity);
+            groups.set(key, profile);
+            return groups;
+          }, new Map<string, { agentId: string; calls: number; quantities: number[]; unitsPerCall: number | null }>())
+      : new Map((parsed.data.traffic ?? []).map((row) => [row.agentId, {
+          agentId: row.agentId,
+          calls: row.calls,
+          quantities: null as number[] | null,
+          unitsPerCall: row.unitsPerCall,
+        }]));
+
+    const draftSchedule = { freeUnits: parsed.data.freeUnits, tiers: parsed.data.tiers };
+    const currentSchedule = { freeUnits: current.freeUnits ?? 0, tiers: current.tiers };
+    const rows = [...profiles.values()].map((profile) => {
+      const draftGross = profile.quantities
+        ? profile.quantities.reduce((sum, quantity) => sum + calculateChargeStroops(parsed.data.priceStroops, roundBillableUnits(quantity), draftSchedule), 0)
+        : calculateChargeStroops(parsed.data.priceStroops, roundBillableUnits(profile.unitsPerCall ?? 0), draftSchedule) * profile.calls;
+      const currentGross = profile.quantities
+        ? profile.quantities.reduce((sum, quantity) => sum + calculateChargeStroops(current.priceStroops, roundBillableUnits(quantity), currentSchedule), 0)
+        : calculateChargeStroops(current.priceStroops, roundBillableUnits(profile.unitsPerCall ?? 0), currentSchedule) * profile.calls;
+      const fee = Math.floor(draftGross * parsed.data.platformFeeBps / 10_000);
+      return {
+        agentId: profile.agentId,
+        calls: profile.calls,
+        draftGrossStroops: draftGross,
+        draftPlatformFeeStroops: fee,
+        draftProviderNetStroops: draftGross - fee,
+        currentGrossStroops: currentGross,
+        differenceStroops: draftGross - currentGross,
+      };
+    });
+    const totals = rows.reduce((sum, row) => ({
+      calls: sum.calls + row.calls,
+      draftGrossStroops: sum.draftGrossStroops + row.draftGrossStroops,
+      draftPlatformFeeStroops: sum.draftPlatformFeeStroops + row.draftPlatformFeeStroops,
+      draftProviderNetStroops: sum.draftProviderNetStroops + row.draftProviderNetStroops,
+      currentGrossStroops: sum.currentGrossStroops + row.currentGrossStroops,
+      differenceStroops: sum.differenceStroops + row.differenceStroops,
+    }), { calls: 0, draftGrossStroops: 0, draftPlatformFeeStroops: 0, draftProviderNetStroops: 0, currentGrossStroops: 0, differenceStroops: 0 });
+
+    return res.json({ data: {
+      source: parsed.data.source,
+      feeRateBps: parsed.data.platformFeeBps,
+      feeIsEstimate: true,
+      currentRateCardVersion: current.versionId,
+      rows,
+      totals,
+    } });
   } catch (error) {
     return sendServiceError(res, error);
   }
