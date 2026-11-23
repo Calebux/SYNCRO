@@ -82,6 +82,10 @@ export interface RateLimitSettings {
   sessionChallenge: RateLimitConfig & {
     windowMinutes: number;
   };
+  /** Gateway quote endpoint (IP/agent-keyed, no channel required). */
+  gatewayQuote: RateLimitConfig & {
+    windowMinutes: number;
+  };
   privacy: PrivacyRateLimitConfig;
 }
 
@@ -157,6 +161,10 @@ export function loadRateLimitConfig(): RateLimitSettings {
   // Session challenge limits (IP-keyed, for unauthenticated endpoints)
   const sessionChallengeMax = parseIntEnv(env.RATE_LIMIT_SESSION_CHALLENGE_MAX, 5);
   const sessionChallengeWindowMinutes = parseIntEnv(env.RATE_LIMIT_SESSION_CHALLENGE_WINDOW_MINUTES, 15);
+
+  // Gateway quote limits (IP/agent-keyed, no payment channel required)
+  const gatewayQuoteMax = parseIntEnv(env.RATE_LIMIT_GATEWAY_QUOTE_MAX, 60);
+  const gatewayQuoteWindowMinutes = parseIntEnv(env.RATE_LIMIT_GATEWAY_QUOTE_WINDOW_MINUTES, 1);
 
   // Privacy feature rate limits
   const stealthAddressMax = parseIntEnv(env.RATE_LIMIT_STEALTH_ADDRESS_MAX, 100);
@@ -280,6 +288,16 @@ export function loadRateLimitConfig(): RateLimitSettings {
       standardHeaders: true,
       legacyHeaders: false,
     },
+    gatewayQuote: {
+      windowMs: gatewayQuoteWindowMinutes * 60 * 1000,
+      windowMinutes: gatewayQuoteWindowMinutes,
+      max: gatewayQuoteMax,
+      message: {
+        error: `Too many quote requests. You can request up to ${gatewayQuoteMax} quotes per ${gatewayQuoteWindowMinutes} minute${gatewayQuoteWindowMinutes > 1 ? 's' : ''}. Please try again later.`,
+      },
+      standardHeaders: true,
+      legacyHeaders: false,
+    },
     privacy: {
       stealthAddress: {
         windowMs: stealthAddressWindowHours * 60 * 60 * 1000,
@@ -348,6 +366,7 @@ export function loadRateLimitConfig(): RateLimitSettings {
       admin: `${config.admin.max}/${config.admin.windowHours}h`,
       simulation: `${config.simulation.max}/${config.simulation.windowHours}h`,
       sessionChallenge: `${config.sessionChallenge.max}/${config.sessionChallenge.windowMinutes}m`,
+      gatewayQuote: `${config.gatewayQuote.max}/${config.gatewayQuote.windowMinutes}m`,
     },
     privacy: {
       stealthAddress: `${config.privacy.stealthAddress.max}/${config.privacy.stealthAddress.windowHours}h`,

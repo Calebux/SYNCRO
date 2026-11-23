@@ -30,6 +30,20 @@ const TOKEN_TRANSFER_CRATES = new Set([
   "payment-splitter",
 ]);
 
+// Entrypoints introduced by the v3 partial-withdrawal, batch-submit and
+// agent-key work. They are required to ship negative-path tests and README
+// matrix rows just like any other public entrypoint; listing them here keeps
+// the requirement explicit even if the entrypoint is temporarily feature-gated
+// out of `src/lib.rs` (e.g. behind a settlement-engine flag).
+const REQUIRED_ENTRYPOINTS = {
+  "payment-channel": [
+    "checkpoint",
+    "submit_state_batch",
+    "authorize_agent_key",
+    "revoke_agent_key",
+  ],
+};
+
 function stripTestModules(src) {
   let out = src.replace(/#\[cfg\(test\)\]\s*mod\s+\w+\s*;/g, "");
   const marker = "#[cfg(test)]";
@@ -121,6 +135,9 @@ if (readme && matrixRows === null) {
 for (const crate of crates) {
   const lib = fs.readFileSync(path.join(CONTRACTS_ROOT, crate, "src/lib.rs"), "utf8");
   const fns = publicFns(lib);
+  for (const fn of REQUIRED_ENTRYPOINTS[crate] ?? []) {
+    if (!fns.includes(fn)) fns.push(fn);
+  }
   const tests = collectTests(path.join(CONTRACTS_ROOT, crate, "src"));
   const testSet = new Set(tests);
 
@@ -141,6 +158,19 @@ for (const crate of crates) {
     const hasReentrancy = tests.some((t) => t.includes("malicious_token_reentrancy"));
     if (!hasReentrancy) {
       missing.push(`${crate}: missing malicious_token_reentrancy test`);
+    }
+  }
+
+  // Checkpoint payouts must not be double-spendable: require an invariant test
+  // covering checkpoint followed by dispute and checkpoint followed by close.
+  if (crate === "payment-channel") {
+    const hasCheckpointInvariant = tests.some(
+      (t) => t.includes("checkpoint") && (t.includes("dispute") || t.includes("close")),
+    );
+    if (!hasCheckpointInvariant) {
+      missing.push(
+        "payment-channel: missing checkpoint-then-dispute/close invariant test (no double payout)",
+      );
     }
   }
 }

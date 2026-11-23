@@ -35,6 +35,13 @@ export type VerifyState = (state: SignedState) => Promise<boolean>;
 export type SubmitState = (state: SignedState) => Promise<void>;
 
 /**
+ * Submits several states in a single transaction. Implementations should
+ * process the batch atomically (all-or-nothing) so that a partial failure
+ * leaves no channel half-submitted. Returns once the batch is accepted.
+ */
+export type SubmitStateBatch = (states: SignedState[]) => Promise<void>;
+
+/**
  * Finalizes a channel once its challenge window has elapsed.
  */
 export type FinalizeChannel = (channelId: string) => Promise<void>;
@@ -63,6 +70,16 @@ export interface PendingClose {
 export interface CloseManagerOptions {
   verifyState: VerifyState;
   submitState: SubmitState;
+  /**
+   * Batch submission entry point. When `useBatchSubmit` is enabled this is
+   * preferred over `submitState`; if omitted we fall back to individual calls.
+   */
+  submitStateBatch?: SubmitStateBatch;
+  /**
+   * Feature flag: route state submissions through the batch entry point.
+   * Defaults to false so existing behaviour is unchanged.
+   */
+  useBatchSubmit?: boolean;
   finalizeChannel: FinalizeChannel;
   store: PendingCloseStore;
   /** Challenge period in milliseconds. */
@@ -112,7 +129,7 @@ export class CloseManager extends EventEmitter {
       return this.acceptNewerState(state);
     }
 
-    await this.opts.submitState(state);
+    await this.submitStates([state]);
 
     const initiatedAt = this.now();
     const record: PendingClose = {
@@ -147,7 +164,7 @@ export class CloseManager extends EventEmitter {
       throw new Error(`rejecting newer state for ${state.channelId}: invalid signature`);
     }
 
-    await this.opts.submitState(state);
+    await this.submitStates([state]);
 
     const updated: PendingClose = {
       ...existing,
@@ -224,6 +241,26 @@ export class CloseManager extends EventEmitter {
     const pending = await this.opts.store.list();
     this.emit('close:recovered', pending);
     return pending;
+  }
+
+  /**
+   * Submit one or more states, routing through the batch entry point when the
+   * feature flag is enabled and a batch submitter is configured. Both paths
+   * produce the same on-chain result; the batch path simply amortises the
+   * transaction cost across channels.
+   */
+  private async submitStates(states: SignedState[]): Promise<void> {
+    if (states.length === 0) return;
+
+    const batch = this.opts.submitStateBatch;
+    if (this.opts.useBatchSubmit && batch) {
+      await batch(states);
+      return;
+    }
+
+    for (const state of states) {
+      await this.opts.submitState(state);
+    }
   }
 
   private async getPending(channelId: string): Promise<PendingClose | undefined> {
