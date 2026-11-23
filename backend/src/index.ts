@@ -113,6 +113,7 @@ import analyticsV3Routes from './routes/analytics-v3';
 import v3GatewayRoutes from './routes/v3/gateway';
 import v3ProviderRoutes from './routes/v3-gateway';
 import receiptKeysRoutes from './routes/v3/receipt-keys';
+import providerManifestRoutes from './routes/v3/provider-manifest';
 
 
 const app = express();
@@ -281,6 +282,11 @@ app.use('/api/v3/gateway', v3GatewayRoutes);
 app.use('/api/v3', v3ProviderRoutes);
 app.use('/.well-known/syncro-receipt-keys', receiptKeysRoutes);
 app.use('/api/v3/receipt-keys', receiptKeysRoutes);
+// Provider manifest — public, no auth (issue #1828)
+// REST: GET /api/v3/providers/:providerId/manifest
+app.use('/api/v3/providers/:providerId/manifest', providerManifestRoutes);
+// Well-known: GET /.well-known/syncro/:providerId
+app.use('/.well-known/syncro/:providerId', providerManifestRoutes);
 
 // API Routes
 app.use('/api/keys', apiKeysRoutes);

@@ -47,3 +47,15 @@ export {
   type PaidResponse,
   type PaymentReceipt,
 } from "./paid-fetch.js";
+
+export {
+  ManifestClient,
+  manifestClient,
+  ManifestFetchError,
+  ManifestValidationError,
+  type SyncroProviderManifest,
+  type ManifestAssetDescriptor,
+  type ManifestRouteDescriptor,
+  type ManifestReceiptKeyEntry,
+  type ManifestClientOptions,
+} from "./manifest-client.js";

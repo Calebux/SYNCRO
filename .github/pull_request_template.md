@@ -1,32 +1,24 @@
+# Pull Request Template
 
-## Description
+## Summary
 
-Briefly describe what this PR does.
+<!-- What does this change do and why? -->
 
----
+## Issue
 
-## Related Issue
+<!-- Link the issue(s), e.g. Closes #123 -->
 
-Closes #
+## Changes
 
----
+<!-- Key code, migration, and docs changes -->
 
-## Test Plan
+## Trusted inputs
 
-- [ ] Tested locally
-- [ ] Verified expected behavior
-- [ ] No regressions introduced
-
----
-
-## Screenshots (if applicable)
-
----
+- [ ] This change does not add a new trusted input (header, body field, or query param) on the paid path.
+- [ ] This change adds a new trusted input, and `docs/security/v3-metered-rails-threat-model.md` (Trusted Inputs table) is updated with its source and verifier.
 
 ## Checklist
 
-- [ ] Code builds successfully
-- [ ] Tests pass
-- [ ] Domain terms and field names verified against [docs/DOMAIN_GLOSSARY_AND_DATA_MODEL.md](../docs/DOMAIN_GLOSSARY_AND_DATA_MODEL.md)
-- [ ] Follows project conventions
-- [ ] No sensitive data exposed
+- [ ] Tests added/updated and passing
+- [ ] Docs updated
+- [ ] No unrelated changes
