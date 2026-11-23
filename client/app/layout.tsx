@@ -47,6 +47,8 @@ export default async function RootLayout({
                 <footer className="py-4 text-center text-xs text-gray-500">
                     <Link href="/agents" className="hover:underline">Agents</Link>
                     <span className="mx-2">·</span>
+                    <Link href="/directory" className="hover:underline">Provider directory</Link>
+                    <span className="mx-2">·</span>
                     <Link href="/privacy" className="hover:underline">Privacy Policy</Link>
                     <span className="mx-2">·</span>
                     <Link href="/terms" className="hover:underline">Terms of Service</Link>

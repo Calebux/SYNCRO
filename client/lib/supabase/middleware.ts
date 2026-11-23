@@ -1,4 +1,5 @@
 import { createServerClient } from "@supabase/ssr"
+import { isPublicDirectoryRoute } from "@/lib/provider-directory"
 import { NextResponse, type NextRequest } from "next/server"
 
 export async function updateSession(request: NextRequest) {
@@ -38,7 +39,8 @@ export async function updateSession(request: NextRequest) {
 
   const isAgentConsole = request.nextUrl.pathname === "/agents" || request.nextUrl.pathname.startsWith("/agents/");
   const isPublicReceiptVerifier = request.nextUrl.pathname === "/receipts/verify";
-  if (!user && !request.nextUrl.pathname.startsWith("/auth") && request.nextUrl.pathname !== "/" && !isAgentConsole && !isPublicReceiptVerifier) {
+  const isPublicDirectory = isPublicDirectoryRoute(request.nextUrl.pathname);
+  if (!user && !request.nextUrl.pathname.startsWith("/auth") && request.nextUrl.pathname !== "/" && !isAgentConsole && !isPublicReceiptVerifier && !isPublicDirectory) {
     const url = request.nextUrl.clone()
     url.pathname = "/auth/login"
     return NextResponse.redirect(url)
@@ -88,6 +90,7 @@ export async function updateSession(request: NextRequest) {
 function isProtectedRoute(pathname: string): boolean {
   if (pathname === "/") return false
   if (pathname === "/receipts/verify") return false
+  if (isPublicDirectoryRoute(pathname)) return false
   if (pathname.startsWith("/auth/")) return false
   if (pathname.startsWith("/api/")) return false
   if (pathname.startsWith("/_next/")) return false
