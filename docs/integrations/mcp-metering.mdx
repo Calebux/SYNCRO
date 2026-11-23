@@ -1,0 +1,177 @@
+# Metering MCP tool calls
+
+Charge per call for tools exposed by an MCP server. `meteredTool()` is a
+provider-side wrapper that brings the SYNCRO x402 payment flow to the MCP
+TypeScript SDK: an unpaid call returns the payment challenge, a paid call runs
+the handler and returns a settlement receipt.
+
+The wrapper ships in `@syncro/sdk` and is transport-agnostic. HTTP and SSE
+transports are supported today; stdio is designed but deferred (see below).
+
+## Wrap a tool
+
+```ts
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import { meteredTool } from "@syncro/sdk";
+
+const server = new McpServer({ name: "metered-demo", version: "1.0.0" });
+
+server.registerTool(
+  "summarize",
+  { inputSchema: { text: z.string() } },
+  meteredTool(
+    // Your ordinary MCP tool handler — unchanged.
+    async ({ text }) => ({ content: [{ type: "text", text }] }),
+    // Price: a number, a rule, a declaration map, or a `pricing()` object.
+    0.01,
+    {
+      toolName: "summarize",
+      // Verify the proof with the SYNCRO gateway (or your own verifier).
+      verifyProof: (proof, cost) => verifyWithGateway(proof, cost),
+      // Report settled usage so it lands in the provider ledger.
+      meterCall: (receipt) => syncro.usage.record(receipt),
+    },
+  ),
+);
+```
+
+`meteredTool(handler, pricing, options)` returns a handler with the same
+signature, so it drops into `registerTool()` with no other changes.
+
+The tool is matched as the pseudo-route `CALL <toolName>`, so both of these
+pricing declarations work:
+
+```ts
+meteredTool(handler, 0.01, { toolName: "summarize" });
+meteredTool(handler, { "CALL summarize": 0.01 }, { toolName: "summarize" });
+```
+
+A price of `0` marks the tool free: the handler runs and a `status: "free"`
+receipt is attached.
+
+## How 402 maps onto the MCP transport
+
+MCP has no HTTP status codes, so the 402 challenge travels as tool-result
+metadata instead of an HTTP header. The values are identical to the ones the
+HTTP `metered()` middleware emits, which keeps any HTTP ⇄ MCP bridge trivial.
+
+| HTTP provider middleware        | MCP wrapper (`_meta` key)     |
+| ------------------------------- | ----------------------------- |
+| `PAYMENT-REQUIRED` header       | `_meta["PAYMENT-REQUIRED"]`   |
+| `PAYMENT-SIGNATURE` header      | `_meta["PAYMENT-SIGNATURE"]`  |
+| `X-Syncro-Receipt` header       | `_meta["X-Syncro-Receipt"]`   |
+
+An unpaid call returns a normal tool result with:
+
+- `isError: true` — the tool did not run, so tool callers see it as a failure.
+- `content[0].text` — a human-readable "payment required" message.
+- `_meta["PAYMENT-REQUIRED"]` — base64-encoded JSON of the x402 challenge
+  (`x402Version`, `resource`, `accepts[{ scheme, amount, asset, payTo }]`).
+
+Keys can be overridden with `options.metaKeys` if you already use custom
+metadata.
+
+## Where the proof is read from
+
+| Transport            | Proof source                                                 |
+| -------------------- | ------------------------------------------------------------ |
+| HTTP / SSE           | `PAYMENT-SIGNATURE` or `X-Syncro-Payment-Proof` request header |
+| Any (e.g. `_meta`)   | `_meta["PAYMENT-SIGNATURE"]` on the tool call                 |
+
+The wrapper checks the request header first, then the call `_meta`. Both are
+verified by the same `verifyProof` callback, so a provider configures one
+verifier regardless of transport.
+
+## Receipts in the tool result
+
+Every executed call — free or paid — gets a receipt in
+`_meta["X-Syncro-Receipt"]`:
+
+```json
+{
+  "id": "rcpt_ab12cd34e_1730000000000",
+  "timestamp": "2025-10-27T10:00:00.000Z",
+  "route": "summarize",
+  "method": "CALL",
+  "amount": 0.01,
+  "currency": "USDC",
+  "payer": "<payment proof>",
+  "status": "settled"
+}
+```
+
+`status` is `settled` for a paid call and `free` for a zero-priced or
+served-free call. `payer` carries the proof the call was settled with.
+
+## How clients handle the payment step
+
+1. Call the tool as usual.
+2. If the result has `isError: true` **and** `_meta["PAYMENT-REQUIRED"]`, decode
+   it (`atob`, then `JSON.parse`) to get the x402 challenge. Verify the
+   challenge's signature against the gateway public key before paying.
+3. Build and sign an x402 payment payload for `accepts[0]`.
+4. Retry the **same** tool call with the proof attached — as the
+   `PAYMENT-SIGNATURE` header on HTTP/SSE, or as `_meta["PAYMENT-SIGNATURE"]`
+   on transports without headers.
+5. On success, read the receipt from `_meta["X-Syncro-Receipt"]`.
+
+```ts
+// HTTP / SSE transport: attach the proof as a header on the retry.
+const result = await callTool({
+  name: "summarize",
+  arguments: { text },
+  // payment proof, exchanged for the 402 challenge above
+  headers: { "PAYMENT-SIGNATURE": signedProof },
+});
+
+// Header-less transport: attach the proof to the call metadata.
+const result = await callTool({
+  name: "summarize",
+  arguments: { text },
+  _meta: { "PAYMENT-SIGNATURE": signedProof },
+});
+
+const receipt = result._meta?.["X-Syncro-Receipt"];
+```
+
+For plain HTTP endpoints, `createPaidFetch()` from `@syncro/sdk/v3` already
+performs steps 2–4 automatically. Use it when your MCP server is reached over
+HTTP and the client can send headers.
+
+## Failure behaviour
+
+When verification or metering throws (gateway unreachable), the wrapper mirrors
+the HTTP middleware:
+
+- `onFailure: "reject"` (the default) — returns `isError: true` with
+  `_meta["Retry-After"] = "5"` and a `syncro/error` description.
+- `onFailure: "serve-free"` — runs the handler, attaches a `status: "free"`
+  receipt, logs a one-time warning, and increments `servedFreeStats.count`.
+- A custom `onFailure` function — full control over the error result.
+
+## stdio transport (deferred)
+
+stdio is **not wired up yet**. The design is recorded here so the work can be
+picked up without re-deriving it.
+
+What already works: stdio has no headers, but the wrapper's header-less path
+reads and writes everything through tool-call `_meta`. So over stdio the
+challenge is returned in the result's `_meta["PAYMENT-REQUIRED"]` and the proof
+is accepted from the call's `_meta["PAYMENT-SIGNATURE"]` with no code changes.
+
+What is missing, and is why this is deferred:
+
+- **No settlement channel.** An HTTP client can pay out-of-band and retry; a
+  stdio MCP client that is not a SYNCRO-aware payer has no way to obtain a
+  proof mid-session. A payment step needs a client-side contract (a
+  `notifications/*` prompt or an elicitation round-trip) before it is usable.
+- **No session identity binding.** HTTP transports tie a proof to a request;
+  stdio is a long-lived process pipe, so a proof should be bound to the MCP
+  `sessionId` to prevent replay across sessions.
+- **No transport-level status codes.** Everything must keep travelling in
+  `_meta`, so error surfacing stays uniform with the HTTP mapping above.
+
+The planned shape is a thin stdio adapter that reuses the same verify/pay
+logic, binds proofs to `sessionId`, and documents the client prompt — with no
+changes to the core wrapper.
