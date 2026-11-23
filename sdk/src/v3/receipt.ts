@@ -50,6 +50,7 @@ export interface VerifyReceiptResult {
 }
 
 export function canonicalizeReceiptForSigning(receipt: IndependentReceipt): string {
+  // Hot path: benchmarked in sdk/bench/v3-signing.bench.ts (see docs/v3/benchmarks.md).
   const payload = {
     providerId: receipt.providerId,
     channelId: receipt.channelId,
@@ -70,7 +71,7 @@ export function canonicalizeReceiptForSigning(receipt: IndependentReceipt): stri
   return JSON.stringify(payload);
 }
 
-function verifyDetachedSignature(
+export function verifyDetachedSignature(
   payload: string,
   signatureHex: string,
   providerPublicKeyPem: string,

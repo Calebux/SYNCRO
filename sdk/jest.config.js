@@ -4,7 +4,7 @@ export default {
   testEnvironment: 'node',
   roots: ['<rootDir>/tests'],
   transform: {
-    '^.+\\.tsx?$': ['ts-jest', {
+    '^.+\.tsx?$': ['ts-jest', {
       diagnostics: false,
       tsconfig: {
         target: 'ES2022',
@@ -26,4 +26,7 @@ export default {
   // CI run reports a real number, then ratcheted up.
   coverageReporters: ["text-summary", "json-summary", "lcov"],
   collectCoverageFrom: ["src/**/*.ts", "!src/**/*.d.ts", "!src/**/index.ts"],
+  // Benchmarks live under tests/bench and are run via a dedicated script;
+  // they are excluded from the regular unit test run.
+  testPathIgnorePatterns: ['<rootDir>/tests/bench/'],
 };

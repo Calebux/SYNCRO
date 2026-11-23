@@ -17,6 +17,13 @@ export interface BrowserReceiptVerifyResult {
   reason: BrowserReceiptVerifyReason;
 }
 
+/**
+ * Benchmark hook: per-call verification timing is measured in the Node, browser,
+ * and Workers harnesses (see docs/benchmarks). This export keeps the verifier
+ * callable from those harnesses without changing its behavior.
+ */
+export const RECEIPT_VERIFY_BENCHMARK_LABEL = 'receipt-verify-browser';
+
 type BrowserVerifiableReceipt = Omit<PaidReceipt, 'keyId'> & { keyId?: string };
 
 function stableStringify(value: unknown): string {

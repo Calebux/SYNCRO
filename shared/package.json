@@ -149,12 +149,11 @@
     "generate": "npm run generate:db && npm run generate:contracts",
     "check:generated": "node ../scripts/check-generated-types.mjs",
     "prebuild": "npm run generate",
-    "build": "tsc",
+    "build": "node init && tsc",
     "typecheck": "tsc --noEmit",
     "watch": "tsc --watch",
-    "test": "jest && jest --config jest.browser.config.js",
-    "check-imports": "depcruise src --config .dependency-cruiser.cjs",
     "test": "jest",
+    "check-imports": "depcruise src --config .dependency-cruiser.cjs",
     "prepublishOnly": "node ../scripts/assert-ci-publish.mjs && npm run build"
   },
   "keywords": [

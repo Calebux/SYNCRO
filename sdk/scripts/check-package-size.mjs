@@ -9,6 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SDK_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// Benchmarks (signing/verification throughput) are tracked separately; this script only gates package size.
 const BUDGET_FILE = path.join(SDK_ROOT, 'package-size.json');
 
 function extractJson(stdout) {

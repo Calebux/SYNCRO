@@ -114,6 +114,14 @@ async function main() {
   }
 
   console.log('OK: package layout resolves under ESM, CJS, bundler, and node16.');
+
+  // Benchmark artifacts must exist so the perf regression gate can run.
+  for (const rel of [
+    'scripts/bench-signing.mjs',
+    'docs/benchmarks.md',
+  ]) {
+    assertExists(rel);
+  }
 }
 
 main().catch((err) => {

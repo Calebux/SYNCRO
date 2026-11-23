@@ -3,7 +3,7 @@ export default {
   preset: 'ts-jest',
   testEnvironment: 'node',
   roots: ['<rootDir>/tests'],
-  testMatch: ['**/crypto-vectors.test.ts'],
+  testMatch: ['**/crypto-vectors.test.ts', '**/bench/*.bench.ts'],
   transform: {
     '^.+\\.tsx?$': ['ts-jest', {
       diagnostics: false,
