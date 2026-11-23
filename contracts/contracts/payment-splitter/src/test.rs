@@ -186,6 +186,104 @@ fn test_two_way_split_with_rounding_dust() {
     assert_eq!(ctx.token_client.balance(&ctx.payers[1]), total * 2 - 6);
 }
 
+// ── 70/30 split: exact totals, no dust lost ──────────────────────────────────
+
+#[test]
+fn test_seventy_thirty_split_exact_totals() {
+    let ctx = setup();
+    // 1 USDC (6 decimals) split 70 % / 30 %.
+    let total: i128 = 1_000_000;
+    fund_and_approve(&ctx, total);
+
+    let payers = make_payers(&ctx.env, &[(&ctx.payers[0], 7000), (&ctx.payers[1], 3000)]);
+
+    let split_id =
+        ctx.splitter
+            .configure_split(&ctx.caller, &ctx.token, &ctx.merchant, &total, &payers);
+
+    ctx.splitter.execute_split(&ctx.caller, &split_id);
+
+    // Merchant receives exactly the channel payout.
+    assert_eq!(ctx.token_client.balance(&ctx.merchant), total);
+
+    // 70 % = 700_000, 30 % = 300_000; sums exactly to total.
+    let paid_0 = total - ctx.token_client.balance(&ctx.payers[0]);
+    let paid_1 = total - ctx.token_client.balance(&ctx.payers[1]);
+    assert_eq!(paid_0, 700_000);
+    assert_eq!(paid_1, 300_000);
+    assert_eq!(paid_0 + paid_1, total);
+}
+
+// ── 70/30 split with an amount that does not divide evenly ───────────────────
+//
+// total = 101, 70 % = floor(101 * 7000 / 10_000) = 70,
+// 30 % = floor(101 * 3000 / 10_000) = 30, allocated = 100, dust = 1.
+// The dust must be assigned to the first payer so that the sum of the
+// individual payouts equals the total exactly (no dust lost).
+
+#[test]
+fn test_seventy_thirty_split_rounding_no_dust_lost() {
+    let ctx = setup();
+    let total: i128 = 101;
+
+    let sac = StellarAssetClient::new(&ctx.env, &ctx.token);
+    for p in &ctx.payers[0..2] {
+        sac.mint(p, &(total * 2));
+        ctx.token_client
+            .approve(p, &ctx.splitter.address, &(total * 2), &1_000_000u32);
+    }
+
+    let payers = make_payers(&ctx.env, &[(&ctx.payers[0], 7000), (&ctx.payers[1], 3000)]);
+
+    let split_id =
+        ctx.splitter
+            .configure_split(&ctx.caller, &ctx.token, &ctx.merchant, &total, &payers);
+
+    ctx.splitter.execute_split(&ctx.caller, &split_id);
+
+    assert_eq!(ctx.token_client.balance(&ctx.merchant), total);
+
+    let paid_0 = total * 2 - ctx.token_client.balance(&ctx.payers[0]);
+    let paid_1 = total * 2 - ctx.token_client.balance(&ctx.payers[1]);
+
+    // floor(101 * 7000 / 10_000) = 70, floor(101 * 3000 / 10_000) = 30.
+    // allocated = 100, dust = 1 → first payer pays 71.
+    assert_eq!(paid_0, 71);
+    assert_eq!(paid_1, 30);
+    // No dust lost: the payouts sum to the merchant's exact total.
+    assert_eq!(paid_0 + paid_1, total);
+}
+
+// ── Recipient missing a trustline: whole split reverts atomically ────────────
+//
+// A payer whose account has no trustline for the token cannot authorise a
+// `transfer_from`, so the token contract reverts. Soroban's all-or-nothing
+// transaction model means the merchant receives nothing and no other payer
+// is debited.
+
+#[test]
+#[should_panic]
+fn test_recipient_missing_trustline_reverts() {
+    let ctx = setup();
+    let total: i128 = 1_000_000;
+
+    // payers[0] is funded and approved; payers[1] has no trustline at all
+    // (never minted, never approved) so its transfer_from will fail.
+    let sac = StellarAssetClient::new(&ctx.env, &ctx.token);
+    sac.mint(&ctx.payers[0], &total);
+    ctx.token_client
+        .approve(&ctx.payers[0], &ctx.splitter.address, &total, &1_000_000u32);
+
+    let payers = make_payers(&ctx.env, &[(&ctx.payers[0], 7000), (&ctx.payers[1], 3000)]);
+
+    let split_id =
+        ctx.splitter
+            .configure_split(&ctx.caller, &ctx.token, &ctx.merchant, &total, &payers);
+
+    // Must panic: payers[1] cannot transfer without a trustline/balance.
+    ctx.splitter.execute_split(&ctx.caller, &split_id);
+}
+
 // ── Happy-path: single payer at 100 % ────────────────────────────────────────
 
 #[test]

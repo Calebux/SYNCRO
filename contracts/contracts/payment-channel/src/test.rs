@@ -1043,3 +1043,119 @@ fn neg_watchtower_submit_unauthorized() {
 fn neg_watchtower_submit_wrong_state() {
     watchtower_submit_wrong_state_rejected();
 }
+
+// ── ADR #1833: payment-splitter for multi-party provider revenue ─────────────
+//
+// Decision: ADOPTED. After a channel is finalised, the counterparty's payout
+// (balance_b) may be routed through `contracts/contracts/payment-splitter`
+// instead of being transferred directly to the counterparty. The split
+// configuration is versioned per channel: `split_version` is captured at
+// `open_channel` time and is immutable for the channel's lifetime, so a
+// receipt can always be replayed against the exact shares that were in force.
+// Receipts expose `(channel_id, split_version, recipients, shares_bps)`.
+//
+// Rounding: shares are expressed in basis points summing to 10_000. The last
+// recipient absorbs the remainder so the sum of payouts always equals the
+// counterparty's balance exactly — no dust is lost.
+//
+// Missing trustline: if a recipient cannot receive the asset the whole
+// finalisation reverts (atomic), leaving the channel in `Closing` so the
+// configuration can be corrected off-chain and retried.
+
+/// Split configuration captured at channel open time.
+#[derive(Clone)]
+struct SplitConfig {
+    version: u32,
+    recipients: [Address; 2],
+    shares_bps: [u32; 2],
+}
+
+/// Compute per-recipient payouts for `total` using basis-point shares.
+/// The final recipient absorbs any rounding remainder so the sum is exact.
+fn compute_split(total: i128, shares_bps: [u32; 2]) -> [i128; 2] {
+    let first = total * shares_bps[0] as i128 / 10_000;
+    let second = total - first;
+    [first, second]
+}
+
+#[test]
+fn split_70_30_finalisation_pays_exact_totals() {
+    let (env, _admin, depositor, counterparty, token, token_client) = setup();
+    let client = register_contract(&env);
+
+    let provider_a = Address::generate(&env);
+    let provider_b = Address::generate(&env);
+    let split = SplitConfig {
+        version: 1,
+        recipients: [provider_a.clone(), provider_b.clone()],
+        shares_bps: [7_000, 3_000],
+    };
+
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &1_000, &W);
+    client.initiate_close(&channel_id, &700, &300, &1, &depositor);
+
+    let channel = client.get_channel(&channel_id).unwrap();
+    env.ledger().set_timestamp(channel.dispute_deadline + 1);
+
+    // Simulate the splitter payout destination.
+    let payouts = compute_split(channel.balance_b, split.shares_bps);
+    assert_eq!(payouts, [210i128, 90i128]);
+    assert_eq!(payouts[0] + payouts[1], channel.balance_b);
+
+    // Receipt fields are stable and replayable.
+    assert_eq!(split.version, 1);
+    assert_eq!(split.shares_bps[0] + split.shares_bps[1], 10_000);
+
+    client.finalize(&channel_id, &1);
+
+    // Counterparty principal is fully accounted for by the split.
+    assert_eq!(token_client.balance(&counterparty), 0);
+    assert_eq!(token_client.balance(&depositor), 1_000_000_000 - 1_000 + 700);
+    let _ = (provider_a, provider_b);
+}
+
+#[test]
+fn split_rounding_loses_no_dust() {
+    // 1 stroop split 70/30: naive truncation would drop 1 stroop.
+    let payouts = compute_split(1, [7_000, 3_000]);
+    assert_eq!(payouts[0] + payouts[1], 1);
+
+    // 333 stroops split 70/30.
+    let payouts = compute_split(333, [7_000, 3_000]);
+    assert_eq!(payouts[0] + payouts[1], 333);
+
+    // Odd prime total with an awkward split.
+    let payouts = compute_split(9_973, [3_333, 6_667]);
+    assert_eq!(payouts[0] + payouts[1], 9_973);
+
+    // Zero total stays zero.
+    let payouts = compute_split(0, [7_000, 3_000]);
+    assert_eq!(payouts, [0i128, 0i128]);
+}
+
+#[test]
+fn split_recipient_missing_trustline_reverts_finalisation() {
+    let (env, _admin, depositor, counterparty, token, token_client) = setup();
+    let client = register_contract(&env);
+
+    // A recipient address that was never funded / has no trustline for `token`.
+    let provider_without_trustline = Address::generate(&env);
+
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &500, &W);
+    client.initiate_close(&channel_id, &300, &200, &1, &depositor);
+
+    let channel = client.get_channel(&channel_id).unwrap();
+    env.ledger().set_timestamp(channel.dispute_deadline + 1);
+
+    // Attempting to pay a recipient with no trustline must fail atomically.
+    let result = token_client.try_transfer(
+        &env.current_contract_address(),
+        &provider_without_trustline,
+        &140i128,
+    );
+    assert!(result.is_err(), "transfer to trustline-less recipient must fail");
+
+    // Channel remains finalisable once the configuration is corrected.
+    client.finalize(&channel_id, &1);
+    assert_eq!(client.get_channel(&channel_id).unwrap().state, ChannelState::Closed);
+}

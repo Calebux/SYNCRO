@@ -216,3 +216,128 @@ export interface TeamSettings {
   spendingLimit: number;
   departmentBudgets: Record<string, number>;
 }
+
+// SEP-24 Fiat On-ramp / Anchor Types
+
+/** A supported SEP-24 anchor that can be used to fund channels. */
+export interface AnchorInfo {
+  /** Stable identifier used by the client (e.g. "testanchor") */
+  id: string;
+  /** Human readable anchor name */
+  name: string;
+  /** Home domain used for stellar.toml discovery */
+  homeDomain: string;
+  /** SEP-24 transfer server endpoint */
+  transferServerSep24: string;
+  /** Whether this anchor is only available on testnet */
+  testnet: boolean;
+  /** Assets supported for deposit, e.g. ["USDC"] */
+  supportedAssets: string[];
+  /** Fiat currencies accepted for on-ramp, e.g. ["USD", "EUR"] */
+  supportedCurrencies: string[];
+  /** Minimum deposit amount (in fiat units) */
+  minAmount?: number;
+  /** Maximum deposit amount (in fiat units) */
+  maxAmount?: number;
+  /** Fixed fee charged by the anchor (in fiat units) */
+  feeFixed?: number;
+  /** Percentage fee charged by the anchor (e.g. 0.5 for 0.5%) */
+  feePercent?: number;
+  /** Estimated time to funds arriving, in minutes */
+  estimatedArrivalMinutes?: number;
+  /** Optional URL for anchor documentation / limits */
+  docsUrl?: string;
+}
+
+export type DepositStatus =
+  | "incomplete"
+  | "pending_user_transfer_start"
+  | "pending_anchor"
+  | "pending_stellar"
+  | "pending_external"
+  | "pending_trust"
+  | "pending_user"
+  | "completed"
+  | "refunded"
+  | "expired"
+  | "error"
+  | "no_market"
+  | "too_small"
+  | "too_large";
+
+/** A SEP-24 interactive deposit transaction. */
+export interface DepositTransaction {
+  /** Anchor-assigned transaction id */
+  id: string;
+  /** Anchor this deposit belongs to */
+  anchorId: string;
+  /** Current status of the deposit */
+  status: DepositStatus;
+  /** Asset code being deposited (e.g. "USDC") */
+  assetCode: string;
+  /** Fiat currency used for the on-ramp */
+  fiatCurrency: string;
+  /** Amount requested (in fiat units) */
+  amountIn?: number;
+  /** Amount credited to the Stellar account (in asset units) */
+  amountOut?: number;
+  /** Stellar account that will receive the funds */
+  account: string;
+  /** Stellar memo (if required by the anchor) */
+  memo?: string;
+  /** Interactive URL the user must visit to complete KYC / payment */
+  interactiveUrl?: string;
+  /** ISO timestamp when the transaction was created */
+  startedAt: string;
+  /** ISO timestamp when the transaction last changed */
+  updatedAt: string;
+  /** ISO timestamp when funds were credited, if completed */
+  completedAt?: string;
+  /** Human readable message from the anchor (e.g. error details) */
+  message?: string;
+  /** Optional URL to more information about the transaction */
+  moreInfoUrl?: string;
+}
+
+/** Request payload to start a SEP-24 interactive deposit. */
+export interface StartDepositRequest {
+  anchorId: string;
+  assetCode: string;
+  /** Fiat currency for the on-ramp */
+  fiatCurrency: string;
+  /** Amount in fiat units (optional; anchor may prompt) */
+  amount?: number;
+  /** Stellar account to credit */
+  account: string;
+  /** Optional memo to attach to the deposit */
+  memo?: string;
+}
+
+/** Response from starting a SEP-24 interactive deposit. */
+export interface StartDepositResponse {
+  transaction: DepositTransaction;
+  /** URL to open in a popup / new tab for the interactive flow */
+  interactiveUrl: string;
+}
+
+/** Request to chain a completed deposit into a channel top-up. */
+export interface TopUpFromDepositRequest {
+  /** Channel to top up */
+  channelId: string;
+  /** Deposit transaction to source funds from */
+  depositId: string;
+  /** Optional amount to top up (defaults to full deposit amount) */
+  amount?: number;
+}
+
+/** Result of chaining a deposit into a channel top-up. */
+export interface TopUpFromDepositResponse {
+  channelId: string;
+  /** Amount credited to the channel (in asset units) */
+  amount: number;
+  /** New channel balance after the top-up */
+  newBalance: number;
+  /** Stellar transaction hash of the top-up transfer */
+  txHash?: string;
+  deposit: DepositTransaction;
+}

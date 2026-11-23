@@ -461,7 +461,24 @@ fn get_logs(env: Env, sub_id: u64) -> Vec<LogEntry>
 LogAppended { sub_id: u64, event: LogEvent }
 ```
 
+## Exchange Rates (`fx-oracle`)
+
+The v3 rate boundary is defined by ADR-0001 (`docs/adr/0001-v3-fx-oracle-role.md`).
+Decision: **no on-chain oracle is used in the v3 path.** The `fx-oracle` crate is
+not part of the v3 workspace.
+
+- Rates are **not** required at admission or at settlement. Usage rows record the
+  rate source (see #1697), so the applied rate and its provenance are auditable
+  off-chain without an on-chain price feed.
+- Client-supplied `exchangeRate` values are never trusted as an authoritative
+  price. They are recorded as the rate source on the usage row and reconciled
+  off-chain against the recorded source.
+- Because there is no on-chain rate read, there are no staleness checks in the
+  v3 path. Any future reintroduction of an on-chain oracle must add a staleness
+  guard at the rate boundary and be recorded in a new ADR.
+
 ## Verifying Subscription Data
+=======
 
 ```typescript
 import { StellarSdk } from '@stellar/stellar-sdk';
