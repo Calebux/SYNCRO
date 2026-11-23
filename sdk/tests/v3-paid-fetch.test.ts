@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach, jest } from "@jest/globals";
 import { generateKeyPairSync, sign as signChallenge } from "node:crypto";
-import { createPaidFetch } from "../src/v3/paid-fetch.js";
+import {
+  createPaidFetch,
+  parsePaymentRequiredHeader,
+  buildSyncroX402Payload,
+  type X402PaymentRequired,
+} from "../src/v3/paid-fetch.js";
 
 describe("createPaidFetch", () => {
   const gatewayKeys = generateKeyPairSync("ed25519");
@@ -474,6 +479,186 @@ describe("createPaidFetch", () => {
     }));
     const sign = jest.fn(() => "signature");
     const fetch = createPaidFetch({ ...makeConfig(), gatewayPublicKey: "", fetchImpl, sign });
+    const response = await fetch("https://example.com/pay");
+
+    expect(response.status).toBe(402);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(sign).not.toHaveBeenCalled();
+  });
+});
+
+describe("x402 compatibility (#1822)", () => {
+  const gatewayKeys = generateKeyPairSync("ed25519");
+  const gatewayPublicKey = gatewayKeys.publicKey.export({ type: "spki", format: "pem" }).toString();
+
+  const canonicalize = (value: unknown): string => {
+    if (value === null || typeof value !== "object") return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map(canonicalize).join(",")}]`;
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalize(entry)}`).join(",")}}`;
+  };
+
+  const signedChallenge = <T extends Record<string, unknown>>(challenge: T): T & { signature: string } => ({
+    ...challenge,
+    signature: signChallenge(null, Buffer.from(canonicalize(challenge)), gatewayKeys.privateKey).toString("base64"),
+  });
+
+  const makeConfig = (overrides: Record<string, unknown> = {}) => ({
+    spendingKey:
+      "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIBiY8Kz3L5vF9xH2Q1nR8Y7Kz3L5vF9xH2Q1nR8Y7Kz3L\n-----END PRIVATE KEY-----",
+    gatewayPublicKey,
+    ...overrides,
+  });
+
+  const syncroChallenge = {
+    challengeId: "chal_x402",
+    scheme: "channel-state",
+    chain: "stellar:testnet",
+    contract: "C_CONFIGURED_CONTRACT",
+    channelAddress: "G_PROVIDER_CHANNEL_DEFAULT",
+    settlementAsset: "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+    amount: "10",
+    rate: "0.1",
+    nonce: "ch_nonce_x402",
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    signature: "challenge-signature",
+  };
+
+  const buildX402Challenge = () =>
+    signedChallenge({
+      x402Version: 2,
+      error: "Payment required",
+      accepts: [
+        {
+          scheme: "exact",
+          network: "stellar:testnet",
+          amount: "10",
+          asset: "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+          payTo: "G_PROVIDER_CHANNEL_DEFAULT",
+          maxTimeoutSeconds: 300,
+          extra: { syncroScheme: "channel-state" },
+        },
+      ],
+      syncro: syncroChallenge,
+    });
+
+  it("parses a PAYMENT-REQUIRED header into an x402 PaymentRequired object", () => {
+    const challenge = buildX402Challenge();
+    const response = new Response("payment required", {
+      status: 402,
+      headers: { "PAYMENT-REQUIRED": btoa(JSON.stringify(challenge)) },
+    });
+
+    const parsed = parsePaymentRequiredHeader(response);
+    expect(parsed?.x402Version).toBe(2);
+    expect(parsed?.accepts?.[0]?.scheme).toBe("exact");
+    expect(parsed?.syncro?.nonce).toBe("ch_nonce_x402");
+  });
+
+  it("buildSyncroX402Payload signs the SYNCRO channel-state string and embeds the proof", async () => {
+    const paymentRequired = buildX402Challenge() as X402PaymentRequired;
+    const sign = jest.fn(async () => "mock_valid_signature");
+
+    const payload = await buildSyncroX402Payload(
+      paymentRequired,
+      {
+        channelId: "chan_x402",
+        payerAddress: "G_PAYER_X402",
+        sequenceNumber: 1,
+        userBalance: 100,
+        executorBalance: 0,
+        totalDeposited: 100,
+      },
+      sign,
+    );
+
+    expect(sign).toHaveBeenCalledWith(
+      "chan_x402:1:100:0:ch_nonce_x402:G_PAYER_X402",
+    );
+    expect(payload.x402Version).toBe(2);
+    expect(payload.accepted).toEqual(paymentRequired.accepts![0]);
+    expect(payload.payload).toMatchObject({
+      channelId: "chan_x402",
+      sequenceNumber: 1,
+      userBalance: 100,
+      executorBalance: 0,
+      totalDeposited: 100,
+      nonce: "ch_nonce_x402",
+      payerAddress: "G_PAYER_X402",
+      signature: "mock_valid_signature",
+    });
+  });
+
+  it("pays a SYNCRO x402-compatible challenge when channel context is configured", async () => {
+    let callCount = 0;
+    const fetchImpl = jest.fn(async (_input: RequestInfo, init?: RequestInit) => {
+      callCount++;
+      if (callCount === 1) {
+        const challenge = buildX402Challenge();
+        return new Response(JSON.stringify({ code: "GATEWAY_CHANNEL_EXHAUSTED" }), {
+          status: 402,
+          headers: {
+            "content-type": "application/json",
+            "PAYMENT-REQUIRED": btoa(JSON.stringify(challenge)),
+          },
+        });
+      }
+
+      const headers = new Headers(init?.headers);
+      const paymentSignature = headers.get("PAYMENT-SIGNATURE");
+      expect(paymentSignature).toBeTruthy();
+      const parsed = JSON.parse(atob(paymentSignature!));
+      expect(parsed.accepted.scheme).toBe("exact");
+      expect(parsed.payload.nonce).toBe("ch_nonce_x402");
+      expect(parsed.payload.signature).toBe("mock_valid_signature");
+
+      return new Response(JSON.stringify({ charged: true }), {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+          "PAYMENT-RESPONSE": btoa(
+            JSON.stringify({ success: true, transaction: "rcpt_1", network: "stellar:testnet" }),
+          ),
+        },
+      });
+    });
+
+    const sign = jest.fn(async () => "mock_valid_signature");
+    const fetch = createPaidFetch({
+      ...makeConfig(),
+      fetchImpl,
+      sign,
+      syncroChannel: {
+        channelId: "chan_x402",
+        payerAddress: "G_PAYER_X402",
+        sequenceNumber: 1,
+        userBalance: 100,
+        executorBalance: 0,
+        totalDeposited: 100,
+      },
+    });
+
+    const response = await fetch("https://example.com/api/v3/gateway/inference", {
+      method: "POST",
+      body: JSON.stringify({ prompt: "hello" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(response.receipt?.success).toBe(true);
+    expect(response.receipt?.network).toBe("stellar:testnet");
+  });
+
+  it("does not sign a SYNCRO challenge when no channel context is configured", async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(
+      new Response("payment required", {
+        status: 402,
+        headers: { "PAYMENT-REQUIRED": btoa(JSON.stringify(buildX402Challenge())) },
+      }),
+    );
+    const sign = jest.fn(async () => "signature");
+    const fetch = createPaidFetch({ ...makeConfig(), fetchImpl, sign });
+
     const response = await fetch("https://example.com/pay");
 
     expect(response.status).toBe(402);

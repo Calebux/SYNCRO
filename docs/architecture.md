@@ -3,6 +3,34 @@
 This document describes the high-level architecture of the product and records
 published performance characteristics for the metering path.
 
+## Contract set
+
+The on-chain footprint is exactly the set of crates in the `contracts/` Cargo
+workspace. A crate is a member only if a v3 flow depends on it; retired crates
+are removed from the workspace and their reserved error ranges recorded in
+[`contracts/docs/retired-contracts.md`](../contracts/docs/retired-contracts.md).
+
+| Crate | Role |
+| --- | --- |
+| `common` (`syncro-contract-common`) | Shared versioning and global error-code helpers (rlib; no WASM) |
+| `virtual-card` | Non-custodial virtual card with scoped spend caps |
+| `escrow` | Fund holding with arbiter-mediated dispute resolution |
+| `payment-channel` | Off-chain payment channels with unilateral/cooperative close and watchtower |
+| `agent-registry` | Authorized execution agents and their permission scopes |
+| `resolver-registry` | Quorum-voting dispute arbitration for escrow cases |
+| `payment-splitter` | Split a payment across N payers |
+| `fee-collector` | Protocol fee collection |
+| `fx-oracle` | Multi-signer FX rate oracle |
+| `attestation` | Hashed KYC/compliance attestations |
+| `guardian` | Protocol-wide emergency pause controls |
+| `contract-upgrade` | Governance-gated contract upgrades |
+| `zk-payment-verifier` | ZK payment-proof verifier (off every v3 settlement path; see ADR-017) |
+
+`allowance`, `payment-adapter` and `stealth-announcement` are not members: they
+have no v3 consumer and were retired in issue #1837. Spend caps live off-chain
+(`backend/src/services/v3/spend-cap-service.ts`, `packages/metering`) and v3
+privacy is off-chain, so neither needs a contract.
+
 ## Metering
 
 The meter sits on the path of every paid call. Its throughput and tail latency

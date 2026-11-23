@@ -25,8 +25,6 @@ const README = path.resolve(__dirname, "../README.md");
 const TOKEN_TRANSFER_CRATES = new Set([
   "payment-channel",
   "escrow",
-  "allowance",
-  "payment-adapter",
   "payment-splitter",
 ]);
 

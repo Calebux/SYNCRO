@@ -100,14 +100,14 @@ fn test_arbiter_set_management() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #5)")]
+#[should_panic(expected = "Error(Contract, #2204)")]
 fn test_cannot_add_duplicate_arbiter() {
     let ctx = setup(2);
     ctx.registry.add_arbiter(&ctx.arbiters[0]);
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #4)")]
+#[should_panic(expected = "Error(Contract, #2203)")]
 fn test_cannot_remove_unknown_arbiter() {
     let ctx = setup(2);
     let stranger = Address::generate(&ctx.env);
@@ -115,7 +115,7 @@ fn test_cannot_remove_unknown_arbiter() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #6)")]
+#[should_panic(expected = "Error(Contract, #2205)")]
 fn test_zero_quorum_rejected() {
     let ctx = setup(2);
     ctx.registry.set_quorum(&0);
@@ -216,7 +216,7 @@ fn test_vote_records_are_queryable() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #9)")]
+#[should_panic(expected = "Error(Contract, #2208)")]
 fn test_arbiter_cannot_vote_twice() {
     let ctx = setup(3);
     let escrow_id = disputed_escrow(&ctx);
@@ -228,7 +228,7 @@ fn test_arbiter_cannot_vote_twice() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #4)")]
+#[should_panic(expected = "Error(Contract, #2203)")]
 fn test_non_arbiter_cannot_vote() {
     let ctx = setup(2);
     let escrow_id = disputed_escrow(&ctx);
@@ -239,8 +239,64 @@ fn test_non_arbiter_cannot_vote() {
     ctx.registry.vote(&stranger, &case, &1);
 }
 
+/// An unregistered resolver cannot supply the deciding vote that would resolve
+/// a disputed escrow: the vote is rejected on membership before it is counted.
 #[test]
-#[should_panic(expected = "Error(Contract, #10)")]
+#[should_panic(expected = "Error(Contract, #2203)")]
+fn test_unregistered_resolver_cannot_resolve_dispute() {
+    let ctx = setup(2);
+    let escrow_id = disputed_escrow(&ctx);
+    let case = ctx
+        .registry
+        .open_case(&ctx.arbiters[0], &ctx.escrow.address, &escrow_id);
+
+    // One registered vote — still short of the quorum of two.
+    ctx.registry.vote(&ctx.arbiters[0], &case, &1);
+
+    // A resolver that was never registered attempts the deciding vote.
+    let unregistered = Address::generate(&ctx.env);
+    assert!(!ctx.registry.is_arbiter(&unregistered));
+    ctx.registry.vote(&unregistered, &case, &1);
+}
+
+/// Integration: only resolvers registered in the registry can move a dispute to
+/// resolution. An unregistered voter is rejected and counted for nothing, so the
+/// escrow stays disputed until genuine registered resolvers reach quorum.
+#[test]
+fn test_only_registered_resolvers_can_resolve_dispute() {
+    let ctx = setup(2);
+    let escrow_id = disputed_escrow(&ctx);
+    let case = ctx
+        .registry
+        .open_case(&ctx.arbiters[0], &ctx.escrow.address, &escrow_id);
+
+    // An unregistered resolver's vote fails and leaves no trace.
+    let unregistered = Address::generate(&ctx.env);
+    assert!(ctx.registry.try_vote(&unregistered, &case, &1).is_err());
+    let after_stranger = ctx.registry.get_case(&case);
+    assert_eq!(after_stranger.status, CaseStatus::Open);
+    assert_eq!(after_stranger.votes_release, 0);
+    assert_eq!(after_stranger.votes_refund, 0);
+    assert_eq!(
+        ctx.escrow.get_escrow(&escrow_id).state,
+        EscrowState::Disputed
+    );
+
+    // Registered resolvers reach quorum and resolve the dispute for the payee.
+    ctx.registry.vote(&ctx.arbiters[0], &case, &1);
+    ctx.registry.vote(&ctx.arbiters[1], &case, &1);
+
+    assert_eq!(ctx.registry.get_case(&case).status, CaseStatus::Resolved);
+    assert_eq!(
+        ctx.escrow.get_escrow(&escrow_id).state,
+        EscrowState::Released
+    );
+    let token = soroban_sdk::token::TokenClient::new(&ctx.env, &ctx.token);
+    assert_eq!(token.balance(&ctx.payee), AMOUNT);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2209)")]
 fn test_invalid_outcome_rejected() {
     let ctx = setup(2);
     let escrow_id = disputed_escrow(&ctx);
@@ -251,7 +307,7 @@ fn test_invalid_outcome_rejected() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #8)")]
+#[should_panic(expected = "Error(Contract, #2207)")]
 fn test_cannot_vote_on_resolved_case() {
     let ctx = setup(2);
     let escrow_id = disputed_escrow(&ctx);
@@ -264,7 +320,7 @@ fn test_cannot_vote_on_resolved_case() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #3)")]
+#[should_panic(expected = "Error(Contract, #2202)")]
 fn test_non_arbiter_cannot_open_case() {
     let ctx = setup(2);
     let escrow_id = disputed_escrow(&ctx);
@@ -274,14 +330,14 @@ fn test_non_arbiter_cannot_open_case() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #7)")]
+#[should_panic(expected = "Error(Contract, #2206)")]
 fn test_get_unknown_case_panics() {
     let ctx = setup(2);
     ctx.registry.get_case(&999);
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #1)")]
+#[should_panic(expected = "Error(Contract, #2200)")]
 fn test_cannot_init_twice() {
     let ctx = setup(2);
     ctx.registry.init(&ctx.admin, &2);

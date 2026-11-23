@@ -2,11 +2,16 @@ import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import logger from '../../config/logger';
 import {
-  generatePaymentChallenge,
   parsePaymentProof,
   verifyPaymentProof,
   PaymentProof,
 } from './payment-challenge-service';
+import {
+  issuePaymentChallenge,
+  extractSyncroProofFromX402,
+  isX402CompatibilityEnabled,
+  buildX402SettlementResponse,
+} from './x402-compat';
 import { spendCapService } from './spend-cap-service';
 import { unitEconomicsService } from './unit-economics-service';
 import { AgentConsoleError, agentConsoleService } from '../../v3/agent-console-service';
@@ -179,12 +184,18 @@ export function createGatewayLifecycle() {
             message: 'No payment contract is configured for this network',
           });
         }
-        const { challenge, headerValue } = generatePaymentChallenge({
+        const { challenge, headerValue } = issuePaymentChallenge({
           settlementAsset: routeConfig.settlementAsset,
           amount: String(amount),
           rate: String(routeConfig.unitPrice),
           contract,
           chain: `stellar:${process.env.STELLAR_NETWORK ?? 'testnet'}`,
+          error: 'Payment required: unauthenticated or unfunded agent request',
+          resource: {
+            url: `${req.protocol}://${req.get('host') ?? ''}${req.originalUrl}`,
+            description: `Paid ${routeId} gateway route`,
+            mimeType: 'application/json',
+          },
         }, (message) => receiptService.signMessage(message));
         res.setHeader('PAYMENT-REQUIRED', headerValue);
         return res.status(402).json({
@@ -302,12 +313,18 @@ export function createGatewayLifecycle() {
             message: 'No payment contract is configured for this network',
           });
         }
-        const { challenge, headerValue } = generatePaymentChallenge({
+        const { challenge, headerValue } = issuePaymentChallenge({
           amount: String(ctx.routePlan!.priceUpperBound),
           settlementAsset: ctx.routePlan!.settlementAsset,
           rate: String(ctx.routePlan!.unitPrice),
           contract,
           chain: `stellar:${process.env.STELLAR_NETWORK ?? 'testnet'}`,
+          error: 'Payment required: Please provide PAYMENT-SIGNATURE header with valid channel state proof',
+          resource: {
+            url: `${req.protocol}://${req.get('host') ?? ''}${req.originalUrl}`,
+            description: `Paid ${ctx.routePlan!.path} gateway route`,
+            mimeType: 'application/json',
+          },
         }, (message) => receiptService.signMessage(message));
         res.setHeader('PAYMENT-REQUIRED', headerValue);
         return res.status(402).json({
@@ -316,7 +333,12 @@ export function createGatewayLifecycle() {
         });
       }
 
-      const proof = parsePaymentProof(paymentSignatureHeader);
+      // Accept either a native SYNCRO channel-state proof or, in x402
+      // compatibility mode, an x402 PaymentPayload carrying that proof under
+      // `payload` (#1822).
+      const proof =
+        parsePaymentProof(paymentSignatureHeader) ??
+        extractSyncroProofFromX402(paymentSignatureHeader);
       if (!proof) {
         return res.status(402).json({
           error: 'Invalid payment proof structure in PAYMENT-SIGNATURE header',
@@ -536,7 +558,17 @@ export function createGatewayLifecycle() {
           };
           ctx.receipt = receipt;
 
-          res.setHeader('PAYMENT-RESPONSE', Buffer.from(JSON.stringify(receipt)).toString('base64'));
+          const paymentResponseHeader = isX402CompatibilityEnabled()
+            ? Buffer.from(
+                JSON.stringify(
+                  buildX402SettlementResponse(
+                    receipt,
+                    `stellar:${process.env.STELLAR_NETWORK ?? 'testnet'}`,
+                  ),
+                ),
+              ).toString('base64')
+            : Buffer.from(JSON.stringify(receipt)).toString('base64');
+          res.setHeader('PAYMENT-RESPONSE', paymentResponseHeader);
           return res.status(200).json({
             ...upstreamResult,
             receipt,

@@ -789,7 +789,14 @@ impl EscrowContract {
     ///   - `RefundToPayer`: Full amount to payer
     ///   - `PartialSplit(payee_basis_points)`: Split based on basis points (0-10000)
     ///
-    /// Only an arbiter in the active set may resolve disputes.
+    /// # Authorisation
+    /// Only the escrow's designated arbiter may resolve a dispute, and that
+    /// arbiter must authorise the call. For a single-arbiter agreement —
+    /// including a `resolver-registry` wired up as the arbiter — the arbiter's
+    /// own signature is sufficient; the registry only issues this call once a
+    /// quorum of its registered resolvers has voted (see `resolver-registry`).
+    /// Multi-arbiter agreements additionally require the configured quorum of
+    /// recorded `approve_release_by_arbiter` approvals.
     ///
     /// # Security
     /// * Uses checked arithmetic to prevent overflow
@@ -802,16 +809,17 @@ impl EscrowContract {
             .get(&DataKey::Escrow(escrow_id))
             .expect("escrow not found");
 
-        if escrow.state != EscrowState::Disputed {
+        if escrow.state != EscrowState::Disputed && escrow.state != EscrowState::Approved {
             panic_with_error!(&env, EscrowError::NotInDispute);
-        }
-        if (escrow.arbiter_approvals.len() as u32) < escrow.arbiter_set.threshold {
-            panic_with_error!(&env, EscrowError::Unauthorized);
         }
 
         let arbiter = escrow.arbiter.clone();
         arbiter.require_auth();
-        if !Self::quorum_reached(&escrow) {
+
+        // A sole arbiter (or a resolver-registry acting as the arbiter)
+        // authorises purely on the arbiter's own signature. Multi-arbiter
+        // agreements must first reach the configured quorum of approvals.
+        if escrow.arbiter_set.threshold > 1 && !Self::quorum_reached(&escrow) {
             panic_with_error!(&env, EscrowError::Unauthorized);
         }
 

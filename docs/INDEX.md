@@ -28,6 +28,7 @@ This index catalogs all documentation in the SYNCRO repository, organized by cat
 - [api-changelog.md](api-changelog.md) - API versioning changes
 - [contracts.mdx](contracts.mdx) - Smart contract documentation
 - [payment-providers.md](payment-providers.md) - Payment integration guide
+- [x402-compatibility.md](x402-compatibility.md) - x402 ↔ SYNCRO challenge/payment-header compatibility matrix
 - [PAYPAL_INTEGRATION.md](PAYPAL_INTEGRATION.md) - PayPal-specific integration
 
 ### Security & Authentication
