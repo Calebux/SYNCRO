@@ -11,15 +11,12 @@ members = [
   "contracts/zk-payment-verifier",
   "contracts/payment-channel",
   "contracts/contract-upgrade",
-  "contracts/allowance",
-  "contracts/payment-adapter",
   "contracts/fee-collector",
   "contracts/resolver-registry",
   "contracts/attestation",
   "contracts/guardian",
   "contracts/fx-oracle",
   "contracts/payment-splitter",
-  "contracts/stealth-announcement",
 ]
 
 [workspace.dependencies]

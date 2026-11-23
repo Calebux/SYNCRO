@@ -2,16 +2,36 @@
 // x402 protocol types (derived from backend openapi/x402-docs.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface X402PaymentRequirement {
+export interface X402PaymentRequirement {
   scheme: string;
   network: string;
   amount: string;
   asset: string;
   payTo: string;
   maxTimeoutSeconds?: number;
+  extra?: Record<string, unknown>;
 }
 
-interface X402PaymentRequired {
+/**
+ * SYNCRO's native channel-state challenge, embedded in an x402
+ * `PaymentRequired` under the `syncro` extension when the gateway runs in
+ * x402 compatibility mode (#1822).
+ */
+export interface SyncroChallenge {
+  challengeId: string;
+  scheme: 'channel-state' | 'exact';
+  chain: string;
+  contract: string;
+  channelAddress: string;
+  settlementAsset: string;
+  amount: string;
+  rate: string;
+  nonce: string;
+  expiresAt: string;
+  signature: string;
+}
+
+export interface X402PaymentRequired {
   x402Version: number;
   signature?: string;
   error?: string;
@@ -21,9 +41,15 @@ interface X402PaymentRequired {
     mimeType?: string;
   };
   accepts?: X402PaymentRequirement[];
+  /**
+   * SYNCRO extension carrying the original signed challenge. When present a
+   * SYNCRO-aware consumer builds a channel-state proof from it, while stock
+   * x402 clients continue to read `accepts`.
+   */
+  syncro?: SyncroChallenge;
 }
 
-interface X402PaymentPayload {
+export interface X402PaymentPayload {
   x402Version: number;
   accepted: X402PaymentRequirement;
   payload: Record<string, unknown>;
@@ -34,6 +60,22 @@ interface X402SettlementResponse {
   transaction?: string;
   network?: string;
 }
+
+/**
+ * Local channel state a consumer needs to build a SYNCRO channel-state proof
+ * for an x402-compatible challenge.
+ */
+export interface SyncroChannelContext {
+  channelId: string;
+  payerAddress: string;
+  sequenceNumber: number;
+  userBalance: number;
+  executorBalance: number;
+  totalDeposited: number;
+}
+
+/** Signs a message and resolves to the signature string. */
+export type X402Signer = (message: string) => Promise<string>;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public types
@@ -49,9 +91,13 @@ export interface PaidFetchConfig {
   spendingKey?: string;
   /**
    * Custom signing function for payment proofs.
-   * Accepts a canonicalized JSON payload string and returns a signature
-   * string (hex-encoded or base64-encoded). Use this in browser environments
-   * where raw spending keys should not be stored.
+   * Accepts the message to sign and returns a signature string (hex- or
+   * base64-encoded). In the generic x402 flow the message is the canonicalized
+   * JSON `PaymentPayload`; when a `syncroChannel` is configured and the
+   * challenge carries the `syncro` extension, the message is the SYNCRO
+   * channel-state string (`channelId:seq:userBalance:executorBalance:nonce:
+   * payerAddress`). Use this in browser environments where raw spending keys
+   * should not be stored.
    */
   sign?: (payload: string) => Promise<string> | string;
   /** Optional provider public key for receipt verification. */
@@ -61,6 +107,13 @@ export interface PaidFetchConfig {
    * PAYMENT-REQUIRED challenge before any payment proof is signed.
    */
   gatewayPublicKey?: string;
+  /**
+   * Local channel state enabling the x402 compatibility flow. When a
+   * PAYMENT-REQUIRED challenge carries the `syncro` extension, the wrapper
+   * builds a SYNCRO channel-state proof from this context instead of the
+   * generic x402 payload.
+   */
+  syncroChannel?: SyncroChannelContext;
   /** Custom fetch implementation (defaults to global fetch). */
   fetchImpl?: typeof fetch;
 }
@@ -109,7 +162,14 @@ export interface PaidResponse extends Response {
  * ```
  */
 export function createPaidFetch(config: PaidFetchConfig): typeof fetch {
-  const { spendingKey, sign, providerPublicKey, gatewayPublicKey, fetchImpl = fetch } = config;
+  const {
+    spendingKey,
+    sign,
+    providerPublicKey,
+    gatewayPublicKey,
+    syncroChannel,
+    fetchImpl = fetch,
+  } = config;
 
   if (!sign && !spendingKey) {
     throw new Error(
@@ -167,20 +227,29 @@ export function createPaidFetch(config: PaidFetchConfig): typeof fetch {
       return response as PaidResponse;
     }
 
-    const paymentProof: X402PaymentPayload = {
-      x402Version: 2,
-      accepted,
-      payload: {},
-    };
-
-    const canonicalProof = canonicalizeJson(paymentProof);
     const s = await getSigner();
-    const signature = await s(canonicalProof);
 
-    const signedPayload: X402PaymentPayload & { signature: string } = {
-      ...paymentProof,
-      payload: { signature },
-    };
+    let signedPayload: X402PaymentPayload;
+    if (paymentRequired.syncro) {
+      // x402 compatibility mode: build a SYNCRO channel-state proof from the
+      // embedded challenge. Without local channel state we cannot pay.
+      if (!syncroChannel) {
+        return response as PaidResponse;
+      }
+      signedPayload = await buildSyncroX402Payload(paymentRequired, syncroChannel, s);
+    } else {
+      const paymentProof: X402PaymentPayload = {
+        x402Version: 2,
+        accepted,
+        payload: {},
+      };
+      const canonicalProof = canonicalizeJson(paymentProof);
+      const signature = await s(canonicalProof);
+      signedPayload = {
+        ...paymentProof,
+        payload: { signature },
+      };
+    }
 
     const retryHeaders = new Headers(init.headers);
     retryHeaders.set("PAYMENT-SIGNATURE", btoa(JSON.stringify(signedPayload)));
@@ -201,7 +270,12 @@ export function createPaidFetch(config: PaidFetchConfig): typeof fetch {
   };
 }
 
-function parsePaymentRequiredHeader(
+/**
+ * Parse the base64-encoded `PAYMENT-REQUIRED` header from a 402 response into
+ * an x402 `PaymentRequired` object. Returns `null` when the header is absent or
+ * malformed.
+ */
+export function parsePaymentRequiredHeader(
   response: Response,
 ): X402PaymentRequired | null {
   const header = response.headers.get("PAYMENT-REQUIRED");
@@ -211,6 +285,45 @@ function parsePaymentRequiredHeader(
   } catch {
     return null;
   }
+}
+
+/**
+ * Build an x402 `PaymentPayload` for a SYNCRO-compatible challenge: the
+ * channel-state proof is signed over the SYNCRO canonical string and carried
+ * under `payload`, so the gateway can unwrap and settle it (#1822).
+ */
+export async function buildSyncroX402Payload(
+  paymentRequired: X402PaymentRequired,
+  channel: SyncroChannelContext,
+  sign: X402Signer,
+): Promise<X402PaymentPayload> {
+  const challenge = paymentRequired.syncro;
+  const accepted = paymentRequired.accepts?.[0];
+  if (!challenge || !accepted) {
+    throw new Error(
+      "Cannot build a SYNCRO x402 payload without a challenge extension and an accepts entry.",
+    );
+  }
+
+  const proof = {
+    channelId: channel.channelId,
+    sequenceNumber: channel.sequenceNumber,
+    userBalance: channel.userBalance,
+    executorBalance: channel.executorBalance,
+    totalDeposited: channel.totalDeposited,
+    nonce: challenge.nonce,
+    payerAddress: channel.payerAddress,
+    expiresAt: challenge.expiresAt,
+  };
+
+  const message = `${proof.channelId}:${proof.sequenceNumber}:${proof.userBalance}:${proof.executorBalance}:${proof.nonce}:${proof.payerAddress}`;
+  const signature = await sign(message);
+
+  return {
+    x402Version: 2,
+    accepted,
+    payload: { ...proof, signature },
+  };
 }
 
 async function verifyPaymentRequired(

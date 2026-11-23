@@ -49,7 +49,7 @@
     },
     {
       "group": "SDK & Contracts",
-      "pages": ["sdk-reference", "contracts"]
+      "pages": ["sdk-reference", "contracts", "x402-compatibility"]
     },
     {
       "group": "Privacy & Security",

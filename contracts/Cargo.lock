@@ -30,15 +30,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
-name = "allowance"
-version = "0.0.1"
-dependencies = [
- "proptest",
- "soroban-sdk",
- "syncro-contract-common",
-]
-
-[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1241,14 +1232,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
-name = "payment-adapter"
-version = "0.1.0"
-dependencies = [
- "soroban-sdk",
- "syncro-contract-common",
-]
-
-[[package]]
 name = "payment-channel"
 version = "0.1.0"
 dependencies = [
@@ -1916,14 +1899,6 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
-
-[[package]]
-name = "stealth-announcement"
-version = "0.0.0"
-dependencies = [
- "soroban-sdk",
- "syncro-contract-common",
-]
 
 [[package]]
 name = "stellar-strkey"

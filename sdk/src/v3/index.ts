@@ -43,7 +43,15 @@ export {
 
 export {
   createPaidFetch,
+  parsePaymentRequiredHeader,
+  buildSyncroX402Payload,
   type PaidFetchConfig,
   type PaidResponse,
   type PaymentReceipt,
+  type SyncroChannelContext,
+  type SyncroChallenge,
+  type X402PaymentRequirement,
+  type X402PaymentRequired,
+  type X402PaymentPayload,
+  type X402Signer,
 } from "./paid-fetch.js";

@@ -57,6 +57,10 @@ export const envSchema = z.object({
   STEALTH_SCAN_BATCH_SIZE: z.string().default('50'),
   PAYMENT_CHANNELS_ENABLED: z.string().optional(),
   FX_ORACLE_ENABLED: z.string().optional(),
+  // x402 protocol interoperability (#1822): when 'true' the gateway emits
+  // x402-shaped PAYMENT-REQUIRED / PAYMENT-RESPONSE headers and accepts x402
+  // PaymentPayload proofs on the paid routes.
+  X402_COMPATIBILITY_ENABLED: z.string().default('false'),
   SETTLEMENT_MIN_BATCH: z.string().default('3'),
   SETTLEMENT_MAX_BATCH: z.string().default('20'),
   SETTLEMENT_MAX_WAIT_MS: z.string().default('300000'),

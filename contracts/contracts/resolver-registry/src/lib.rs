@@ -17,9 +17,10 @@
 //! escrowed funds.
 //!
 //! ## Outcomes
-//! Outcome codes match the escrow's `resolve_dispute` resolution argument:
-//! * `1` — release funds to the payee
-//! * `2` — refund funds to the payer
+//! Outcome codes are internal to the registry: `1` releases funds to the payee
+//! and `2` refunds the payer. When quorum is reached the winning code is
+//! translated into the escrow's typed `DisputeResolution` value for the binding
+//! `resolve_dispute` callback (see [`Resolution`]).
 
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, Address,
@@ -32,6 +33,28 @@ use syncro_contract_common as syncro_common;
 const OUTCOME_UNDECIDED: u32 = 0;
 const OUTCOME_RELEASE: u32 = 1;
 const OUTCOME_REFUND: u32 = 2;
+
+// ── Binding resolution payload ─────────────────────────────────────────────────
+
+/// Mirror of the escrow contract's `DisputeResolution` type, used to encode the
+/// binding `resolve_dispute` callback argument.
+///
+/// `#[contracttype]` enums are encoded by variant *name*, so as long as the
+/// variant names stay identical to the escrow's this value decodes correctly on
+/// the escrow side. `PartialSplit` is declared even though the registry never
+/// emits it, so that the encoding uses the union form (a vec of variant name +
+/// payload) that matches the escrow enum rather than the bare-symbol form used
+/// for all-unit enums.
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Resolution {
+    /// Release the full escrowed amount to the payee.
+    ReleaseToPayee,
+    /// Refund the full escrowed amount to the payer.
+    RefundToPayer,
+    /// Split the escrowed amount by payee basis points (0-10000).
+    PartialSplit(u32),
+}
 
 // ── Storage keys ───────────────────────────────────────────────────────────────
 
@@ -322,9 +345,16 @@ impl ResolverRegistry {
 
             // Binding callback into the escrow contract. This registry must be
             // the escrow's designated arbiter for the call to be authorized.
+            // The winning internal outcome code is translated into the escrow's
+            // typed resolution argument.
+            let resolution = if winning == OUTCOME_RELEASE {
+                Resolution::ReleaseToPayee
+            } else {
+                Resolution::RefundToPayer
+            };
             let mut args: Vec<Val> = Vec::new(&env);
             args.push_back(case.escrow_id.into_val(&env));
-            args.push_back(winning.into_val(&env));
+            args.push_back(resolution.into_val(&env));
             env.invoke_contract::<()>(&case.escrow, &Symbol::new(&env, "resolve_dispute"), args);
 
             CaseResolved {

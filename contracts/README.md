@@ -26,18 +26,15 @@ contracts/
 ├── contracts/
 │   ├── common/                  # syncro-contract-common: versioning + global error-code helpers (rlib)
 │   ├── agent-registry/          # Authorized agents registry contract
-│   ├── allowance/               # Recurring allowance / spending-limit authority
 │   ├── attestation/             # Hashed KYC/compliance attestations
 │   ├── contract-upgrade/        # Upgrade governance contract
 │   ├── escrow/                  # Payment holding escrow contract
 │   ├── fee-collector/           # Protocol fee collection
 │   ├── fx-oracle/               # FX rate oracle
 │   ├── guardian/                # Guardian / emergency controls
-│   ├── payment-adapter/         # Multi-token renewal settlement adapter
 │   ├── payment-channel/         # Off-chain renewal payment channels
 │   ├── payment-splitter/        # Split a renewal across N payers
 │   ├── resolver-registry/       # Dispute arbitration / resolver registry
-│   ├── stealth-announcement/    # Stealth address announcement registry
 │   ├── virtual-card/            # Non-custodial virtual card contract
 │   └── zk-payment-verifier/     # ZK payment proof verifier
 ├── scripts/                     # Build, deploy and verification scripts
@@ -57,6 +54,13 @@ snake_case file names (`payment_channel.wasm`). Unit tests live in each crate's
 `voucher-ledger`) and the subscription-only `integration-tests` crate were
 removed from the workspace (issue #1660). See
 [docs/retired-contracts.md](docs/retired-contracts.md).
+
+**Retired (v3 metered rails, issue #1837):** `allowance`, `payment-adapter`
+and `stealth-announcement` were removed from the workspace because no v3
+consumer references them — `allowance` is superseded by the off-chain spend-cap
+service, `payment-adapter` belonged to the retired subscription renewal stack,
+and `stealth-announcement` has no on-chain consumer (v3 privacy is off-chain).
+See [docs/retired-contracts.md](docs/retired-contracts.md).
 
 ## Current State (July 2026)
 
@@ -134,22 +138,6 @@ cargo test
 - `register_with_expiry` / `set_expiry` / `get_expiry` - Optional authority expiry (ledger timestamp, seconds). `is_authorized`, `has_scope` and `require_*` fail once `now >= expires_at`. See [docs/agent-registry-expiry.md](docs/agent-registry-expiry.md) for the storage layout and migration notes.
 - `is_authorized` / `require_authorized` - Verify agent authorization.
 
-### 4. Allowance Contract (`contracts/contracts/allowance/`)
-**Purpose**: Standalone recurring allowance / spending-limit authority. Lets an owner pre-authorize a merchant for capped recurring pulls, enforcing both a per-period cap and an absolute (lifetime) cap. Decoupled from subscription renewal.
-- `grant_allowance` - Owner authorizes a merchant with a per-period cap, absolute cap, and period length.
-- `revoke_allowance` - Owner revokes the authority, immediately blocking further pulls.
-- `consume` - Merchant pulls funds (owner → merchant via `transfer_from`); resets the period window when elapsed and enforces both caps.
-- `update_caps` - Owner adjusts the per-period and absolute caps (never below already-spent amounts).
-- `available` - Query the amount still pullable right now (min of remaining per-period and lifetime budgets).
-- `pause` / `unpause` / `is_paused` - Admin circuit-breaker over all consumption.
-
-### 5. Payment Adapter Contract (`contracts/contracts/payment-adapter/`)
-**Purpose**: Allowlisted multi-token settlement wrapper for renewal flows.
-- `allow_token` - Admin allowlists a Stellar Asset Contract and stores its decimals and cap.
-- `revoke_token` - Admin disables a token without deleting historical state.
-- `settle_renewal` - Payer-authorized transfer that scales display units into raw token units using the token's decimals.
-- `get_policy` / `available` / `is_allowed` - Read the current token policy and remaining cap.
-
 ## Global Error Code Registry (#1225)
 
 ### Overview
@@ -168,8 +156,8 @@ To prevent ambiguity when errors are surfaced across contract boundaries (e.g., 
 | zk-payment-verifier       | 1500-1599 | Zero-knowledge proof verification (archived for v3, see ADR-017) |
 | payment-channel           | 1600-1699 | Payment channel operations |
 | contract-upgrade          | 1700-1799 | Contract upgrade governance |
-| allowance                 | 1800-1899 | Recurring allowance management |
-| payment-adapter           | 1900-1999 | Payment adapter |
+| allowance                 | 1800-1899 | **Retired (#1837), range reserved.** Recurring allowance management |
+| payment-adapter           | 1900-1999 | **Retired (#1837), range reserved.** Payment adapter |
 | voucher-ledger            | 2000-2099 | **Retired (#1660), range reserved.** Voucher ledger |
 | fee-collector             | 2100-2199 | Fee collection |
 | resolver-registry         | 2200-2299 | Resolver registry |
@@ -181,7 +169,7 @@ To prevent ambiguity when errors are surfaced across contract boundaries (e.g., 
 | guardian                  | 2800-2899 | Guardian authority |
 | fx-oracle                 | 2900-2999 | FX oracle |
 | payment-splitter          | 3000-3099 | Payment splitter |
-| stealth-announcement      | 3100-3199 | Stealth payment announcements |
+| stealth-announcement      | 3100-3199 | **Retired (#1837), range reserved.** Stealth payment announcements |
 
 **Total Capacity**: 22 ranges × 100 codes = 2200 codes (range: 1000-3199). Ranges of retired contracts stay reserved and must not be reused, because their codes may still appear in on-chain history and backend logs.
 
@@ -311,7 +299,7 @@ This indicates:
 - **#1225**: Global unique contract error-code registry
 - **#1226**: Add version() and interface_version() to every contract
 
-### 6. Resolver Registry Contract (`contracts/contracts/resolver-registry/`)
+### 4. Resolver Registry Contract (`contracts/contracts/resolver-registry/`)
 **Purpose**: Decentralize escrow dispute resolution from a single admin arbiter to a voting set of arbiters. When a configurable quorum agrees on an outcome, the registry issues a binding `resolve_dispute` cross-contract call into the escrow. (Wire it up by setting the escrow's `arbiter` to the registry's contract address.)
 - `init` - Initialize with an admin and an initial quorum.
 - `add_arbiter` / `remove_arbiter` - Admin manages the arbiter voting set.
@@ -319,6 +307,33 @@ This indicates:
 - `open_case` - An arbiter or admin opens a dispute case bound to an escrow agreement.
 - `vote` - An arbiter votes to release (1) or refund (2); reaching quorum fires the binding escrow callback.
 - `get_case` / `get_case_count` / `get_quorum` / `get_arbiters` / `is_arbiter` / `get_vote` - Queries.
+
+**How a resolver is selected.** Two layers decide who may arbitrate an agreement:
+
+1. *Registry admission.* The registry admin maintains the voting set with
+   `add_arbiter` / `remove_arbiter`, and `init` seeds it with an initial quorum.
+   This is an explicit, revocable allowlist: `vote` rejects any address absent
+   from the set with `NotAnArbiter` (`2203`), so only admitted resolvers can ever
+   contribute to an outcome.
+2. *Per-agreement choice.* The parties select *which* resolver set arbitrates by
+   setting that registry's contract address as the escrow's `arbiter` when the
+   agreement is created. A registry can only issue its binding `resolve_dispute`
+   callback because it is the escrow's designated arbiter — the escrow
+   authorises the call the registry makes on its own behalf. A provider can thus
+   route each agreement to the set it and the counterparty trust.
+
+Once the configured `quorum` of matching votes is reached, the registry resolves
+the case and fires the binding callback; fewer votes leave the escrow disputed.
+
+**Stake and reputation.** Neither is required today. Admission is purely the
+admin's allowlist decision and a case is bound by the *count* of matching votes,
+not by any weight, so there is no on-chain staking or reputation score. This
+mirrors the escrow's own staged trust model — Phase 1 admin-managed admission
+(current), Phase 2 multisig-controlled admission, Phase 3 cryptographic
+(ZK-attested) accreditation. A future stake or reputation requirement would gate
+`add_arbiter` / `set_quorum`; the voting interface (`vote` + quorum) would not
+change.
+
 ## Contract Development Roadmap
 
 ### Completed (MVP Stage)
@@ -326,7 +341,6 @@ This indicates:
 - [x] Secure escrow agreements with arbiter-mediated dispute resolution
 - [x] Decentralized dispute arbitration via a quorum-voting resolver registry
 - [x] Non-custodial virtual cards with disposable/auto-close behavior
-- [x] Multi-token settlement adapter with token allowlists and per-token caps
 
 ### Phase 3: Mainnet Hardening
 - [ ] Complete external security audits
@@ -426,17 +440,6 @@ new entrypoint is added without those tests or when this table drifts from
 | `agent-registry` | `require_authorized` | `neg_require_authorized_unauthorized` | `neg_require_authorized_wrong_state` | n/a |
 | `agent-registry` | `has_scope` | `neg_has_scope_unauthorized` | `neg_has_scope_wrong_state` | n/a |
 | `agent-registry` | `require_scope` | `neg_require_scope_unauthorized` | `neg_require_scope_wrong_state` | n/a |
-| `allowance` | `init` | `neg_init_unauthorized` | `neg_init_wrong_state` | required |
-| `allowance` | `pause` | `neg_pause_unauthorized` | `neg_pause_wrong_state` | required |
-| `allowance` | `unpause` | `neg_unpause_unauthorized` | `neg_unpause_wrong_state` | required |
-| `allowance` | `is_paused` | `neg_is_paused_unauthorized` | `neg_is_paused_wrong_state` | required |
-| `allowance` | `grant_allowance` | `neg_grant_allowance_unauthorized` | `neg_grant_allowance_wrong_state` | required |
-| `allowance` | `revoke_allowance` | `neg_revoke_allowance_unauthorized` | `neg_revoke_allowance_wrong_state` | required |
-| `allowance` | `update_caps` | `neg_update_caps_unauthorized` | `neg_update_caps_wrong_state` | required |
-| `allowance` | `consume` | `neg_consume_unauthorized` | `neg_consume_wrong_state` | required |
-| `allowance` | `get_allowance` | `neg_get_allowance_unauthorized` | `neg_get_allowance_wrong_state` | required |
-| `allowance` | `get_allowance_count` | `neg_get_allowance_count_unauthorized` | `neg_get_allowance_count_wrong_state` | required |
-| `allowance` | `available` | `neg_available_unauthorized` | `neg_available_wrong_state` | required |
 | `attestation` | `init` | `neg_init_unauthorized` | `neg_init_wrong_state` | n/a |
 | `attestation` | `issue` | `neg_issue_unauthorized` | `neg_issue_wrong_state` | n/a |
 | `attestation` | `revoke` | `neg_revoke_unauthorized` | `neg_revoke_wrong_state` | n/a |
@@ -517,13 +520,6 @@ new entrypoint is added without those tests or when this table drifts from
 | `guardian` | `get_registered_contracts` | `neg_get_registered_contracts_unauthorized` | `neg_get_registered_contracts_wrong_state` | n/a |
 | `guardian` | `get_contract_count` | `neg_get_contract_count_unauthorized` | `neg_get_contract_count_wrong_state` | n/a |
 | `guardian` | `is_contract_registered` | `neg_is_contract_registered_unauthorized` | `neg_is_contract_registered_wrong_state` | n/a |
-| `payment-adapter` | `init` | `neg_init_unauthorized` | `neg_init_wrong_state` | required |
-| `payment-adapter` | `allow_token` | `neg_allow_token_unauthorized` | `neg_allow_token_wrong_state` | required |
-| `payment-adapter` | `revoke_token` | `neg_revoke_token_unauthorized` | `neg_revoke_token_wrong_state` | required |
-| `payment-adapter` | `settle_renewal` | `neg_settle_renewal_unauthorized` | `neg_settle_renewal_wrong_state` | required |
-| `payment-adapter` | `get_policy` | `neg_get_policy_unauthorized` | `neg_get_policy_wrong_state` | required |
-| `payment-adapter` | `available` | `neg_available_unauthorized` | `neg_available_wrong_state` | required |
-| `payment-adapter` | `is_allowed` | `neg_is_allowed_unauthorized` | `neg_is_allowed_wrong_state` | required |
 | `payment-channel` | `init` | `neg_init_unauthorized` | `neg_init_wrong_state` | required |
 | `payment-channel` | `open_channel` | `neg_open_channel_unauthorized` | `neg_open_channel_wrong_state` | required |
 | `payment-channel` | `submit_state` | `neg_submit_state_unauthorized` | `neg_submit_state_wrong_state` | required |
@@ -556,13 +552,6 @@ new entrypoint is added without those tests or when this table drifts from
 | `resolver-registry` | `get_arbiters` | `neg_get_arbiters_unauthorized` | `neg_get_arbiters_wrong_state` | n/a |
 | `resolver-registry` | `is_arbiter` | `neg_is_arbiter_unauthorized` | `neg_is_arbiter_wrong_state` | n/a |
 | `resolver-registry` | `get_vote` | `neg_get_vote_unauthorized` | `neg_get_vote_wrong_state` | n/a |
-| `stealth-announcement` | `init` | `neg_init_unauthorized` | `neg_init_wrong_state` | n/a |
-| `stealth-announcement` | `get_admin` | `neg_get_admin_unauthorized` | `neg_get_admin_wrong_state` | n/a |
-| `stealth-announcement` | `publish` | `neg_publish_unauthorized` | `neg_publish_wrong_state` | n/a |
-| `stealth-announcement` | `get_announcement` | `neg_get_announcement_unauthorized` | `neg_get_announcement_wrong_state` | n/a |
-| `stealth-announcement` | `get_announcement_count` | `neg_get_announcement_count_unauthorized` | `neg_get_announcement_count_wrong_state` | n/a |
-| `stealth-announcement` | `get_announcements_range` | `neg_get_announcements_range_unauthorized` | `neg_get_announcements_range_wrong_state` | n/a |
-| `stealth-announcement` | `get_latest_announcements` | `neg_get_latest_announcements_unauthorized` | `neg_get_latest_announcements_wrong_state` | n/a |
 | `virtual-card` | `issue_card` | `neg_issue_card_unauthorized` | `neg_issue_card_wrong_state` | n/a |
 | `virtual-card` | `process_payment` | `neg_process_payment_unauthorized` | `neg_process_payment_wrong_state` | n/a |
 | `virtual-card` | `get_balance` | `neg_get_balance_unauthorized` | `neg_get_balance_wrong_state` | n/a |

@@ -76,22 +76,51 @@
  *       properties:
  *         scheme:
  *           type: string
+ *           description: |
+ *             Payment scheme. SYNCRO advertises `exact` on Stellar: the caller
+ *             pays the reserved amount for the call. See docs/x402-compatibility.md.
  *           example: exact
  *         network:
  *           type: string
- *           example: eip155:84532
+ *           description: CAIP-2-style network id. SYNCRO uses `stellar:<network>`.
+ *           example: stellar:testnet
  *         amount:
  *           type: string
- *           example: "10000"
+ *           example: "10"
  *         asset:
  *           type: string
- *           example: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+ *           description: Stellar asset id (code + issuer). Replaces the EVM contract address.
+ *           example: USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN
  *         payTo:
  *           type: string
- *           example: "0x209693Bc6afc0C5328bA36FaF03C514EF312287C"
+ *           description: Provider payment-channel address (not an externally-owned account).
+ *           example: G_PROVIDER_CHANNEL_DEFAULT
  *         maxTimeoutSeconds:
  *           type: integer
- *           example: 60
+ *           example: 300
+ *         extra:
+ *           type: object
+ *           description: SYNCRO-only challenge fields preserved for observability.
+ *           properties:
+ *             syncroScheme:
+ *               type: string
+ *               example: channel-state
+ *             challengeId:
+ *               type: string
+ *               example: chal_1f2e3d4c5b6a
+ *             contract:
+ *               type: string
+ *               example: C_CONFIGURED_CONTRACT
+ *             rate:
+ *               type: string
+ *               example: "0.1"
+ *             nonce:
+ *               type: string
+ *               example: ch_nonce_…
+ *             expiresAt:
+ *               type: string
+ *               format: date-time
+ *               example: "2026-01-01T00:00:00.000Z"
  *     X402PaymentPayload:
  *       type: object
  *       description: Decoded PAYMENT-SIGNATURE header payload (x402 V2)
@@ -103,7 +132,10 @@
  *           $ref: '#/components/schemas/X402PaymentRequirements'
  *         payload:
  *           type: object
- *           description: Scheme-specific signed payment data
+ *           description: |
+ *             Scheme-specific signed data. In SYNCRO compatibility mode this
+ *             carries a channel-state proof (`channelId`, `sequenceNumber`,
+ *             balances, `nonce`, `payerAddress`, `signature`).
  *     X402SettlementResponse:
  *       type: object
  *       description: Decoded PAYMENT-RESPONSE header payload (x402 V2)
@@ -113,8 +145,11 @@
  *           example: true
  *         transaction:
  *           type: string
- *           example: "0xabc123..."
+ *           description: |
+ *             On-chain settlement reference. Until the channel batch settles,
+ *             SYNCRO returns the receipt id here.
+ *           example: rcpt_1a2b3c4d5e6f
  *         network:
  *           type: string
- *           example: eip155:84532
+ *           example: stellar:testnet
  */

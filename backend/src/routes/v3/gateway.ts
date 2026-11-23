@@ -8,10 +8,10 @@ import {
   UpstreamProvider,
 } from '../../services/v3/gateway-lifecycle';
 import {
-  generatePaymentChallenge,
   parsePaymentProof,
   verifyPaymentProof,
 } from '../../services/v3/payment-challenge-service';
+import { issuePaymentChallenge } from '../../services/v3/x402-compat';
 import { spendCapService } from '../../services/v3/spend-cap-service';
 import { unitEconomicsService } from '../../services/v3/unit-economics-service';
 import { optionalAuthenticate, AuthenticatedRequest, UserRole } from '../../middleware/auth';
@@ -199,12 +199,18 @@ export function createV3GatewayRouter(
       });
     }
 
-    const { challenge, headerValue } = generatePaymentChallenge({
+    const { challenge, headerValue } = issuePaymentChallenge({
       settlementAsset: routeConfig.settlementAsset,
       amount: String(amount),
       rate: String(routeConfig.unitPrice),
       contract,
       chain: `stellar:${process.env.STELLAR_NETWORK ?? 'testnet'}`,
+      error: 'Payment required: machine-readable payment instruction challenge',
+      resource: {
+        url: `${req.protocol}://${req.get('host') ?? ''}${req.originalUrl}`,
+        description: `Paid ${routeId} gateway route`,
+        mimeType: 'application/json',
+      },
     }, (message) => receiptService.signMessage(message));
     res.setHeader('PAYMENT-REQUIRED', headerValue);
     return res.status(402).json({
