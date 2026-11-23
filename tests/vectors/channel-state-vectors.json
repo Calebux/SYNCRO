@@ -1,21 +1,23 @@
 {
-  "description": "Cross-language test vectors for channel-state signing and domain-separated encoding (SYNCRO v3). Generated from packages/settlement/src/state-store.ts and verified in Rust tests against contracts/contracts/payment-channel.",
+  "description": "Cross-language test vectors for channel-state signing and domain-separated encoding (SYNCRO v3). Both the TypeScript suite (packages/settlement) and the Rust suite (contracts/crates/channel-state) must produce exactly the values in expectedEncoding, expectedDigest, and expectedSignature.",
   "encoding": {
     "format": "pipe-delimited string",
     "fields": [
-      "domain-separator",
-      "channelId",
-      "contractAddress (lowercased)",
+      "domain-separator (v3-channel-state)",
       "contractVersion",
+      "contractAddress",
+      "channelId",
       "nonce",
       "payerBalance (decimal string)",
       "payeeBalance (decimal string)",
-      "windowStart",
-      "windowEnd"
+      "windowStart (ms unix timestamp, decimal)",
+      "windowEnd   (ms unix timestamp, decimal)"
     ],
-    "domainSeparator": "channel-state",
+    "domainSeparator": "v3-channel-state",
+    "example": "v3-channel-state|1|GADDR|ch-001|5|1000|500|1700000000000|1700003600000",
     "hashAlgorithm": "sha256",
-    "signAlgorithm": "hmac-sha256"
+    "signAlgorithm": "hmac-sha256",
+    "signatureInput": "plain encoded string (NOT its hash)"
   },
   "vectors": [
     {
@@ -30,7 +32,10 @@
         "windowStart": 1700000000000,
         "windowEnd": 1700003600000
       },
-      "signingKey": "test-secret-key-vector-1"
+      "signingKey": "test-secret-key-vector-1",
+      "expectedEncoding": "v3-channel-state|1|GBV3TESTCONTRACTADDRESS123456789|ch-zero-001|1|0|0|1700000000000|1700003600000",
+      "expectedDigest": "c8eab768579914d5f33b20bc5012342a62dcb6245c0f31add5d3ca36e0793a42",
+      "expectedSignature": "ae828e5aa8bf24b0500e1c4db00829a30133bac7b4072e568b3307e2b7aa05b9"
     },
     {
       "name": "edge_case_max_i128",
@@ -44,7 +49,10 @@
         "windowStart": 1700000000000,
         "windowEnd": 1700036000000
       },
-      "signingKey": "test-secret-key-vector-2"
+      "signingKey": "test-secret-key-vector-2",
+      "expectedEncoding": "v3-channel-state|1|GBV3TESTCONTRACTADDRESS123456789|ch-max-002|100|340282366920938463463374607431768211455|340282366920938463463374607431768211455|1700000000000|1700036000000",
+      "expectedDigest": "237fe0b43177cd99833e05d1d9757ce65f318e073058ce4527bfc28b8be554ec",
+      "expectedSignature": "12c6581d4f70f902749b1019901404d2c8595e6ec9a92cfc913c34558045a082"
     },
     {
       "name": "edge_case_nonce_zero",
@@ -58,7 +66,10 @@
         "windowStart": 1699990000000,
         "windowEnd": 1700000000000
       },
-      "signingKey": "test-secret-key-vector-3"
+      "signingKey": "test-secret-key-vector-3",
+      "expectedEncoding": "v3-channel-state|1|GBV3TESTCONTRACTADDRESS123456789|ch-nonce0-003|0|5000|1000|1699990000000|1700000000000",
+      "expectedDigest": "65845872dd20e714a8fd6e82c3a3e2f16b3ba8900a1f88e054f7f2892417307e",
+      "expectedSignature": "64c7fcd40f414199ed4251514206bb949bbe162c04ac6bcc577ad58af22bc9d7"
     },
     {
       "name": "edge_case_large_window_values",
@@ -72,7 +83,10 @@
         "windowStart": 9999999999999,
         "windowEnd": 99999999999999
       },
-      "signingKey": "test-secret-key-vector-4"
+      "signingKey": "test-secret-key-vector-4",
+      "expectedEncoding": "v3-channel-state|2|GBV3TESTCONTRACTADDRESS123456789|ch-large-004|999999|1234567890123456789|9876543210987654321|9999999999999|99999999999999",
+      "expectedDigest": "29da2ad8a684b127cd1718770707c26938f6940fc09d0c06945aee98766290db",
+      "expectedSignature": "d76b16878cd00f811cfb8c83ba1faa8ce0d2c4699b68e0a5c333b06e26415192"
     }
   ]
 }

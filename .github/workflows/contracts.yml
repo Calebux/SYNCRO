@@ -220,6 +220,49 @@ jobs:
           path: /tmp/wasm-hashes-pass1.txt
           retention-days: 90
 
+  # ──────────────────────────────────────────────────────────────────────────
+  # Host-crate tests: syncro-channel-state + syncro-client
+  #
+  # These crates are compiled for the native host (not WASM) and must be
+  # tested separately from the WASM build.  The key step is the cross-language
+  # vector test that fulfils the #1814 acceptance criterion:
+  #   "Rust output matches the TypeScript output byte for byte on the shared vectors."
+  #
+  # This job runs in parallel with build-contracts so encoding divergence
+  # fails fast without blocking the WASM reproducibility check.
+  # ──────────────────────────────────────────────────────────────────────────
+  test-channel-state-crate:
+    name: Test syncro-channel-state (host, cross-language vectors)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Rust toolchain
+        uses: ./.github/workflows/_composite/setup-rust.yml
+        with:
+          toolchain: "stable"
+          cache-workspaces: contracts
+
+      - name: Test channel-state crate (all features, with cross-language vectors)
+        # --locked enforces Cargo.lock consistency; --features signing enables HMAC tests.
+        # The test binary loads tests/vectors/channel-state-vectors.json at runtime and
+        # asserts encoding, digest and signature match the expectedEncoding/Digest/Signature
+        # fields that the TypeScript suite also validates — byte for byte.
+        run: |
+          cargo test -p syncro-channel-state --features signing --locked -- --nocapture
+
+      - name: Check syncro-client compiles
+        # Full `cargo test` for syncro-client is deferred until an integration
+        # test harness is wired up; `cargo check` is sufficient to prove the
+        # crate depends on the same syncro-channel-state types as the contract.
+        run: |
+          cargo check -p syncro-client --locked
+
   # ──────────────────────────────────────────────
   # Release: Generate SBOM and provenance for release tags
   # ──────────────────────────────────────────────

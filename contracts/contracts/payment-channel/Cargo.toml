@@ -12,5 +12,8 @@ soroban-sdk = { workspace = true, features = ["testutils"] }
 proptest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-hmac = { workspace = true }
-sha2 = { workspace = true }
+# Shared encoding crate: gives the contract's vector tests access to the
+# same encode_channel_state / sign_channel_state functions the client uses,
+# verifying byte-for-byte compatibility without duplicating logic.
+syncro-channel-state = { path = "../../crates/channel-state", features = ["signing"] }
+
