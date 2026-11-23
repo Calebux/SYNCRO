@@ -4,6 +4,7 @@ import AxeBuilder from '@axe-core/playwright';
 // Define core routes for accessibility testing
 const routes = [
   { name: 'Landing Page', path: '/' },
+  { name: 'Provider Directory', path: '/directory' },
   { name: 'Dashboard', path: '/dashboard', authenticated: true },
   { name: 'Settings', path: '/settings', authenticated: true },
   { name: '2FA Setup', path: '/auth/2fa', authenticated: true },
