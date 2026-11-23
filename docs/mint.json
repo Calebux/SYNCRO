@@ -52,6 +52,10 @@
       "pages": ["sdk-reference", "contracts"]
     },
     {
+      "group": "Integrations",
+      "pages": ["integrations/mcp-metering"]
+    },
+    {
       "group": "Privacy & Security",
       "pages": ["TOR_BROWSER_COMPATIBILITY"]
     }

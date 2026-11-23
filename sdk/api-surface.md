@@ -37,6 +37,7 @@ hashSubscriptionId(subscriptionId: string): string
 buildContractInvoke<T extends keyof GeneratedContractMap>(contract: T, method: string, params: ...): BuiltTransaction
 pricing(input: PricingDeclarationInput | Record<string, any>): RoutePricing
 metered(options: MeteredOptions): RoutePricing
+meteredTool(handler: McpToolHandler, pricingInput: RoutePricing | PricingDeclarationInput, options?: MeteredToolOptions): McpToolHandler
 hostedGateway(config: HostedGatewayConfig): RoutePricing
 
 ### CONSTANTS
@@ -76,6 +77,12 @@ SyncroReceipt
 FailureMode
 FailureHandler
 MeteredOptions
+MeteredToolOptions
+MeteredToolContext
+MeteredToolFailureHandler
+McpToolHandler
+McpCallToolResult
+McpToolExtra
 HostedGatewayConfig
 AutoTopUpConfig
 ChallengePeriod

@@ -77,6 +77,7 @@ export type {
 export {
   pricing,
   metered,
+  meteredTool,
   hostedGateway,
 } from "./provider/index.js";
 export type {
@@ -88,6 +89,12 @@ export type {
   FailureMode,
   FailureHandler,
   MeteredOptions,
+  MeteredToolOptions,
+  MeteredToolContext,
+  MeteredToolFailureHandler,
+  McpToolHandler,
+  McpCallToolResult,
+  McpToolExtra,
   HostedGatewayConfig,
 } from "./provider/index.js";
 
