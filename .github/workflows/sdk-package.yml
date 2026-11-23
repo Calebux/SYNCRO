@@ -7,11 +7,15 @@ on:
       - 'shared/**'
       - 'package.json'
       - 'package-lock.json'
+      - '.github/workflows/sdk-package.yml'
   push:
     branches: [main]
     paths:
       - 'sdk/**'
       - 'shared/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/sdk-package.yml'
 
 jobs:
   layout:
@@ -54,3 +58,29 @@ jobs:
             npm run check:size -w sdk --silent || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  browser-tests:
+    name: SDK browser tests · ${{ matrix.browser }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --ignore-scripts || npm install --legacy-peer-deps --ignore-scripts
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Run SDK browser tests
+        run: npm run test:browser:playwright -w sdk -- --project=${{ matrix.browser }}

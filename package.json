@@ -52,8 +52,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.0",
-    "typescript": "^5.9.3",
-    "@syncro/core": "workspace:*"
+    "typescript": "^5.9.3"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.5",

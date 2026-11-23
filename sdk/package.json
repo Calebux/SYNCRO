@@ -150,6 +150,7 @@
     "test": "jest",
     "test:integration": "bash scripts/run-integration.sh",
     "test:browser": "jest --config jest.browser.config.js",
+    "test:browser:playwright": "playwright test -c playwright.config.ts",
     "assert:no-node-crypto": "node scripts/assert-no-node-crypto.mjs",
     "check:layout": "node scripts/check-package-layout.mjs",
     "check:tree-shake": "node scripts/check-tree-shake.mjs",
@@ -172,6 +173,7 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.2",
+    "@playwright/test": "^1.62.1",
     "@stellar/stellar-sdk": "^17.0.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.0.0",
