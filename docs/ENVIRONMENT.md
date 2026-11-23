@@ -46,6 +46,10 @@ packages must have a manifest + `.env.example` that agree; no-env packages must
 Stellar settings — see `backend/src/config/env.ts` and
 [blockchain-feature-flags.md](./blockchain-feature-flags.md).
 
+`SOROBAN_RPC_URLS` is an optional comma-separated provider list. It overrides
+`SOROBAN_RPC_URL`, enables automatic RPC failover, and triggers ledger agreement
+checks; configure at least two providers for redundancy.
+
 ### Backend cache tuning (issue #1092)
 
 Redis TTL caching is used for both FX rates and merchant metadata.  All
