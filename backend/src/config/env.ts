@@ -62,6 +62,8 @@ export const envSchema = z.object({
   SETTLEMENT_MAX_WAIT_MS: z.string().default('300000'),
   SETTLEMENT_MAX_QUEUE_DEPTH: z.string().default('500'),
   SETTLEMENT_MAX_IN_FLIGHT: z.string().default('2'),
+  PROVIDER_USAGE_WEBHOOK_URL: z.string().url().optional(),
+  PROVIDER_USAGE_WEBHOOK_SECRET: z.string().min(1).optional(),
   // Settlement signer balance monitoring
   SETTLEMENT_SIGNER_SECRET_KEY: z.string().optional(),
   SETTLEMENT_SIGNER_BALANCE_WARNING_THRESHOLD: z.string().default('100'),

@@ -91,6 +91,23 @@ export interface ChannelStore {
   delete(key: string): Promise<void>;
 }
 
+/** In-memory store for tests and single-process local runs. */
+export class InMemoryChannelStore implements ChannelStore {
+  private readonly channels = new Map<string, ChannelState>();
+
+  async get(key: string): Promise<ChannelState | undefined> {
+    return this.channels.get(key);
+  }
+
+  async put(state: ChannelState): Promise<void> {
+    this.channels.set(state.key, { ...state });
+  }
+
+  async delete(key: string): Promise<void> {
+    this.channels.delete(key);
+  }
+}
+
 /**
  * Authorization hook. The principal must authorize any spend (initial deposit
  * or top-up) before the manager commits it.
@@ -211,7 +228,7 @@ export class ChannelManager {
     if (existing && this.isUsable(existing)) {
       return existing;
     }
-    return this.serialize(key, () => this.openChannel(principal, provider));
+    return this.serialize(key, () => this.openChannel(principal, provider), true);
   }
 
   /**
@@ -457,6 +474,7 @@ export class ChannelManager {
   private serialize(
     key: string,
     work: () => Promise<ChannelState>,
+    returnExistingIfUsable = false,
   ): Promise<ChannelState> {
     const previous = this.inflight.get(key) ?? Promise.resolve(undefined as unknown as ChannelState);
     const next = previous
@@ -468,7 +486,7 @@ export class ChannelManager {
           // Could not acquire lock: another instance is working on this channel
           // Check if a usable channel already exists (idempotency)
           const existing = await this.store.get(key);
-          if (existing && this.isUsable(existing)) {
+          if (returnExistingIfUsable && existing && this.isUsable(existing)) {
             return existing;
           }
           throw new ChannelError(
@@ -480,7 +498,7 @@ export class ChannelManager {
         try {
           // Re-check store after acquiring lock (idempotency: another instance may have created channel while we waited)
           const existing = await this.store.get(key);
-          if (existing && this.isUsable(existing)) {
+          if (returnExistingIfUsable && existing && this.isUsable(existing)) {
             return existing;
           }
           return await work();

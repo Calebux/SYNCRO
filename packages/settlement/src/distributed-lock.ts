@@ -6,7 +6,12 @@
  */
 
 import { randomUUID } from 'crypto';
-import type { RedisClientType } from 'redis';
+
+/** Minimal Redis commands required by this adapter. */
+export interface RedisLockClient {
+  set(key: string, value: string, options: { NX: true; EX: number }): Promise<string | null>;
+  eval(script: string, options: { keys: string[]; arguments: string[] }): Promise<unknown>;
+}
 
 export interface LockAcquireResult {
   acquired: boolean;
@@ -20,7 +25,7 @@ export interface LockOptions {
   /** Default TTL in milliseconds */
   defaultTtlMs: number;
   /** Redis client getter */
-  getClient: () => Promise<RedisClientType | null>;
+  getClient: () => Promise<RedisLockClient | null>;
 }
 
 /**
@@ -30,7 +35,7 @@ export interface LockOptions {
 export class DistributedLock {
   private readonly keyPrefix: string;
   private readonly defaultTtlMs: number;
-  private readonly getClient: () => Promise<RedisClientType | null>;
+  private readonly getClient: () => Promise<RedisLockClient | null>;
 
   constructor(options: LockOptions) {
     this.keyPrefix = options.keyPrefix;
@@ -139,7 +144,7 @@ export class DistributedLock {
  * This is the default lock instance for channel operations.
  */
 export function createChannelLock(
-  getClient: () => Promise<RedisClientType | null>,
+  getClient: () => Promise<RedisLockClient | null>,
   defaultTtlMs = 5 * 60 * 1000, // 5 minutes default
 ): DistributedLock {
   return new DistributedLock({

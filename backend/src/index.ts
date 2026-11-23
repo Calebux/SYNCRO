@@ -79,6 +79,7 @@ import { startSettlementBatchJob, stopSettlementBatchJob } from './jobs/settleme
 import { startStealthScanJob } from './jobs/stealth-scan-job';
 import { startChannelMonitorJob } from './jobs/channel-monitor-job';
 import { startUsageRetentionJob } from './jobs/usage-retention-job';
+import { startProviderUsageEventsJob } from './jobs/provider-usage-events-job';
 import { startChannelSettlementJob, stopChannelSettlementJob } from './jobs/channel-settlement-job';
 import { startSettlementReconciliationJob, stopSettlementReconciliationJob } from './jobs/settlement-reconciliation-job';
 import { startSettlementSignerBalanceJob, stopSettlementSignerBalanceJob } from './jobs/settlement-signer-balance-job';
@@ -694,6 +695,7 @@ const server = app.listen(PORT, async () => {
   startStealthScanJob();
   startChannelMonitorJob();
   startUsageRetentionJob();
+  startProviderUsageEventsJob();
   startChannelSettlementJob();
   startSettlementReconciliationJob();
   startSettlementSignerBalanceJob();

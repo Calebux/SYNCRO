@@ -46,6 +46,10 @@ packages must have a manifest + `.env.example` that agree; no-env packages must
 Stellar settings — see `backend/src/config/env.ts` and
 [blockchain-feature-flags.md](./blockchain-feature-flags.md).
 
+Provider usage analytics delivery is optional. Set both
+`PROVIDER_USAGE_WEBHOOK_URL` and `PROVIDER_USAGE_WEBHOOK_SECRET` to enable the
+outbox dispatcher. The endpoint must be HTTPS outside local development.
+
 ### Backend cache tuning (issue #1092)
 
 Redis TTL caching is used for both FX rates and merchant metadata.  All

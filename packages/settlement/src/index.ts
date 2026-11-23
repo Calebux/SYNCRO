@@ -2,6 +2,13 @@ import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { encodeBalance, decodeBalance } from '@syncro/shared/bigint-balance';
 import type { SignedChannelState } from './types';
 
+export {
+  simulateSettlementBatch,
+  type SettlementDryRunItem,
+  type SettlementDryRunRow,
+  type SettlementDryRunReport,
+} from './dry-run';
+
 export interface MeterWindow {
   channelId: string;
   contractAddress: string;
@@ -222,4 +229,42 @@ export interface BatchingPolicy {
  * measured-cost-derived value so exposure never exceeds what a submission can
  * economically clear.
  */
-export function defaultBatchingPolicy(costs: GasCostModel = ME
+export function defaultBatchingPolicy(costs: GasCostModel = MEASURED_GAS_COSTS): BatchingPolicy {
+  const threshold = deriveDefaultValueThreshold(costs);
+  return {
+    valueThreshold: threshold,
+    maxIntervalMs: 60 * 60 * 1000,
+    capApproachRatio: 0.9,
+    exposureCeiling: threshold,
+  };
+}
+
+export interface BatchingContext {
+  channelId: string;
+  accumulatedValue: bigint;
+  elapsedMs: number;
+  channelCap: bigint;
+  committedValue: bigint;
+  forceFlush?: boolean;
+}
+
+export interface SubmissionDecision {
+  submit: boolean;
+  triggers: string[];
+}
+
+/** Decide whether channel exposure warrants a settlement submission. */
+export function shouldSubmit(context: BatchingContext, policy: BatchingPolicy): SubmissionDecision {
+  const triggers: string[] = [];
+  if (context.forceFlush) triggers.push('operator-forced');
+  if (context.accumulatedValue >= policy.valueThreshold) triggers.push('value-threshold');
+  if (context.elapsedMs >= policy.maxIntervalMs) triggers.push('max-interval');
+  if (context.accumulatedValue >= policy.exposureCeiling) triggers.push('exposure-ceiling');
+  if (context.channelCap > 0n) {
+    const ratioBasisPoints = BigInt(Math.round(policy.capApproachRatio * 10_000));
+    if ((context.committedValue + context.accumulatedValue) * 10_000n >= context.channelCap * ratioBasisPoints) {
+      triggers.push('cap-approach');
+    }
+  }
+  return { submit: triggers.length > 0, triggers };
+}
