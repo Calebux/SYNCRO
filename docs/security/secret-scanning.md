@@ -113,11 +113,9 @@ authoritative.**
 
 ## Current baseline
 
-14 findings are baselined, all reviewed: the Supabase local-development demo
-token (published by Supabase, valid only against `localhost:54321`), test
-fixtures whose realistic shape is the point of the test, and credential examples
-quoted in documentation. See `.secrets-baseline.json` for the per-entry
-justification.
+31 findings are baselined, all reviewed: Supabase local-development demo tokens,
+synthetic test fixtures, and credential examples quoted in documentation. See
+`.secrets-baseline.json` for the per-entry justification.
 
 ## Never do this
 

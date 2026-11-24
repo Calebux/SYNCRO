@@ -120,7 +120,7 @@ jobs:
           - package: root
             command: |
               # Root lint checks
-              ALLOWED="README.md CONTRIBUTING.md INSTALL.md AGENTS.md CLAUDE.md DEBT.md TODO.md LICENSE LICENSE.md requirements.txt PULL_REQUEST_TEMPLATE.md"
+              ALLOWED="README.md CONTRIBUTING.md INSTALL.md AGENTS.md CLAUDE.md DEBT.md TODO.md LICENSE LICENSE.md requirements.txt"
               for file in *.md *.txt; do
                 if [ -f "$file" ]; then
                   if ! echo "$ALLOWED" | grep -w -q "$file"; then

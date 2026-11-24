@@ -6,8 +6,7 @@
  */
 
 import type { SubscriptionStatus } from '../types/subscription';
-
-type RenewalStatus = 'pending' | 'processing' | 'succeeded' | 'failed' | 'cancelled';
+import type { CanonicalRenewalState } from '../types/domain-glossary';
 
 /**
  * Validate subscription status transitions.
@@ -44,13 +43,16 @@ export function isValidSubscriptionTransition(
  * - failed → pending (retry), cancelled
  * - cancelled → (terminal)
  */
-export function isValidRenewalTransition(from: RenewalStatus, to: RenewalStatus): boolean {
-  const transitions: Record<RenewalStatus, RenewalStatus[]> = {
-    pending: ['processing', 'cancelled'],
-    processing: ['succeeded', 'failed'],
-    succeeded: [],
-    failed: ['pending', 'cancelled'],
-    cancelled: [],
+export function isValidRenewalTransition(from: CanonicalRenewalState, to: CanonicalRenewalState): boolean {
+  const transitions: Record<CanonicalRenewalState, CanonicalRenewalState[]> = {
+    scheduled: ['cooldown'],
+    cooldown: ['pending_approval', 'executing'],
+    pending_approval: ['approved'],
+    approved: ['executing'],
+    executing: ['settled', 'failed'],
+    settled: [],
+    failed: ['scheduled', 'dead_lettered'],
+    dead_lettered: [],
   };
 
   return transitions[from]?.includes(to) ?? false;

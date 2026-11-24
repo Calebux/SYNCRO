@@ -29,8 +29,8 @@ export function encodeBalance(balance: bigint): string {
  * Use this when a balance arrives from an external boundary (HTTP
  * request body, database read, log replay, event consumption).
  */
-export function decodeBalance(value: string): bigint {
-  if (!/^-?\d+$/.test(value)) {
+export function decodeBalance(value: unknown): bigint {
+  if (typeof value !== 'string' || !/^-?\d+$/.test(value)) {
     throw new RangeError(`Invalid balance string: ${value}`);
   }
   return BigInt(value);

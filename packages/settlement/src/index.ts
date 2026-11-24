@@ -216,10 +216,83 @@ export interface BatchingPolicy {
   exposureCeiling: bigint;
 }
 
+export interface BatchingContext {
+  channelId: string;
+  accumulatedValue: bigint;
+  elapsedMs: number;
+  channelCap: bigint;
+  committedValue: bigint;
+  forceFlush?: boolean;
+}
+
+export type SubmissionTrigger =
+  | 'operator-forced'
+  | 'value-threshold'
+  | 'max-interval'
+  | 'cap-approach'
+  | 'exposure-ceiling';
+
+export interface SubmissionDecision {
+  submit: boolean;
+  triggers: SubmissionTrigger[];
+}
+
+export function shouldSubmit(
+  context: BatchingContext,
+  policy: BatchingPolicy,
+): SubmissionDecision {
+  if (
+    context.accumulatedValue < 0n ||
+    context.elapsedMs < 0 ||
+    context.channelCap < 0n ||
+    context.committedValue < 0n
+  ) {
+    throw new RangeError('batching context values must be non-negative');
+  }
+  if (
+    !Number.isFinite(policy.maxIntervalMs) ||
+    policy.maxIntervalMs < 0 ||
+    !Number.isFinite(policy.capApproachRatio) ||
+    policy.capApproachRatio < 0 ||
+    policy.capApproachRatio > 1 ||
+    policy.valueThreshold < 0n ||
+    policy.exposureCeiling < 0n
+  ) {
+    throw new RangeError('batching policy values are invalid');
+  }
+
+  const triggers: SubmissionTrigger[] = [];
+  if (context.forceFlush) triggers.push('operator-forced');
+  if (context.accumulatedValue >= policy.valueThreshold) triggers.push('value-threshold');
+  if (context.elapsedMs >= policy.maxIntervalMs) triggers.push('max-interval');
+
+  if (context.channelCap > 0n) {
+    const ratioMillionths = BigInt(Math.round(policy.capApproachRatio * 1_000_000));
+    const projectedValue = context.committedValue + context.accumulatedValue;
+    if (projectedValue * 1_000_000n >= context.channelCap * ratioMillionths) {
+      triggers.push('cap-approach');
+    }
+  }
+
+  if (context.accumulatedValue > policy.exposureCeiling) {
+    triggers.push('exposure-ceiling');
+  }
+
+  return { submit: triggers.length > 0, triggers };
+}
+
 /**
  * Default policy derived from measured costs. The value threshold traces to
  * `deriveDefaultValueThreshold`; the exposure ceiling is set to the same
  * measured-cost-derived value so exposure never exceeds what a submission can
  * economically clear.
  */
-export function defaultBatchingPolicy(costs: GasCostModel = ME
+export function defaultBatchingPolicy(costs: GasCostModel = MEASURED_GAS_COSTS): BatchingPolicy {
+  const threshold = deriveDefaultValueThreshold(costs);
+  return {
+    valueThreshold: threshold,
+    maxIntervalMs: 60 * 60 * 1000,
+    capApproachRatio: 0.9,
+    exposureCeiling: threshold,
+  };
+}

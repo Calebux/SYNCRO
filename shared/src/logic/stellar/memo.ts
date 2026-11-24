@@ -1,4 +1,4 @@
-import { cryptoPrimitives } from '../crypto/runtime/node';
+import { cryptoPrimitives } from '../../crypto/runtime/node';
 
 /** SYNCRO memo format version. */
 export const SYNCRO_MEMO_VERSION = 'v1' as const;

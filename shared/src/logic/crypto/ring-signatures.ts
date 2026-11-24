@@ -7,7 +7,7 @@
  * - Aggregated team statistics can be computed without individual attribution
  */
 
-import { cryptoPrimitives } from './runtime/node';
+import { cryptoPrimitives } from '../../crypto/runtime/node';
 
 function utf8(value: string): Uint8Array {
   return new TextEncoder().encode(value);
