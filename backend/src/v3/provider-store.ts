@@ -1,10 +1,15 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { DEFAULT_DEGRADED_POLICY } from '../../../packages/metering/src/degraded-admission';
 import { normalizeRateLimitPolicy, type RateLimitPolicy } from '../../../packages/metering/src/rate-limit';
 import {
   DegradedModePolicy,
+  ProviderAbuseReport,
+  ProviderDirectoryEntry,
   PendingPayoutChange,
   ProviderMode,
+  ProviderReportCategory,
+  ProviderReviewQueueEntry,
+  ProviderReportStatus,
   ProviderRegistration,
   ProviderRevenue,
   ProviderRouteView,
@@ -116,6 +121,15 @@ function buildScopeKey(method: string, pathPattern: string): string {
   return `${normalizeMethod(method)}:${pathPattern}`;
 }
 
+function getPublicUpstreamDetails(upstreamBaseUrl: string): { domain: string; upstreamBaseUrl: string } {
+  const upstream = new URL(upstreamBaseUrl);
+  upstream.username = '';
+  upstream.password = '';
+  upstream.search = '';
+  upstream.hash = '';
+  return { domain: upstream.hostname, upstreamBaseUrl: upstream.toString() };
+}
+
 /**
  * Validate a degraded-mode policy and fill in the platform default (#1444).
  *
@@ -157,6 +171,8 @@ export class InMemoryProviderStore {
   private readonly rateCards = new Map<string, RateCardVersion>();
   private readonly settlements = new Map<string, ProviderSettlement>();
   private readonly pendingPayoutChanges = new Map<string, PendingPayoutChange>();
+  private readonly domainVerificationTokens = new Map<string, string>();
+  private readonly abuseReports = new Map<string, ProviderAbuseReport>();
   private readonly auditSink?: ProviderRouteAuditSink;
 
   constructor(auditSink?: ProviderRouteAuditSink) {
@@ -181,12 +197,18 @@ export class InMemoryProviderStore {
       mode: input.mode,
       payoutVerified: false,
       payoutChallenge: null,
+      domainVerifiedAt: null,
+      reviewStatus: 'pending',
+      reviewedAt: null,
+      reviewReason: null,
+      takedownReason: null,
       degradedMode: normalizeDegradedMode(input.degradedMode),
       rateLimit: normalizeRateLimitPolicy(input.rateLimit),
       createdAt,
       updatedAt: createdAt,
     };
     this.providers.set(providerId, record);
+    this.domainVerificationTokens.set(providerId, randomBytes(32).toString('hex'));
     return record;
   }
 
@@ -207,6 +229,117 @@ export class InMemoryProviderStore {
   saveProvider(provider: ProviderRegistration): void {
     provider.updatedAt = nowIso();
     this.providers.set(provider.providerId, provider);
+  }
+
+  getDomainVerificationToken(providerId: string): string | null {
+    return this.domainVerificationTokens.get(providerId) ?? null;
+  }
+
+  markDomainVerified(providerId: string): ProviderRegistration | null {
+    const provider = this.getProvider(providerId);
+    if (!provider) return null;
+    if (!provider.domainVerifiedAt) {
+      provider.domainVerifiedAt = nowIso();
+      this.saveProvider(provider);
+    }
+    return provider;
+  }
+
+  listDirectory(): ProviderDirectoryEntry[] {
+    return [...this.providers.values()]
+      .filter((provider) => provider.domainVerifiedAt !== null && provider.reviewStatus === 'approved')
+      .map((provider) => {
+        const upstream = getPublicUpstreamDetails(provider.upstreamBaseUrl);
+        return {
+          providerId: provider.providerId,
+          identity: provider.identity,
+          mode: provider.mode,
+          domain: upstream.domain,
+          upstreamBaseUrl: upstream.upstreamBaseUrl,
+          listedAt: provider.reviewedAt ?? provider.createdAt,
+        };
+      });
+  }
+
+  listProvidersForReview(): ProviderReviewQueueEntry[] {
+    return [...this.providers.values()]
+      .filter((provider) => provider.reviewStatus === 'pending')
+      .map((provider) => ({
+        providerId: provider.providerId,
+        identity: provider.identity,
+        mode: provider.mode,
+        ...getPublicUpstreamDetails(provider.upstreamBaseUrl),
+        domainVerifiedAt: provider.domainVerifiedAt,
+        createdAt: provider.createdAt,
+      }));
+  }
+
+  reviewProvider(
+    providerId: string,
+    decision: 'approve' | 'reject',
+    reason: string,
+  ): ProviderRegistration | null {
+    const provider = this.getProvider(providerId);
+    if (!provider) return null;
+    if (decision === 'approve' && !provider.domainVerifiedAt) {
+      throw new Error('provider domain ownership must be verified before approval');
+    }
+    provider.reviewStatus = decision === 'approve' ? 'approved' : 'rejected';
+    provider.reviewedAt = nowIso();
+    provider.reviewReason = reason;
+    provider.takedownReason = null;
+    this.saveProvider(provider);
+    return provider;
+  }
+
+  takeDownProvider(providerId: string, reason: string): ProviderRegistration | null {
+    const provider = this.getProvider(providerId);
+    if (!provider) return null;
+    provider.reviewStatus = 'taken_down';
+    provider.reviewedAt = nowIso();
+    provider.reviewReason = reason;
+    provider.takedownReason = reason;
+    this.saveProvider(provider);
+    return provider;
+  }
+
+  createAbuseReport(input: {
+    providerId: string;
+    category: ProviderReportCategory;
+    details?: string;
+  }): ProviderAbuseReport | null {
+    if (!this.getProvider(input.providerId)) return null;
+    const report: ProviderAbuseReport = {
+      reportId: randomUUID(),
+      providerId: input.providerId,
+      category: input.category,
+      details: input.details?.trim() || null,
+      status: 'open',
+      createdAt: nowIso(),
+      resolvedAt: null,
+      resolution: null,
+    };
+    this.abuseReports.set(report.reportId, report);
+    return report;
+  }
+
+  listOpenAbuseReports(): ProviderAbuseReport[] {
+    return [...this.abuseReports.values()]
+      .filter((report) => report.status === 'open')
+      .map((report) => ({ ...report }));
+  }
+
+  resolveAbuseReport(
+    reportId: string,
+    status: Exclude<ProviderReportStatus, 'open'>,
+    resolution: string,
+  ): ProviderAbuseReport | null {
+    const report = this.abuseReports.get(reportId);
+    if (!report) return null;
+    report.status = status;
+    report.resolvedAt = nowIso();
+    report.resolution = resolution;
+    return { ...report };
   }
 
   updatePayoutAddress(providerId: string, payoutAddress: string): ProviderRegistration {
@@ -423,7 +556,10 @@ export class InMemoryProviderStore {
       rateLimit: input.rateLimit !== undefined ? normalizeRateLimitPolicy(input.rateLimit) : undefined,
       createdAt: nowIso(),
     };
-    this.appendVersion(route, route.createdAt);
+    // Let appendVersion use its own timestamp: passing route.createdAt as an
+    // explicit effectiveFrom races with Date.now() when the clock ticks over
+    // between creating the route and publishing its first rate-card version.
+    this.appendVersion(route);
     this.routes.set(routeId, route);
     this.emitRouteChange({ kind: 'created', oldRoute: null, newRoute: { ...route } });
     return route;
@@ -607,12 +743,15 @@ export class InMemoryProviderStore {
    * Specificity order, comparing `/`-separated segments left to right:
    *   1. at the first differing segment, a static segment beats one
    *      containing `*` (`/v1/chat` and `/v1/chat/*` both beat `/v1/*`
-   *      and `/v1/*/summary` for the path `/v1/chat/summary`);
+   *      and `/v1/{wildcard}/summary` for the path `/v1/chat/summary`);
    *   2. when all shared segments agree, the longer pattern wins;
    *   3. lexicographic pattern order as a final deterministic tie-break
    *      (two identical patterns cannot coexist — registration rejects them).
    */
   findRoute(providerId: string, method: string, requestPath: string): RegisteredRoute | null {
+    if (this.providers.get(providerId)?.reviewStatus === 'taken_down') {
+      return null;
+    }
     const normalized = normalizeMethod(method);
     const matches = [...this.routes.values()].filter(
       (route) =>

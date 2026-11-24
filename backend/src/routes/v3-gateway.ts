@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { join } from 'node:path';
-import { lookup } from 'node:dns/promises';
+import { lookup, resolveTxt } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { z } from 'zod';
 import { InMemoryProviderStore } from '../v3/provider-store';
@@ -15,6 +15,9 @@ import { FileDegradedUsageLog } from '../../../packages/metering/src/degraded-lo
 import { RateLimiter } from '../../../packages/metering/src/rate-limit';
 import { sendGatewayError } from '../errors/gateway-error-response';
 import { authenticateProvider } from '../middleware/provider-auth';
+import { adminAuth } from '../middleware/admin';
+import { createAdminLimiter, RateLimiterFactory } from '../middleware/rate-limit-factory';
+import logger from '../config/logger';
 import { ROUTE_UNITS } from '../v3/pricing';
 
 const degradedModeFields = {
@@ -143,6 +146,25 @@ const registerProviderSchema = z.object({
   /** Per-provider per-route burst limit; platform default until overridden (#1447). */
   rateLimit: z.object(rateLimitFields).optional(),
 });
+
+const providerReportSchema = z.object({
+  category: z.enum(['impersonation', 'phishing', 'malicious_endpoint', 'policy_violation', 'other']),
+  details: z.string().trim().min(10).max(1000).optional(),
+}).strict();
+
+const providerReviewSchema = z.object({
+  decision: z.enum(['approve', 'reject']),
+  reason: z.string().trim().min(3).max(500),
+}).strict();
+
+const providerTakedownSchema = z.object({
+  reason: z.string().trim().min(3).max(500),
+}).strict();
+
+const providerReportResolutionSchema = z.object({
+  status: z.enum(['resolved', 'dismissed']),
+  resolution: z.string().trim().min(3).max(500),
+}).strict();
 
 const registerRouteSchema = z.object({
   pathPattern: z.string().min(1),
@@ -378,14 +400,30 @@ const service = new V3GatewayService(
 
 const router = Router();
 
-// Provider auth middleware applied to all :providerId routes below.
-// POST /providers (registration) is intentionally excluded — providers
-// don't have a providerId yet.
-router.use('/providers/:providerId', authenticateProvider(providerStore));
+const providerRegistrationLimiter = RateLimiterFactory.createCustomLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  message: { error: 'Provider registration limit exceeded. Try again later.' },
+  endpointType: 'provider-registration',
+});
+
+const providerDomainVerificationLimiter = RateLimiterFactory.createCustomLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  message: { error: 'Provider domain verification limit exceeded. Try again later.' },
+  endpointType: 'provider-domain-verification',
+});
+
+const providerReportLimiter = RateLimiterFactory.createCustomLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: { error: 'Provider report limit exceeded. Try again later.' },
+  endpointType: 'provider-report',
+});
 
 // ── Provider registration (public — no providerId yet) ──────────────
 
-router.post('/providers', async (req: Request, res: Response) => {
+router.post('/providers', providerRegistrationLimiter, async (req: Request, res: Response) => {
   const parsed = registerProviderSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -398,6 +436,201 @@ router.post('/providers', async (req: Request, res: Response) => {
   const provider = service.registerProvider(parsed.data);
   return res.status(201).json({ data: provider });
 });
+
+// Directory and moderation endpoints are intentionally registered before the
+// provider-id authentication middleware below.
+router.get('/providers/directory', (_req: Request, res: Response) => {
+  return res.json({ data: providerStore.listDirectory() });
+});
+
+router.post('/providers/:providerId/reports', providerReportLimiter, (req: Request, res: Response) => {
+  const parsed = providerReportSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const report = providerStore.createAbuseReport({
+    providerId: routeParam(req.params.providerId),
+    ...parsed.data,
+  });
+  if (!report) return res.status(404).json({ error: 'provider not found' });
+  return res.status(201).json({ data: report });
+});
+
+router.get('/providers/review-queue', createAdminLimiter(), adminAuth, (_req: Request, res: Response) => {
+  return res.json({
+    data: {
+      providers: providerStore.listProvidersForReview(),
+      reports: providerStore.listOpenAbuseReports(),
+    },
+  });
+});
+
+router.patch(
+  '/providers/:providerId/review',
+  createAdminLimiter(),
+  adminAuth,
+  (req: Request, res: Response) => {
+    const parsed = providerReviewSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() });
+    }
+    try {
+      const provider = providerStore.reviewProvider(
+        routeParam(req.params.providerId),
+        parsed.data.decision,
+        parsed.data.reason,
+      );
+      if (!provider) return res.status(404).json({ error: 'provider not found' });
+      return res.json({
+        data: {
+          providerId: provider.providerId,
+          domainVerifiedAt: provider.domainVerifiedAt,
+          reviewStatus: provider.reviewStatus,
+          reviewedAt: provider.reviewedAt,
+          reviewReason: provider.reviewReason,
+        },
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('domain ownership')) {
+        return res.status(409).json({ error: error.message });
+      }
+      logger.error('Provider review failed', error);
+      return res.status(500).json({ error: 'provider review failed' });
+    }
+  },
+);
+
+router.post(
+  '/providers/:providerId/takedown',
+  createAdminLimiter(),
+  adminAuth,
+  (req: Request, res: Response) => {
+    const parsed = providerTakedownSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() });
+    }
+    const provider = providerStore.takeDownProvider(
+      routeParam(req.params.providerId),
+      parsed.data.reason,
+    );
+    if (!provider) return res.status(404).json({ error: 'provider not found' });
+    return res.json({
+      data: {
+        providerId: provider.providerId,
+        reviewStatus: provider.reviewStatus,
+        reviewedAt: provider.reviewedAt,
+        takedownReason: provider.takedownReason,
+      },
+    });
+  },
+);
+
+router.post(
+  '/providers/reports/:reportId/resolve',
+  createAdminLimiter(),
+  adminAuth,
+  (req: Request, res: Response) => {
+    const parsed = providerReportResolutionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() });
+    }
+    const report = providerStore.resolveAbuseReport(
+      routeParam(req.params.reportId),
+      parsed.data.status,
+      parsed.data.resolution,
+    );
+    if (!report) return res.status(404).json({ error: 'provider report not found' });
+    return res.json({ data: report });
+  },
+);
+
+// Provider auth middleware applies to the remaining owner-only :providerId routes.
+router.use('/providers/:providerId', authenticateProvider(providerStore));
+
+router.post('/providers/:providerId/domain-challenge', requireProviderAuth, (req: Request, res: Response) => {
+  const providerId = routeParam(req.params.providerId);
+  const provider = providerStore.getProvider(providerId);
+  if (!provider) return res.status(404).json({ error: 'provider not found' });
+  if (provider.domainVerifiedAt) {
+    return res.status(409).json({ error: 'provider domain is already verified' });
+  }
+  const token = providerStore.getDomainVerificationToken(providerId);
+  if (!token) {
+    logger.error('Provider domain verification challenge missing', { providerId });
+    return res.status(500).json({ error: 'provider domain verification is unavailable' });
+  }
+  const url = new URL(provider.upstreamBaseUrl);
+  const hostname = url.hostname.replace(/^\[|\]$/g, '').replace(/\.$/, '').toLowerCase();
+  if (isIP(hostname) || !hostname.includes('.')) {
+    return res.status(400).json({ error: 'provider domain verification requires a public DNS hostname' });
+  }
+  return res.json({
+    data: {
+      domain: hostname,
+      recordName: `_syncro-provider.${hostname}`,
+      recordType: 'TXT',
+      recordValue: `syncro-provider-verification=${token}`,
+    },
+  });
+});
+
+router.post(
+  '/providers/:providerId/domain-verify',
+  providerDomainVerificationLimiter,
+  requireProviderAuth,
+  async (req: Request, res: Response) => {
+    const providerId = routeParam(req.params.providerId);
+    const provider = providerStore.getProvider(providerId);
+    if (!provider) return res.status(404).json({ error: 'provider not found' });
+    if (provider.domainVerifiedAt) {
+      return res.json({
+        data: {
+          domainVerified: true,
+          domainVerifiedAt: provider.domainVerifiedAt,
+          reviewStatus: provider.reviewStatus,
+        },
+      });
+    }
+    const token = providerStore.getDomainVerificationToken(providerId);
+    if (!token) {
+      logger.error('Provider domain verification challenge missing', { providerId });
+      return res.status(500).json({ error: 'provider domain verification is unavailable' });
+    }
+    const hostname = new URL(provider.upstreamBaseUrl).hostname
+      .replace(/^\[|\]$/g, '')
+      .replace(/\.$/, '')
+      .toLowerCase();
+    if (isIP(hostname) || !hostname.includes('.')) {
+      return res.status(400).json({ error: 'provider domain verification requires a public DNS hostname' });
+    }
+    const recordName = `_syncro-provider.${hostname}`;
+    const expectedValue = `syncro-provider-verification=${token}`;
+    try {
+      const records = await resolveTxt(recordName);
+      const verified = records.some((chunks) => chunks.join('') === expectedValue);
+      if (!verified) {
+        return res.status(400).json({ error: 'provider domain verification TXT record was not found' });
+      }
+      const updated = providerStore.markDomainVerified(providerId);
+      if (!updated) return res.status(404).json({ error: 'provider not found' });
+      return res.json({
+        data: {
+          domainVerified: true,
+          domainVerifiedAt: updated.domainVerifiedAt,
+          reviewStatus: updated.reviewStatus,
+        },
+      });
+    } catch (error) {
+      const code =
+        typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : undefined;
+      if (code === 'ENODATA' || code === 'ENOTFOUND') {
+        return res.status(400).json({ error: 'provider domain verification TXT record was not found' });
+      }
+      logger.error('Provider DNS verification lookup failed', { providerId, hostname, error });
+      return res.status(503).json({ error: 'provider domain verification lookup failed' });
+    }
+  },
+);
 
 // ── Provider read (owner only) ──────────────────────────────────────
 
