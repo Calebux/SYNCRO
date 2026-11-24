@@ -27,7 +27,42 @@ Install these before cloning:
 | **npm** | 10+ (bundled with Node) | Use npm only — do not use yarn or pnpm |
 | **Docker** | latest | Required for the v3 local stack |
 | **Docker Compose** | latest | Bundled with Docker Desktop; standalone on Linux |
-| **Rust + Soroban CLI** | Rust 1.91, Soroban CLI 23.0.0 | Required for [`contracts/`](./contracts/) work; pinned in `rust-toolchain.toml` and `.devcontainer/` |
+| **Rust + Stellar CLI** | Rust 1.91 (contracts: 1.81), Stellar CLI 23.0.0 | Required for [`contracts/`](./contracts/) work; pinned in `rust-toolchain.toml` and `.devcontainer/` |
+
+## Dev Container / Codespaces
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Calebux/SYNCRO?quickstart=1)
+
+The Dev Container in [`.devcontainer/`](./.devcontainer/) is prebuilt for the v3
+toolchain: Node 20, Rust 1.91 (root) and 1.81 (contracts, for reproducible WASM)
+with `wasm32-unknown-unknown`, Stellar CLI 23.0.0, the Supabase CLI, and Docker
+for the Compose stack. Opening the repo in Codespaces needs no manual installs.
+
+The post-create bootstrap (`.devcontainer/post-create.sh`) runs `npm run bootstrap`
+and then the v3 seed. A fresh Codespace can run the contract and SDK tests
+immediately after it finishes:
+
+```bash
+(cd contracts && cargo test)   # uses the pinned 1.81 contract toolchain
+npm test -w sdk                # from the repository root
+```
+
+**Expected startup time** (4 vCPU / 8 GB Codespace):
+
+| Phase | Time |
+|---|---|
+| Image build (first run, or when `.devcontainer/` changes) | 8–12 min — mostly compiling `stellar-cli` |
+| Container start (image cached or a prebuild is available) | 1–2 min |
+| Post-create bootstrap (npm install, stack start, seed) | 3–6 min |
+| **First launch, total** | **~12–20 min** |
+| **Later launches, total** | **~4–8 min** |
+| First `cargo test` in `contracts/` (cold target dir) | 2–4 min |
+| `npm test -w sdk` | under 1 min |
+
+Enable [Codespaces prebuilds](https://docs.github.com/en/codespaces/prebuilding-your-codespaces)
+for the branch to move the image build out of the first launch. The Compose
+services are forwarded on their usual ports: client `3000`, backend `3001`,
+mock provider `3002`, Postgres `5432`, Redis `6379`, Soroban RPC `8000`.
 
 ## Quick start (v3 local stack)
 

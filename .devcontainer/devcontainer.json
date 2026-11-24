@@ -1,16 +1,22 @@
 {
-  "name": "SYNCRO",
+  "name": "SYNCRO v3",
   "build": {
     "dockerfile": "Dockerfile",
     "args": {
       "NODE_VERSION": "20.18.1",
       "RUST_VERSION": "1.91.0",
-      "SOROBAN_CLI_VERSION": "23.0.0"
+      "CONTRACTS_RUST_VERSION": "1.81.0",
+      "STELLAR_CLI_VERSION": "23.0.0"
     }
   },
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:2": {},
     "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "8gb",
+    "storage": "32gb"
   },
   "customizations": {
     "vscode": {
@@ -18,10 +24,31 @@
         "rust-lang.rust-analyzer",
         "dbaeumer.vscode-eslint",
         "esbenp.prettier-vscode"
-      ]
+      ],
+      "settings": {
+        "rust-analyzer.linkedProjects": ["contracts/Cargo.toml"],
+        "editor.formatOnSave": true
+      }
     }
   },
-  "forwardPorts": [3000, 3001, 54321, 54323],
-  "postCreateCommand": "npm run bootstrap",
-  "remoteUser": "vscode"
+  "containerEnv": {
+    "DATABASE_URL": "postgresql://synchro:synchro_dev@localhost:5432/synchro",
+    "REDIS_URL": "redis://localhost:6379",
+    "RATE_LIMIT_REDIS_URL": "redis://localhost:6379",
+    "SOROBAN_RPC_URL": "http://localhost:8000",
+    "STELLAR_NETWORK_URL": "http://localhost:8000",
+    "STELLAR_NETWORK": "testnet",
+    "STELLAR_NETWORK_PASSPHRASE": "Test SDF Network ; September 2015"
+  },
+  "forwardPorts": [3000, 3001, 3002, 5432, 6379, 8000],
+  "portsAttributes": {
+    "3000": { "label": "client" },
+    "3001": { "label": "backend API" },
+    "3002": { "label": "mock provider" },
+    "5432": { "label": "Postgres (v3 stack)" },
+    "6379": { "label": "Redis (v3 stack)" },
+    "8000": { "label": "Soroban RPC (v3 stack)" }
+  },
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "remoteUser": "node"
 }

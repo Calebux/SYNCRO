@@ -26,6 +26,10 @@ function has(bin) {
   return spawnSync("bash", ["-lc", `command -v ${bin}`], { encoding: "utf8" }).status === 0;
 }
 
+function hasCompose() {
+  return spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status === 0;
+}
+
 function copyEnv(src, dest) {
   if (!fs.existsSync(src)) {
     console.warn(`skip missing template ${path.relative(root, src)}`);
@@ -73,7 +77,7 @@ for (const f of ["backend/.env", "client/.env.local"]) {
   fillSecret(path.join(root, f), "ENCRYPTION_KEY");
 }
 
-if (has("docker") && has("docker compose")) {
+if (has("docker") && hasCompose()) {
   try {
     run("docker compose up -d");
     // Wait for postgres to be healthy before seeding

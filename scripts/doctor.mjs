@@ -53,7 +53,7 @@ check("Cargo", "cargo", "Cargo ships with rustup.", "cargo --version");
 check(
   "Soroban/Stellar CLI",
   "soroban",
-  `cargo install --locked --version ${PINNED_SOROBAN} soroban-cli`,
+  `cargo install --locked --version ${PINNED_SOROBAN} stellar-cli`,
   "soroban version || stellar version",
 );
 if (!which("soroban") && which("stellar")) {
