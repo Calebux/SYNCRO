@@ -31,6 +31,8 @@ SYNCRO bills what actually happened:
 - **No custody** — funds sit in a payment channel the payer can unilaterally close.
 - **No per-call gas** — calls accumulate off-chain as signed channel states; the chain
   is touched on open, top-up, and close.
+- **Understand the trade-offs** — [see how payment channels make per-call payments
+  cheap](./docs/payment-channels.mdx), including the current testnet fee comparison.
 - **Scoped authority** — an agent spends only within the scope and cap its principal
   granted it, enforced on-chain rather than by the gateway alone.
 - **Verifiable** — every settled call produces a receipt binding the request hash, the

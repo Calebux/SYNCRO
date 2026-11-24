@@ -49,7 +49,7 @@
     },
     {
       "group": "SDK & Contracts",
-      "pages": ["sdk-reference", "contracts"]
+      "pages": ["payment-channels", "sdk-reference", "contracts"]
     },
     {
       "group": "Privacy & Security",
