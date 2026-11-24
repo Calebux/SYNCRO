@@ -1,9 +1,14 @@
-import { generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync, sign } from "node:crypto";
 import {
   IndependentReceipt,
-  signReceiptForTests,
+  canonicalizeReceiptForSigning,
   verifyReceipt,
 } from "../src/v3/receipt.js";
+
+function signReceiptForTests(receipt: IndependentReceipt, privateKeyPem: string): string {
+  const payload = Buffer.from(canonicalizeReceiptForSigning(receipt), "utf8");
+  return sign(null, payload, privateKeyPem).toString("hex");
+}
 
 function buildReceipt(overrides: Partial<IndependentReceipt> = {}): IndependentReceipt {
   const receipt: IndependentReceipt = {
