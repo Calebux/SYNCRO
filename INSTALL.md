@@ -16,7 +16,7 @@ npm run dev -w backend  # http://localhost:3001
 npm run dev -w client   # http://localhost:3000
 ```
 
-Pinned toolchains live in `.nvmrc` (Node 20), `rust-toolchain.toml` (Rust 1.91 + wasm32), and `.devcontainer/` (Node, Rust, Soroban CLI 23.0.0). Open the repo in a Dev Container for the same path.
+Pinned toolchains live in `.nvmrc` (Node 20), `rust-toolchain.toml` (Rust 1.91 + wasm32), `contracts/rust-toolchain.toml` (Rust 1.81 for reproducible WASM), and `.devcontainer/` (Node, both Rust toolchains, Stellar CLI 23.0.0). Open the repo in a Codespace or Dev Container for the same path; the post-create bootstrap runs the v3 seed automatically, and a fresh container can run the contract and SDK tests without manual installs. Expected startup times are in [CONTRIBUTING.md](./CONTRIBUTING.md#dev-container--codespaces).
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full local workflow.
 

@@ -1,4 +1,5 @@
 [![TypeScript Check](https://github.com/Calebux/SYNCRO/actions/workflows/typecheck.yml/badge.svg)](https://github.com/Calebux/SYNCRO/actions/workflows/typecheck.yml)
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Calebux/SYNCRO?quickstart=1)
 # SYNCRO
 
 ![Tests](https://github.com/Calebux/SYNCRO/actions/workflows/test.yml/badge.svg)
