@@ -95,6 +95,11 @@ export {
   CHANNEL_SCOPE,
   ChannelClient,
   ChannelScopeError,
+  NoCompatibleChannelError,
+  selectChannelForAsset,
+  readAcceptedAssets,
+  parseAssetId,
+  assetMatches,
 } from "./channels/index.js";
 export type {
   AutoTopUpConfig,
@@ -111,6 +116,12 @@ export type {
   EnsureFundedResult,
   InitiateCloseInput,
   OpenChannelInput,
+  AssetId,
+  AssetSelectorOptions,
+  ChannelDescriptor,
+  X402Challenge,
+  X402Requirement,
+  ProviderManifest,
 } from "./channels/index.js";
 
 export type {
@@ -120,3 +131,18 @@ export type {
   PaidReceipt,
   PaidReceiptPayload,
 } from "./types.js";
+
+// ─── Merkle receipt commitments (issue #1800) ────────────────────────────────
+export {
+  hashLeaf,
+  buildReceiptTree,
+  generateProof,
+  verifyInclusion,
+  buildSettlementRecord,
+} from "./merkle.js";
+export type {
+  Receipt,
+  MerkleSibling,
+  MerkleProof,
+  SettlementRecord,
+} from "./merkle.js";
