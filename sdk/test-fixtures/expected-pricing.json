@@ -1,0 +1,30 @@
+{
+  "defaultPrice": 0.01,
+  "currency": "USDC",
+  "routes": {
+    "GET /pets": {
+      "price": 0.01,
+      "description": "List all pets"
+    },
+    "POST /pets": {
+      "price": 0.05,
+      "description": "Create a pet"
+    },
+    "GET /pets/{petId}": {
+      "price": 0.01,
+      "description": "Get a pet by ID"
+    },
+    "PUT /pets/{petId}": {
+      "price": 0.03,
+      "description": "Update a pet"
+    },
+    "DELETE /pets/{petId}": {
+      "price": 0.01,
+      "description": "Delete a pet"
+    },
+    "GET /pets/{petId}/photos": {
+      "price": 0.01,
+      "description": "Get pet photos"
+    }
+  }
+}

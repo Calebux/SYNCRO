@@ -9,6 +9,7 @@ export default defineConfig({
     errors: 'src/errors.ts',
     webhooks: 'src/webhooks.ts',
     'cli/verify-receipt': 'src/cli/verify-receipt.ts',
+    'cli/import-openapi': 'src/cli/import-openapi.ts',
     'stellar/index': 'src/stellar/index.ts',
     'zk/index': 'src/zk/index.ts',
     'generated/index': 'src/generated/index.ts',
