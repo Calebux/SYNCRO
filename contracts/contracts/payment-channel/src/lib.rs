@@ -306,6 +306,94 @@ impl PaymentChannelContract {
         Ok(())
     }
 
+    // ── Pause / Unpause (Guardian Integration) ───────────────────────────────
+
+    /// Pause new channel operations (open, top_up, verify_payment_proof).
+    /// Closes and disputes continue to work so users can always withdraw.
+    /// Only the admin can pause. Auto-expires after 30 days.
+    pub fn pause(env: Env) -> Result<(), Error> {
+        Self::require_admin(&env)?;
+
+        let now = env.ledger().timestamp();
+        env.storage().instance().set(&DataKey::PausedSince, &now);
+        
+        env.events().publish(
+            (symbol_short!("contract"), symbol_short!("paused")),
+            now,
+        );
+        Ok(())
+    }
+
+    /// Unpause the contract, allowing all operations again.
+    /// Only the admin can unpause.
+    pub fn unpause(env: Env) -> Result<(), Error> {
+        Self::require_admin(&env)?;
+
+        if !env.storage().instance().has(&DataKey::PausedSince) {
+            return Err(Error::ContractNotPaused);
+        }
+
+        env.storage().instance().remove(&DataKey::PausedSince);
+        
+        env.events().publish(
+            (symbol_short!("contract"), symbol_short!("unpaused")),
+            env.ledger().timestamp(),
+        );
+        Ok(())
+    }
+
+    /// Check if the contract is currently paused.
+    /// Returns (is_paused, paused_since_timestamp, auto_expires_at).
+    pub fn is_paused(env: Env) -> (bool, u64, u64) {
+        match env.storage().instance().get::<DataKey, u64>(&DataKey::PausedSince) {
+            Some(paused_since) => {
+                let auto_expire_at = paused_since.saturating_add(ESCAPE_HATCH_GRACE_PERIOD_SECS);
+                let now = env.ledger().timestamp();
+                // Auto-expire after grace period
+                if now >= auto_expire_at {
+                    (false, 0, 0)
+                } else {
+                    (true, paused_since, auto_expire_at)
+                }
+            }
+            None => (false, 0, 0),
+        }
+    }
+
+    /// Internal helper: check if contract is paused and auto-expire if needed.
+    /// Returns true if currently paused (before expiry).
+    fn check_paused(env: &Env) -> bool {
+        match env.storage().instance().get::<DataKey, u64>(&DataKey::PausedSince) {
+            Some(paused_since) => {
+                let now = env.ledger().timestamp();
+                let auto_expire_at = paused_since.saturating_add(ESCAPE_HATCH_GRACE_PERIOD_SECS);
+                
+                if now >= auto_expire_at {
+                    // Auto-expire: remove pause
+                    env.storage().instance().remove(&DataKey::PausedSince);
+                    env.events().publish(
+                        (symbol_short!("contract"), symbol_short!("autoexp")),
+                        now,
+                    );
+                    false
+                } else {
+                    true
+                }
+            }
+            None => false,
+        }
+    }
+
+    /// Guardian-compatible pause function (called by guardian contract).
+    /// Sets the contract to paused state.
+    pub fn set_paused(env: Env, paused: bool) -> Result<(), Error> {
+        if paused {
+            Self::pause(env)
+        } else {
+            Self::unpause(env)
+        }
+    }
+
     /// Open a new payment channel.
     ///
     /// `token` is the SEP-41 token contract.  The depositor must have
@@ -318,6 +406,8 @@ impl PaymentChannelContract {
     /// `InvalidDisputeWindow`.  Storing the window on the channel struct means
     /// `dispute` can always extend the deadline by the same value that was
     /// agreed at open time.
+    ///
+    /// **Paused behavior**: BLOCKED while paused (users cannot open new channels).
     pub fn open_channel(
         env: Env,
         depositor: Address,
@@ -326,6 +416,11 @@ impl PaymentChannelContract {
         deposit_amount: i128,
         dispute_window: u64,
     ) -> Result<u64, Error> {
+        // PAUSE CHECK: Block new channel opens
+        if Self::check_paused(&env) {
+            return Err(Error::Unauthorized); // Paused state blocks new operations
+        }
+
         depositor.require_auth();
 
         if deposit_amount <= 0 {
@@ -597,12 +692,19 @@ impl PaymentChannelContract {
     }
 
     /// Add more funds to an open channel (depositor side only).
+    ///
+    /// **Paused behavior**: BLOCKED while paused (no new funds can be added).
     pub fn top_up(
         env: Env,
         channel_id: u64,
         amount: i128,
         depositor: Address,
     ) -> Result<(), Error> {
+        // PAUSE CHECK: Block top-ups during pause
+        if Self::check_paused(&env) {
+            return Err(Error::Unauthorized); // Paused state blocks new operations
+        }
+
         let mut channel: PaymentChannel = syncro_common::ttl::persistent_get(&env, &DataKey::Channel(channel_id))
             .ok_or(Error::ChannelNotFound)?;
 
@@ -668,6 +770,8 @@ impl PaymentChannelContract {
     /// The caller (`payer`) must be the channel depositor and must authorise
     /// the call.  Both channel parties sign the off-chain state; `sig_a` and
     /// `sig_b` must be the depositor and counterparty in either order.
+    ///
+    /// **Paused behavior**: BLOCKED while paused (no new payments accepted).
     pub fn verify_payment_proof(
         env: Env,
         proof: PaymentProof,
@@ -675,6 +779,11 @@ impl PaymentChannelContract {
         sig_a: Address,
         sig_b: Address,
     ) -> Result<(), Error> {
+        // PAUSE CHECK: Block new payment proofs during pause
+        if Self::check_paused(&env) {
+            return Err(Error::Unauthorized); // Paused state blocks new operations
+        }
+
         payer.require_auth();
 
         // ── 0. Structural validation ─────────────────────────────────────────
@@ -1004,3 +1113,6 @@ mod invariants;
 
 #[cfg(test)]
 mod proof_replay;
+
+#[cfg(test)]
+mod selective_pause;
