@@ -1,16 +1,25 @@
 -- Create payment_channels table for off-chain transactions
 CREATE TABLE IF NOT EXISTS payment_channels (
-  id BIGSERIAL PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  channel_id VARCHAR(255) NOT NULL UNIQUE,
-  recipient_id VARCHAR(255) NOT NULL,
-  balance NUMERIC(20,8) NOT NULL DEFAULT 0,
-  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'closing', 'closed', 'disputed')),
-  opened_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  closed_at TIMESTAMP WITH TIME ZONE,
-  metadata JSONB DEFAULT '{}',
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  channel_id VARCHAR(255) NOT NULL UNIQUE DEFAULT gen_random_uuid()::text,
+  recipient_id VARCHAR(255),
+  counterparty TEXT NOT NULL DEFAULT 'SYNCRO Executor',
+  deposit_amount NUMERIC(18, 6) NOT NULL DEFAULT 0,
+  balance NUMERIC(18, 6) NOT NULL DEFAULT 0,
+  state TEXT NOT NULL DEFAULT 'active'
+    CHECK (state IN ('active', 'closing', 'closed', 'dispute')),
+  status TEXT NOT NULL DEFAULT 'active'
+    CHECK (status IN ('active', 'closing', 'closed', 'disputed')),
+  channel_state JSONB,
+  state_signature TEXT,
+  on_chain_channel_id TEXT,
+  expiry TIMESTAMPTZ,
+  opened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  closed_at TIMESTAMPTZ,
+  metadata JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_payment_channels_user_id ON payment_channels(user_id);

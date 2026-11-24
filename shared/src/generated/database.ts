@@ -1123,7 +1123,7 @@ export interface Database {
           metadata: string | null;
           on_chain_channel_id: string | null;
           opened_at: string | null;
-          recipient_id: string;
+          recipient_id: string | null;
           state: string | null;
           state_signature: string | null;
           status: string | null;
@@ -1132,7 +1132,7 @@ export interface Database {
         };
         Insert: {
           balance: number;
-          channel_id: string;
+          channel_id?: string;
           channel_state?: Json | null;
           closed_at?: string | null;
           counterparty?: string | null;
@@ -1144,7 +1144,7 @@ export interface Database {
           metadata?: string | null;
           on_chain_channel_id?: string | null;
           opened_at?: string | null;
-          recipient_id: string;
+          recipient_id?: string | null;
           state?: string | null;
           state_signature?: string | null;
           status?: string | null;
@@ -1165,7 +1165,7 @@ export interface Database {
           metadata?: string | null;
           on_chain_channel_id?: string | null;
           opened_at?: string | null;
-          recipient_id?: string;
+          recipient_id?: string | null;
           state?: string | null;
           state_signature?: string | null;
           status?: string | null;
@@ -1240,7 +1240,7 @@ export interface Database {
       };
       "privacy_preferences": {
         Row: {
-          created_at: string;
+          created_at: string | null;
           encrypt_on_chain: boolean | null;
           encryption_enabled: boolean | null;
           id: string | null;
@@ -1252,11 +1252,11 @@ export interface Database {
           reminder_jitter: boolean | null;
           stealth_addresses: boolean | null;
           stealth_addresses_enabled: boolean | null;
-          updated_at: string;
+          updated_at: string | null;
           user_id: string | null;
         };
         Insert: {
-          created_at: string;
+          created_at?: string | null;
           encrypt_on_chain?: boolean | null;
           encryption_enabled?: boolean | null;
           id?: string | null;
@@ -1268,11 +1268,11 @@ export interface Database {
           reminder_jitter?: boolean | null;
           stealth_addresses?: boolean | null;
           stealth_addresses_enabled?: boolean | null;
-          updated_at: string;
+          updated_at?: string | null;
           user_id?: string | null;
         };
         Update: {
-          created_at?: string;
+          created_at?: string | null;
           encrypt_on_chain?: boolean | null;
           encryption_enabled?: boolean | null;
           id?: string | null;
@@ -1284,7 +1284,7 @@ export interface Database {
           reminder_jitter?: boolean | null;
           stealth_addresses?: boolean | null;
           stealth_addresses_enabled?: boolean | null;
-          updated_at?: string;
+          updated_at?: string | null;
           user_id?: string | null;
         };
       };
@@ -1294,36 +1294,66 @@ export interface Database {
           channel_auto_top_up: boolean | null;
           channel_auto_top_up_amount: number | null;
           channel_settlement_schedule: string;
+          company_name: string | null;
+          created_at: string | null;
+          currency: string | null;
+          display_name: string | null;
+          email: string | null;
+          full_name: string | null;
+          id: string | null;
           monthly_budget: number | null;
+          plan_type: string | null;
           referral_code: string | null;
           referred_by: string | null;
           stealth_meta_address: string | null;
           stealth_meta_address_created_at: string | null;
+          timezone: string | null;
           two_fa_enabled_at: string | null;
+          updated_at: string | null;
         };
         Insert: {
           budget_alert_threshold?: number | null;
           channel_auto_top_up?: boolean | null;
           channel_auto_top_up_amount?: number | null;
           channel_settlement_schedule?: string;
+          company_name?: string | null;
+          created_at?: string | null;
+          currency?: string | null;
+          display_name?: string | null;
+          email?: string | null;
+          full_name?: string | null;
+          id?: string | null;
           monthly_budget?: number | null;
+          plan_type?: string | null;
           referral_code?: string | null;
           referred_by?: string | null;
           stealth_meta_address?: string | null;
           stealth_meta_address_created_at?: string | null;
+          timezone?: string | null;
           two_fa_enabled_at?: string | null;
+          updated_at?: string | null;
         };
         Update: {
           budget_alert_threshold?: number | null;
           channel_auto_top_up?: boolean | null;
           channel_auto_top_up_amount?: number | null;
           channel_settlement_schedule?: string;
+          company_name?: string | null;
+          created_at?: string | null;
+          currency?: string | null;
+          display_name?: string | null;
+          email?: string | null;
+          full_name?: string | null;
+          id?: string | null;
           monthly_budget?: number | null;
+          plan_type?: string | null;
           referral_code?: string | null;
           referred_by?: string | null;
           stealth_meta_address?: string | null;
           stealth_meta_address_created_at?: string | null;
+          timezone?: string | null;
           two_fa_enabled_at?: string | null;
+          updated_at?: string | null;
         };
       };
       "push_subscriptions": {
@@ -1847,75 +1877,6 @@ export interface Database {
           sent_at?: string | null;
           threshold?: number | null;
           user_id?: string | null;
-        };
-      };
-      "status_incident_updates": {
-        Row: {
-          created_at: string;
-          id: string;
-          incident_id: string;
-          message: string;
-          status: string;
-        };
-        Insert: {
-          created_at?: string;
-          id?: string;
-          incident_id: string;
-          message: string;
-          status: string;
-        };
-        Update: {
-          created_at?: string;
-          id?: string;
-          incident_id?: string;
-          message?: string;
-          status?: string;
-        };
-      };
-      "status_incidents": {
-        Row: {
-          components: string[];
-          created_at: string;
-          id: string;
-          impact: string;
-          title: string;
-        };
-        Insert: {
-          components: string[];
-          created_at?: string;
-          id?: string;
-          impact: string;
-          title: string;
-        };
-        Update: {
-          components?: string[];
-          created_at?: string;
-          id?: string;
-          impact?: string;
-          title?: string;
-        };
-      };
-      "status_subscribers": {
-        Row: {
-          confirmation_expires_at: string | null;
-          confirmation_token_hash: string | null;
-          confirmed_at: string | null;
-          created_at: string;
-          email: string;
-        };
-        Insert: {
-          confirmation_expires_at?: string | null;
-          confirmation_token_hash?: string | null;
-          confirmed_at?: string | null;
-          created_at?: string;
-          email: string;
-        };
-        Update: {
-          confirmation_expires_at?: string | null;
-          confirmation_token_hash?: string | null;
-          confirmed_at?: string | null;
-          created_at?: string;
-          email?: string;
         };
       };
       "stealth_payments": {
@@ -3034,18 +2995,6 @@ export type RenewalSagaStepLogUpdate = PublicTables["renewal_saga_step_log"]["Up
 export type SpendCapAlertLogsRow = PublicTables["spend_cap_alert_logs"]["Row"];
 export type SpendCapAlertLogsInsert = PublicTables["spend_cap_alert_logs"]["Insert"];
 export type SpendCapAlertLogsUpdate = PublicTables["spend_cap_alert_logs"]["Update"];
-
-export type StatusIncidentUpdatesRow = PublicTables["status_incident_updates"]["Row"];
-export type StatusIncidentUpdatesInsert = PublicTables["status_incident_updates"]["Insert"];
-export type StatusIncidentUpdatesUpdate = PublicTables["status_incident_updates"]["Update"];
-
-export type StatusIncidentsRow = PublicTables["status_incidents"]["Row"];
-export type StatusIncidentsInsert = PublicTables["status_incidents"]["Insert"];
-export type StatusIncidentsUpdate = PublicTables["status_incidents"]["Update"];
-
-export type StatusSubscribersRow = PublicTables["status_subscribers"]["Row"];
-export type StatusSubscribersInsert = PublicTables["status_subscribers"]["Insert"];
-export type StatusSubscribersUpdate = PublicTables["status_subscribers"]["Update"];
 
 export type StealthPaymentsRow = PublicTables["stealth_payments"]["Row"];
 export type StealthPaymentsInsert = PublicTables["stealth_payments"]["Insert"];

@@ -2129,7 +2129,7 @@
           "pgType": "VARCHAR(255)",
           "tsType": "string",
           "nullable": false,
-          "hasDefault": false
+          "hasDefault": true
         },
         {
           "name": "channel_state",
@@ -2140,7 +2140,7 @@
         },
         {
           "name": "closed_at",
-          "pgType": "TIMESTAMP WITH TIME ZONE",
+          "pgType": "TIMESTAMPTZ",
           "tsType": "string",
           "nullable": true,
           "hasDefault": false
@@ -2189,7 +2189,7 @@
         },
         {
           "name": "metadata",
-          "pgType": "JSONB DEFAULT",
+          "pgType": "JSONB NOT NULL DEFAULT",
           "tsType": "string",
           "nullable": true,
           "hasDefault": false
@@ -2203,7 +2203,7 @@
         },
         {
           "name": "opened_at",
-          "pgType": "TIMESTAMP WITH TIME ZONE DEFAULT NOW()",
+          "pgType": "TIMESTAMPTZ NOT NULL DEFAULT NOW()",
           "tsType": "string",
           "nullable": true,
           "hasDefault": false
@@ -2212,7 +2212,7 @@
           "name": "recipient_id",
           "pgType": "VARCHAR(255)",
           "tsType": "string",
-          "nullable": false,
+          "nullable": true,
           "hasDefault": false
         },
         {
@@ -2395,9 +2395,9 @@
       "columns": [
         {
           "name": "created_at",
-          "pgType": "TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()",
+          "pgType": "TIMESTAMP WITH TIME ZONE DEFAULT NOW()",
           "tsType": "string",
-          "nullable": false,
+          "nullable": true,
           "hasDefault": false
         },
         {
@@ -2479,14 +2479,14 @@
         },
         {
           "name": "updated_at",
-          "pgType": "TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()",
+          "pgType": "TIMESTAMP WITH TIME ZONE DEFAULT NOW()",
           "tsType": "string",
-          "nullable": false,
+          "nullable": true,
           "hasDefault": false
         },
         {
           "name": "user_id",
-          "pgType": "UUID PRIMARY KEY REFERENCES auth",
+          "pgType": "UUID NOT NULL REFERENCES auth",
           "tsType": "string",
           "nullable": true,
           "hasDefault": false
@@ -2525,9 +2525,65 @@
           "hasDefault": true
         },
         {
+          "name": "company_name",
+          "pgType": "TEXT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "created_at",
+          "pgType": "TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "currency",
+          "pgType": "TEXT NOT NULL DEFAULT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "display_name",
+          "pgType": "TEXT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "email",
+          "pgType": "TEXT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "full_name",
+          "pgType": "TEXT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "id",
+          "pgType": "UUID PRIMARY KEY REFERENCES auth",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
           "name": "monthly_budget",
           "pgType": "DECIMAL(10,2)",
           "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "plan_type",
+          "pgType": "TEXT NOT NULL DEFAULT",
+          "tsType": "string",
           "nullable": true,
           "hasDefault": false
         },
@@ -2560,8 +2616,22 @@
           "hasDefault": false
         },
         {
+          "name": "timezone",
+          "pgType": "TEXT NOT NULL DEFAULT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
           "name": "two_fa_enabled_at",
           "pgType": "timestamptz",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "updated_at",
+          "pgType": "TIMESTAMPTZ NOT NULL DEFAULT NOW()",
           "tsType": "string",
           "nullable": true,
           "hasDefault": false
@@ -3593,126 +3663,6 @@
           "pgType": "uuid NOT NULL REFERENCES auth",
           "tsType": "string",
           "nullable": true,
-          "hasDefault": false
-        }
-      ]
-    },
-    {
-      "name": "status_incident_updates",
-      "columns": [
-        {
-          "name": "created_at",
-          "pgType": "timestamptz",
-          "tsType": "string",
-          "nullable": false,
-          "hasDefault": true
-        },
-        {
-          "name": "id",
-          "pgType": "uuid",
-          "tsType": "string",
-          "nullable": false,
-          "hasDefault": true
-        },
-        {
-          "name": "incident_id",
-          "pgType": "uuid",
-          "tsType": "string",
-          "nullable": false,
-          "hasDefault": false
-        },
-        {
-          "name": "message",
-          "pgType": "text",
-          "tsType": "string",
-          "nullable": false,
-          "hasDefault": false
-        },
-        {
-          "name": "status",
-          "pgType": "text",
-          "tsType": "string",
-          "nullable": false,
-          "hasDefault": false
-        }
-      ]
-    },
-    {
-      "name": "status_incidents",
-      "columns": [
-        {
-          "name": "components",
-          "pgType": "text[]",
-          "tsType": "string[]",
-          "nullable": false,
-          "hasDefault": false
-        },
-        {
-          "name": "created_at",
-          "pgType": "timestamptz",
-          "tsType": "string",
-          "nullable": false,
-          "hasDefault": true
-        },
-        {
-          "name": "id",
-          "pgType": "uuid",
-          "tsType": "string",
-          "nullable": false,
-          "hasDefault": true
-        },
-        {
-          "name": "impact",
-          "pgType": "text",
-          "tsType": "string",
-          "nullable": false,
-          "hasDefault": false
-        },
-        {
-          "name": "title",
-          "pgType": "text",
-          "tsType": "string",
-          "nullable": false,
-          "hasDefault": false
-        }
-      ]
-    },
-    {
-      "name": "status_subscribers",
-      "columns": [
-        {
-          "name": "confirmation_expires_at",
-          "pgType": "timestamptz",
-          "tsType": "string",
-          "nullable": true,
-          "hasDefault": false
-        },
-        {
-          "name": "confirmation_token_hash",
-          "pgType": "text",
-          "tsType": "string",
-          "nullable": true,
-          "hasDefault": false
-        },
-        {
-          "name": "confirmed_at",
-          "pgType": "timestamptz",
-          "tsType": "string",
-          "nullable": true,
-          "hasDefault": false
-        },
-        {
-          "name": "created_at",
-          "pgType": "timestamptz",
-          "tsType": "string",
-          "nullable": false,
-          "hasDefault": true
-        },
-        {
-          "name": "email",
-          "pgType": "text",
-          "tsType": "string",
-          "nullable": false,
           "hasDefault": false
         }
       ]

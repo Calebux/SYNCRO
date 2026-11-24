@@ -20,7 +20,11 @@
  *   1: Missing RLS policies found or script error
  */
 
-const path = require('path');
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const require = createRequire(import.meta.url);
 
 // Handle module resolution from different directories
 let supabaseModule;
@@ -173,11 +177,11 @@ async function checkRLSCompliance() {
 }
 
 // Execute if run directly
-if (require.main === module) {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   checkRLSCompliance().catch((error) => {
     log(`❌ Unexpected error: ${error.message}`, 'red');
     process.exit(1);
   });
 }
 
-module.exports = { checkRLSCompliance };
+export { checkRLSCompliance };
