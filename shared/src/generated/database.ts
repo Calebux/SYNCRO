@@ -1849,6 +1849,75 @@ export interface Database {
           user_id?: string | null;
         };
       };
+      "status_incident_updates": {
+        Row: {
+          created_at: string;
+          id: string;
+          incident_id: string;
+          message: string;
+          status: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          incident_id: string;
+          message: string;
+          status: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          incident_id?: string;
+          message?: string;
+          status?: string;
+        };
+      };
+      "status_incidents": {
+        Row: {
+          components: string[];
+          created_at: string;
+          id: string;
+          impact: string;
+          title: string;
+        };
+        Insert: {
+          components: string[];
+          created_at?: string;
+          id?: string;
+          impact: string;
+          title: string;
+        };
+        Update: {
+          components?: string[];
+          created_at?: string;
+          id?: string;
+          impact?: string;
+          title?: string;
+        };
+      };
+      "status_subscribers": {
+        Row: {
+          confirmation_expires_at: string | null;
+          confirmation_token_hash: string | null;
+          confirmed_at: string | null;
+          created_at: string;
+          email: string;
+        };
+        Insert: {
+          confirmation_expires_at?: string | null;
+          confirmation_token_hash?: string | null;
+          confirmed_at?: string | null;
+          created_at?: string;
+          email: string;
+        };
+        Update: {
+          confirmation_expires_at?: string | null;
+          confirmation_token_hash?: string | null;
+          confirmed_at?: string | null;
+          created_at?: string;
+          email?: string;
+        };
+      };
       "stealth_payments": {
         Row: {
           amount: number | null;
@@ -2965,6 +3034,18 @@ export type RenewalSagaStepLogUpdate = PublicTables["renewal_saga_step_log"]["Up
 export type SpendCapAlertLogsRow = PublicTables["spend_cap_alert_logs"]["Row"];
 export type SpendCapAlertLogsInsert = PublicTables["spend_cap_alert_logs"]["Insert"];
 export type SpendCapAlertLogsUpdate = PublicTables["spend_cap_alert_logs"]["Update"];
+
+export type StatusIncidentUpdatesRow = PublicTables["status_incident_updates"]["Row"];
+export type StatusIncidentUpdatesInsert = PublicTables["status_incident_updates"]["Insert"];
+export type StatusIncidentUpdatesUpdate = PublicTables["status_incident_updates"]["Update"];
+
+export type StatusIncidentsRow = PublicTables["status_incidents"]["Row"];
+export type StatusIncidentsInsert = PublicTables["status_incidents"]["Insert"];
+export type StatusIncidentsUpdate = PublicTables["status_incidents"]["Update"];
+
+export type StatusSubscribersRow = PublicTables["status_subscribers"]["Row"];
+export type StatusSubscribersInsert = PublicTables["status_subscribers"]["Insert"];
+export type StatusSubscribersUpdate = PublicTables["status_subscribers"]["Update"];
 
 export type StealthPaymentsRow = PublicTables["stealth_payments"]["Row"];
 export type StealthPaymentsInsert = PublicTables["stealth_payments"]["Insert"];

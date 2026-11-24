@@ -109,6 +109,7 @@ import { swaggerSpec } from './swagger';
 import privacyMetricsAdminRoutes from './routes/admin/privacy-metrics';
 import agentKeyCompromiseAdminRoutes from './routes/admin/agent-key-compromise';
 import metricsRoutes from './routes/metrics';
+import statusRoutes from './routes/status';
 import analyticsV3Routes from './routes/analytics-v3';
 import v3GatewayRoutes from './routes/v3/gateway';
 import v3ProviderRoutes from './routes/v3-gateway';
@@ -144,7 +145,7 @@ app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', FRONTEND_URL);
   res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Idempotency-Key, If-Match');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Idempotency-Key, If-Match, X-Admin-Api-Key');
 
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
@@ -257,6 +258,7 @@ app.get('/health', async (req, res) => {
 // Core SLIs Metrics Endpoint (Prometheus / JSON)
 app.use('/metrics', metricsRoutes);
 app.use('/api/metrics', metricsRoutes);
+app.use('/api/status', statusRoutes);
 
 // V3 Analytics Endpoints
 app.use('/api/analytics/v3', analyticsV3Routes);

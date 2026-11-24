@@ -13,6 +13,7 @@
 4. [Alerting Policies](#alerting-policies)
 5. [What Exhausting an Error Budget Means for Shipping](#what-exhausting-an-error-budget-means-for-shipping)
 6. [Metrics Reference](#metrics-reference)
+7. [Public Status Page](#public-status-page)
 
 ---
 
@@ -200,3 +201,26 @@ Exported as:
 - `syncro_reconciliation_delta_total` — total delta across all channels
 - `syncro_reconciliation_channels_out_of_tolerance` — number of channels with delta outside tolerance
 - `syncro_reconciliation_blocked` — 1 if settlement batching is blocked, 0 otherwise
+
+## Public Status Page
+
+The public page is available at `/status`; its read-only snapshot is served from
+`GET /api/status`. The page refreshes every 30 seconds. The API caches SLI and
+Soroban RPC health probes for 30 seconds and includes incident updates from the
+previous 30 days.
+
+The gateway component reports admission success only when it has samples.
+Settlement reports its submission success rate, unsettled-channel count, and
+oldest unsettled age; it remains unknown when there are no settlement samples,
+unless the backlog itself exceeds the 24-hour threshold. Soroban RPC is unknown
+when no provider is configured, operational when all providers agree on the
+latest ledger, degraded when only some agree, and in major outage when none are
+healthy. The public response contains aggregate values only and omits channel,
+user, provider, and RPC endpoint identifiers.
+
+Incidents are created and updated through the admin-protected
+`POST /api/status/incidents` and `POST /api/status/incidents/:id/updates`
+endpoints. Email subscriptions require confirmation; incident emails include
+signed unsubscribe links. Apply the `public_status_page` Supabase migration
+before enabling the page, and configure the existing backend SMTP settings for
+subscription confirmation and incident notifications.

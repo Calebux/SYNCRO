@@ -3598,6 +3598,126 @@
       ]
     },
     {
+      "name": "status_incident_updates",
+      "columns": [
+        {
+          "name": "created_at",
+          "pgType": "timestamptz",
+          "tsType": "string",
+          "nullable": false,
+          "hasDefault": true
+        },
+        {
+          "name": "id",
+          "pgType": "uuid",
+          "tsType": "string",
+          "nullable": false,
+          "hasDefault": true
+        },
+        {
+          "name": "incident_id",
+          "pgType": "uuid",
+          "tsType": "string",
+          "nullable": false,
+          "hasDefault": false
+        },
+        {
+          "name": "message",
+          "pgType": "text",
+          "tsType": "string",
+          "nullable": false,
+          "hasDefault": false
+        },
+        {
+          "name": "status",
+          "pgType": "text",
+          "tsType": "string",
+          "nullable": false,
+          "hasDefault": false
+        }
+      ]
+    },
+    {
+      "name": "status_incidents",
+      "columns": [
+        {
+          "name": "components",
+          "pgType": "text[]",
+          "tsType": "string[]",
+          "nullable": false,
+          "hasDefault": false
+        },
+        {
+          "name": "created_at",
+          "pgType": "timestamptz",
+          "tsType": "string",
+          "nullable": false,
+          "hasDefault": true
+        },
+        {
+          "name": "id",
+          "pgType": "uuid",
+          "tsType": "string",
+          "nullable": false,
+          "hasDefault": true
+        },
+        {
+          "name": "impact",
+          "pgType": "text",
+          "tsType": "string",
+          "nullable": false,
+          "hasDefault": false
+        },
+        {
+          "name": "title",
+          "pgType": "text",
+          "tsType": "string",
+          "nullable": false,
+          "hasDefault": false
+        }
+      ]
+    },
+    {
+      "name": "status_subscribers",
+      "columns": [
+        {
+          "name": "confirmation_expires_at",
+          "pgType": "timestamptz",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "confirmation_token_hash",
+          "pgType": "text",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "confirmed_at",
+          "pgType": "timestamptz",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "created_at",
+          "pgType": "timestamptz",
+          "tsType": "string",
+          "nullable": false,
+          "hasDefault": true
+        },
+        {
+          "name": "email",
+          "pgType": "text",
+          "tsType": "string",
+          "nullable": false,
+          "hasDefault": false
+        }
+      ]
+    },
+    {
       "name": "stealth_payments",
       "columns": [
         {
