@@ -1,6 +1,6 @@
 {
-  "name": "@syncro/metering",
-  "version": "0.0.0",
+  "name": "syncro-monorepo",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
@@ -53,8 +53,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.0",
-    "typescript": "^5.9.3",
-    "@syncro/core": "workspace:*"
+    "typescript": "^5.9.3"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.5",
@@ -63,6 +62,6 @@
     "lint-staged": "^15.5.2",
     "turbo": "^2.5.4",
     "typescript": "^5.4.0",
-    "vitest": "^1.6.0"
+    "vitest": "^5.0.5"
   }
 }

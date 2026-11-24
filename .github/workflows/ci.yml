@@ -742,6 +742,10 @@ jobs:
       needs.detect-changes.outputs.force_full_run == 'true' ||
       needs.detect-changes.outputs.docs == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
     steps:
       - uses: ./.github/workflows/_composite/setup-node.yml
         with:
@@ -762,15 +766,19 @@ jobs:
         run: node scripts/check-error-reference.mjs
 
       - name: Comment on PR if validation fails
-        if: failure()
+        if: >-
+          failure() &&
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
         uses: actions/github-script@v9
         with:
           script: |
-            github.rest.issues.createComment({
+            await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '❌ Documentation code sample validation failed. Please fix the code examples in your markdown files.'
+              body: '❌ Documentation validation failed. Check the workflow logs for the failing step.'
             })
 
   # ──────────────────────────────────────────────

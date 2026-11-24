@@ -31,6 +31,9 @@
     "lint:deps": "node -e \"const p=require('./package.json');const bad=Object.entries({...p.dependencies,...p.devDependencies}).filter(([,v])=>v==='latest'||v==='*'||/^\\^?\\d+$/.test(v)).map(([n,v])=>n+'@'+v);if(bad.length){console.error('Loose dep ranges:',bad);process.exit(1);}else{console.log('All dep ranges OK');}\"",
     "preinstall": "npm run lint:deps"
   },
+  "optionalDependencies": {
+    "@rolldown/binding-linux-x64-gnu": "^1.2.14"
+  },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
@@ -64,7 +67,6 @@
     "@radix-ui/react-toggle-group": "1.2.1",
     "@radix-ui/react-tooltip": "1.4.1",
     "@react-pdf/renderer": "^4.9.0",
-    "@rolldown/binding-linux-x64-gnu": "^1.2.14",
     "@syncro/shared": "file:../shared",
     "@syncro/sdk": "file:../sdk",
     "@tanstack/react-query": "^5.104.3",
