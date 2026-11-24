@@ -95,6 +95,12 @@ export {
   CHANNEL_SCOPE,
   ChannelClient,
   ChannelScopeError,
+  NoCompatibleChannelError,
+  selectChannelForAsset,
+  readAcceptedAssets,
+  parseAssetId,
+  assetMatches,
+  watchChannels,
 } from "./channels/index.js";
 export type {
   AutoTopUpConfig,
@@ -111,6 +117,20 @@ export type {
   EnsureFundedResult,
   InitiateCloseInput,
   OpenChannelInput,
+  AssetId,
+  AssetSelectorOptions,
+  ChannelDescriptor,
+  X402Challenge,
+  X402Requirement,
+  ProviderManifest,
+  ChannelStateStore,
+  DisputeSigner,
+  SignedChannelState,
+  WatchChannelsOptions,
+  WatchHandle,
+  DisputeSubmittedEvent,
+  DeadlineApproachingEvent,
+  DisputeErrorEvent,
 } from "./channels/index.js";
 
 export type {

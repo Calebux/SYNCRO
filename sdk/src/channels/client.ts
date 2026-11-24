@@ -45,7 +45,7 @@ export type ChannelLifecycleState = "open" | "closing" | "dispute" | "closed";
  */
 export interface ChannelInvocation {
   contractId: string;
-  method: "open_channel" | "top_up" | "get_channel" | "initiate_close" | "finalize";
+  method: "open_channel" | "top_up" | "get_channel" | "initiate_close" | "finalize" | "dispute";
   args: Record<string, unknown>;
   sourceAccount: string;
 }
