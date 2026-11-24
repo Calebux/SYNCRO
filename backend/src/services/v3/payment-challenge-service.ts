@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { Keypair } from '@stellar/stellar-sdk';
 
 export interface ChallengeDetails {
   challengeId: string;
@@ -175,6 +176,26 @@ function canonicalizeChallenge(value: unknown): string {
   return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalizeChallenge(entry)}`).join(',')}}`;
 }
 
+/** Canonical channel-state message signed by the payer and checked by the gateway. */
+export function channelStateProofMessage(proof: Pick<
+  PaymentProof,
+  'channelId' | 'sequenceNumber' | 'userBalance' | 'executorBalance' | 'nonce' | 'payerAddress' | 'requestHash'
+>): string {
+  const unsigned = `${proof.channelId}:${proof.sequenceNumber}:${proof.userBalance}:${proof.executorBalance}:${proof.nonce}:${proof.payerAddress}`;
+  return proof.requestHash ? `${unsigned}:${proof.requestHash}` : unsigned;
+}
+
+function verifyPayerSignature(payload: string, signature: string, payerAddress: string): boolean {
+  try {
+    return Keypair.fromPublicKey(payerAddress).verify(
+      Buffer.from(payload, 'utf8'),
+      Buffer.from(signature, 'base64'),
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function parsePaymentProof(headerValue: string): PaymentProof | null {
   try {
     const raw = Buffer.from(headerValue, 'base64').toString('utf8');
@@ -290,17 +311,17 @@ export function verifyPaymentProof(
     };
   }
 
-  // 6. Signature verification
-  const payloadToSign = proof.requestHash
-    ? `${proof.channelId}:${proof.sequenceNumber}:${proof.userBalance}:${proof.executorBalance}:${proof.nonce}:${proof.payerAddress}:${proof.requestHash}`
-    : `${proof.channelId}:${proof.sequenceNumber}:${proof.userBalance}:${proof.executorBalance}:${proof.nonce}:${proof.payerAddress}`;
+  // 6. Signature verification. HMAC and the dev mock signatures stay valid.
+  // A testnet agent signs the same message with its Stellar Ed25519 key.
+  const payloadToSign = channelStateProofMessage(proof);
   const expectedSigHmac = crypto.createHmac('sha256', signingSecret).update(payloadToSign).digest('hex');
 
-  // Support ed25519 or HMAC signature
   const isHmacMatch = proof.signature === expectedSigHmac;
   const isMockSignatureValid = proof.signature.startsWith('sig_valid_') || proof.signature === 'mock_valid_signature';
+  const isPayerSignature = !isHmacMatch && !isMockSignatureValid
+    && verifyPayerSignature(payloadToSign, proof.signature, proof.payerAddress);
 
-  if (!isHmacMatch && !isMockSignatureValid) {
+  if (!isHmacMatch && !isMockSignatureValid && !isPayerSignature) {
     return {
       valid: false,
       code: 'INVALID_SIGNATURE',
