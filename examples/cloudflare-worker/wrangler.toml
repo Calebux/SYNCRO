@@ -1,0 +1,49 @@
+# Wrangler configuration for SYNCRO Cloudflare Worker example
+# See: https://developers.cloudflare.com/workers/wrangler/configuration/
+
+name = "syncro-worker-example"
+main = "worker.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Account details (replace with your own)
+# account_id = "your-account-id"
+# workers_dev = true
+
+[build]
+command = "npm run build"
+
+# Optional: Durable Objects for reservation state
+# [[durable_objects.bindings]]
+# name = "RESERVATIONS"
+# class_name = "ReservationStore"
+# script_name = "syncro-worker-example"
+
+# [[migrations]]
+# tag = "v1"
+# new_classes = ["ReservationStore"]
+
+# Optional: KV namespace for storing receipts
+# [[kv_namespaces]]
+# binding = "RECEIPTS"
+# id = "your-kv-namespace-id"
+
+# Environment variables
+[vars]
+SYNCRO_ENV = "development"
+
+# Production environment
+[env.production]
+# account_id = "your-production-account-id"
+# workers_dev = false
+# routes = [
+#   { pattern = "api.example.com/*", zone_name = "example.com" }
+# ]
+
+[env.production.vars]
+SYNCRO_ENV = "production"
+
+# Local development settings
+[dev]
+port = 8787
+local_protocol = "http"
