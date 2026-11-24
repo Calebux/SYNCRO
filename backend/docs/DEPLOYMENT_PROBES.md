@@ -1,0 +1,333 @@
+# Health & Readiness Probes
+
+This document describes the expanded health check endpoints for Synchro and when to use them in deployment workflows.
+
+## Overview
+
+The backend exposes three health check endpoints to support Kubernetes/container orchestration and monitoring:
+
+| Endpoint | Purpose | HTTP Status | Auth Required |
+|----------|---------|-------------|---------------|
+| `/health/live` | Liveness probe | 200 always | No |
+| `/health/ready` | Readiness probe | 200 or 503 | No |
+| `/health` | Legacy endpoint | 200 always | No |
+
+## Liveness Probe (`/health/live`)
+
+**Purpose**: Indicates if the process is alive and responding.
+
+**When to use**:
+- Kubernetes liveness probes (restarts container if this fails)
+- Checking if the service should be restarted
+- Basic "is the server running?" checks
+
+**Response (always HTTP 200)**:
+```json
+{
+  "status": "alive",
+  "timestamp": "2026-06-25T00:00:00.000Z",
+  "uptime_ms": 86400000
+}
+```
+
+**Behavior**:
+- ✅ No external dependencies checked
+- ✅ Minimal overhead (process is alive = endpoint responds)
+- ✅ Very fast response time
+- ❌ Doesn't indicate if service is ready for traffic
+
+**Deployment Use Case**:
+```yaml
+# Kubernetes liveness probe
+livenessProbe:
+  httpGet:
+    path: /health/live
+    port: 3001
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+```
+
+## Readiness Probe (`/health/ready`)
+
+**Purpose**: Indicates if the service is ready to accept traffic.
+
+**When to use**:
+- Kubernetes readiness probes (remove from service traffic if this fails)
+- Load balancer health checks (before routing traffic)
+- Determining if service can handle requests
+- Checking if critical dependencies are available
+
+**Critical vs. Optional Dependencies**:
+- **Critical** (readiness blocks): Database, Redis, RPC/Horizon, FX Provider
+- **Optional** (degraded allowed): Queue, Providers (external API keys), Scheduler
+
+**Behavior**:
+- ✅ Checks critical dependencies (database, Redis, RPC/Horizon, FX provider)
+- ✅ Returns 503 if any critical dep is `unhealthy` or `degraded`
+- ✅ Allows degraded state for non-critical services (queue, providers, scheduler)
+- ✅ Redis and RPC/Horizon report `degraded` when not configured (readiness blocks)
+
+**Response (HTTP 200 if ready, 503 if not)**:
+```json
+{
+  "status": "ready",
+  "timestamp": "2026-06-25T00:00:00.000Z",
+  "message": "All critical dependencies healthy",
+  "dependencies": [
+    {
+      "name": "database",
+      "status": "healthy",
+      "latency_ms": 5
+    },
+    {
+      "name": "redis",
+      "status": "healthy",
+      "latency_ms": 2
+    },
+    {
+      "name": "queue",
+      "status": "healthy",
+      "latency_ms": 1
+    },
+    {
+      "name": "providers",
+      "status": "healthy",
+      "latency_ms": 0
+    },
+    {
+      "name": "rpc_horizon",
+      "status": "healthy",
+      "latency_ms": 10
+    },
+    {
+      "name": "fx_provider",
+      "status": "healthy",
+      "latency_ms": 8
+    }
+  ]
+}
+```
+
+**Not Ready Response (HTTP 503)**:
+```json
+{
+  "status": "not_ready",
+  "timestamp": "2026-06-25T00:00:00.000Z",
+  "message": "Critical dependencies unavailable: database (unhealthy)",
+  "dependencies": [
+    {
+      "name": "database",
+      "status": "unhealthy",
+      "latency_ms": 30,
+      "error": "Connection timeout"
+    },
+    {
+      "name": "redis",
+      "status": "healthy",
+      "latency_ms": 2
+    }
+  ]
+}
+```
+
+**Critical vs. Optional Dependencies**:
+- **Critical** (readiness blocks): Database, Redis, RPC/Horizon, FX Provider
+- **Optional** (degraded allowed): Queue, Providers (external API keys), Scheduler
+
+**Behavior**:
+- ✅ Checks critical dependencies (database, Redis, RPC/Horizon, FX provider)
+- ✅ Returns 503 if any critical dep is `unhealthy` or `degraded`
+- ✅ Allows degraded state for non-critical services (queue, providers, scheduler)
+- ✅ Redis and RPC/Horizon report `degraded` when not configured (readiness blocks)
+
+**Deployment Use Case**:
+```yaml
+# Kubernetes readiness probe
+readinessProbe:
+  httpGet:
+    path: /health/ready
+    port: 3001
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 2
+```
+
+## Checked Dependencies
+
+### Database (Critical)
+- Connection to Supabase/PostgreSQL
+- Executes lightweight query (table count)
+- **Failure impact**: Service cannot read/write data → not ready
+
+### Redis (Critical)
+- Connection to Redis instance
+- Executes PING command
+- **Failure impact**: Caching, rate limiting, session management down → not ready
+
+### Queue (Optional)
+- Connection to Bull queue (Redis-backed)
+- Validated through Redis connectivity
+- **Failure impact**: Async jobs delayed but service still functional
+
+### Providers (Optional)
+- Checks if external services are configured (Stripe, Gmail, Outlook, Telegram, Stellar)
+- No actual API calls (lightweight check)
+- **Failure impact**: Some features unavailable but service functional
+
+### Scheduler / Background Processor (Optional)
+- Checks that the cron scheduler has been started and has jobs registered
+- Uses `schedulerService.getStatus()` — no external calls, synchronous
+- Returns **healthy** when running with ≥1 registered jobs
+- Returns **degraded** when the scheduler has no jobs or hasn't started
+- **Failure impact**: Reminder emails, renewal processing, risk recalculation, and other background jobs will not fire on schedule; real-time user requests are unaffected
+
+## v3 Paid-Path Dependencies (Critical)
+
+The v3 paid path cannot serve calls without the counter (meter) store, Soroban RPC, and a funded settlement signer. These are checked by `/health/ready` and are **critical**: if any is down, `/health/ready` returns 503 while `/health/live` keeps returning 200.
+
+### Counter / Meter Store (Critical)
+- Reachability check against the counter store used for metering
+- Executes a lightweight read/ping
+- **Failure impact**: Metering cannot be recorded → paid calls cannot be served → not ready
+
+### Soroban RPC — Latest Ledger Freshness (Critical)
+- Queries the Soroban RPC for the latest ledger sequence
+- Compares the latest ledger against a freshness threshold (max allowed ledger lag)
+- Returns **unhealthy** when the RPC is unreachable or the latest ledger is stale
+- **Failure impact**: On-chain settlement cannot be submitted/confirmed → not ready
+
+### Settlement Signer Balance (Critical)
+- Loads the settlement signer account from Soroban RPC
+- Checks the account balance is above a configured minimum threshold
+- Returns **unhealthy** when the signer is missing, unfunded, or below threshold
+- **Failure impact**: Settlement transactions cannot be paid for → not ready
+
+### Per-Check Timeouts
+
+Every readiness check runs with its own timeout so a hung dependency cannot hang the probe itself. If a check exceeds its timeout it is reported as `unhealthy` with a timeout error, and `/health/ready` returns 503.
+
+## Recommended Kubernetes Configuration
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: syncro-backend
+spec:
+  template:
+    spec:
+      containers:
+      - name: backend
+        image: syncro-backend:latest
+        ports:
+        - containerPort: 3001
+        
+        # Liveness: restart if process dies
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 3001
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        # Readiness: only receive traffic if ready
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 3001
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 2
+        
+        # Startup: give container time to initialize
+        startupProbe:
+          httpGet:
+            path: /health/ready
+            port: 3001
+          periodSeconds: 5
+          failureThreshold: 12  # 60 seconds total
+```
+
+## Docker Compose Example
+
+```yaml
+services:
+  backend:
+    image: syncro-backend:latest
+    ports:
+      - "3001:3001"
+    healthcheck:
+      # Use readiness for overall service health
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 2
+      start_period: 30s
+    depends_on:
+      - postgres
+      - redis
+```
+
+## Load Balancer Configuration (AWS ELB/ALB)
+
+```
+Health Check Configuration:
+- Path: /health/ready
+- Protocol: HTTP
+- Port: 3001
+- Healthy Threshold: 2
+- Unhealthy Threshold: 3
+- Interval: 30s
+- Timeout: 5s
+- Expected HTTP Code: 200
+```
+
+## Monitoring & Alerting
+
+### Alert when readiness fails
+```
+Alert: "Backend not ready" 
+Condition: GET /health/ready returns 503 for > 5 minutes
+Action: Page on-call engineer, check logs for dependency issues
+```
+
+### Alert on latency increase
+```
+Alert: "Slow health check"
+Condition: /health/ready response time > 2 seconds
+Action: Check database, Redis, queue performance
+```
+
+## Testing Locally
+
+```bash
+# Check liveness
+curl http://localhost:3001/health/live
+# Response: HTTP 200
+
+# Check readiness
+curl http://localhost:3001/health/ready
+# Response: HTTP 200 (all ready) or HTTP 503 (not ready)
+
+# Check specific dependency
+curl http://localhost:3001/health/ready | jq '.dependencies[] | select(.name=="database")'
+```
+
+## Development vs. Production
+
+### Development Environment
+- `/health/live` and `/health/ready` available without authentication
+- May have degraded dependencies (optional providers) but still ready
+- Use for local development and debugging
+
+### Production Environment
+- Both endpoints available without authentication
+- Readiness must be 200 before routing traffic
+- Monitor readiness failures and alert on-call
+- v3 paid-path dependencies (counter store, Soroban RPC, settlement signer) must be healthy for readiness

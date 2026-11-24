@@ -19,6 +19,14 @@ const SHORTCUT_GROUPS: { heading: string; shortcuts: ShortcutRow[] }[] = [
     ],
   },
   {
+    heading: "Subscription priority",
+    shortcuts: [
+      { keys: ["Drag"], description: "Reorder cards by personal priority" },
+      { keys: ["Space"], description: "Pick up / drop focused card (keyboard drag)" },
+      { keys: ["↑", "↓"], description: "Move card while dragging with keyboard" },
+    ],
+  },
+  {
     heading: "Filters",
     shortcuts: [
       { keys: ["Esc"], description: "Clear all filters / close modal" },

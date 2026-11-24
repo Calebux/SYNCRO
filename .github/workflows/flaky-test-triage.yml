@@ -1,0 +1,122 @@
+name: Flaky Test Triage
+
+on:
+  workflow_run:
+    workflows: ['E2E Tests']
+    types: [completed]
+
+jobs:
+  triage-flaky-tests:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'failure'
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Download test results
+        uses: actions/download-artifact@v8
+        with:
+          name: test-results
+          path: test-results
+
+      - name: Check for flaky tests
+        id: check-flaky
+        run: |
+          if [ -f "test-results/flaky-triage.json" ]; then
+            FLAKY_COUNT=$(jq '.totalFlakyTests' test-results/flaky-triage.json)
+            CRITICAL_COUNT=$(jq '.critical' test-results/flaky-triage.json)
+            echo "flaky_count=$FLAKY_COUNT" >> $GITHUB_OUTPUT
+            echo "critical_count=$CRITICAL_COUNT" >> $GITHUB_OUTPUT
+            echo "has_flaky=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_flaky=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create issue for critical flaky tests
+        if: steps.check-flaky.outputs.has_flaky == 'true' && steps.check-flaky.outputs.critical_count > 0
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = require('fs');
+            const triageData = JSON.parse(fs.readFileSync('test-results/flaky-triage.json', 'utf-8'));
+            const criticalTests = triageData.tests.filter(t => t.flakeRate > 0.5);
+            
+            let body = '## Critical Flaky Tests Detected\n\n';
+            body += `**Timestamp**: ${triageData.timestamp}\n`;
+            body += `**Total Flaky Tests**: ${triageData.totalFlakyTests}\n`;
+            body += `**Critical**: ${triageData.critical}\n\n`;
+            
+            body += '### Tests Requiring Immediate Attention\n\n';
+            criticalTests.forEach(test => {
+              body += `#### ${test.testName}\n`;
+              body += `- **Project**: ${test.projectName}\n`;
+              body += `- **Flake Rate**: ${(test.flakeRate * 100).toFixed(1)}%\n`;
+              body += `- **Failures**: ${test.failures}/${test.totalRuns}\n`;
+              body += `- **Last Failure**: ${test.lastFailure}\n`;
+              body += `- **Recommendation**: ${test.guidance.recommendation}\n`;
+              body += `- **Debug Steps**:\n`;
+              test.guidance.debugSteps.forEach(step => {
+                body += `  - ${step}\n`;
+              });
+              body += '\n';
+            });
+            
+            body += '### Triage Guidance\n\n';
+            body += '1. Review the debug steps for each test\n';
+            body += '2. Check recent code changes that might affect these tests\n';
+            body += '3. Consider adding explicit waits or retries\n';
+            body += '4. Update the triage status once investigation begins\n';
+            
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🔴 Critical Flaky Tests: ${triageData.critical} tests need investigation`,
+              body: body,
+              labels: ['area:quality', 'flaky-tests', 'priority:p1'],
+            });
+
+      - name: Comment on PR with flaky test summary
+        if: github.event.workflow_run.pull_requests[0] && steps.check-flaky.outputs.has_flaky == 'true'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = require('fs');
+            const triageData = JSON.parse(fs.readFileSync('test-results/flaky-triage.json', 'utf-8'));
+            
+            let comment = '## ⚠️ Flaky Test Report\n\n';
+            comment += `**Total Flaky Tests**: ${triageData.totalFlakyTests}\n`;
+            comment += `**Critical**: ${triageData.critical}\n`;
+            comment += `**Warning**: ${triageData.warning}\n\n`;
+            
+            if (triageData.critical > 0) {
+              comment += '### 🔴 Critical Tests\n';
+              triageData.tests.filter(t => t.flakeRate > 0.5).forEach(test => {
+                comment += `- **${test.testName}** (${(test.flakeRate * 100).toFixed(1)}%)\n`;
+              });
+              comment += '\n';
+            }
+            
+            comment += '[View full report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})';
+            
+            github.rest.issues.createComment({
+              issue_number: github.event.workflow_run.pull_requests[0].number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment,
+            });
+
+      - name: Upload flaky test report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: flaky-test-report
+          path: test-results/flaky-tests-report.md
+          retention-days: 30
+
+      - name: Fail if critical flaky tests
+        if: steps.check-flaky.outputs.critical_count > 0
+        run: |
+          echo "❌ Critical flaky tests detected. Please investigate and fix."
+          exit 1

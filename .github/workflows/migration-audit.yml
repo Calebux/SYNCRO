@@ -1,0 +1,22 @@
+name: Migration Audit
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  check-migration-sources:
+    name: Check single migration source of truth
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Make audit script executable
+        run: chmod +x scripts/check-no-backend-migrations.sh
+
+      - name: Verify no active migrations in backend/migrations/
+        run: ./scripts/check-no-backend-migrations.sh

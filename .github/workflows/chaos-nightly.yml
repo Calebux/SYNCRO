@@ -1,0 +1,40 @@
+# Nightly chaos test: kill the gateway mid paid-call (#1685).
+#
+# Covers every kill point: between upstream response and commit, between
+# commit and receipt, and during settlement submission.
+#
+# On failure, see docs/runbooks/incident-runbooks.md (issue #1519) — the
+# money-losing failure modes (double charge, free call, lost receipt) each
+# map to a runbook there.
+name: Chaos Nightly
+
+on:
+  schedule:
+    # 03:00 UTC daily against the local stack.
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  chaos:
+    name: Gateway kill-points
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+
+      - name: Bring up the local stack
+        run: docker compose up -d postgres redis soroban-rpc
+
+      - name: Run gateway chaos tests
+        run: npx vitest run tests/v3-gateway-chaos.test.ts --reporter=verbose
+
+      - name: Tear down the local stack
+        if: always()
+        run: docker compose down -v

@@ -25,10 +25,15 @@ bash scripts/deploy.sh testnet
 ```
 
 This will:
-1. Build all three contracts to WASM
-2. Deploy `SubscriptionRegistry`, `SubscriptionRenewal`, and `SubscriptionLogging`
-3. Run `init.sh` to initialize each contract and link the logging contract to the renewal contract
-4. Print the contract addresses and save them to `scripts/deployed-addresses-testnet.env`
+1. Build the `zk-payment-verifier` and `contract-upgrade` contracts to WASM
+2. Deploy `ZkPaymentVerifier` and `ContractUpgradeGovernance`
+3. Print the contract addresses and save them to `scripts/deployed-addresses-testnet.env`
+
+> The subscription contracts (`subscription-registry`, `subscription-renewal`,
+> `subscription-logging`, ...) were retired in #1660 and are no longer built or
+> deployed by this script. See [docs/retired-contracts.md](docs/retired-contracts.md).
+> Initialize the deployed contracts by invoking their `init` entrypoints with the
+> Stellar CLI, or through the `deploy/` manifests used for v3.
 
 ---
 
@@ -49,29 +54,21 @@ STELLAR_SECRET_KEY=<mainnet_secret> bash scripts/deploy.sh mainnet
 
 ---
 
-## Manual Initialization (standalone)
-
-If you deployed contracts separately and need to run init on its own:
-
-```bash
-export STELLAR_SECRET_KEY=<your_secret>
-export SOROBAN_RENEWAL_ADDRESS=<renewal_contract_id>
-export SOROBAN_LOGGING_ADDRESS=<logging_contract_id>
-
-bash contracts/scripts/init.sh mainnet
-```
-
----
-
 ## Contract Upgrade Procedure
 
-Soroban contracts are immutable once deployed — upgrades require deploying a new contract instance and migrating state, or using an upgradeable proxy pattern.
+Soroban contracts are upgraded using the `ContractUpgradeGovernance` contract, which implements a secure multi-sig governance process with timelock and rollback.
 
-1. Deploy the new contract version using `deploy.sh`
-2. Run `init.sh` to initialize the new instance
-3. Update backend env vars with the new contract addresses (see below)
-4. Migrate any on-chain state if required (contract-specific)
-5. Decommission the old contract by removing references from the backend
+See [Contract Upgrade Runbook](../docs/ops/contract-upgrade-runbook.md) for the full upgrade procedure.
+
+The upgrade process:
+1. Build new WASM and compute its SHA-256 hash
+2. A guardian proposes the upgrade via `propose_upgrade()`
+3. 2-of-3 guardians approve via `approve_upgrade()`
+4. A 48-hour timelock period begins (configurable)
+5. After the timelock expires, deploy the new WASM and execute `execute_upgrade()`
+6. Immediately call `migrate(from_version)` on the upgraded target contract. This is an admin-gated, one-version step; it rejects repeated and out-of-order calls. The upgrade-governance contract accepts either its admin or a guardian as the migration caller.
+7. Verify `get_storage_version()` equals the new version and exercise a read of a pre-upgrade record before resuming normal writes
+8. Rollback is available via `rollback_upgrade()` only for the WASM hash. It does not revert storage migrations or records lazily rewritten to the new schema; do not roll back after migration unless the previous WASM can read the migrated layout.
 
 ---
 
@@ -80,9 +77,8 @@ Soroban contracts are immutable once deployed — upgrades require deploying a n
 After deployment, copy the printed addresses into `backend/.env`:
 
 ```env
-SOROBAN_REGISTRY_ADDRESS=<SubscriptionRegistry contract ID>
-SOROBAN_RENEWAL_ADDRESS=<SubscriptionRenewal contract ID>
-SOROBAN_LOGGING_ADDRESS=<SubscriptionLogging contract ID>
+SOROBAN_ZK_VERIFIER_ADDRESS=<ZkPaymentVerifier contract ID>
+SOROBAN_UPGRADE_ADDRESS=<ContractUpgradeGovernance contract ID>
 ```
 
 The addresses are also saved automatically to `contracts/scripts/deployed-addresses-<network>.env` after each run.
@@ -93,11 +89,10 @@ The addresses are also saved automatically to `contracts/scripts/deployed-addres
 
 Update this section after each testnet deployment.
 
-| Contract               | Address |
-|------------------------|---------|
-| SubscriptionRegistry   | _(deploy and fill in)_ |
-| SubscriptionRenewal    | _(deploy and fill in)_ |
-| SubscriptionLogging    | _(deploy and fill in)_ |
+| Contract                   | Address |
+|----------------------------|---------|
+| ZkPaymentVerifier          | _(deploy and fill in)_ |
+| ContractUpgradeGovernance  | _(deploy and fill in)_ |
 
 Network: `testnet`  
 Last deployed: _(fill in after first deployment)_

@@ -79,7 +79,7 @@ export function SpendChart({ data, categories }: SpendChartProps) {
           </Select>
           <Select
             value={chartType}
-            onValueChange={(value: "bar" | "line") => setChartType(value)}
+            onValueChange={(value: string) => setChartType(value as "bar" | "line")}
             className="w-32"
           >
             <SelectItem value="bar">Bar Chart</SelectItem>
@@ -99,7 +99,6 @@ export function SpendChart({ data, categories }: SpendChartProps) {
         showAnimation={true}
         showTooltip={true}
         showLegend={true}
-        legendPosition="bottom"
       />
 
       <Text className="mt-4 text-sm text-gray-600">

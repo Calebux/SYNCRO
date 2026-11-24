@@ -1,12 +1,14 @@
 import { Router, Request, Response } from 'express';
 import archiver from 'archiver';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { requireRole } from '../middleware/rbac';
 import { validate } from '../middleware/validate';
 import { complianceService } from '../services/compliance-service';
 import { supabase } from '../config/database';
 import logger from '../config/logger';
 import { RateLimiterFactory } from '../middleware/rate-limit-factory';
 import { deleteAccountSchema, emailPreferencesSchema, KNOWN_OPT_IN_KEYS } from '../schemas/compliance';
+import { UnauthorizedError } from '../errors';
 
 const router: Router = Router();
 
@@ -22,7 +24,10 @@ const exportRateLimit = RateLimiterFactory.createCustomLimiter({
   windowMs: 60 * 60 * 1000,
   max: 1,
   message: { error: 'Export rate limit exceeded. Try again in 1 hour.' },
-  keyGenerator: (req: any) => req.user?.id || req.ip,
+  keyGenerator: (req: Request) => {
+    const authReq = req as AuthenticatedRequest;
+    return authReq.user?.id || req.ip || 'anonymous';
+  },
   endpointType: 'data-export',
 });
 
@@ -68,8 +73,8 @@ async function resolveUserFromTokenOrSession(
   let sessionToken: string | null = null;
   if (authHeader?.startsWith('Bearer ')) {
     sessionToken = authHeader.substring(7);
-  } else if ((req as any).cookies?.authToken) {
-    sessionToken = (req as any).cookies.authToken;
+  } else if (req.cookies?.authToken) {
+    sessionToken = req.cookies.authToken;
   }
   if (!sessionToken) return null;
 
@@ -80,21 +85,20 @@ async function resolveUserFromTokenOrSession(
 // ─── Data Export ─────────────────────────────────────────────────────────────
 
 router.get('/export', authenticate, exportRateLimit, async (req: AuthenticatedRequest, res: Response) => {
-  const userId = req.user!.id;
-  const data = await complianceService.gatherUserData(userId);
+  try {
+    const userId = req.user!.id;
+    const data = await complianceService.gatherUserData(userId);
 
-  res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Disposition', `attachment; filename="syncro-data-export-${Date.now()}.zip"`);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="syncro-data-export-${Date.now()}.zip"`);
 
-  const archive = archiver('zip', { zlib: { level: 9 } });
-  archive.on('error', (err) => logger.error('Archiver error:', err));
-  archive.pipe(res);
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', (err) => logger.error('Archiver error:', err));
+    archive.pipe(res);
 
     archive.on('error', (err) => {
       logger.error('Archiver error during export:', err);
     });
-
-  await archive.finalize();
 
     archive.append(JSON.stringify(data.profile, null, 2), { name: 'profile.json' });
     archive.append(JSON.stringify(data.subscriptions, null, 2), { name: 'subscriptions.json' });
@@ -104,6 +108,7 @@ router.get('/export', authenticate, exportRateLimit, async (req: AuthenticatedRe
     archive.append(JSON.stringify(data.emailAccounts, null, 2), { name: 'email_accounts.json' });
     archive.append(JSON.stringify(data.teams, null, 2), { name: 'teams.json' });
     archive.append(JSON.stringify(data.blockchainLogs, null, 2), { name: 'blockchain_logs.json' });
+    archive.append(JSON.stringify(data.blindingFactors, null, 2), { name: 'blinding_factors.json' });
 
     const readme = [
       'Syncro — Personal Data Export',
@@ -120,6 +125,7 @@ router.get('/export', authenticate, exportRateLimit, async (req: AuthenticatedRe
       '  email_accounts.json — Connected email accounts',
       '  teams.json          — Team membership records',
       '  blockchain_logs.json — On-chain contract events and renewal approvals',
+      '  blinding_factors.json — Pedersen commitment blinding factors for audit data',
       '',
       'For questions or deletion requests, contact support.',
     ].join('\n');
@@ -153,6 +159,7 @@ router.get('/export', authenticate, exportRateLimit, async (req: AuthenticatedRe
 router.post(
   '/account/delete',
   authenticate,
+  requireRole('owner'),
   validate(deleteAccountSchema),
   async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user!.id;
@@ -171,7 +178,7 @@ router.post(
   },
 );
 
-router.post('/account/delete/cancel', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+router.post('/account/delete/cancel', authenticate, requireRole('owner'), async (req: AuthenticatedRequest, res: Response) => {
   const result = await complianceService.cancelDeletion(req.user!.id);
   res.json({ success: true, data: result });
 });

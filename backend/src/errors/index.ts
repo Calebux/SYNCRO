@@ -78,3 +78,19 @@ export class RateLimitError extends AppError {
     super('Too Many Requests', 429, detail, 'https://syncro.app/errors/too-many-requests', { retryAfter });
   }
 }
+
+/**
+ * Thrown when an external dependency (Redis, email provider, payment gateway, etc.)
+ * is unavailable or returns an unexpected error (HTTP 502).
+ */
+export class ExternalDependencyError extends AppError {
+  constructor(detail: string, public dependency: string) {
+    super(
+      'External Dependency Error',
+      502,
+      detail,
+      'https://syncro.app/errors/external-dependency',
+      { dependency }
+    );
+  }
+}

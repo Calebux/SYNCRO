@@ -1,3 +1,5 @@
+import { sanitizeUrl as sanitizeSharedUrl } from '@syncro/shared/security';
+
 /**
  * Sanitizes a URL to ensure it only uses safe protocols (http or https).
  *
@@ -8,19 +10,5 @@
  * @returns The original URL string if it is a valid http/https URL, otherwise '#'.
  */
 export function sanitizeUrl(url: string | null | undefined): string {
-  if (!url || url.trim() === '') {
-    return '#';
-  }
-
-  try {
-    const parsed = new URL(url);
-    // Only allow http and https protocols
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
-      return '#';
-    }
-    return parsed.toString();
-  } catch {
-    // URL constructor throws on malformed input
-    return '#';
-  }
+  return sanitizeSharedUrl(url);
 }

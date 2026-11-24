@@ -3,8 +3,11 @@ const hasSorobanEnv =
   !!process.env.SOROBAN_CONTRACT_ADDRESS &&
   !!process.env.STELLAR_SECRET_KEY;
 
-// This test runs only when Soroban env vars are present.
-(hasSorobanEnv ? describe : describe.skip)('Soroban integration', () => {
+// Also check if testnet actions are enabled (Issue #84)
+const testnetActionsEnabled = process.env.ENABLE_TESTNET_ACTIONS === 'true';
+
+// This test runs only when Soroban env vars are present AND testnet actions are enabled.
+(hasSorobanEnv && testnetActionsEnabled ? describe : describe.skip)('Soroban integration', () => {
   it('submits a real transaction for subscription create', async () => {
     const { blockchainService } = await import('../src/services/blockchain-service');
     const userId = 'test-user';

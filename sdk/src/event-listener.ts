@@ -23,6 +23,7 @@ export interface RenewalAttemptEvent {
   ledger: number;
   txHash: string;
   contractId: string;
+  schema_version?: number;
 }
 
 export interface ApprovalGrantedEvent {
@@ -33,6 +34,7 @@ export interface ApprovalGrantedEvent {
   ledger: number;
   txHash: string;
   contractId: string;
+  schema_version?: number;
 }
 
 export interface RenewalFailedEvent {
@@ -47,6 +49,28 @@ export type OnChainEvent =
   | { type: 'renewalAttempt'; data: RenewalAttemptEvent }
   | { type: 'approvalGranted'; data: ApprovalGrantedEvent }
   | { type: 'renewalFailed'; data: RenewalFailedEvent };
+
+export const CURRENT_EVENT_SCHEMA_VERSION = 1;
+
+export function getEventSchemaVersion(event: ContractEvent): number {
+  const rawVersion = (event.value as any)?.schema_version;
+  return typeof rawVersion === 'number' ? rawVersion : CURRENT_EVENT_SCHEMA_VERSION;
+}
+
+export function isSupportedEventSchemaVersion(event: ContractEvent): boolean {
+  const version = getEventSchemaVersion(event);
+  const supported = version === CURRENT_EVENT_SCHEMA_VERSION;
+  if (!supported) {
+    silentLogger.warn('Unsupported contract event schema version', {
+      eventType: event.type,
+      txHash: event.txHash,
+      ledger: event.ledger,
+      schemaVersion: version,
+      supportedVersion: CURRENT_EVENT_SCHEMA_VERSION,
+    });
+  }
+  return supported;
+}
 
 export interface ListenToEventsOptions {
   /** Soroban RPC URL (e.g. https://soroban-testnet.stellar.org) */
@@ -131,20 +155,24 @@ export async function getLatestLedger(
 function parseEvent(
   event: ContractEvent
 ): OnChainEvent | null {
+  if (!isSupportedEventSchemaVersion(event)) return null;
+
   const ids = Array.isArray(event.contractId)
     ? event.contractId
     : [event.contractId];
   const contractId = ids[0] ?? '';
+  const schemaVersion = getEventSchemaVersion(event);
 
   switch (event.type) {
     case 'RenewalSuccess': {
-      const v = event.value as { sub_id?: string | number; owner?: string };
+      const v = event.value as { sub_id?: string | number; owner?: string; schema_version?: number };
       const attemptEvent: RenewalAttemptEvent = {
         subId: String(v.sub_id ?? ''),
         success: true,
         ledger: event.ledger,
         txHash: event.txHash,
         contractId,
+        schema_version: schemaVersion,
       };
       if (v.owner !== undefined) attemptEvent.owner = v.owner;
       return {
@@ -157,6 +185,7 @@ function parseEvent(
         sub_id?: string | number;
         failure_count?: number;
         ledger?: number;
+        schema_version?: number;
       };
       const data: RenewalFailedEvent = {
         subId: String(v.sub_id ?? ''),
@@ -164,6 +193,7 @@ function parseEvent(
         ledger: event.ledger,
         txHash: event.txHash,
         contractId,
+        schema_version: schemaVersion,
       };
       return {
         type: 'renewalFailed',
@@ -176,6 +206,7 @@ function parseEvent(
         approval_id?: string | number;
         max_spend?: string | number;
         expires_at?: number;
+        schema_version?: number;
       };
       return {
         type: 'approvalGranted',
@@ -187,6 +218,7 @@ function parseEvent(
           ledger: event.ledger,
           txHash: event.txHash,
           contractId,
+          schema_version: schemaVersion,
         },
       };
     }

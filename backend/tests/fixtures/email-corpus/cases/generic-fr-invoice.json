@@ -1,0 +1,18 @@
+{
+  "id": "generic-fr-invoice",
+  "merchant": "Unknown",
+  "locale": "fr",
+  "kind": "positive",
+  "notes": "French invoice from an unknown merchant.",
+  "email": {
+    "subject": "Votre facture mensuelle",
+    "from": "Atelier Cloud <facturation@atelier-cloud.example>",
+    "body": "Bonjour,\n\nVotre abonnement a ete preleve. Montant: EUR 29,00 par mois.\n\nMerci."
+  },
+  "expected": {
+    "name": "Atelier Cloud",
+    "amount": 29.0,
+    "currency": "EUR",
+    "interval": "monthly"
+  }
+}

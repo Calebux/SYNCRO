@@ -1,0 +1,112 @@
+---
+title: SDK Reference
+description: "Use the @syncro/sdk TypeScript package — v3 payments surface"
+---
+
+## Installation
+
+```bash
+npm install @syncro/sdk
+# or
+pnpm add @syncro/sdk
+```
+
+## v3 Payments Quick Start
+
+```typescript
+import { createPaidFetch } from "@syncro/sdk/v3";
+import { verifyReceipt, decodeReceiptHeader } from "@syncro/sdk";
+
+const fetch = createPaidFetch({ spendingKey: "..." });
+const res = await fetch("https://api.syncro.app/charge", {
+  method: "POST",
+  body: JSON.stringify({ amount: 1000, currency: "USDC" }),
+});
+
+const receipt = decodeReceiptHeader(res.headers.get("x-syncro-receipt")!);
+verifyReceipt(receipt); // throws if invalid
+```
+
+## Error Handling
+
+```typescript
+import { SyncroError, NotFoundError, AuthError } from "@syncro/sdk";
+
+try {
+  await fetch("https://api.syncro.app/charge", { method: "POST" });
+} catch (err) {
+  if (err instanceof AuthError) {
+    console.error("Check your API key");
+  } else if (err instanceof SyncroError) {
+    console.error(`SDK error [${err.code}]:`, err.message);
+  }
+}
+```
+
+## Configuration
+
+```typescript
+import { pricing, metered, hostedGateway } from "@syncro/sdk";
+
+// Route pricing — match HTTP method + path to a price
+const route = pricing({
+  defaultPrice: 0.01,
+  currency: "USDC",
+  "GET /api/charge": 0.05,
+  "POST /api/charge": 0.10,
+});
+
+// Metered pricing — charge by unit quantity
+const meteredRoute = metered({ unit: "request", pricePerUnit: 0.001 });
+
+// Hosted gateway — delegate payment to a gateway
+const gateway = hostedGateway({
+  gatewayUrl: "https://gateway.syncro.example.com",
+  apiKey: "gw_key_...",
+});
+```
+
+## Webhook Verification
+
+```typescript
+import {
+  verifyWebhookSignature,
+  parseWebhookHeaders,
+  createWebhookHandler,
+  SYNCRO_WEBHOOK_HEADERS,
+} from "@syncro/sdk";
+
+// Verify a webhook signature manually
+const rawBody = await request.text();
+const headers = parseWebhookHeaders(request.headers);
+const valid = verifyWebhookSignature(rawBody, headers.signature, secret);
+
+// Or use the bundled handler factory
+const handleSyncroWebhook = createWebhookHandler(process.env.SYNCRO_WEBHOOK_SECRET!, {
+  "subscription.renewed": async (event) => { /* ... */ },
+});
+```
+
+## Stellar Transaction Memos
+
+```typescript
+import { buildSyncroMemo, parseSyncroMemo, verifyTransactionMemo } from "@syncro/sdk/stellar";
+
+const memo = buildSyncroMemo("create", subscriptionId);
+const parsed = parseSyncroMemo(memo);
+const verified = verifyTransactionMemo({ memo, successful: true, hash: txHash }, "create", subscriptionId);
+```
+
+## Sub-path Exports
+
+| Sub-path | Description |
+|----------|-------------|
+| `@syncro/sdk` | Main entry — payments utilities, webhooks, receipts, Stellar memos, contract bindings, pricing, channels |
+| `@syncro/sdk/v3` | v3 payments API — `GatewayClient`, `createPaidFetch`, receipt verification, retry, gateway errors |
+| `@syncro/sdk/webhooks` | Webhook verification helpers |
+| `@syncro/sdk/stellar` | Stellar memo build/parse/verify utilities |
+| `@syncro/sdk/zk` | Zero-knowledge proof utilities |
+| `@syncro/sdk/contracts` | Soroban contract transaction builders |
+| `@syncro/sdk/types` | TypeScript types only (no runtime) |
+| `@syncro/sdk/crypto` | Cryptographic primitives (browser/node dual build) |
+| `@syncro/sdk/experimental` | Unstable/preview exports — may change in any release |

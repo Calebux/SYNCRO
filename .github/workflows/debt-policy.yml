@@ -1,0 +1,22 @@
+name: Tech Debt Policy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  todo-check:
+    name: Untracked TODO/FIXME check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      # The scanner has no dependencies — it uses only Node built-ins —
+      # so no install step is needed.
+      - name: Enforce TODO/FIXME issue references in critical paths
+        run: node scripts/check-todos.mjs

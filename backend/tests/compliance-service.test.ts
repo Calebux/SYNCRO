@@ -6,7 +6,12 @@ process.env.UNSUBSCRIBE_SECRET = 'test-secret-key-for-hmac-signing';
 jest.mock('../src/config/database', () => ({
   supabase: {
     from: jest.fn(),
-    auth: { admin: { deleteUser: jest.fn() } },
+    auth: {
+      admin: {
+        deleteUser: jest.fn(),
+        getUserById: jest.fn().mockResolvedValue({ data: { user: null } }),
+      },
+    },
   },
 }));
 
@@ -15,7 +20,16 @@ jest.mock('../src/config/logger', () => ({
   default: { info: jest.fn(), error: jest.fn(), warn: jest.fn() },
 }));
 
+jest.mock('../src/services/gdpr-deletion-pipeline', () => ({
+  executeGdprDeletionPipeline: jest.fn().mockResolvedValue({ success: true, stepsCompleted: ['cascade_delete'] }),
+}));
+
+jest.mock('../src/services/email-service', () => ({
+  emailService: { sendSimpleEmail: jest.fn().mockResolvedValue(undefined) },
+}));
+
 import { supabase } from '../src/config/database';
+import { executeGdprDeletionPipeline } from '../src/services/gdpr-deletion-pipeline';
 
 describe('ComplianceService', () => {
   let service: ComplianceService;
@@ -358,18 +372,22 @@ describe('ComplianceService', () => {
       expect(count).toBe(0);
     });
 
-    it('should anonymize audit logs before deleting the auth user', async () => {
+    it('should run GDPR pipeline then anonymize audit logs before deleting the auth user', async () => {
       const pendingDeletion = { id: 'del-1', user_id: 'user-abc' };
-      const auditUpdate = jest.fn().mockReturnThis();
-      const auditEq = jest.fn().mockResolvedValue({ data: {}, error: null });
-      const deletionsUpdate = jest.fn().mockReturnThis();
-      const deletionsEq = jest.fn().mockResolvedValue({ data: {}, error: null });
-
       const callOrder: string[] = [];
+
+      (executeGdprDeletionPipeline as jest.Mock).mockImplementation(async () => {
+        callOrder.push('pipeline');
+        return { success: true, stepsCompleted: ['cascade_delete'] };
+      });
 
       (supabase.auth.admin.deleteUser as jest.Mock).mockImplementation(() => {
         callOrder.push('deleteUser');
         return Promise.resolve({ error: null });
+      });
+
+      (supabase.auth.admin.getUserById as jest.Mock) = jest.fn().mockResolvedValue({
+        data: { user: { email: 'test@example.com' } },
       });
 
       (supabase.from as jest.Mock).mockImplementation((table: string) => {
@@ -378,28 +396,21 @@ describe('ComplianceService', () => {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
             lte: jest.fn().mockResolvedValue({ data: [pendingDeletion], error: null }),
-            update: deletionsUpdate,
-          };
-        }
-        if (table === 'audit_logs') {
-          return {
-            update: jest.fn().mockImplementation(() => {
-              callOrder.push('auditAnonymize');
-              return { eq: auditEq };
+            update: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({ data: {}, error: null }),
             }),
           };
         }
         return {
-          update: jest.fn().mockReturnThis(),
-          eq: jest.fn().mockResolvedValue({ data: {}, error: null }),
+          update: jest.fn().mockReturnValue({
+            eq: jest.fn().mockResolvedValue({ data: {}, error: null }),
+          }),
         };
       });
 
-      deletionsUpdate.mockReturnValue({ eq: deletionsEq });
-
       const count = await service.processHardDeletes();
       expect(count).toBe(1);
-      expect(callOrder[0]).toBe('auditAnonymize');
+      expect(callOrder[0]).toBe('pipeline');
       expect(callOrder[1]).toBe('deleteUser');
     });
 

@@ -220,3 +220,93 @@ describe('Logger PII Redaction', () => {
     });
   });
 });
+
+describe('Logger maskFormat — SENSITIVE_KEYS redaction', () => {
+  // maskFormat operates on key names containing substrings from SENSITIVE_KEYS
+  // ('password','secret','key','token','auth','pass','stellar_secret_key', etc.)
+  // Re-create the full pipeline (requestContextFormat is a no-op outside a
+  // request context, so we omit it here to keep the test self-contained).
+
+  const { default: winston } = require('winston') as typeof import('winston');
+
+  // Import the real logger just to verify it exports correctly — actual
+  // format pipeline is tested via a local logger below.
+  it('logger module exports a default logger', async () => {
+    const mod = await import('../src/config/logger');
+    expect(mod.default).toBeDefined();
+    expect(typeof mod.default.info).toBe('function');
+  });
+
+  it('should mask fields whose key contains "secret"', () => {
+    const logs: any[] = [];
+    const testLogger = winston.createLogger({
+      level: 'debug',
+      format: winston.format.combine(
+        piiRedactionFormat(),
+        winston.format.json(),
+        winston.format.printf((info) => { logs.push(info); return ''; }),
+      ),
+      transports: [new winston.transports.Console({ silent: true })],
+    });
+
+    testLogger.info('oauth creds', { clientSecret: 'abc123xyz' });
+    expect(logs[0].clientSecret).toBe('[REDACTED]');
+  });
+
+  it('should mask fields whose key is exactly "token"', () => {
+    const logs: any[] = [];
+    const testLogger = winston.createLogger({
+      level: 'debug',
+      format: winston.format.combine(
+        piiRedactionFormat(),
+        winston.format.json(),
+        winston.format.printf((info) => { logs.push(info); return ''; }),
+      ),
+      transports: [new winston.transports.Console({ silent: true })],
+    });
+
+    testLogger.info('session', { token: 'tok_live_supersecret' });
+    expect(logs[0].token).toBe('[REDACTED]');
+  });
+
+  it('should mask nested password fields', () => {
+    const logs: any[] = [];
+    const testLogger = winston.createLogger({
+      level: 'debug',
+      format: winston.format.combine(
+        piiRedactionFormat(),
+        winston.format.json(),
+        winston.format.printf((info) => { logs.push(info); return ''; }),
+      ),
+      transports: [new winston.transports.Console({ silent: true })],
+    });
+
+    testLogger.info('db config', { db: { host: 'localhost', password: 'hunter2' } });
+    expect(logs[0].db.password).toBe('[REDACTED]');
+    expect(logs[0].db.host).toBe('localhost');
+  });
+});
+
+describe('PII never reaches error response body', () => {
+  it('500 response detail is a static string regardless of err.message content', async () => {
+    const express = require('express');
+    const supertest = require('supertest');
+    const { errorHandler } = require('../src/middleware/errorHandler');
+
+    const app = express();
+    app.get('/boom', (_req: any, _res: any, next: any) => {
+      next(new Error('token=eyJhbGciOiJIUzI1NiJ9 email=admin@corp.com password=s3cr3t'));
+    });
+    app.use(errorHandler);
+
+    const res = await supertest(app).get('/boom');
+    expect(res.status).toBe(500);
+    expect(res.headers['content-type']).toMatch(/application\/problem\+json/);
+
+    const body = JSON.stringify(res.body);
+    expect(body).not.toMatch(/eyJhbGci/);         // no JWT fragment
+    expect(body).not.toMatch(/admin@corp\.com/);  // no email
+    expect(body).not.toMatch(/s3cr3t/);           // no password
+    expect(res.body.detail).toBe('An unexpected error occurred.');
+  });
+});

@@ -27,7 +27,7 @@ All required PNG icons have been generated from `icon.svg`:
 
 Icons are automatically generated using the script:
 ```bash
-pnpm run generate-pwa-icons
+npm run generate-pwa-icons
 ```
 
 This uses Sharp to convert the SVG icon to PNG format in all required sizes.

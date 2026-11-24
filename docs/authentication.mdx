@@ -1,0 +1,50 @@
+---
+title: Authentication
+description: "How to authenticate with the SYNCRO API"
+---
+
+## API Keys
+
+SYNCRO uses **Bearer token** authentication. Include your API key in every request:
+
+```http
+Authorization: Bearer YOUR_API_KEY
+```
+
+### Obtaining an API Key
+
+1. Log in to the [SYNCRO dashboard](https://app.syncro.app)
+2. Go to **Settings → API Keys**
+3. Click **Create API Key**
+4. Copy and store your key — it is only shown once
+
+### Key Scopes
+
+| Scope | Description |
+|-------|-------------|
+| `read` | Read subscriptions and webhooks |
+| `write` | Create/update subscriptions |
+| `admin` | Full access including deletions |
+
+## Environments
+
+| Environment | Base URL |
+|-------------|----------|
+| Production | `https://api.syncro.app` |
+| Sandbox | `https://sandbox-api.syncro.app` |
+
+## Error Responses
+
+| Status | Meaning |
+|--------|---------|
+| `401` | Missing or invalid API key |
+| `403` | Insufficient permissions for the requested scope |
+| `429` | Rate limit exceeded (100 requests/minute) |
+
+```json
+{
+  "statusCode": 401,
+  "error": "Unauthorized",
+  "message": "Invalid or missing API key"
+}
+```

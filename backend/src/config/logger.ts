@@ -110,9 +110,32 @@ function redactSensitiveData(obj: any, depth = 0, seen = new WeakSet()): any {
  */
 const piiRedactionFormat = winston.format((info: winston.Logform.TransformableInfo) => {
   try {
+    const ctx = requestContextStorage.getStore();
+    const isPrivacyMode = ctx?.isPrivacyModeEnabled;
+
     // Create a shallow copy first
     const redactedInfo = { ...info };
     
+    // If privacy mode is enabled, heavily redact the message and metadata
+    if (isPrivacyMode) {
+      if (typeof redactedInfo.message === 'string') {
+        redactedInfo.message = redactSensitiveData(redactedInfo.message);
+      }
+      
+      for (const [key, value] of Object.entries(redactedInfo)) {
+        if (
+          key !== 'level' &&
+          key !== 'timestamp' &&
+          key !== 'requestId' &&
+          key !== 'userId' &&
+          key !== 'service'
+        ) {
+          redactedInfo[key] = '[REDACTED_PRIVACY_MODE]';
+        }
+      }
+      return redactedInfo;
+    }
+
     // Redact the message
     if (typeof redactedInfo.message === 'string') {
       redactedInfo.message = redactSensitiveData(redactedInfo.message);
@@ -165,7 +188,11 @@ const requestContextFormat = winston.format((info: winston.Logform.Transformable
   if (ctx) {
     info['requestId'] = ctx.requestId;
     if (ctx.userId) {
-      info['userId'] = ctx.userId;
+      if (ctx.isPrivacyModeEnabled) {
+        info['userId'] = '[REDACTED_PRIVACY]';
+      } else {
+        info['userId'] = ctx.userId;
+      }
     }
   }
   return info;

@@ -1,5 +1,7 @@
 "use client"
 
+import { createClient } from "@/lib/supabase/client"
+
 // Audit logging for tracking user actions
 
 export interface AuditLogEntry {
@@ -27,8 +29,41 @@ export interface AuditEventForAPI {
 // Configuration
 const BATCH_SIZE = 10
 const FLUSH_INTERVAL_MS = 5000 // 5 seconds
-const API_ENDPOINT = '/api/audit'
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+const API_ENDPOINT = `${API_BASE}/api/audit`
 const MAX_OFFLINE_STORAGE = 100 // max items to store in localStorage
+
+interface AuditEventPayload {
+  action: string
+  resource_type: string
+  resource_id?: string
+  user_id?: string
+  metadata?: Record<string, unknown>
+}
+
+async function getAuthHeaders(): Promise<Record<string, string> | null> {
+  const supabase = createClient()
+  const { data: { session } } = await supabase.auth.getSession()
+
+  if (!session?.access_token) {
+    return null
+  }
+
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${session.access_token}`,
+  }
+}
+
+function toApiEvents(events: AuditEventForAPI[]): AuditEventPayload[] {
+  return events.map((event) => ({
+    action: event.action,
+    resource_type: event.resourceType,
+    resource_id: event.resourceId,
+    user_id: event.userId,
+    metadata: event.metadata,
+  }))
+}
 
 class AuditLogger {
   private logs: AuditLogEntry[] = []
@@ -131,13 +166,17 @@ class AuditLogger {
     const events = this.auditQueue.splice(0)
 
     try {
-      // Try to send to backend
+      const headers = await getAuthHeaders()
+      if (!headers) {
+        this.auditQueue.unshift(...events)
+        return
+      }
+
       const response = await fetch(API_ENDPOINT, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ events }),
+        headers,
+        credentials: 'include',
+        body: JSON.stringify({ events: toApiEvents(events) }),
       })
 
       if (!response.ok) {
@@ -204,12 +243,16 @@ class AuditLogger {
         return
       }
 
+      const headers = await getAuthHeaders()
+      if (!headers) {
+        return
+      }
+
       const response = await fetch(API_ENDPOINT, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ events }),
+        headers,
+        credentials: 'include',
+        body: JSON.stringify({ events: toApiEvents(events) }),
       })
 
       if (!response.ok) {
@@ -315,6 +358,21 @@ export function logTeamAction(
     action,
     resource: "team",
     resourceId: memberId,
+    details,
+  })
+}
+
+export function logCancellationGuideAction(
+  userId: string,
+  action: "guide_opened" | "direct_url_clicked",
+  serviceName: string,
+  details?: Record<string, any>,
+): void {
+  auditLogger.log({
+    userId,
+    action,
+    resource: "cancellation_guide",
+    resourceId: serviceName,
     details,
   })
 }

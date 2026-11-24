@@ -1,0 +1,539 @@
+import request from 'supertest';
+import express from 'express';
+import { Keypair } from '@stellar/stellar-sdk';
+import { createV3GatewayRouter, ProviderDirectory } from '../src/routes/v3/gateway';
+import {
+  generatePaymentChallenge,
+  parsePaymentProof,
+  verifyPaymentProof,
+  challengeNonceStore,
+  defaultChannelStateStore,
+} from '../src/services/v3/payment-challenge-service';
+import { spendCapService } from '../src/services/v3/spend-cap-service';
+import { unitEconomicsService } from '../src/services/v3/unit-economics-service';
+import { meterReservationTracker } from '../src/services/v3/gateway-lifecycle';
+import crypto from 'crypto';
+
+describe('V3 Gateway & Ops Tests', () => {
+  let app: express.Express;
+  let providerKeypair: Keypair;
+  let providerDirectory: ProviderDirectory;
+
+  beforeEach(() => {
+    challengeNonceStore.clear();
+    defaultChannelStateStore.clear();
+    spendCapService.clear();
+    unitEconomicsService.clear();
+    meterReservationTracker.clear();
+
+    // #1619: the economics endpoint now requires ownership; back the router
+    // with a directory whose payout address the test controls.
+    providerKeypair = Keypair.random();
+    providerDirectory = {
+      payoutAddressOf: (providerId: string) =>
+        providerId === 'provider_test' ? providerKeypair.publicKey() : null,
+    };
+
+    app = express();
+    app.use(express.json());
+    app.use('/api/v3/gateway', createV3GatewayRouter(undefined, { providers: providerDirectory }));
+  });
+
+  function signProviderChallenge(providerId: string): Record<string, string> {
+    const challenge = `syncro-provider-economics:${providerId}:test-nonce`;
+    const signature = Buffer.from(providerKeypair.sign(Buffer.from(challenge))).toString('base64');
+    return {
+      'x-syncro-provider-challenge': challenge,
+      'x-syncro-provider-signature': signature,
+    };
+  }
+
+
+  describe('Issue #1466: HTTP 402 challenge and payment-proof verification', () => {
+    it('returns 402 Payment Required with machine-readable challenge on unfunded/unauthenticated request', async () => {
+      const res = await request(app).post('/api/v3/gateway/proxy').send({ input: 'test prompt' });
+      expect(res.status).toBe(402);
+      expect(res.headers['payment-required']).toBeDefined();
+      expect(res.body.challenge).toBeDefined();
+      expect(res.body.challenge.settlementAsset).toBeDefined();
+      expect(res.body.challenge.channelAddress).toBeDefined();
+      expect(res.body.challenge.contract).toBeDefined();
+      expect(res.body.challenge.chain).toBeDefined();
+      expect(res.body.challenge.nonce).toBeDefined();
+    });
+
+    it('rejects a replayed proof with distinct REPLAYED_PROOF code', async () => {
+      const agentId = 'agent_test_key_123';
+      spendCapService.setCap({
+        cardId: 1,
+        agentId,
+        onChainCap: 500,
+        consumedLocal: 0,
+        lastSettledOnChainCap: 500,
+        dailyLimit: 0,
+        monthlyLimit: 0,
+        status: 'active',
+        expiresAt: 0,
+      });
+
+      defaultChannelStateStore.setChannelMembers('chan_1', { payer: 'G_PAYER', provider: 'G_PROVIDER' });
+      defaultChannelStateStore.setLatestSequence('chan_1', 1);
+
+      const proof = {
+        channelId: 'chan_1',
+        sequenceNumber: 2,
+        userBalance: 100,
+        executorBalance: 50,
+        totalDeposited: 150,
+        nonce: 'replayed_nonce_123',
+        signature: 'mock_valid_signature',
+        payerAddress: 'G_PAYER',
+      };
+
+      const proofHeader = Buffer.from(JSON.stringify(proof)).toString('base64');
+
+      // First call succeeds
+      const res1 = await request(app)
+        .post('/api/v3/gateway/proxy')
+        .set('Authorization', `Bearer ${agentId}`)
+        .set('PAYMENT-SIGNATURE', proofHeader)
+        .send({ prompt: 'test' });
+
+      expect(res1.status).toBe(200);
+
+      // Second call with same nonce fails with replay rejection
+      const res2 = await request(app)
+        .post('/api/v3/gateway/proxy')
+        .set('Authorization', `Bearer ${agentId}`)
+        .set('PAYMENT-SIGNATURE', proofHeader)
+        .send({ prompt: 'test' });
+
+      expect(res2.status).toBe(402);
+      expect(res2.body.code).toBe('REPLAYED_PROOF');
+    });
+
+    it('distinguishes insufficient balance from replayed proof', async () => {
+      const agentId = 'agent_test_key_123';
+      spendCapService.setCap({
+        cardId: 1,
+        agentId,
+        onChainCap: 500,
+        consumedLocal: 0,
+        lastSettledOnChainCap: 500,
+        dailyLimit: 0,
+        monthlyLimit: 0,
+        status: 'active',
+        expiresAt: 0,
+      });
+
+      defaultChannelStateStore.setChannelMembers('chan_2', { payer: 'G_PAYER', provider: 'G_PROVIDER' });
+      defaultChannelStateStore.setLatestSequence('chan_2', 1);
+
+      const proofInsufficient = {
+        channelId: 'chan_2',
+        sequenceNumber: 2,
+        userBalance: 2, // upper bound is 10
+        executorBalance: 50,
+        totalDeposited: 150,
+        nonce: 'fresh_nonce_456',
+        signature: 'mock_valid_signature',
+        payerAddress: 'G_PAYER',
+      };
+
+      const proofHeader = Buffer.from(JSON.stringify(proofInsufficient)).toString('base64');
+
+      const res = await request(app)
+        .post('/api/v3/gateway/proxy')
+        .set('Authorization', `Bearer ${agentId}`)
+        .set('PAYMENT-SIGNATURE', proofHeader)
+        .send({ prompt: 'test' });
+
+      expect(res.status).toBe(402);
+      expect(res.body.code).toBe('INSUFFICIENT_BALANCE');
+    });
+  });
+
+  describe('Issue #1465: Paid-request gateway skeleton and request lifecycle', () => {
+    it('executes full ordered lifecycle end-to-end and attaches receipt', async () => {
+      const agentId = 'agent_lifecycle_ok';
+      spendCapService.setCap({
+        cardId: 1,
+        agentId,
+        onChainCap: 500,
+        consumedLocal: 0,
+        lastSettledOnChainCap: 500,
+        dailyLimit: 0,
+        monthlyLimit: 0,
+        status: 'active',
+        expiresAt: 0,
+      });
+
+      defaultChannelStateStore.setChannelMembers('chan_lc', { payer: 'G_PAYER', provider: 'G_PROVIDER' });
+      defaultChannelStateStore.setLatestSequence('chan_lc', 0);
+
+      const proof = {
+        channelId: 'chan_lc',
+        sequenceNumber: 1,
+        userBalance: 200,
+        executorBalance: 0,
+        totalDeposited: 200,
+        nonce: 'nonce_lifecycle_1',
+        signature: 'mock_valid_signature',
+        payerAddress: 'G_PAYER',
+      };
+
+      const proofHeader = Buffer.from(JSON.stringify(proof)).toString('base64');
+
+      const res = await request(app)
+        .post('/api/v3/gateway/proxy')
+        .set('Authorization', `Bearer ${agentId}`)
+        .set('PAYMENT-SIGNATURE', proofHeader)
+        .send({ prompt: 'hello agent' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.receipt).toBeDefined();
+      expect(res.body.receipt.cost).toBe(8); // committed actual price
+      expect(res.headers['payment-response']).toBeDefined();
+      expect(meterReservationTracker.getStrandedCount()).toBe(0);
+    });
+
+    it('guarantees reservation release when upstream throws an error (no stranded reservations)', async () => {
+      const agentId = 'agent_lifecycle_err';
+      spendCapService.setCap({
+        cardId: 1,
+        agentId,
+        onChainCap: 500,
+        consumedLocal: 0,
+        lastSettledOnChainCap: 500,
+        dailyLimit: 0,
+        monthlyLimit: 0,
+        status: 'active',
+        expiresAt: 0,
+      });
+
+      defaultChannelStateStore.setChannelMembers('chan_err', { payer: 'G_PAYER', provider: 'G_PROVIDER' });
+      defaultChannelStateStore.setLatestSequence('chan_err', 0);
+
+      const proof = {
+        channelId: 'chan_err',
+        sequenceNumber: 1,
+        userBalance: 200,
+        executorBalance: 0,
+        totalDeposited: 200,
+        nonce: 'nonce_err_1',
+        signature: 'mock_valid_signature',
+        payerAddress: 'G_PAYER',
+      };
+
+      const proofHeader = Buffer.from(JSON.stringify(proof)).toString('base64');
+
+      const res = await request(app)
+        .post('/api/v3/gateway/proxy')
+        .set('Authorization', `Bearer ${agentId}`)
+        .set('PAYMENT-SIGNATURE', proofHeader)
+        .send({ prompt: 'hello agent', simulateUpstreamError: true });
+
+      expect(res.status).toBe(502);
+      expect(meterReservationTracker.getStrandedCount()).toBe(0);
+    });
+  });
+
+  describe('Issue #1469: Cap admission via the on-chain spend-cap contract', () => {
+    it('rejects call exceeding cap before proxying with remaining allowance and needed amount', async () => {
+      const agentId = 'agent_capped_low';
+      spendCapService.setCap({
+        cardId: 2,
+        agentId,
+        onChainCap: 5, // priced upper bound is 10
+        consumedLocal: 0,
+        lastSettledOnChainCap: 5,
+        dailyLimit: 0,
+        monthlyLimit: 0,
+        status: 'active',
+        expiresAt: 0,
+      });
+
+      const res = await request(app)
+        .post('/api/v3/gateway/proxy')
+        .set('Authorization', `Bearer ${agentId}`)
+        .send({ prompt: 'hello' });
+
+      expect(res.status).toBe(402);
+      expect(res.body.error).toBe('Spend cap admission failed');
+      expect(res.body.remainingAllowance).toBe(5);
+      expect(res.body.requiredAmount).toBe(10);
+      expect(res.body.reason).toContain('remaining allowance is only 5');
+    });
+
+    it('tracks consumption locally and reconciles local vs chain view after settlement', () => {
+      const agentId = 'agent_reconcile';
+      spendCapService.setCap({
+        cardId: 3,
+        agentId,
+        onChainCap: 100,
+        consumedLocal: 0,
+        lastSettledOnChainCap: 100,
+        dailyLimit: 0,
+        monthlyLimit: 0,
+        status: 'active',
+        expiresAt: 0,
+      });
+
+      // 3 calls consume 8 each locally
+      spendCapService.consumeLocal(agentId, 8);
+      spendCapService.consumeLocal(agentId, 8);
+      spendCapService.consumeLocal(agentId, 8);
+
+      let cap = spendCapService.getCap(agentId)!;
+      expect(cap.consumedLocal).toBe(24);
+
+      // Now on-chain settlement happens: 24 settled, onChainCap decrements to 76
+      spendCapService.reconcileSettlement(agentId, 76, 24);
+
+      cap = spendCapService.getCap(agentId)!;
+      expect(cap.onChainCap).toBe(76);
+      expect(cap.consumedLocal).toBe(0);
+      expect(spendCapService.canTransact(agentId, 10).remainingAllowance).toBe(76);
+    });
+  });
+
+  describe('Issue #1522: Cost model and unit economics instrumentation', () => {
+    it('instruments cost per call, detects negative unit economics, and derives batching policy defaults', () => {
+      const providerId = 'provider_llm_alpha';
+
+      unitEconomicsService.recordChannel({
+        channelId: 'chan_eco_1',
+        providerId,
+        channelSize: 1000,
+        chainFeePerSettlement: 50,
+        infrastructureCostPerCall: 0.5,
+        providerPayoutRate: 2.0,
+        settledCallsCount: 0,
+        totalRevenue: 0,
+      });
+
+      // Batch 1: 5 calls, chain fee 50, revenue 5 * 2.5 = 12.5
+      // Cost per call = (50 / 5) + 0.5 + 2.0 = 12.5. Net margin = 0.
+      unitEconomicsService.recordSettledBatch('chan_eco_1', 5, 50, 12.5);
+
+      // Batch 2: bad pricing leads to negative economics alert
+      unitEconomicsService.recordSettledBatch('chan_eco_1', 2, 50, 2.0);
+      const alerts = unitEconomicsService.getAlerts();
+      expect(alerts.length).toBeGreaterThan(0);
+      expect(alerts[0].reason).toContain('Negative unit economics detected');
+
+      // Derive policy for target price = 10 per call
+      const policy = unitEconomicsService.deriveBatchingPolicy(providerId, 10);
+      expect(policy.optimalBatchThreshold).toBeGreaterThanOrEqual(1);
+      expect(policy.minimumViableChannelSize).toBeGreaterThan(0);
+    });
+
+    it('exposes economics endpoint via router', async () => {
+      unitEconomicsService.recordChannel({
+        channelId: 'chan_eco_2',
+        providerId: 'provider_test',
+        channelSize: 500,
+        chainFeePerSettlement: 30,
+        infrastructureCostPerCall: 0.2,
+        providerPayoutRate: 1.0,
+        settledCallsCount: 10,
+        totalRevenue: 30,
+      });
+
+      const res = await request(app)
+        .get('/api/v3/gateway/economics/provider_test?targetPrice=5')
+        .set(signProviderChallenge('provider_test'));
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.recommendation).toBeDefined();
+      expect(res.body.data.recommendation.optimalBatchThreshold).toBeDefined();
+    });
+
+    // ── Issue #1619: economics endpoint must be authorized ──────────────────
+
+    it('rejects an unauthenticated request without a provider proof', async () => {
+      const res = await request(app).get('/api/v3/gateway/economics/provider_test?targetPrice=5');
+      expect(res.status).toBe(403);
+      expect(res.body.success).toBeUndefined();
+    });
+
+    it('rejects a cross-provider signature (proof bound to another provider)', async () => {
+      const res = await request(app)
+        .get('/api/v3/gateway/economics/provider_test?targetPrice=5')
+        .set(signProviderChallenge('provider_other'));
+      expect(res.status).toBe(403);
+    });
+
+    it('rejects an invalid provider signature', async () => {
+      const challenge = 'syncro-provider-economics:provider_test:test-nonce';
+      const res = await request(app)
+        .get('/api/v3/gateway/economics/provider_test?targetPrice=5')
+        .set('x-syncro-provider-challenge', challenge)
+        .set('x-syncro-provider-signature', Buffer.from('not-a-signature').toString('base64'));
+      expect(res.status).toBe(403);
+    });
+
+    it('rejects a non-numeric targetPrice with 400', async () => {
+      const res = await request(app)
+        .get('/api/v3/gateway/economics/provider_test?targetPrice=abc')
+        .set(signProviderChallenge('provider_test'));
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects a non-positive targetPrice with 400', async () => {
+      const res = await request(app)
+        .get('/api/v3/gateway/economics/provider_test?targetPrice=-3')
+        .set(signProviderChallenge('provider_test'));
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('Issue #1446: Unit definitions beyond request count (tokens, calls, bytes & dropped stream fallback)', () => {
+    it('meters token-billed route correctly using extracted token count from response body', async () => {
+      const agentId = 'agent_token_test';
+      spendCapService.setCap({
+        cardId: 10,
+        agentId,
+        onChainCap: 500,
+        consumedLocal: 0,
+        lastSettledOnChainCap: 500,
+        dailyLimit: 0,
+        monthlyLimit: 0,
+        status: 'active',
+        expiresAt: 0,
+      });
+
+      defaultChannelStateStore.setChannelMembers('chan_token', { payer: 'G_PAYER', provider: 'G_PROVIDER' });
+      defaultChannelStateStore.setLatestSequence('chan_token', 0);
+
+      const proof = {
+        channelId: 'chan_token',
+        sequenceNumber: 1,
+        userBalance: 200,
+        executorBalance: 0,
+        totalDeposited: 200,
+        nonce: 'nonce_token_1',
+        signature: 'mock_valid_signature',
+        payerAddress: 'G_PAYER',
+      };
+      const proofHeader = Buffer.from(JSON.stringify(proof)).toString('base64');
+
+      const res = await request(app)
+        .post('/api/v3/gateway/inference')
+        .set('Authorization', `Bearer ${agentId}`)
+        .set('PAYMENT-SIGNATURE', proofHeader)
+        .send({ usage: { total_tokens: 85 } });
+
+      expect(res.status).toBe(200);
+      expect(res.body.receipt).toBeDefined();
+      expect(res.body.receipt.unitName).toBe('tokens');
+      expect(res.body.receipt.units).toBe(85);
+      expect(res.body.receipt.cost).toBe(8.5);
+      expect(res.body.receipt.fallbackUsed).toBe(false);
+    });
+
+    it('falls back to charging reservation bound when extraction fails or stream is dropped mid-flight', async () => {
+      const agentId = 'agent_fallback_test';
+      spendCapService.setCap({
+        cardId: 11,
+        agentId,
+        onChainCap: 500,
+        consumedLocal: 0,
+        lastSettledOnChainCap: 500,
+        dailyLimit: 0,
+        monthlyLimit: 0,
+        status: 'active',
+        expiresAt: 0,
+      });
+
+      defaultChannelStateStore.setChannelMembers('chan_fallback', { payer: 'G_PAYER', provider: 'G_PROVIDER' });
+      defaultChannelStateStore.setLatestSequence('chan_fallback', 0);
+
+      const proof = {
+        channelId: 'chan_fallback',
+        sequenceNumber: 1,
+        userBalance: 200,
+        executorBalance: 0,
+        totalDeposited: 200,
+        nonce: 'nonce_fallback_1',
+        signature: 'mock_valid_signature',
+        payerAddress: 'G_PAYER',
+      };
+      const proofHeader = Buffer.from(JSON.stringify(proof)).toString('base64');
+
+      const res = await request(app)
+        .post('/api/v3/gateway/inference')
+        .set('Authorization', `Bearer ${agentId}`)
+        .set('PAYMENT-SIGNATURE', proofHeader)
+        .send({ simulateDroppedStream: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body.receipt).toBeDefined();
+      expect(res.body.receipt.unitName).toBe('tokens');
+      expect(res.body.receipt.units).toBe(100);
+      expect(res.body.receipt.cost).toBe(10);
+      expect(res.body.receipt.fallbackUsed).toBe(true);
+    });
+
+    it('meters call-billed and token-billed routes correctly through the exact same code path', async () => {
+      const agentId = 'agent_dual_test';
+      spendCapService.setCap({
+        cardId: 12,
+        agentId,
+        onChainCap: 500,
+        consumedLocal: 0,
+        lastSettledOnChainCap: 500,
+        dailyLimit: 0,
+        monthlyLimit: 0,
+        status: 'active',
+        expiresAt: 0,
+      });
+
+      defaultChannelStateStore.setChannelMembers('chan_dual', { payer: 'G_PAYER', provider: 'G_PROVIDER' });
+      defaultChannelStateStore.setLatestSequence('chan_dual', 0);
+
+      // Call 1: Call-billed route
+      const proof1 = {
+        channelId: 'chan_dual',
+        sequenceNumber: 1,
+        userBalance: 200,
+        executorBalance: 0,
+        totalDeposited: 200,
+        nonce: 'nonce_dual_1',
+        signature: 'mock_valid_signature',
+        payerAddress: 'G_PAYER',
+      };
+      const res1 = await request(app)
+        .post('/api/v3/gateway/proxy')
+        .set('Authorization', `Bearer ${agentId}`)
+        .set('PAYMENT-SIGNATURE', Buffer.from(JSON.stringify(proof1)).toString('base64'))
+        .send({ prompt: 'call-billed test' });
+
+      expect(res1.status).toBe(200);
+      expect(res1.body.receipt.unitName).toBe('calls');
+      expect(res1.body.receipt.units).toBe(1);
+
+      // Call 2: Token-billed route
+      const proof2 = {
+        channelId: 'chan_dual',
+        sequenceNumber: 2,
+        userBalance: 200,
+        executorBalance: 0,
+        totalDeposited: 200,
+        nonce: 'nonce_dual_2',
+        signature: 'mock_valid_signature',
+        payerAddress: 'G_PAYER',
+      };
+      const res2 = await request(app)
+        .post('/api/v3/gateway/inference')
+        .set('Authorization', `Bearer ${agentId}`)
+        .set('PAYMENT-SIGNATURE', Buffer.from(JSON.stringify(proof2)).toString('base64'))
+        .send({ usage: { total_tokens: 150 } });
+
+      expect(res2.status).toBe(200);
+      expect(res2.body.receipt.unitName).toBe('tokens');
+      expect(res2.body.receipt.units).toBe(150);
+      expect(res2.body.receipt.cost).toBe(15);
+    });
+  });
+});

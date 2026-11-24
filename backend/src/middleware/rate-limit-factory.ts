@@ -1,9 +1,10 @@
 import rateLimit, { RateLimitRequestHandler } from 'express-rate-limit';
-import { Request } from 'express';
+import { Request, RequestHandler } from 'express';
 import { rateLimitConfig } from '../config/rate-limit';
 import { createRedisStore } from '../lib/redis-store';
 import { AuthenticatedRequest } from './auth';
 import logger from '../config/logger';
+import { createSubscriptionTierLimiter, TierRateLimiterOptions } from './subscription-tier-rate-limiter';
 
 /**
  * Key generator for user-based rate limiting
@@ -130,6 +131,111 @@ export class RateLimiterFactory {
   }
 
   /**
+   * Login / credential submission — IP-keyed (5 / 15 min default).
+   * Apply to auth-adjacent endpoints (IMAP connect, recovery, etc.).
+   */
+  static createLoginLimiter(): RateLimitRequestHandler {
+    return rateLimit({
+      windowMs: rateLimitConfig.login.windowMs,
+      max: rateLimitConfig.login.max,
+      message: rateLimitConfig.login.message,
+      standardHeaders: true,
+      legacyHeaders: true,
+      validate: false,
+      keyGenerator: ipKeyGenerator,
+      store: this.redisStore || undefined,
+      handler: (req, res, _next) => {
+        createRateLimitHandler('login')(req, res);
+        res.status(429).json(rateLimitConfig.login.message);
+      },
+    });
+  }
+
+  /** CSV / bulk import mutations — 5 / hour / user */
+  static createImportLimiter(): RateLimitRequestHandler {
+    return rateLimit({
+      windowMs: rateLimitConfig.import.windowMs,
+      max: rateLimitConfig.import.max,
+      message: rateLimitConfig.import.message,
+      standardHeaders: true,
+      legacyHeaders: true,
+      validate: false,
+      keyGenerator: userKeyGenerator,
+      store: this.redisStore || undefined,
+      handler: (req, res, _next) => {
+        createRateLimitHandler('import')(req, res);
+        res.status(429).json(rateLimitConfig.import.message);
+      },
+      skip: (req) => {
+        const authReq = req as AuthenticatedRequest;
+        return !authReq.user?.id;
+      },
+    });
+  }
+
+  /** Payment initialize / capture — 10 / hour / user */
+  static createPaymentLimiter(): RateLimitRequestHandler {
+    return rateLimit({
+      windowMs: rateLimitConfig.payment.windowMs,
+      max: rateLimitConfig.payment.max,
+      message: rateLimitConfig.payment.message,
+      standardHeaders: true,
+      legacyHeaders: true,
+      validate: false,
+      keyGenerator: userKeyGenerator,
+      store: this.redisStore || undefined,
+      handler: (req, res, _next) => {
+        createRateLimitHandler('payment')(req, res);
+        res.status(429).json(rateLimitConfig.payment.message);
+      },
+    });
+  }
+
+  /** Refund mutations — 5 / hour / user (stricter than payment) */
+  static createRefundLimiter(): RateLimitRequestHandler {
+    return rateLimit({
+      windowMs: rateLimitConfig.refund.windowMs,
+      max: rateLimitConfig.refund.max,
+      message: rateLimitConfig.refund.message,
+      standardHeaders: true,
+      legacyHeaders: true,
+      validate: false,
+      keyGenerator: userKeyGenerator,
+      store: this.redisStore || undefined,
+      handler: (req, res, _next) => {
+        createRateLimitHandler('refund')(req, res);
+        res.status(429).json(rateLimitConfig.refund.message);
+      },
+      skip: (req) => {
+        const authReq = req as AuthenticatedRequest;
+        return !authReq.user?.id;
+      },
+    });
+  }
+
+  /** API key create / revoke — 10 / hour / user */
+  static createApiKeyLimiter(): RateLimitRequestHandler {
+    return rateLimit({
+      windowMs: rateLimitConfig.apiKey.windowMs,
+      max: rateLimitConfig.apiKey.max,
+      message: rateLimitConfig.apiKey.message,
+      standardHeaders: true,
+      legacyHeaders: true,
+      validate: false,
+      keyGenerator: userKeyGenerator,
+      store: this.redisStore || undefined,
+      handler: (req, res, _next) => {
+        createRateLimitHandler('api-key')(req, res);
+        res.status(429).json(rateLimitConfig.apiKey.message);
+      },
+      skip: (req) => {
+        const authReq = req as AuthenticatedRequest;
+        return !authReq.user?.id;
+      },
+    });
+  }
+
+  /**
    * Create rate limiter for admin endpoints
    * 100 requests per hour per IP
    */
@@ -146,6 +252,27 @@ export class RateLimiterFactory {
       handler: (req, res, _next) => {
         createRateLimitHandler('admin')(req, res);
         res.status(429).json(rateLimitConfig.admin.message);
+      },
+    });
+  }
+
+  /**
+   * Create rate limiter for session challenge endpoints
+   * 5 requests per 15 minutes per IP (unauthenticated endpoints)
+   */
+  static createSessionChallengeLimiter(): RateLimitRequestHandler {
+    return rateLimit({
+      windowMs: rateLimitConfig.sessionChallenge.windowMs,
+      max: rateLimitConfig.sessionChallenge.max,
+      message: rateLimitConfig.sessionChallenge.message,
+      standardHeaders: true,
+      legacyHeaders: true,
+      validate: false,
+      keyGenerator: ipKeyGenerator,
+      store: this.redisStore || undefined,
+      handler: (req, res, _next) => {
+        createRateLimitHandler('session-challenge')(req, res);
+        res.status(429).json(rateLimitConfig.sessionChallenge.message);
       },
     });
   }
@@ -202,12 +329,125 @@ export class RateLimiterFactory {
   }
 
   /**
-   * Get Redis store status for health monitoring
+   * Create rate limiter for stealth address operations
+   * 100 derivations per hour per user
    */
-  static getStoreStatus(): { type: 'redis' | 'memory'; available: boolean } {
+  static createStealthAddressLimiter(): RateLimitRequestHandler {
+    return rateLimit({
+      windowMs: rateLimitConfig.privacy.stealthAddress.windowMs,
+      max: rateLimitConfig.privacy.stealthAddress.max,
+      message: rateLimitConfig.privacy.stealthAddress.message,
+      standardHeaders: true,
+      legacyHeaders: true,
+      validate: false,
+      keyGenerator: userKeyGenerator,
+      store: this.redisStore || undefined,
+      handler: (req, res, _next) => {
+        createRateLimitHandler('stealth-address')(req, res);
+        res.status(429).json(rateLimitConfig.privacy.stealthAddress.message);
+      },
+      skip: (req) => {
+        const authReq = req as AuthenticatedRequest;
+        return !authReq.user?.id;
+      },
+    });
+  }
+
+  /**
+   * Create rate limiter for ZK proof verification endpoints
+   * 10 proof verifications per minute per user
+   */
+  static createZkProofLimiter(): RateLimitRequestHandler {
+    return rateLimit({
+      windowMs: rateLimitConfig.privacy.zkProof.windowMs,
+      max: rateLimitConfig.privacy.zkProof.max,
+      message: rateLimitConfig.privacy.zkProof.message,
+      standardHeaders: true,
+      legacyHeaders: true,
+      validate: false,
+      keyGenerator: userKeyGenerator,
+      store: this.redisStore || undefined,
+      handler: (req, res, _next) => {
+        createRateLimitHandler('zk-proof')(req, res);
+        res.status(429).json(rateLimitConfig.privacy.zkProof.message);
+      },
+      skip: (req) => {
+        const authReq = req as AuthenticatedRequest;
+        return !authReq.user?.id;
+      },
+    });
+  }
+
+  /**
+   * Create rate limiter for payment channel state updates
+   * 1000 state updates per hour per channel
+   */
+  static createPaymentChannelStateUpdateLimiter(): RateLimitRequestHandler {
+    return rateLimit({
+      windowMs: rateLimitConfig.privacy.paymentChannel.stateUpdate.windowMs,
+      max: rateLimitConfig.privacy.paymentChannel.stateUpdate.max,
+      message: rateLimitConfig.privacy.paymentChannel.stateUpdate.message,
+      standardHeaders: true,
+      legacyHeaders: true,
+      validate: false,
+      keyGenerator: userKeyGenerator,
+      store: this.redisStore || undefined,
+      handler: (req, res, _next) => {
+        createRateLimitHandler('payment-channel-state-update')(req, res);
+        res.status(429).json(rateLimitConfig.privacy.paymentChannel.stateUpdate.message);
+      },
+      skip: (req) => {
+        const authReq = req as AuthenticatedRequest;
+        return !authReq.user?.id;
+      },
+    });
+  }
+
+  /**
+   * Create rate limiter for selective disclosure proof generation
+   * 20 disclosure proofs per day per user
+   */
+  static createSelectiveDisclosureLimiter(): RateLimitRequestHandler {
+    return rateLimit({
+      windowMs: rateLimitConfig.privacy.selectiveDisclosure.windowMs,
+      max: rateLimitConfig.privacy.selectiveDisclosure.max,
+      message: rateLimitConfig.privacy.selectiveDisclosure.message,
+      standardHeaders: true,
+      legacyHeaders: true,
+      validate: false,
+      keyGenerator: userKeyGenerator,
+      store: this.redisStore || undefined,
+      handler: (req, res, _next) => {
+        createRateLimitHandler('selective-disclosure')(req, res);
+        res.status(429).json(rateLimitConfig.privacy.selectiveDisclosure.message);
+      },
+      skip: (req) => {
+        const authReq = req as AuthenticatedRequest;
+        return !authReq.user?.id;
+      },
+    });
+  }
+
+  /**
+   * Create rate limiter based on the authenticated user's subscription tier.
+   * Free: 100 req/min, Pro: 500 req/min, Enterprise: 2000 req/min.
+   * Uses a Redis sliding window counter when Redis is available.
+   */
+  static createSubscriptionTierLimiter(opts: TierRateLimiterOptions = {}): RequestHandler {
+    return createSubscriptionTierLimiter(opts);
+  }
+
+  /**
+   * Get Redis store status for health monitoring.
+   * When `degraded` is true the app is running with the in-memory fallback
+   * because Redis was configured but is currently unreachable.
+   */
+  static getStoreStatus(): { type: 'redis' | 'memory'; available: boolean; degraded: boolean } {
+    const degraded = this.redisStoreInitialized && !this.redisStore;
     return {
       type: this.redisStore ? 'redis' : 'memory',
       available: this.redisStoreInitialized,
+      degraded,
     };
   }
 }
@@ -215,5 +455,16 @@ export class RateLimiterFactory {
 // Export individual limiter creators for convenience
 export const createTeamInviteLimiter = () => RateLimiterFactory.createTeamInviteLimiter();
 export const createMfaLimiter = () => RateLimiterFactory.createMfaLimiter();
+export const createLoginLimiter = () => RateLimiterFactory.createLoginLimiter();
+export const createImportLimiter = () => RateLimiterFactory.createImportLimiter();
+export const createPaymentLimiter = () => RateLimiterFactory.createPaymentLimiter();
+export const createRefundLimiter = () => RateLimiterFactory.createRefundLimiter();
+export const createApiKeyLimiter = () => RateLimiterFactory.createApiKeyLimiter();
 export const createAdminLimiter = () => RateLimiterFactory.createAdminLimiter();
 export const createSimulationLimiter = () => RateLimiterFactory.createSimulationLimiter();
+export const createStealthAddressLimiter = () => RateLimiterFactory.createStealthAddressLimiter();
+export const createZkProofLimiter = () => RateLimiterFactory.createZkProofLimiter();
+export const createPaymentChannelStateUpdateLimiter = () => RateLimiterFactory.createPaymentChannelStateUpdateLimiter();
+export const createSelectiveDisclosureLimiter = () => RateLimiterFactory.createSelectiveDisclosureLimiter();
+export const createSessionChallengeLimiter = () => RateLimiterFactory.createSessionChallengeLimiter();
+export { createSubscriptionTierLimiter } from './subscription-tier-rate-limiter';

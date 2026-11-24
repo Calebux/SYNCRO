@@ -1,0 +1,18 @@
+{
+  "id": "youtube-premium-en-monthly",
+  "merchant": "YouTube Premium",
+  "locale": "en",
+  "kind": "positive",
+  "notes": "Individual YouTube Premium receipt.",
+  "email": {
+    "subject": "Your YouTube Premium receipt",
+    "from": "YouTube <no-reply@youtube.com>",
+    "body": "Your subscription renewed. You were billed $13.99/month.\nThis receipt is for your records."
+  },
+  "expected": {
+    "name": "YouTube Premium",
+    "amount": 13.99,
+    "currency": "USD",
+    "interval": "monthly"
+  }
+}

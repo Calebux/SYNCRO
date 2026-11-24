@@ -13,16 +13,11 @@ import {
   RenewalEventDto,
   RenewalHistoryResponseDto,
 } from './renewal-history.dto';
+import { resolveExplorerUrl } from '../../../shared/blockchain-flags';
 
 @Injectable()
 export class RenewalHistoryService {
   private readonly logger = new Logger(RenewalHistoryService.name);
-
-  // Stellar Expert base URL — mainnet vs testnet resolved via env
-  private readonly stellarExplorerBase =
-    process.env.STELLAR_NETWORK === 'testnet'
-      ? 'https://stellar.expert/explorer/testnet/tx'
-      : 'https://stellar.expert/explorer/public/tx';
 
   constructor(
     @InjectRepository(RenewalHistory)
@@ -109,6 +104,29 @@ export class RenewalHistoryService {
 
   // ─── Public: CSV export ───────────────────────────────────────────────────
 
+  /**
+   * Sanitizes a CSV cell to prevent formula injection.
+   * Cells starting with =, +, -, @, tab, or carriage return are prefixed with a single quote.
+   */
+  private sanitizeCSVCell(value: any): string {
+    if (value === null || value === undefined) return '';
+    
+    const stringValue = String(value);
+    const dangerousChars = ['=', '+', '-', '@', '\t', '\r'];
+    
+    // Prevent formula injection
+    if (dangerousChars.some((char) => stringValue.startsWith(char))) {
+      return `'${stringValue}`;
+    }
+    
+    // Escape quotes and wrap in quotes if contains comma, newline, or quote
+    if (stringValue.includes(',') || stringValue.includes('\n') || stringValue.includes('"')) {
+      return `"${stringValue.replace(/"/g, '""')}"`;
+    }
+    
+    return stringValue;
+  }
+
   async exportCsv(
     subscriptionId: string,
     requestingUserId: string,
@@ -135,19 +153,18 @@ export class RenewalHistoryService {
 
     const lines = rows.map((r) => {
       const cols = [
-        r.id,
-        r.createdAt.toISOString(),
-        r.eventType,
-        r.status ?? '',
-        r.amount ?? '',
-        r.currency ?? '',
-        r.paymentMethod ?? '',
-        r.transactionHash ?? '',
-        r.blockchainLedger ?? '',
-        r.blockchainVerified,
-        r.channel ?? '',
-        // Escape notes for CSV
-        r.notes ? `"${r.notes.replace(/"/g, '""')}"` : '',
+        this.sanitizeCSVCell(r.id),
+        this.sanitizeCSVCell(r.createdAt.toISOString()),
+        this.sanitizeCSVCell(r.eventType),
+        this.sanitizeCSVCell(r.status ?? ''),
+        this.sanitizeCSVCell(r.amount ?? ''),
+        this.sanitizeCSVCell(r.currency ?? ''),
+        this.sanitizeCSVCell(r.paymentMethod ?? ''),
+        this.sanitizeCSVCell(r.transactionHash ?? ''),
+        this.sanitizeCSVCell(r.blockchainLedger ?? ''),
+        this.sanitizeCSVCell(r.blockchainVerified),
+        this.sanitizeCSVCell(r.channel ?? ''),
+        this.sanitizeCSVCell(r.notes ?? ''),
       ];
       return cols.join(',');
     });
@@ -170,7 +187,7 @@ export class RenewalHistoryService {
     if (row.paymentMethod) dto.paymentMethod = row.paymentMethod;
     if (row.transactionHash) {
       dto.transactionHash = row.transactionHash;
-      dto.explorerUrl = `${this.stellarExplorerBase}/${row.transactionHash}`;
+      dto.explorerUrl = resolveExplorerUrl(row.transactionHash);
     }
     if (row.blockchainLedger != null) dto.blockchainLedger = row.blockchainLedger;
     if (row.blockchainVerified != null) dto.blockchainVerified = row.blockchainVerified;

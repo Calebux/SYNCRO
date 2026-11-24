@@ -16,6 +16,22 @@ export default function PrivacyPage() {
       <h1 className="text-3xl font-bold mt-8 mb-2">Privacy Policy</h1>
       <p className="text-sm text-gray-500 mb-10">Last updated: March 28, 2026</p>
 
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-10">
+        <p className="text-sm text-blue-900">
+          <strong>🔐 Want to maximize your payment privacy?</strong> Check out our{' '}
+          <a
+            href="https://github.com/Calebux/SYNCRO/blob/main/docs/privacy/user-privacy-guide.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-blue-600 hover:underline"
+          >
+            Privacy Guide
+          </a>{' '}
+          for step-by-step instructions on using stealth addresses, encrypted metadata, Tor,
+          payment channels, and more.
+        </p>
+      </div>
+
       <section className="mb-10">
         <h2 className="text-xl font-semibold mb-3">1. What We Collect</h2>
         <p className="mb-2 text-gray-700">
@@ -157,7 +173,16 @@ export default function PrivacyPage() {
         &middot;{' '}
         <Link href="/dpa" className="text-indigo-600 hover:underline">
           Data Processing Agreement
-        </Link>
+        </Link>{' '}
+        &middot;{' '}
+        <a
+          href="https://github.com/Calebux/SYNCRO/blob/main/docs/privacy/user-privacy-guide.md"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-indigo-600 hover:underline"
+        >
+          Privacy Guide
+        </a>
       </p>
     </main>
   )

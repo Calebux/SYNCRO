@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react"
 import { SessionManager } from "@/lib/security-utils"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@syncro/ui"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@syncro/ui"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from 'next/navigation'
 

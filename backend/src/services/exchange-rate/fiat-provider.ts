@@ -1,9 +1,11 @@
 import { SUPPORTED_FIAT } from '../../constants/currencies';
 import logger from '../../config/logger';
 import type { ExchangeRateProvider } from './types';
+import { ExternalServiceClient } from '../../utils/external-service-client';
 
 export class FiatRateProvider implements ExchangeRateProvider {
   private readonly baseUrl = 'https://api.exchangerate-api.com/v4/latest';
+  private readonly client = new ExternalServiceClient('exchange_rates');
 
   getName(): string {
     return 'ExchangeRate-API';
@@ -17,12 +19,7 @@ export class FiatRateProvider implements ExchangeRateProvider {
     const url = `${this.baseUrl}/${baseCurrency}`;
     logger.debug(`Fetching fiat rates from ${url}`);
 
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Fiat rate API returned status ${response.status}`);
-    }
-
-    const data = await response.json() as { rates: Record<string, number> };
+    const data = await this.client.request<{ rates: Record<string, number> }>(url);
     return data.rates;
   }
 }

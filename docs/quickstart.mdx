@@ -1,0 +1,62 @@
+---
+title: Quickstart
+description: "Make your first x402 payment via the SYNCRO SDK in under 5 minutes"
+---
+
+## Prerequisites
+
+- A SYNCRO account — [sign up here](https://app.syncro.app)
+- An API key from your dashboard
+- A funded Stellar wallet for on-chain payments
+
+## Step 1: Get your API key
+
+Log in to the [SYNCRO dashboard](https://app.syncro.app) and navigate to **Settings → API Keys**. Create a new key and copy it.
+
+## Step 2: Make your first paid call
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.syncro.app/charge \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "amount": 1000,
+    "currency": "USDC",
+    "description": "API call"
+  }'
+```
+
+```typescript TypeScript SDK v3
+import { createPaidFetch } from "@syncro/sdk/v3";
+
+const fetch = createPaidFetch({ spendingKey: "..." });
+const res = await fetch("https://api.syncro.app/charge", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ amount: 1000, currency: "USDC" }),
+});
+
+if (res.receipt) {
+  console.log("Payment settled:", res.receipt.transaction);
+}
+```
+
+</CodeGroup>
+
+## Step 3: Verify the receipt
+
+```typescript
+import { verifyReceipt, decodeReceiptHeader } from "@syncro/sdk";
+
+const receipt = decodeReceiptHeader(res.headers.get("x-syncro-receipt")!);
+const ok = verifyReceipt(receipt);
+if (!ok) throw new Error("Invalid receipt");
+```
+
+## Next Steps
+
+- [Full API Reference](/sdk-reference)
+- [Webhook Guide](/api-reference/webhooks)
+- [Privacy & Migration Guide](/privacy/migration-guide)

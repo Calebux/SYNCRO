@@ -1,0 +1,334 @@
+#![no_std]
+
+//! # Syncro Common Contract Utilities
+//!
+//! Shared utilities for all Syncro contracts, including:
+//! - Version metadata management
+//! - Error code registry offsets
+//! - Interface version tracking
+//! - Monotonic identifier counters ([`next_counter_id`])
+//! - Storage TTL constants and helpers (see [`ttl`])
+
+use soroban_sdk::{contracterror, Env, Symbol};
+
+pub mod ttl;
+pub mod admin;
+
+// ============================================================================
+// Identifier counters (merged from retired `syncro-common`)
+// ============================================================================
+
+/// Typed error returned by the shared counter helper when a counter increment
+/// would overflow its `u64` storage. All structured identifiers across the
+/// Syncro contracts are issued through [`next_counter_id`], and this error
+/// prevents silent wraparound or a raw panic.
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub enum CounterError {
+    /// The identifier counter reached its maximum value and cannot be
+    /// incremented further.
+    Overflow = 1,
+}
+
+/// Issue the next monotonically-increasing `u64` identifier for a contract.
+///
+/// The counter is stored in *instance* storage under the caller-supplied
+/// `key`. Reading an absent key yields `0`, so the first issued id is `1`.
+///
+/// The increment is guarded against overflow and returns a [`CounterError`]
+/// instead of wrapping or panicking.
+///
+/// # Arguments
+/// * `env` — The contract environment.
+/// * `key` — A storage key unique to the object type being issued (for
+///   example `Symbol::new(env, "CardCounter")`).
+///
+/// # Returns
+/// * `Ok(id)` — The next identifier, already persisted as the new counter.
+/// * `Err(CounterError::Overflow)` — The counter is at its maximum value.
+pub fn next_counter_id(env: &Env, key: Symbol) -> Result<u64, CounterError> {
+    let current: u64 = env.storage().instance().get(&key).unwrap_or(0);
+    let next = current.checked_add(1).ok_or(CounterError::Overflow)?;
+    env.storage().instance().set(&key, &next);
+    Ok(next)
+}
+
+// ============================================================================
+// Version Management
+// ============================================================================
+
+/// Derives the contract version from build-time environment variables.
+/// 
+/// The version encodes:
+/// - Major version (bits 24-31): Incremented on breaking ABI changes
+/// - Minor version (bits 16-23): Incremented on new features (backward compatible)
+/// - Patch version (bits 0-15): Incremented on bug fixes
+///
+/// Example: version 0x00010205 represents v1.2.5
+///
+/// At build time, this should be set from Cargo.toml version:
+/// export SYNCRO_CONTRACT_VERSION=$(grep '^version' Cargo.toml | cut -d'"' -f2 | tr '.' '\0' | sed 's/\x00/,/g')
+pub fn contract_version() -> u32 {
+    if let Some(val) = option_env!("SYNCRO_CONTRACT_VERSION") {
+        val.parse::<u32>().unwrap_or(0x00010000)
+    } else {
+        0x00010000
+    }
+}
+
+/// Interface version for cross-contract calls.
+/// 
+/// Incremented when public contract method signatures or error handling change.
+/// Allows the backend to detect API mismatches at runtime.
+pub fn interface_version() -> u32 {
+    if let Some(val) = option_env!("SYNCRO_INTERFACE_VERSION") {
+        val.parse::<u32>().unwrap_or(1)
+    } else {
+        1
+    }
+}
+
+/// Helper to expose version metadata on-chain.
+/// 
+/// # Example
+/// ```rust,ignore
+/// #[contractimpl]
+/// impl MyContract {
+///     pub fn version(env: Env) -> u32 {
+///         syncro_common::version(&env)
+///     }
+///     
+///     pub fn interface_version(env: Env) -> u32 {
+///         syncro_common::interface_version(&env)
+///     }
+/// }
+/// ```
+pub fn version(_env: &Env) -> u32 {
+    contract_version()
+}
+
+pub fn interface_version_call(_env: &Env) -> u32 {
+    interface_version()
+}
+
+// ============================================================================
+// Indexer event schema version (issue #1430)
+// ============================================================================
+
+/// Version of the versioned indexer event envelope.
+///
+/// Every event published for off-chain indexing carries this version as its
+/// leading payload field (`schema_version`), so the indexer can reject an
+/// unknown version outright rather than mis-decoding a shape it does not
+/// understand. Bump alongside any event shape change and record the change
+/// in the consuming indexer's supported-versions list.
+pub fn event_schema_version() -> u32 {
+    1
+}
+
+// ============================================================================
+// Error Code Registry
+// ============================================================================
+
+/// Base error code for each contract.
+/// 
+/// Each contract uses a 100-code block to avoid discriminant collisions.
+/// The registry is defined in contracts/ERROR_CODE_REGISTRY.md
+///
+/// Example: subscription_renewal uses base 1000, so errors range from 1000-1099
+#[repr(u32)]
+pub enum ContractErrorBase {
+    SubscriptionRenewal = 1000,
+    SubscriptionLogging = 1100,
+    VirtualCard = 1200,
+    Escrow = 1300,
+    AgentRegistry = 1400,
+    ZkPaymentVerifier = 1500,
+    PaymentChannel = 1600,
+    ContractUpgrade = 1700,
+    Allowance = 1800,
+    PaymentAdapter = 1900,
+    VoucherLedger = 2000,
+    FeeCollector = 2100,
+    ResolverRegistry = 2200,
+    SubscriptionRefund = 2300,
+    RecurringAllowance = 2400,
+    LoyaltyRewards = 2500,
+    SubscriptionNft = 2600,
+    Attestation = 2700,
+    Guardian = 2800,
+    FxOracle = 2900,
+    PaymentSplitter = 3000,
+    StealthAnnouncement = 3100,
+}
+
+impl ContractErrorBase {
+    /// Convert a local error discriminant (1-based) to a global error code.
+    ///
+    /// # Arguments
+    /// * `local_discriminant` - The error's discriminant within its contract (starts at 1)
+    ///
+    /// # Returns
+    /// The global error code unique across all contracts
+    ///
+    /// # Example
+    /// ```ignore
+    /// // For escrow contract error discriminant 3
+    /// let global_code = ContractErrorBase::Escrow.to_global_code(3);
+    /// // Result: 1300 + (3 - 1) = 1302
+    /// ```
+    pub const fn to_global_code(self, local_discriminant: u32) -> u32 {
+        (self as u32) + (local_discriminant.saturating_sub(1))
+    }
+
+    /// Decode a global error code back to (contract_base, local_discriminant).
+    ///
+    /// # Arguments
+    /// * `global_code` - The combined error code
+    ///
+    /// # Returns
+    /// * `Some((contract_base, local_discriminant))` if the code is in a valid range
+    /// * `None` if the code doesn't map to a known contract
+    pub fn from_global_code(global_code: u32) -> Option<(u32, u32)> {
+        let base = (global_code / 100) * 100;
+        let offset = global_code % 100;
+        let discriminant = offset + 1;
+
+        // Validate that this base corresponds to a known contract
+        match base {
+            1000 | 1100 | 1200 | 1300 | 1400 | 1500 | 1600 | 1700 | 1800 | 1900
+            | 2000 | 2100 | 2200 | 2300 | 2400 | 2500 | 2600 | 2700 | 2800 | 2900
+            | 3000 | 3100 => Some((base, discriminant)),
+            _ => None,
+        }
+    }
+}
+
+// ============================================================================
+// Emit Contract Event Helpers
+// ============================================================================
+
+/// Standard contract metadata event emitted on deployment/upgrade.
+pub fn emit_contract_info(env: &Env, contract_name: &Symbol, version: u32, interface: u32) {
+    env.events().publish(
+        (Symbol::short("contract"), Symbol::short("info")),
+        (contract_name, version, interface),
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_error_code_conversion() {
+        // Escrow base 1300 + discriminant 1 = 1300
+        assert_eq!(ContractErrorBase::Escrow.to_global_code(1), 1300);
+
+        // Escrow base 1300 + discriminant 5 = 1304
+        assert_eq!(ContractErrorBase::Escrow.to_global_code(5), 1304);
+
+        // Virtual-card base 1200 + discriminant 11 = 1210
+        assert_eq!(ContractErrorBase::VirtualCard.to_global_code(11), 1210);
+    }
+
+    #[test]
+    fn test_error_code_decoding() {
+        let (base, disc) = ContractErrorBase::from_global_code(1304).unwrap();
+        assert_eq!(base, 1300);
+        assert_eq!(disc, 5);
+
+        let (base, disc) = ContractErrorBase::from_global_code(1210).unwrap();
+        assert_eq!(base, 1200);
+        assert_eq!(disc, 11);
+
+        // Invalid base should return None
+        assert!(ContractErrorBase::from_global_code(999).is_none());
+        assert!(ContractErrorBase::from_global_code(5000).is_none());
+    }
+
+    #[test]
+    fn test_error_ranges() {
+        // Verify each contract gets 100 codes
+        assert_eq!(
+            ContractErrorBase::SubscriptionRenewal as u32,
+            1000
+        );
+        assert_eq!(ContractErrorBase::StealthAnnouncement as u32, 3100);
+
+        // Spot check middle contract
+        assert_eq!(ContractErrorBase::Allowance as u32, 1800);
+    }
+
+    use soroban_sdk::{contract, contractimpl, Address};
+
+    #[contract]
+    pub struct Dummy;
+
+    #[contractimpl]
+    impl Dummy {}
+
+    fn counter_setup() -> (Env, Address, Symbol) {
+        let env = Env::default();
+        let addr = env.register(Dummy, ());
+        let key = Symbol::new(&env, "TestCounter");
+        (env, addr, key)
+    }
+
+    /// Run `f` inside an as-contract context so instance storage is reachable.
+    fn in_contract<T>(env: &Env, addr: &Address, f: impl FnOnce() -> T) -> T {
+        env.as_contract(addr, f)
+    }
+
+    #[test]
+    fn first_id_is_one() {
+        let (env, addr, key) = counter_setup();
+        let id = in_contract(&env, &addr, || next_counter_id(&env, key.clone()).unwrap());
+        assert_eq!(id, 1);
+    }
+
+    #[test]
+    fn ids_are_monotonic_and_incrementing() {
+        let (env, addr, key) = counter_setup();
+        let mut expected = 1u64;
+        for _ in 0..100 {
+            let id = in_contract(&env, &addr, || {
+                next_counter_id(&env, key.clone()).unwrap()
+            });
+            assert_eq!(id, expected);
+            expected += 1;
+        }
+    }
+
+    #[test]
+    fn counters_are_isolated_by_key() {
+        let (env, addr, _) = counter_setup();
+        let key_a = Symbol::new(&env, "CounterA");
+        let key_b = Symbol::new(&env, "CounterB");
+
+        let a1 = in_contract(&env, &addr, || next_counter_id(&env, key_a.clone()).unwrap());
+        let b1 = in_contract(&env, &addr, || next_counter_id(&env, key_b.clone()).unwrap());
+        let a2 = in_contract(&env, &addr, || next_counter_id(&env, key_a.clone()).unwrap());
+
+        assert_eq!(a1, 1);
+        assert_eq!(a2, 2);
+        assert_eq!(b1, 1);
+    }
+
+    #[test]
+    fn overflow_returns_typed_error() {
+        let (env, addr, key) = counter_setup();
+
+        // Saturate the counter to u64::MAX before the next read.
+        in_contract(&env, &addr, || env.storage().instance().set(&key.clone(), &u64::MAX));
+
+        let err = in_contract(&env, &addr, || next_counter_id(&env, key.clone()).unwrap_err());
+        assert_eq!(err, CounterError::Overflow);
+
+        // The stored counter must be left untouched after a failed increment.
+        let stored = in_contract(&env, &addr, || {
+            env.storage().instance().get::<_, u64>(&key.clone()).unwrap()
+        });
+        assert_eq!(stored, u64::MAX);
+    }
+}

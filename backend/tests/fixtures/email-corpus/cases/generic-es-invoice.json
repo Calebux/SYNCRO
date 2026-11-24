@@ -1,0 +1,18 @@
+{
+  "id": "generic-es-invoice",
+  "merchant": "Unknown",
+  "locale": "es",
+  "kind": "positive",
+  "notes": "Spanish invoice from an unknown merchant.",
+  "email": {
+    "subject": "Tu factura mensual",
+    "from": "Taller Nube <facturacion@taller-nube.example>",
+    "body": "Hola,\n\nTu suscripcion ha sido cobrada. Importe: EUR 9,99 al mes.\n\nGracias."
+  },
+  "expected": {
+    "name": "Taller Nube",
+    "amount": 9.99,
+    "currency": "EUR",
+    "interval": "monthly"
+  }
+}

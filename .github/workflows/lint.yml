@@ -5,26 +5,95 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      force_full_run:
+        description: 'Force a full lint run'
+        type: boolean
+        default: false
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      client: ${{ steps.filter.outputs.client }}
+      shared: ${{ steps.filter.outputs.shared }}
+      force_full_run: ${{ github.event.inputs.force_full_run || 'false' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'shared/**'
+            client:
+              - 'client/**'
+              - 'shared/**'
+            shared:
+              - 'shared/**'
+
+  lint-root:
+    name: Lint Root Directory
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify no implementation artifacts in root
+        run: |
+          # Allowlist of files permitted at repository root
+          # Implementation and one-off documentation should be in docs/
+          ALLOWED="README.md CONTRIBUTING.md INSTALL.md AGENTS.md CLAUDE.md DEBT.md TODO.md LICENSE LICENSE.md requirements.txt PULL_REQUEST_TEMPLATE.md"
+
+          for file in *.md *.txt; do
+            if [ -f "$file" ]; then
+              if ! echo "$ALLOWED" | grep -w -q "$file"; then
+                echo "❌ Error: $file found in root. Move implementation artifacts to docs/."
+                exit 1
+              fi
+            fi
+          done
+
+          # Check for common cleanup script remnants that should never exist
+          FORBIDDEN="fix.js fix1.js fix2.js fix3.js fix4.js fix5.js fix6.js fix7.js fix8.js fix9.js fix10.js fix11.js fix12.js fixall.js fixall2.js fixconflicts.js fixconflicts2.js fixline91.js fixtsconfig.js findbackticks.js pr_body.txt create_issues.sh update_issues.sh update_issues2.sh"
+          for file in $FORBIDDEN; do
+            if [ -f "$file" ]; then
+              echo "❌ Error: $file (one-off script) should not exist in root. Delete or move to scripts/."
+              exit 1
+            fi
+          done
+
+          # Check for zero-byte placeholder files
+          for file in 100 500; do
+            if [ -f "$file" ] && [ ! -s "$file" ]; then
+              echo "❌ Error: $file (zero-byte placeholder) should not exist."
+              exit 1
+            fi
+          done
+
+          echo "✅ Root directory is clean"
+
   lint-backend:
     name: Lint Backend
     runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ needs.changes.outputs.force_full_run == 'true' || needs.changes.outputs.backend == 'true' }}
     defaults:
       run:
         working-directory: backend
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: "npm"
           cache-dependency-path: backend/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Run ESLint
         run: npx eslint src --ext .ts --max-warnings 0
@@ -32,26 +101,69 @@ jobs:
   lint-client:
     name: Lint Client
     runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ needs.changes.outputs.force_full_run == 'true' || needs.changes.outputs.client == 'true' }}
     defaults:
       run:
         working-directory: client
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
-          cache: "pnpm"
-          cache-dependency-path: client/pnpm-lock.yaml
+          cache: "npm"
+          cache-dependency-path: client/package-lock.json
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: npm ci
 
-      - name: Run Next.js linter
+      - name: Run Next.js linter (includes package boundary rules)
         run: npx next lint
+
+  lint-sdk:
+    name: Lint SDK
+    runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ needs.changes.outputs.force_full_run == 'true' }}
+    defaults:
+      run:
+        working-directory: sdk
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: sdk/package-lock.json
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run ESLint (boundary check included)
+        run: npx eslint "src/**/*.ts" --max-warnings 0
+
+  lint-shared:
+    name: Lint Shared (import graph)
+    runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ needs.changes.outputs.force_full_run == 'true' || needs.changes.outputs.shared == 'true' }}
+    defaults:
+      run:
+        working-directory: shared
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Enforce import layering (types -> logic -> platform) and no circular imports
+        run: npm run check-imports

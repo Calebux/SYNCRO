@@ -55,15 +55,6 @@ export const GLOBAL_SHORTCUTS: KeyboardShortcut[] = [
     },
   },
   {
-    key: "n",
-    ctrl: true,
-    description: "New subscription",
-    action: () => {
-      const event = new CustomEvent("open-add-subscription")
-      window.dispatchEvent(event)
-    },
-  },
-  {
     key: "Escape",
     description: "Close modal/dialog",
     action: () => {
