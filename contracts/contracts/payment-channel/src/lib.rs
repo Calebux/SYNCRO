@@ -108,7 +108,20 @@ enum DataKey {
     /// Key present  ⟹ nonce already consumed for this channel.
     /// Key absent   ⟹ nonce is fresh.
     SeenNonce(u64, u64),
+    /// Address of the `fee-collector` contract that receives the protocol
+    /// fee leg at settlement (issue #1834).  Absent ⟹ no fee is taken and
+    /// settlement behaves exactly as before.
+    FeeCollector,
+    /// Protocol fee charged at settlement, in basis points of the total
+    /// settled amount (0..=10_000).  Absent ⟹ 0.
+    FeeBps,
 }
+
+/// Denominator for fee basis points (100% = 10_000 bps).
+pub const FEE_BPS_DENOMINATOR: i128 = 10_000;
+
+/// Maximum protocol fee that may be configured, in basis points (10%).
+pub const MAX_FEE_BPS: u32 = 1_000;
 
 /// A payment proof binds a single off-chain API call to a specific channel
 /// state update.  The `request_hash` commits to the exact request body so
@@ -221,6 +234,8 @@ pub enum Error {
     NoPendingAdmin = 1624,
     /// The caller is not the nominated pending admin.
     NotPendingAdmin = 1625,
+    /// The configured fee in basis points exceeds `MAX_FEE_BPS`.
+    InvalidFeeBps = 1626,
 }
 
 #[contract]
@@ -283,6 +298,50 @@ impl PaymentChannelContract {
         env.storage().instance().remove(&DataKey::PendingAdmin);
         env.events()
             .publish(syncro_common::admin::topic_cancel(), ());
+        Ok(())
+    }
+
+    /// Read the configured fee-collector address, if any.
+    pub fn get_fee_collector(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::FeeCollector)
+    }
+
+    /// Read the configured protocol fee in basis points (0 when unset).
+    pub fn get_fee_bps(env: Env) -> u32 {
+        env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0)
+    }
+
+    /// Configure the protocol fee sink and rate (admin only).
+    ///
+    /// `collector` is the `fee-collector` contract address that receives the
+    /// fee leg at settlement.  `fee_bps` is the fee in basis points of the
+    /// total settled amount and must not exceed `MAX_FEE_BPS`.  Passing
+    /// `fee_bps == 0` disables the fee while keeping the collector configured.
+    pub fn set_fee_config(
+        env: Env,
+        collector: Address,
+        fee_bps: u32,
+    ) -> Result<(), Error> {
+        Self::require_admin(&env)?;
+        if fee_bps > MAX_FEE_BPS {
+            return Err(Error::InvalidFeeBps);
+        }
+        env.storage().instance().set(&DataKey::FeeCollector, &collector);
+        env.storage().instance().set(&DataKey::FeeBps, &fee_bps);
+        env.events().publish(
+            (symbol_short!("fee"), symbol_short!("config")),
+            (collector, fee_bps),
+        );
+        Ok(())
+    }
+
+    /// Remove the fee configuration so settlement takes no protocol fee.
+    pub fn clear_fee_config(env: Env) -> Result<(), Error> {
+        Self::require_admin(&env)?;
+        env.storage().instance().remove(&DataKey::FeeCollector);
+        env.storage().instance().remove(&DataKey::FeeBps);
+        env.events()
+            .publish((symbol_short!("fee"), symbol_short!("cleared")), ());
         Ok(())
     }
 
@@ -556,6 +615,32 @@ impl PaymentChannelContract {
         let balance_a = channel.balance_a;
         let balance_b = channel.balance_b;
 
+        // ── Protocol fee leg (issue #1834) ───────────────────────────────────
+        // The fee is charged on the total settled amount and routed to the
+        // configured `fee-collector` contract.  When no collector is
+        // configured (or the rate is zero) the fee is zero and settlement is
+        // byte-for-byte identical to the pre-#1834 behaviour.
+        let collector: Option<Address> = env.storage().instance().get(&DataKey::FeeCollector);
+        let fee_bps: u32 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
+        let total = balance_a.saturating_add(balance_b);
+        let fee: i128 = match (&collector, fee_bps) {
+            (Some(_), bps) if bps > 0 && total > 0 => {
+                total.saturating_mul(bps as i128) / FEE_BPS_DENOMINATOR
+            }
+            _ => 0,
+        };
+
+        // Split the fee proportionally across both sides so neither party can
+        // dodge the fee by shifting balance to the other leg.
+        let (fee_a, fee_b) = if fee > 0 && total > 0 {
+            let fa = balance_a.saturating_mul(fee) / total;
+            (fa, fee.saturating_sub(fa))
+        } else {
+            (0, 0)
+        };
+        let payout_a = balance_a.saturating_sub(fee_a);
+        let payout_b = balance_b.saturating_sub(fee_b);
+
         // ── EFFECTS ─────────────────────────────────────────────────────────
         // Mark closed and persist BEFORE any external call.  A re-entrant
         // `finalize` call would now fail the `InvalidState` guard above.
@@ -571,12 +656,30 @@ impl PaymentChannelContract {
         // Disburse escrowed funds.  Zero-value transfers are skipped.
         let token_client = token::Client::new(&env, &token_addr);
 
-        if balance_a > 0 {
-            token_client.transfer(&env.current_contract_address(), &depositor, &balance_a);
+        if payout_a > 0 {
+            token_client.transfer(&env.current_contract_address(), &depositor, &payout_a);
         }
 
-        if balance_b > 0 {
-            token_client.transfer(&env.current_contract_address(), &counterparty, &balance_b);
+        if payout_b > 0 {
+            token_client.transfer(&env.current_contract_address(), &counterparty, &payout_b);
+        }
+
+        // Route the protocol fee leg to the fee-collector contract.  The
+        // collector is expected to expose `deposit(token, from, amount)`
+        // (see `contracts/contracts/fee-collector`); the transfer moves the
+        // tokens into the collector's own balance, which it then accounts for.
+        if fee > 0 {
+            if let Some(collector_addr) = collector {
+                token_client.transfer(
+                    &env.current_contract_address(),
+                    &collector_addr,
+                    &fee,
+                );
+                env.events().publish(
+                    (symbol_short!("fee"), symbol_short!("collected")),
+                    (channel_id, collector_addr, fee),
+                );
+            }
         }
 
         // Unused bounty returns to the depositor; a watchtower never claims it
