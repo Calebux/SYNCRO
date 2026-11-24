@@ -106,6 +106,16 @@
         "default": "./dist/v3/receipt-browser.cjs"
       }
     },
+    "./provider/workers": {
+      "import": {
+        "types": "./dist/provider/workers.d.ts",
+        "default": "./dist/provider/workers.js"
+      },
+      "require": {
+        "types": "./dist/provider/workers.d.cts",
+        "default": "./dist/provider/workers.cjs"
+      }
+    },
     "./testing": {
       "import": {
         "types": "./dist/testing/index.d.ts",

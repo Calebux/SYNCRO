@@ -1,0 +1,23 @@
+{
+  "name": "syncro-cloudflare-worker-example",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Example Cloudflare Worker using SYNCRO metered API",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "build": "echo 'Build handled by wrangler'",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@syncro/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241127.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.0.0",
+    "wrangler": "^3.80.0"
+  }
+}
