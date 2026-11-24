@@ -267,6 +267,54 @@ docs/short-description
 test/short-description
 ```
 
+## Versioning policy and compatibility matrix
+
+SYNCRO ships several independently versioned surfaces: the TypeScript SDK (`@syncro/sdk`), the v3 gateway API, and the Soroban smart contracts (see #1435). This section is the policy integrators and maintainers follow.
+
+### SDK versioning (semver)
+
+- `@syncro/sdk` follows [semantic versioning](https://semver.org/): `MAJOR.MINOR.PATCH`.
+- **MAJOR**: breaking changes to exported types, function signatures, or runtime behavior.
+- **MINOR**: backward-compatible additions (new methods, optional fields, new endpoints wrapped by the SDK).
+- **PATCH**: backward-compatible bug fixes and internal refactors.
+- Pre-1.0 releases may include breaking changes in MINOR bumps, but each one must be called out in the changelog.
+
+### Gateway API versioning
+
+- The v3 gateway is versioned in the **path**: `/api/v3/...`. A new incompatible gateway surface is introduced as `/api/v4/...` rather than changing `/api/v3/...` in place.
+- Clients may send an `X-SYNCRO-API-Version` header; when omitted the server uses the path version. Unknown header values are rejected with `400`.
+- Non-breaking additions (new optional fields, new endpoints under the same version) do not bump the path version.
+
+### Contract versioning
+
+- Soroban contracts carry their own version as defined in #1435. A contract upgrade that changes entrypoint signatures or storage layout is a breaking change and requires a new contract version.
+- The SDK declares which contract versions it supports; the compatibility matrix below records the mapping.
+
+### Compatibility matrix
+
+The matrix maps SDK releases to the gateway API version and contract versions they were tested against. It lives in [docs/COMPATIBILITY_MATRIX.md](./docs/COMPATIBILITY_MATRIX.md) and **must be updated on every release** (see the release checklist below).
+
+| Column | Meaning |
+|--------|---------|
+| SDK version | `@syncro/sdk` release |
+| Gateway API | Path version (e.g. `v3`) served and tested |
+| Contract version(s) | Soroban contract versions supported |
+| Status | `current`, `supported`, `deprecated`, or `end-of-life` |
+| End-of-support date | Date after which the version receives no fixes |
+
+### Deprecation window
+
+- A deprecated SDK minor line, gateway API version, or contract version is supported for **at least 6 months** after the deprecation announcement, or one full MINOR release cycle, whichever is longer.
+- Deprecations are communicated by: (1) a `@deprecated` JSDoc tag and runtime warning in the SDK, (2) a `Deprecation` and `Sunset` response header on affected gateway routes, (3) an entry in the changelog and the compatibility matrix, and (4) a GitHub release note.
+- Security fixes may be backported beyond the window at maintainer discretion and will be documented.
+
+### Release checklist
+
+- [ ] Version bumped per the semver rules above
+- [ ] Changelog entry written, including any deprecations
+- [ ] Compatibility matrix in `docs/COMPATIBILITY_MATRIX.md` updated for the new release
+- [ ] Deprecation headers and warnings added for any sunset surfaces
+
 ## Pull request guidelines
 
 - Reference the issue: `Closes #<issue-number>`

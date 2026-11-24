@@ -9,6 +9,7 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'scripts/**'
+      - 'docs/**'
       - '.github/workflows/governance.yml'
   schedule:
     - cron: "0 6 * * 1"
@@ -107,6 +108,36 @@ jobs:
         env:
           CHANGESET_BASE: origin/${{ github.base_ref }}
         run: npm run check:changeset
+
+  # ──────────────────────────────────────────────
+  # Versioning Policy & Compatibility Matrix
+  # ──────────────────────────────────────────────
+  versioning-policy:
+    name: Versioning Policy & Compatibility Matrix
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify versioning policy document exists
+        run: |
+          test -f docs/versioning-policy.md || (echo "::error::docs/versioning-policy.md is missing" && exit 1)
+
+      - name: Verify compatibility matrix exists and is current
+        run: |
+          test -f docs/compatibility-matrix.md || (echo "::error::docs/compatibility-matrix.md is missing" && exit 1)
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            const matrix = fs.readFileSync('docs/compatibility-matrix.md', 'utf8');
+            if (!matrix.includes(pkg.version)) {
+              console.error('::error::docs/compatibility-matrix.md does not reference current package version ' + pkg.version + '. Update the matrix as part of the release checklist.');
+              process.exit(1);
+            }
+            console.log('Compatibility matrix references version ' + pkg.version);
+          "
 
   # ──────────────────────────────────────────────
   # Bootstrap Validation
@@ -379,19 +410,3 @@ jobs:
         run: |
           echo "🔍 Running RLS Policy Audit..."
           node scripts/check-rls-compliance.js
-
-      - name: Stop Supabase local stack
-        if: always()
-        run: if command -v supabase &> /dev/null; then supabase stop; fi
-
-      - name: Comment PR with RLS Status
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v9
-        with:
-          script: |
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: '✅ **RLS Policy Audit Passed**\n\nAll tables in the database have Row Level Security enabled with appropriate policies. Your changes maintain data security compliance.'
-            });
