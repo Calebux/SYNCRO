@@ -120,7 +120,8 @@
   },
   "bin": {
     "syncro-verify-receipt": "./dist/cli/verify-receipt.js",
-    "syncro-receipt-verify": "./dist/cli/receipt-verify.js"
+    "syncro-receipt-verify": "./dist/cli/receipt-verify.js",
+    "syncro-import-openapi": "./dist/cli/import-openapi.js"
   },
   "engines": {
     "node": ">=18"
