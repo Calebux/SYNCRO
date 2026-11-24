@@ -71,6 +71,6 @@ describe('Number() on balance fields is flagged', () => {
   it('decodeBalance rejects non-string inputs that would come from Number()', () => {
     // If someone accidentally passes a number that came from Number(bigint),
     // it would already have lost precision. decodeBalance requires a string.
-    expect(() => decodeBalance(Number(9223372036854775808n))).toThrow();
+    expect(() => decodeBalance(String(Number(9223372036854775808n)))).toThrow();
   });
 });

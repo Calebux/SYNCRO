@@ -9,7 +9,6 @@ module.exports = {
     restoreMocks: false,
     setupFiles: ['<rootDir>/tests/setup.ts'],
     moduleNameMapper: {
-        '^@syncro/shared/bigint-balance$': '<rootDir>/../shared/src/logic/bigint-balance.ts',
         '^@syncro/shared$': '<rootDir>/../shared/src',
         '^@syncro/shared/(.*)$': '<rootDir>/../shared/src/$1',
     },

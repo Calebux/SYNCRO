@@ -66,7 +66,7 @@ This PR implements a complete encryption key rotation flow that triggers when a 
 ### Documentation
 - **Implementation Guide**: `docs/KEY_ROTATION_IMPLEMENTATION.md`
 - **Implementation Summary**: `IMPLEMENTATION_SUMMARY.md`
-- **Flow Diagrams**: `WALLET_KEY_ROTATION_FLOW.md`
+- **Flow Diagrams**: `KEY_ROTATION_FLOW.md`
 
 ## 🏗️ Architecture
 
@@ -266,7 +266,7 @@ Does this PR alter a **system boundary**, a **data model**, or a **trust assumpt
 Complete documentation available:
 - `docs/KEY_ROTATION_IMPLEMENTATION.md` - Full architecture guide
 - `IMPLEMENTATION_SUMMARY.md` - Quick reference
-- `WALLET_KEY_ROTATION_FLOW.md` - Visual flow diagrams
+- `KEY_ROTATION_FLOW.md` - Visual flow diagrams
 
 ## ✔️ Checklist
 

@@ -11,6 +11,7 @@
  *
  * Usage:
  *   node scripts/check-todos.mjs            # scan whole repo
+ *   node scripts/check-todos.mjs --base <sha> # scan files changed from a base commit
  *   node scripts/check-todos.mjs --warn-only  # never exit non-zero (report only)
  */
 
@@ -67,41 +68,19 @@ function getTrackedFiles() {
   }
 }
 
-function getAddedLinesFromDiff(diff) {
-  const addedLines = [];
-  let file;
-  let lineNumber = 0;
-
-  for (const line of diff.split("\n")) {
-    if (line.startsWith("+++ b/")) {
-      file = line.slice(6);
-      continue;
-    }
-
-    if (line.startsWith("@@")) {
-      const match = line.match(/\+(\d+)(?:,\d+)?/);
-      lineNumber = match ? Number(match[1]) : 0;
-      continue;
-    }
-
-    if (line.startsWith("+") && !line.startsWith("+++")) {
-      addedLines.push({ file, line: lineNumber, text: line.slice(1) });
-      lineNumber += 1;
-    } else if (line.startsWith(" ")) {
-      lineNumber += 1;
-    }
+function getChangedFiles(baseSha) {
+  try {
+    const out = execFileSync(
+      "git",
+      ["diff", "--name-only", "--diff-filter=ACMR", `${baseSha}...HEAD`],
+      { encoding: "utf8" },
+    );
+    return out.split("\n").filter(Boolean);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`Could not diff TODO changes against base ${baseSha}: ${detail}`);
+    process.exit(2);
   }
-
-  return addedLines;
-}
-
-function getAddedLinesSince(base) {
-  const diff = execFileSync(
-    "git",
-    ["diff", "--no-ext-diff", "--unified=0", `${base}...HEAD`, "--"],
-    { encoding: "utf8" },
-  );
-  return getAddedLinesFromDiff(diff);
 }
 
 function extOf(path) {
@@ -119,50 +98,37 @@ function isCritical(path) {
   );
 }
 
-function runScan({ warnOnly = false, base } = {}) {
+function runScan({ warnOnly = false, baseSha } = {}) {
   const blocking = [];
   const warnings = [];
 
-  const inspectLine = (file, line, text) => {
-    if (!TODO_TOKEN.test(text) || TRACKED_TODO.test(text)) return;
+  for (const file of baseSha ? getChangedFiles(baseSha) : getTrackedFiles()) {
+    if (isIgnored(file)) continue;
+    if (file.endsWith("check-todos.mjs")) continue; // don't scan the scanner
+  if (/\.test\.[^.]+$/.test(file) || file.includes(".test.")) continue; // tests may mention TODO format
+    if (!SOURCE_EXTENSIONS.has(extOf(file))) continue;
 
-    const entry = {
-      file,
-      line,
-      text: text.trim().slice(0, 120),
-    };
-    if (isCritical(file)) blocking.push(entry);
-    else warnings.push(entry);
-  };
-
-  if (base) {
-    for (const { file, line, text } of getAddedLinesSince(base)) {
-      if (!file || isIgnored(file) || !SOURCE_EXTENSIONS.has(extOf(file))) {
-        continue;
-      }
-      if (/\.test\.[^.]+$/.test(file) || file.includes(".test.")) continue;
-      inspectLine(file, line, text);
+    let content;
+    try {
+      if (statSync(file).isDirectory()) continue;
+      content = readFileSync(file, "utf8");
+    } catch {
+      continue; // deleted / unreadable
     }
-  } else {
-    for (const file of getTrackedFiles()) {
-      if (isIgnored(file)) continue;
-      if (file.endsWith("check-todos.mjs")) continue; // don't scan the scanner
-      if (/\.test\.[^.]+$/.test(file) || file.includes(".test.")) continue; // tests may mention TODO format
-      if (!SOURCE_EXTENSIONS.has(extOf(file))) continue;
 
-      let content;
-      try {
-        if (statSync(file).isDirectory()) continue;
-        content = readFileSync(file, "utf8");
-      } catch {
-        continue; // deleted / unreadable
-      }
+    const lines = content.split("\n");
+    lines.forEach((line, i) => {
+      if (!TODO_TOKEN.test(line)) return;
+      if (TRACKED_TODO.test(line)) return; // properly tracked, OK
 
-      const lines = content.split("\n");
-      lines.forEach((line, i) => {
-        inspectLine(file, i + 1, line);
-      });
-    }
+      const entry = {
+        file,
+        line: i + 1,
+        text: line.trim().slice(0, 120),
+      };
+      if (isCritical(file)) blocking.push(entry);
+      else warnings.push(entry);
+    });
   }
 
   return { blocking, warnings };
@@ -179,12 +145,13 @@ function printGroup(label, entries) {
 
 function main() {
   const warnOnly = process.argv.includes("--warn-only");
-  const baseIndex = process.argv.indexOf("--base");
-  const base = baseIndex === -1 ? undefined : process.argv[baseIndex + 1];
-  if (baseIndex !== -1 && (!base || base.startsWith("--"))) {
-    throw new Error("--base requires a merge-base SHA");
+  const baseArg = process.argv.indexOf("--base");
+  const baseSha = baseArg >= 0 ? process.argv[baseArg + 1] : process.env.TODO_BASE_SHA;
+  if (baseArg >= 0 && !baseSha) {
+    console.error("--base requires a commit SHA.");
+    process.exit(2);
   }
-  const { blocking, warnings } = runScan({ warnOnly, base });
+  const { blocking, warnings } = runScan({ warnOnly, baseSha });
 
   if (warnings.length) {
     printGroup("⚠️  Untracked TODO/FIXME (non-critical, warning)", warnings);
@@ -228,5 +195,4 @@ export {
   isCritical,
   extOf,
   isIgnored,
-  getAddedLinesFromDiff,
 };

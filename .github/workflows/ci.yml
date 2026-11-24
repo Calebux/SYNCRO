@@ -120,7 +120,7 @@ jobs:
           - package: root
             command: |
               # Root lint checks
-              ALLOWED="README.md CONTRIBUTING.md INSTALL.md AGENTS.md CLAUDE.md DEBT.md TODO.md LICENSE LICENSE.md requirements.txt"
+              ALLOWED="README.md CONTRIBUTING.md INSTALL.md AGENTS.md CLAUDE.md DEBT.md TODO.md LICENSE LICENSE.md requirements.txt PULL_REQUEST_TEMPLATE.md"
               for file in *.md *.txt; do
                 if [ -f "$file" ]; then
                   if ! echo "$ALLOWED" | grep -w -q "$file"; then
@@ -181,7 +181,7 @@ jobs:
               JWT_SECRET: test-secret
               ADMIN_API_KEY: test-admin-key
           - package: client
-            node-version: "20"
+            node-version: "22"
             test-command: npm test -- --coverage --run
             coverage-path: client/coverage/coverage-summary.json
             env: {}

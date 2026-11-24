@@ -35,15 +35,15 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ||
 **File to Update**: `sdk/README.md`
 
 **Current Issues**:
-- Line 340: `apiKey: "<redacted example key>"` - looks too real
-- Line 356: `apiKey: "<redacted example key>"` - duplicate
+- Line 340: `apiKey: "sk_live_abc123xyz"` - looks too real
+- Line 356: `apiKey: "sk_live_abc123xyz"` - duplicate
 - Line 523: `syncro_subs_sk_live_abc123xyz` - cache key example
 
 **Recommended Changes**:
 ```typescript
 // Before
 const sdk = init({
-  apiKey: "<redacted example key>",
+  apiKey: "sk_live_abc123xyz",
   wallet: yourWallet,
 });
 

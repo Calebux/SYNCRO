@@ -5,7 +5,6 @@ import assert from "node:assert/strict";
 import {
   TRACKED_TODO,
   TODO_TOKEN,
-  getAddedLinesFromDiff,
   isCritical,
   extOf,
   isIgnored,
@@ -23,32 +22,6 @@ describe("check-todos policy", () => {
     assert.equal(TRACKED_TODO.test("// FIXME(#496): stub"), true);
     assert.equal(TRACKED_TODO.test("// TODO: no ref"), false);
     assert.equal(TRACKED_TODO.test("// TODO(#abc): bad ref"), false);
-  });
-
-  it("only reports newly added lines from a diff", () => {
-    const diff = [
-      "diff --git a/backend/src/service.ts b/backend/src/service.ts",
-      "--- a/backend/src/service.ts",
-      "+++ b/backend/src/service.ts",
-      "@@ -10,2 +10,3 @@",
-      " existing line",
-      "-// TODO: existing debt",
-      "+const ready = true;",
-      "+// TODO: new debt",
-    ].join("\n");
-
-    assert.deepEqual(getAddedLinesFromDiff(diff), [
-      {
-        file: "backend/src/service.ts",
-        line: 11,
-        text: "const ready = true;",
-      },
-      {
-        file: "backend/src/service.ts",
-        line: 12,
-        text: "// TODO: new debt",
-      },
-    ]);
   });
 
   it("classifies critical paths for auth, payments, and integrations", () => {

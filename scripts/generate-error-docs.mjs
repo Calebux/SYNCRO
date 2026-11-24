@@ -14,19 +14,6 @@ const taxonomyPath = resolve(repoRoot, "backend/src/errors/gateway-taxonomy.json
 const outputPath = resolve(repoRoot, "docs/api-reference/errors.mdx");
 
 const checkMode = process.argv.includes("--check");
-const ACTION_REMEDIES = {
-  fix_request: "Correct the request payload and retry.",
-  provide_credentials: "Include valid gateway credentials in the request.",
-  refresh_credentials: "Refresh the credential (rotate or re-issue the key) and retry.",
-  refresh_grant: "Refresh the payment grant and retry the request.",
-  request_access: "Request access to the required scope for this credential.",
-  request_cap_increase: "Request a higher spending cap for the credential, then retry.",
-  fund_channel: "Top up the payment channel balance and retry.",
-  fund_meter: "Top up the meter balance and retry.",
-  provide_payment: "Supply a valid payment authorization and retry.",
-  wait: "Wait for the rate limit window to reset before retrying.",
-  retry: "Retry the request after a short delay.",
-};
 
 function loadTaxonomy() {
   const raw = readFileSync(taxonomyPath, "utf8");
@@ -35,7 +22,7 @@ function loadTaxonomy() {
   if (!Array.isArray(codes) || codes.length === 0) {
     throw new Error(`No error codes found in ${taxonomyPath}`);
   }
-  return { codes, version: parsed.version ?? "unknown" };
+  return codes;
 }
 
 function escapeCell(value) {
@@ -43,7 +30,7 @@ function escapeCell(value) {
   return String(value).replace(/\|/g, "\\|").replace(/\n/g, " ");
 }
 
-function render(codes, version) {
+function render(codes) {
   const sorted = [...codes].sort((a, b) => {
     const sa = Number(a.status ?? a.httpStatus ?? 0);
     const sb = Number(b.status ?? b.httpStatus ?? 0);
@@ -61,37 +48,22 @@ function render(codes, version) {
   lines.push("");
   lines.push("Every error response from the gateway includes a stable `code` field. Use the table below to map a code to its HTTP status, the cause, and the recommended remedy.");
   lines.push("");
-  lines.push(`# Error codes`);
-  lines.push("");
-  lines.push(`Taxonomy version: \`${version}\`.`);
-  lines.push("");
-  lines.push("| Code | HTTP status | Cause | Remedy | Retryable |");
-  lines.push("| --- | --- | --- | --- | --- |");
+  lines.push("| Code | HTTP status | Cause | Remedy |");
+  lines.push("| --- | --- | --- | --- |");
   for (const entry of sorted) {
     const code = escapeCell(entry.code);
     const status = escapeCell(entry.status ?? entry.httpStatus);
-    const cause = escapeCell(
-      entry.cause ?? entry.description ?? entry.defaultMessage ?? entry.message,
-    );
-    const remedyText =
-      ACTION_REMEDIES[entry.action] ??
-      entry.remedy ??
-      entry.resolution ??
-      entry.action;
-    const retryAfter = entry.retryAfterSeconds
-      ? ` Suggested retry-after: ${entry.retryAfterSeconds}s.`
-      : "";
-    const remedy = escapeCell(`${remedyText ?? ""}${retryAfter}`);
-    const retryable = entry.retryable ? "Yes" : "No";
-    lines.push(`| \`${code}\` | ${status} | ${cause} | ${remedy} | ${retryable} |`);
+    const cause = escapeCell(entry.cause ?? entry.description ?? entry.message);
+    const remedy = escapeCell(entry.remedy ?? entry.resolution ?? entry.action);
+    lines.push(`| \`${code}\` | ${status} | ${cause} | ${remedy} |`);
   }
   lines.push("");
   return lines.join("\n");
 }
 
 function main() {
-  const { codes, version } = loadTaxonomy();
-  const output = render(codes, version);
+  const codes = loadTaxonomy();
+  const output = render(codes);
 
   if (checkMode) {
     const current = existsSync(outputPath) ? readFileSync(outputPath, "utf8") : "";

@@ -1,6 +1,15 @@
 import axios from "axios";
 import { v4 as uuidv4 } from "uuid";
-import { API_BASE } from "./api-base";
+
+const STAGING_API  = "https://backend-staging.onrender.com";
+const PROD_API     = "https://backend-ai-sub.onrender.com";
+
+const API_BASE =
+  // Canonical name; NEXT_PUBLIC_API_BASE kept as a deprecated fallback so
+  // already-deployed environments keep working (see docs/ENVIRONMENT.md).
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE ||
+  (process.env.NEXT_PUBLIC_APP_ENV === "staging" ? STAGING_API : PROD_API);
 
 const api = axios.create({
   baseURL: API_BASE,

@@ -1,20 +1,12 @@
-import {
-  beforeEach,
-  describe,
-  expect,
-  it,
-  jest,
-  test,
-} from '@jest/globals';
+import { vi, describe, test, it, expect, beforeEach, afterEach } from 'vitest';
 
 // Mock logger
-jest.mock('../src/config/logger', () => ({
-  __esModule: true,
+vi.mock('../src/config/logger', () => ({
   default: {
-    info: jest.fn(),
-    error: jest.fn(),
-    warn: jest.fn(),
-    debug: jest.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    warn: vi.fn(),
+    debug: vi.fn(),
   },
 }));
 
@@ -22,7 +14,7 @@ import { ExternalServiceClient } from '../src/utils/external-service-client';
 import { EXTERNAL_SERVICE_POLICIES } from '../src/config/external-services';
 
 // Mock fetch
-global.fetch = jest.fn();
+global.fetch = vi.fn();
 
 describe('ExternalServiceClient', () => {
   const serviceName = 'exchange_rates';
@@ -32,7 +24,7 @@ describe('ExternalServiceClient', () => {
   beforeEach(() => {
     client = new ExternalServiceClient(serviceName);
     ExternalServiceClient.clearMetrics();
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('should successfully make a request', async () => {

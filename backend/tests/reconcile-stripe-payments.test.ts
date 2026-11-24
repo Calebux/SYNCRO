@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { reconcile } = require('../../scripts/reconcile-stripe-payments');
 
 describe('reconcile-stripe-payments script', () => {
@@ -7,26 +7,26 @@ describe('reconcile-stripe-payments script', () => {
   let mockLogger: any;
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
 
     mockSupabase = {
-      from: jest.fn().mockReturnThis(),
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      lt: jest.fn().mockReturnThis(),
-      update: jest.fn().mockReturnThis(),
+      from: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      lt: vi.fn().mockReturnThis(),
+      update: vi.fn().mockReturnThis(),
     };
 
     mockStripe = {
       paymentIntents: {
-        retrieve: jest.fn(),
+        retrieve: vi.fn(),
       },
     };
 
     mockLogger = {
-      log: jest.fn(),
-      error: jest.fn(),
-      warn: jest.fn(),
+      log: vi.fn(),
+      error: vi.fn(),
+      warn: vi.fn(),
     };
   });
 
@@ -39,6 +39,8 @@ describe('reconcile-stripe-payments script', () => {
     };
 
     mockSupabase.lt.mockResolvedValue({ data: [pendingPayment], error: null });
+    mockSupabase.eq.mockResolvedValue({ data: null, error: null }); // For the update call
+
     mockStripe.paymentIntents.retrieve.mockResolvedValue({
       id: 'pi_abc',
       status: 'succeeded',
@@ -76,6 +78,8 @@ describe('reconcile-stripe-payments script', () => {
     };
 
     mockSupabase.lt.mockResolvedValue({ data: [pendingPayment], error: null });
+    mockSupabase.eq.mockResolvedValue({ data: null, error: null });
+
     mockStripe.paymentIntents.retrieve.mockResolvedValue({
       id: 'pi_xyz',
       status: 'canceled',

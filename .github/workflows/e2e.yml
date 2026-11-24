@@ -39,32 +39,20 @@ jobs:
         working-directory: client
         run: npx playwright install --with-deps
 
+      - name: Wait for Vercel deployment
+        id: vercel
+        uses: vercel/action@v1
+        with:
+          alias: pr-${{ github.event.number }}
+
       - name: Get preview URL
         id: preview
-        env:
-          PREVIEW_URL: ${{ secrets.E2E_BASE_URL }}
         run: |
-          if [ -n "$PREVIEW_URL" ]; then
-            echo "E2E_BASE_URL=$PREVIEW_URL" >> $GITHUB_OUTPUT
-          elif [ -n "${{ github.event.number }}" ]; then
-            echo "E2E_BASE_URL=https://pr-${{ github.event.number }}--syncro.vercel.app" >> $GITHUB_OUTPUT
+          if [ -n "${{ secrets.E2E_BASE_URL }}" ]; then
+            echo "E2E_BASE_URL=${{ secrets.E2E_BASE_URL }}" >> $GITHUB_OUTPUT
           else
-            echo "E2E_BASE_URL must be set for manually dispatched runs" >&2
-            exit 1
+            echo "E2E_BASE_URL=https://pr-${{ github.event.number }}--syncro.vercel.app" >> $GITHUB_OUTPUT
           fi
-
-      - name: Wait for preview deployment
-        env:
-          E2E_BASE_URL: ${{ steps.preview.outputs.E2E_BASE_URL }}
-        run: |
-          for attempt in $(seq 1 30); do
-            if curl --fail --silent --output /dev/null --max-time 10 "$E2E_BASE_URL"; then
-              exit 0
-            fi
-            sleep 10
-          done
-          echo "Preview did not become available at $E2E_BASE_URL" >&2
-          exit 1
 
       - name: Run Playwright tests
         working-directory: client

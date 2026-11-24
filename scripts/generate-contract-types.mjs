@@ -22,12 +22,6 @@ const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ABI_JSON = path.join(ROOT, 'shared', 'src', 'generated', 'soroban-abi.json');
 const OUTPUT_TS = path.join(ROOT, 'shared', 'src', 'generated', 'contracts.ts');
-// These ABI entries remain for historical lookup after their Rust crates were retired.
-const RETIRED_CONTRACTS = new Set([
-  'SubscriptionRegistry',
-  'SubscriptionLogging',
-  'SubscriptionRenewal',
-]);
 
 const ARG_KIND_TO_TS = {
   Address: 'string',
@@ -167,8 +161,6 @@ function rustFunctionNames(sourceRel) {
 function assertFunctionsExistInRust(abi) {
   const missing = [];
   for (const contract of abi.contracts) {
-    if (RETIRED_CONTRACTS.has(contract.contract)) continue;
-
     const names = rustFunctionNames(contract.source);
     if (names.size === 0) {
       missing.push(`${contract.contract}: source not found (${contract.source})`);

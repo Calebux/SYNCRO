@@ -44,7 +44,7 @@ jobs:
         run: |
           # Allowlist of files permitted at repository root
           # Implementation and one-off documentation should be in docs/
-          ALLOWED="README.md CONTRIBUTING.md INSTALL.md AGENTS.md CLAUDE.md DEBT.md TODO.md LICENSE LICENSE.md requirements.txt"
+          ALLOWED="README.md CONTRIBUTING.md INSTALL.md AGENTS.md CLAUDE.md DEBT.md TODO.md LICENSE LICENSE.md requirements.txt PULL_REQUEST_TEMPLATE.md"
 
           for file in *.md *.txt; do
             if [ -f "$file" ]; then

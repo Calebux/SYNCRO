@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "jest",
+    "swagger:export": "tsx scripts/export-swagger.ts",
+    "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/index.ts",
     "seed:v3": "node scripts/seed-v3.mjs",
@@ -17,7 +18,7 @@
     "@bull-board/express": "^9.10.4",
     "@sentry/node": "^10.74.0",
     "@sentry/profiling-node": "^10.74.0",
-    "@stellar/stellar-sdk": "^17.0.0",
+    "@stellar/stellar-sdk": "^14.5.0",
     "@supabase/supabase-js": "^2.118.0",
     "@syncro/settlement": "file:../packages/settlement",
     "@syncro/shared": "file:../shared",
@@ -62,7 +63,7 @@
   "devDependencies": {
     "@cyclonedx/cyclonedx-npm": "^6.0.1",
     "@sigstore/cli": "^0.10.3",
-    "@stellar/stellar-sdk": "^17.0.0",
+    "@stellar/stellar-sdk": "^14.5.0",
     "@types/archiver": "^8.0.0",
     "@types/bcryptjs": "^3.0.0",
     "@types/express": "^5.0.6",

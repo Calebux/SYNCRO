@@ -11,7 +11,7 @@ import {
   LEAP_DAY_ANCHORS,
   DST_BOUNDARY_INSTANTS,
   type BillingInterval,
-} from '../logic/subscription-math';
+} from '../subscription-math';
 
 function mulberry32(seed: number): () => number {
   return () => {

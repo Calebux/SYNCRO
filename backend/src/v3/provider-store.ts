@@ -606,9 +606,8 @@ export class InMemoryProviderStore {
    *
    * Specificity order, comparing `/`-separated segments left to right:
    *   1. at the first differing segment, a static segment beats one
-   *      containing a wildcard (`/v1/chat` and `/v1/chat/{wildcard}` both
-   *      beat `/v1/{wildcard}` and `/v1/{wildcard}/summary` for
-   *      `/v1/chat/summary`);
+   *      containing `*` (`/v1/chat` and `/v1/chat/*` both beat `/v1/*`
+   *      and `/v1/*/summary` for the path `/v1/chat/summary`);
    *   2. when all shared segments agree, the longer pattern wins;
    *   3. lexicographic pattern order as a final deterministic tie-break
    *      (two identical patterns cannot coexist — registration rejects them).

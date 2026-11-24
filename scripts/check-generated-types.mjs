@@ -53,13 +53,12 @@ function main() {
 
     for (const [rel, original] of originalFiles) {
       const abs = path.join(ROOT, rel);
-      if (
-        original === null ||
-        !fs.existsSync(abs) ||
-        !original.equals(fs.readFileSync(abs))
-      ) {
-        dirty.push(rel);
-      }
+      const generated = fs.existsSync(abs) ? fs.readFileSync(abs) : null;
+      const changed =
+        original === null
+          ? generated !== null
+          : generated === null || !original.equals(generated);
+      if (changed) dirty.push(rel);
     }
   } finally {
     for (const [rel, original] of originalFiles) {

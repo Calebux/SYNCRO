@@ -1,6 +1,6 @@
 {
-  "name": "syncro-monorepo",
-  "version": "1.0.0",
+  "name": "@syncro/metering",
+  "version": "0.0.0",
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
@@ -31,6 +31,7 @@
     "check:generated": "node scripts/check-generated-types.mjs",
     "check:changeset": "node scripts/check-changeset.mjs",
     "generate:openapi": "cd backend && npm run swagger:export",
+    "swagger:export": "npm run generate:openapi",
     "lint:todos": "node scripts/check-todos.mjs",
     "lint:conflicts": "node scripts/check-conflict-markers.mjs",
     "check:domain-naming": "node scripts/check-domain-naming.js",
@@ -52,7 +53,8 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "@syncro/core": "workspace:*"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.5",
@@ -61,6 +63,6 @@
     "lint-staged": "^15.5.2",
     "turbo": "^2.5.4",
     "typescript": "^5.4.0",
-    "vitest": "^5.0.5"
+    "vitest": "^1.6.0"
   }
 }

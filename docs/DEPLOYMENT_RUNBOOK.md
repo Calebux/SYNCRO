@@ -4,7 +4,7 @@ This runbook covers deploying SYNCRO on infrastructure you control: sizing, Dock
 
 v3 adds two processes the old client/API deploy does not have: a **settlement engine** that holds the key that signs channel states, and an **indexer** that stores how far it has read the chain. Those two change which environment may talk to which network, the order you start things, and how you roll back. Follow [v3 environments, deploy order, and rollback](#v3-environments-deploy-order-and-rollback) for any deploy that moves value. The later sections (Compose, env vars, Supabase, probes) still apply to the client and the API.
 
-For local development setup, see [CONTRIBUTING.md](../CONTRIBUTING.md). For the environment-variable strategy and CI validation model, see [ENVIRONMENT.md](./ENVIRONMENT.md). Custody of the settlement key is in [KEY_ROTATION_FLOW.md](./KEY_ROTATION_FLOW.md).
+For local development setup, see [CONTRIBUTING.md](../CONTRIBUTING.md). For the environment-variable strategy and CI validation model, see [ENVIRONMENT.md](./ENVIRONMENT.md). Custody of the settlement key is in [KEY_ROTATION_FLOW.md](../KEY_ROTATION_FLOW.md).
 
 ---
 
@@ -94,7 +94,7 @@ Keys that can move value, and the only place they may be loaded:
 
 The client, the gateway, the meter, the indexer, Redis, and Postgres do not get these secrets. Postgres stores `channel_signer_lease.last_nonce_allocated` and signed states. That is not key material, and it must survive a rollback (see below).
 
-Staging and production reach the signer over authenticated mTLS. The engine asks the signer to sign a digest. Startup in those environments is misconfigured if the process can read key bytes. Local and CI are the only environments where a file-backed key is allowed, and that file must not be a copy of the staging or production key. Details: [KEY_ROTATION_FLOW.md](./KEY_ROTATION_FLOW.md).
+Staging and production reach the signer over authenticated mTLS. The engine asks the signer to sign a digest. Startup in those environments is misconfigured if the process can read key bytes. Local and CI are the only environments where a file-backed key is allowed, and that file must not be a copy of the staging or production key. Details: [KEY_ROTATION_FLOW.md](../KEY_ROTATION_FLOW.md).
 
 ### Deploy order
 
@@ -1105,6 +1105,6 @@ Resolve conflicts in `supabase/migrations/` before pushing. Never edit applied m
 | [SECRET_ROTATION_POLICY.md](./SECRET_ROTATION_POLICY.md) | Secret rotation schedule |
 | [RLS_AUDIT_GUIDE.md](./RLS_AUDIT_GUIDE.md) | Row-level security audit |
 | [deploy/manifests/README.md](../deploy/manifests/README.md) | Deployment manifest format |
-| [KEY_ROTATION_FLOW.md](./KEY_ROTATION_FLOW.md) | Settlement signing-key custody, rotation, and compromise |
+| [KEY_ROTATION_FLOW.md](../KEY_ROTATION_FLOW.md) | Settlement signing-key custody, rotation, and compromise |
 | [ops/contract-upgrade-runbook.md](./ops/contract-upgrade-runbook.md) | Contract upgrade and contract-level rollback |
 | [backend/docs/channel-signer-lease-flow.md](../backend/docs/channel-signer-lease-flow.md) | Per-channel lease and nonce allocation |

@@ -11,8 +11,7 @@ export type DomainEventName =
   | 'payment.succeeded'
   | 'payment.failed'
   | 'risk.score.changed'
-  | 'analytics.invalidated'
-  | 'digest.updated';
+  | 'analytics.invalidated';
 
 export interface BaseDomainEvent {
   eventName: DomainEventName;

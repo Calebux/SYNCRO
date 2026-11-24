@@ -30,21 +30,12 @@ export type ChannelStatus = 'open' | 'closing' | 'closed';
  * monotonically increasing nonce and the balances each peer is owed.
  */
 export interface SignedChannelState {
-  state: {
-    /** Channel this state belongs to. */
-    channelId: string;
-    /** Contract this state is valid for. */
-    contractAddress: string;
-    /** Contract version this state is valid for. */
-    contractVersion: string;
-    /** Monotonically increasing version of the state. */
-    nonce: number;
-    payerBalance: bigint;
-    payeeBalance: bigint;
-    windowStart: number;
-    windowEnd: number;
-  };
-  signature: string;
+  /** Channel this state belongs to. */
+  channelId: string;
+  /** Monotonically increasing version of the state. */
+  nonce: number;
+  /** Balance owed to each peer, keyed by peer address. */
+  balances: Record<string, bigint>;
 }
 
 /**
