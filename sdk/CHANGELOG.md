@@ -10,6 +10,10 @@ Each release notes the minimum compatible backend version (`synchro`). If your b
 
 _Changes staged for the next release._
 
+### Added
+
+- `@syncro/sdk/v3`: framework-neutral LLM tool adapter (#1821). `toToolDefinition(route)` emits a JSON Schema (draft-07) tool spec for a paid route, with its cost in the description so models can prefer cheaper tools. `executeTool(call, options)` and `createPaidTools(options)` run tool calls through `createPaidFetch` and return failures (unknown tool, bad arguments, unpaid 402, HTTP errors) as `{ ok: false, error }` tool results. See `sdk/examples/llm-tool-loop` for a raw tool-use loop with no framework.
+
 ---
 
 ## [3.0.0] — 2026-08-26
