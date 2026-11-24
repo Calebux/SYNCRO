@@ -374,6 +374,68 @@ jobs:
           retention-days: 7
 
   # ──────────────────────────────────────────────
+  # SDK mutation testing gate (issue #1874)
+  # Stryker scope and the break threshold live in sdk/stryker.config.mjs.
+  # Requires @stryker-mutator devDependencies in sdk/package.json.
+  # ──────────────────────────────────────────────
+  sdk-mutation:
+    name: SDK Mutation Testing
+    needs: [detect-changes]
+    if: ${{ needs.detect-changes.outputs.force_full_run == 'true' || needs.detect-changes.outputs.sdk == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk
+    steps:
+      - uses: ./.github/workflows/_composite/setup-node.yml
+        with:
+          node-version: "23.4.0"
+          working-directory: sdk
+          cache-dependency-path: sdk/package-lock.json
+
+      - name: Install dependencies
+        uses: ./.github/workflows/_composite/install-deps.yml
+        with:
+          working-directory: sdk
+          node-version: "23.4.0"
+
+      - name: Verify Stryker is installed as a devDependency
+        run: |
+          if ! npm exec --no -- stryker --version > /dev/null 2>&1; then
+            echo "::error::Stryker is not installed. Add the pinned @stryker-mutator devDependencies to sdk/package.json with npm install and commit the lockfile (issue #1874)."
+            exit 1
+          fi
+
+      - name: Run mutation tests (fails below the break threshold)
+        env:
+          NODE_OPTIONS: --experimental-vm-modules
+        run: |
+          set -o pipefail
+          mkdir -p coverage/mutation
+          npm exec --no -- stryker run 2>&1 | tee coverage/mutation/run.log
+
+      - name: Publish mutation score
+        if: always()
+        run: |
+          if [ -f coverage/mutation/run.log ]; then
+            {
+              echo "### SDK mutation score (v3 receipt verifier)"
+              echo '```'
+              grep -E 'All files|Mutation score' coverage/mutation/run.log | tail -5 || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload mutation report
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: sdk-mutation-report
+          path: sdk/coverage/mutation/
+          if-no-files-found: warn
+          retention-days: 7
+
+  # ──────────────────────────────────────────────
   # Backend Tests (integration-style with real deps)
   # ──────────────────────────────────────────────
   test-backend:
