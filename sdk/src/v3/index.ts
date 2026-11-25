@@ -47,3 +47,17 @@ export {
   type PaidResponse,
   type PaymentReceipt,
 } from "./paid-fetch.js";
+
+export {
+  toToolDefinition,
+  executeTool,
+  createPaidTools,
+  type JsonSchema,
+  type PaidRoute,
+  type PaidRoutePrice,
+  type ProviderManifest,
+  type ToolDefinition,
+  type ToolCall,
+  type ToolResult,
+  type ExecuteToolOptions,
+} from "./tools.js";

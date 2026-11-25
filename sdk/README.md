@@ -80,6 +80,55 @@ the published public key remains stable across restarts.
 Unsigned challenges, invalid signatures, and responses without a configured
 gateway key are returned as 402 responses without signing or retrying.
 
+## LLM Tool Calling — paid routes as tools
+
+`@syncro/sdk/v3` turns paid routes into tools for any LLM tool-calling API,
+with no agent framework required.
+
+```typescript
+import { createPaidTools } from "@syncro/sdk/v3";
+
+const tools = createPaidTools({
+  manifest: {
+    gatewayUrl: "https://api.example.com/v1",
+    routes: [{
+      name: "search",
+      method: "GET",
+      path: "/search",
+      description: "Keyword search over the public index.",
+      price: { amount: "0.001", asset: "USDC" },
+      parameters: {
+        type: "object",
+        properties: { query: { type: "string" } },
+        required: ["query"],
+      },
+    }],
+  },
+  paidFetch: { sign, gatewayPublicKey },
+});
+
+// tools.definitions -> [{ name: "search",
+//   description: "Keyword search over the public index. Cost: 0.001 USDC per call.",
+//   parameters: { ...JSON Schema draft-07 } }]
+
+const result = await tools.executeTool({ id, name, arguments }); // from the model
+// { ok, status, content, price, receipt } or { ok: false, error }
+```
+
+- `toToolDefinition(route)` builds one spec. The cost is appended to the
+  description so the model can choose cheaper tools. Path parameters
+  (`/items/{id}` or `/items/:id`) become required string arguments.
+- `executeTool(call, options)` / `createPaidTools(options).executeTool(call)`
+  sends `GET`/`DELETE` arguments as a query string and other methods as a JSON
+  body, through `createPaidFetch`. It never throws: unknown tools, invalid
+  arguments, an unpaid 402, or an HTTP error come back as `{ ok: false, error }`
+  to return to the model as a tool error.
+- Map a spec onto a provider with a field rename, e.g. Anthropic Messages
+  `{ name, description, input_schema: parameters }` or OpenAI-style
+  `{ type: "function", function: { name, description, parameters } }`.
+
+See [`examples/llm-tool-loop`](./examples/llm-tool-loop) for a complete raw tool-use loop.
+
 ## Configuration
 
 ```typescript
