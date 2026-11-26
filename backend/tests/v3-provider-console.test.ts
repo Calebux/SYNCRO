@@ -3,6 +3,7 @@ import request from 'supertest';
 import { Keypair } from '@stellar/stellar-sdk';
 import v3GatewayRouter from '../src/routes/v3-gateway';
 import { InMemoryProviderStore } from '../src/v3/provider-store';
+import { calculateChargeStroops } from '../src/v3/pricing';
 
 describe('provider console reads', () => {
   beforeEach(() => {
@@ -125,6 +126,74 @@ describe('provider console reads', () => {
     expect(revenue.body.data).not.toHaveProperty('total');
   });
 
+  it('simulates draft tier pricing against historical settlements using gateway math', async () => {
+    const app = buildApp();
+    const { providerId, providerSecret } = await onboardProvider(app);
+    const created = await request(app)
+      .post(`/api/v3/providers/${providerId}/routes`)
+      .set('x-provider-key', providerSecret)
+      .send({
+        pathPattern: '/free/echo',
+        method: 'POST',
+        unit: 'call',
+        priceStroops: 5,
+        freeUnits: 1,
+        tiers: [
+          { upToUnits: 10, priceStroops: 5 },
+          { upToUnits: null, priceStroops: 2 },
+        ],
+        quantityExtractor: 'constant:1',
+      })
+      .expect(201);
+
+    await request(app).post('/api/v3/registry/grants').send({
+      agentId: 'pricing-agent',
+      scopes: ['POST:/free/echo'],
+    }).expect(201);
+    await request(app).post('/api/v3/gateway/paid')
+      .set('x-syncro-agent-id', 'pricing-agent')
+      .send({ providerId, path: '/free/echo', channelId: 'pricing-channel', stateNonce: 1 })
+      .expect(200);
+
+    await request(app).post('/api/v3/registry/grants').send({
+      agentId: 'pricing-agent-two',
+      scopes: ['POST:/free/echo'],
+    }).expect(201);
+    // A second agent shares the same payment channel; historical simulation
+    // must attribute this call to the authenticated agent, not the channel.
+    await request(app).post('/api/v3/gateway/paid')
+      .set('x-syncro-agent-id', 'pricing-agent-two')
+      .send({ providerId, path: '/free/echo', channelId: 'pricing-channel', stateNonce: 2 })
+      .expect(200);
+
+    const simulation = await request(app)
+      .post(`/api/v3/providers/${providerId}/pricing-simulator`)
+      .set('x-provider-key', providerSecret)
+      .send({
+        routeId: created.body.data.routeId,
+        source: 'historical',
+        priceStroops: 3,
+        freeUnits: 0,
+        tiers: [{ upToUnits: null, priceStroops: 3 }],
+        platformFeeBps: 250,
+      })
+      .expect(200);
+
+    expect(simulation.body.data.totals).toMatchObject({
+      calls: 2,
+      draftGrossStroops: 6,
+      draftPlatformFeeStroops: 0,
+      draftProviderNetStroops: 6,
+      currentGrossStroops: 0,
+      differenceStroops: 6,
+    });
+    expect(simulation.body.data.rows.map((row: { agentId: string }) => row.agentId).sort()).toEqual([
+      'pricing-agent',
+      'pricing-agent-two',
+    ]);
+    expect(simulation.body.data.feeIsEstimate).toBe(true);
+  });
+
   it('requires payout verification again after the address changes', async () => {
     const app = buildApp();
     const { providerId, providerSecret } = await onboardProvider(app);
@@ -225,5 +294,91 @@ describe('rate card applicability', () => {
       inDispute: 6,
     });
     expect(store.revenue(provider.providerId)).not.toHaveProperty('total');
+  });
+
+  it('keeps tier schedules immutable across rate-card revisions', () => {
+    const store = new InMemoryProviderStore();
+    const provider = store.registerProvider({
+      identity: 'tiered-provider',
+      payoutAddress: 'GADDRESS',
+      upstreamBaseUrl: 'https://provider.example',
+      agreementTerms: 'tos:v1',
+      mode: 'staging',
+    });
+    const firstSchedule = {
+      freeUnits: 10,
+      tiers: [
+        { upToUnits: 100, priceStroops: 5 },
+        { upToUnits: null, priceStroops: 2 },
+      ],
+    };
+    const route = store.registerRoute({
+      providerId: provider.providerId,
+      pathPattern: '/tiered/*',
+      method: 'POST',
+      unit: 'token',
+      priceStroops: 5,
+      quantityExtractor: 'constant:1',
+      ...firstSchedule,
+    });
+    const first = store.applicableVersion(route.routeId, route.createdAt);
+    expect(first).toMatchObject(firstSchedule);
+
+    const secondSchedule = {
+      freeUnits: 20,
+      tiers: [
+        { upToUnits: 200, priceStroops: 4 },
+        { upToUnits: null, priceStroops: 1 },
+      ],
+    };
+    const second = store.reviseRoute(provider.providerId, route.routeId, {
+      ...secondSchedule,
+      priceStroops: 4,
+    }).version;
+    expect(second).toMatchObject(secondSchedule);
+    expect(store.listRateCards(provider.providerId).find((version) => version.versionId === first?.versionId)).toMatchObject(firstSchedule);
+  });
+
+});
+
+
+describe('gateway tiered pricing', () => {
+  it('preserves flat pricing when no schedule is supplied', () => {
+    expect(calculateChargeStroops(7, 3)).toBe(21);
+  });
+
+  it('deducts the per-call free allowance before charging', () => {
+    expect(calculateChargeStroops(7, 5, { freeUnits: 2 })).toBe(21);
+    expect(calculateChargeStroops(7, 2, { freeUnits: 2 })).toBe(0);
+  });
+
+  it('applies marginal tiers after the free allowance', () => {
+    const schedule = {
+      freeUnits: 2,
+      tiers: [
+        { upToUnits: 3, priceStroops: 10 },
+        { upToUnits: 8, priceStroops: 6 },
+        { upToUnits: null, priceStroops: 2 },
+      ],
+    };
+    // 10 units: 2 free, then 3 @ 10, 5 @ 6.
+    expect(calculateChargeStroops(10, 10, schedule)).toBe(60);
+  });
+
+  it('rejects malformed tier schedules instead of silently mispricing', () => {
+    expect(() => calculateChargeStroops(10, 5, {
+      tiers: [
+        { upToUnits: 5, priceStroops: 10 },
+        { upToUnits: 4, priceStroops: 5 },
+        { upToUnits: null, priceStroops: 1 },
+      ],
+    })).toThrow(/strictly increasing/);
+    expect(() => calculateChargeStroops(10, 5, {
+      tiers: [{ upToUnits: 5, priceStroops: 10 }],
+    })).toThrow(/unlimited upper bound/);
+  });
+
+  it('rejects charges that exceed safe integer precision', () => {
+    expect(() => calculateChargeStroops(Number.MAX_SAFE_INTEGER, 2)).toThrow(/maximum safe integer/);
   });
 });

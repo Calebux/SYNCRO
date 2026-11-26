@@ -508,7 +508,7 @@ export class V3GatewayService {
       throw new PaidCallRequestError('route has no applicable rate-card version');
     }
     const upperBoundUnits = rateCard.maxBillableUnits;
-    const upperBoundStroops = calculateChargeStroops(rateCard.priceStroops, upperBoundUnits);
+    const upperBoundStroops = calculateChargeStroops(rateCard.priceStroops, upperBoundUnits, rateCard);
 
     // -----------------------------------------------------------------------
     // 1. Degraded admission — decide what happens if the counter store is
@@ -535,23 +535,21 @@ export class V3GatewayService {
     //    An overage here is "out of funds" (402), the mirror image of the
     //    "slow down" (429) raised above — the agent can tell the two apart.
     // -----------------------------------------------------------------------
-    let reservation: MeterReservation;
-    try {
-      reservation = this.meter.reserve(
-        input.agentId,
-        route.scopeKey,
-        upperBoundStroops,
-      );
-    } catch (err) {
-      if (err instanceof OverageError) {
-        throw new MeterInsufficientFundsError(
-          route.scopeKey,
-          err.available ?? 0,
-          err.needed ?? upperBoundStroops,
-          err.limit ?? 0,
-        );
+    let reservation: MeterReservation | null = null;
+    if (upperBoundStroops > 0) {
+      try {
+        reservation = this.meter.reserve(input.agentId, route.scopeKey, upperBoundStroops);
+      } catch (err) {
+        if (err instanceof OverageError) {
+          throw new MeterInsufficientFundsError(
+            route.scopeKey,
+            err.available ?? 0,
+            err.needed ?? upperBoundStroops,
+            err.limit ?? 0,
+          );
+        }
+        throw err;
       }
-      throw err;
     }
 
     let upstream: UpstreamResult;
@@ -570,7 +568,7 @@ export class V3GatewayService {
       //     charge for it either — we simply release the reservation and let
       //     the caller decide on retry policy.
       // -----------------------------------------------------------------------
-      this.meter.release(reservation.id);
+      if (reservation) this.meter.release(reservation.id);
       // Nothing was served, so the unbilled headroom goes back to the pool.
       this.degraded?.rollback(admission?.holdId ?? null);
       // The provider's upstream is an external dependency we do not control:
@@ -584,11 +582,11 @@ export class V3GatewayService {
     const measuredQuantity = extractMeasuredQuantity(rateCard.quantityExtractor, upstream.body);
     const actualUnits = roundBillableUnits(measuredQuantity);
     if (actualUnits > upperBoundUnits) {
-      this.meter.commit(reservation.id, upperBoundStroops);
+      if (reservation) this.meter.commit(reservation.id, upperBoundStroops);
       throw new PaidCallRequestError('measured usage exceeded the route admission maximum');
     }
-    const amount = calculateChargeStroops(rateCard.priceStroops, actualUnits);
-    this.meter.commit(reservation.id, amount);
+    const amount = calculateChargeStroops(rateCard.priceStroops, actualUnits, rateCard);
+    if (reservation) this.meter.commit(reservation.id, amount);
 
     const meteredAt = admittedAt;
 
@@ -622,6 +620,7 @@ export class V3GatewayService {
       status: 'unsettled',
       meteredAt,
       channelId: input.channelId,
+      agentId: input.agentId,
     };
     this.providers.recordSettlement(settlement);
 
@@ -637,7 +636,7 @@ export class V3GatewayService {
         providerId: provider.providerId,
         principal: input.agentId,
         route: route.scopeKey,
-        reservationId: reservation.id,
+        reservationId: reservation?.id ?? `free_${receipt.receiptId}`,
         receiptId: receipt.receiptId,
         units: actualUnits,
         amount,
@@ -658,7 +657,7 @@ export class V3GatewayService {
         ? this.receipts.encodeHeaderValue(receipt)
         : null,
       meterReading,
-      meterDegraded: reservation.degraded || (admission?.degraded ?? false),
+      meterDegraded: (reservation?.degraded ?? false) || (admission?.degraded ?? false),
       degradedAdmission: admission,
     };
   }

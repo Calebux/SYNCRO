@@ -13,7 +13,7 @@ import {
   RegisteredRoute,
   SettlementStatus,
 } from './types';
-import { assertPositiveSafeInteger, ROUTE_UNITS, type RouteUnit } from './pricing';
+import { assertPositiveSafeInteger, ROUTE_UNITS, validatePricingSchedule, type PricingTier, type RouteUnit } from './pricing';
 
 export interface RegisterProviderInput {
   identity: string;
@@ -47,6 +47,8 @@ export interface RegisterRouteInput {
   unit: RouteUnit;
   /** Integer stroops per billable unit. */
   priceStroops: number;
+  freeUnits?: number;
+  tiers?: PricingTier[];
   maxBillableUnits?: number;
   quantityExtractor: string;
   /** Optional per-route rate-limit override; inherits the provider default (#1447). */
@@ -58,6 +60,8 @@ export interface ReviseRouteInput {
   method?: string;
   unit?: RouteUnit;
   priceStroops?: number;
+  freeUnits?: number;
+  tiers?: PricingTier[];
   maxBillableUnits?: number;
   quantityExtractor?: string;
   effectiveFrom?: string;
@@ -80,6 +84,7 @@ export interface RecordSettlementInput {
   status: SettlementStatus;
   meteredAt: string;
   channelId: string;
+  agentId?: string;
 }
 
 /** Input for creating a pending payout address change (requires verified challenge). */
@@ -394,7 +399,7 @@ export class InMemoryProviderStore {
   registerRoute(input: RegisterRouteInput): RegisteredRoute {
     const method = normalizeMethod(input.method);
     const pattern = input.pathPattern.trim();
-    assertPositiveSafeInteger(input.priceStroops, 'priceStroops');
+    validatePricingSchedule({ freeUnits: input.freeUnits, tiers: input.tiers }, input.priceStroops);
     if (!ROUTE_UNITS.includes(input.unit)) {
       throw new Error(`unit must be one of: ${ROUTE_UNITS.join(', ')}`);
     }
@@ -417,6 +422,8 @@ export class InMemoryProviderStore {
       method,
       unit: input.unit,
       priceStroops: input.priceStroops,
+      freeUnits: input.freeUnits ?? 0,
+      tiers: input.tiers?.map((tier) => ({ ...tier })),
       maxBillableUnits,
       quantityExtractor: input.quantityExtractor,
       scopeKey: buildScopeKey(input.method, pattern),
@@ -440,6 +447,8 @@ export class InMemoryProviderStore {
             ? {
                 unit: applicableVersion.unit,
                 priceStroops: applicableVersion.priceStroops,
+                freeUnits: applicableVersion.freeUnits ?? 0,
+                tiers: applicableVersion.tiers?.map((tier) => ({ ...tier })),
                 maxBillableUnits: applicableVersion.maxBillableUnits,
                 quantityExtractor: applicableVersion.quantityExtractor,
               }
@@ -470,6 +479,8 @@ export class InMemoryProviderStore {
       method: patch.method !== undefined ? normalizeMethod(patch.method) : existing.method,
       unit: patch.unit ?? existing.unit,
       priceStroops: patch.priceStroops !== undefined ? patch.priceStroops : existing.priceStroops,
+      freeUnits: patch.freeUnits !== undefined ? patch.freeUnits : (existing.freeUnits ?? 0),
+      tiers: patch.tiers !== undefined ? patch.tiers.map((tier) => ({ ...tier })) : existing.tiers?.map((tier) => ({ ...tier })),
       maxBillableUnits: patch.maxBillableUnits ?? existing.maxBillableUnits,
       quantityExtractor: patch.quantityExtractor?.trim() || existing.quantityExtractor,
       rateLimit:
@@ -479,7 +490,7 @@ export class InMemoryProviderStore {
     };
     next.scopeKey = buildScopeKey(next.method, next.pathPattern);
 
-    assertPositiveSafeInteger(next.priceStroops, 'priceStroops');
+    validatePricingSchedule({ freeUnits: next.freeUnits, tiers: next.tiers }, next.priceStroops);
     assertPositiveSafeInteger(next.maxBillableUnits, 'maxBillableUnits');
     if (!ROUTE_UNITS.includes(next.unit)) throw new Error(`unit must be one of: ${ROUTE_UNITS.join(', ')}`);
     if (next.quantityExtractor !== 'constant:1' && patch.maxBillableUnits === undefined && existing.maxBillableUnits === 1) {
@@ -505,6 +516,8 @@ export class InMemoryProviderStore {
       next.method === existing.method &&
       next.unit === existing.unit &&
       next.priceStroops === existing.priceStroops &&
+      (next.freeUnits ?? 0) === (existing.freeUnits ?? 0) &&
+      JSON.stringify(next.tiers ?? []) === JSON.stringify(existing.tiers ?? []) &&
       next.maxBillableUnits === existing.maxBillableUnits &&
       next.quantityExtractor === existing.quantityExtractor &&
       next.rateLimit?.requestsPerInterval === existing.rateLimit?.requestsPerInterval &&
@@ -577,6 +590,7 @@ export class InMemoryProviderStore {
       status: input.status,
       meteredAt: input.meteredAt,
       channelId: input.channelId,
+      ...(input.agentId ? { agentId: input.agentId } : {}),
     };
     this.settlements.set(settlement.settlementId, settlement);
     return { ...settlement };
@@ -668,6 +682,8 @@ export class InMemoryProviderStore {
       sequence,
       label: `v${sequence}`,
       priceStroops: route.priceStroops,
+      freeUnits: route.freeUnits ?? 0,
+      tiers: route.tiers?.map((tier) => ({ ...tier })),
       unit: route.unit,
       maxBillableUnits: route.maxBillableUnits,
       quantityExtractor: route.quantityExtractor,

@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
+import { PricingSimulator } from './PricingSimulator';
 import {
   Alert,
   AlertDescription,
@@ -19,11 +20,13 @@ import {
 import {
   PAYOUT_CHANGE_COOLING_OFF_MS,
   PROVIDER_SESSION_KEY,
+  PROVIDER_SECRET_SESSION_KEY,
   RATE_CARD_NON_RETROACTIVE_NOTICE,
   SEPARATE_REVENUE_NOTICE,
   ProviderConsoleClient,
   ProviderConsoleError,
   ProviderConsoleSnapshot,
+  ProviderRegistration,
   ProviderMode,
   ProviderRevenue,
   ProviderSettlement,
@@ -114,13 +117,15 @@ export function ProviderConsole({ client = providerConsoleClient }: ProviderCons
     setChallenge(next.provider.payoutChallenge);
   }
 
-  function rememberProvider(id: string) {
-    sessionStorage.setItem(PROVIDER_SESSION_KEY, id);
-    setProviderId(id);
+  function rememberProvider(provider: ProviderRegistration) {
+    sessionStorage.setItem(PROVIDER_SESSION_KEY, provider.providerId);
+    if (provider.providerSecret) sessionStorage.setItem(PROVIDER_SECRET_SESSION_KEY, provider.providerSecret);
+    setProviderId(provider.providerId);
   }
 
   function forgetProvider() {
     sessionStorage.removeItem(PROVIDER_SESSION_KEY);
+    sessionStorage.removeItem(PROVIDER_SECRET_SESSION_KEY);
     setProviderId(null);
     setSnapshot(null);
     setChallenge(null);
@@ -151,9 +156,9 @@ export function ProviderConsole({ client = providerConsoleClient }: ProviderCons
 
       {!snapshot ? (
         <RegistrationForm
-          onRegistered={async (id) => {
+          onRegistered={async (provider) => {
             setError(null);
-            rememberProvider(id);
+            rememberProvider(provider);
           }}
           client={client}
           onError={setError}
@@ -200,6 +205,7 @@ export function ProviderConsole({ client = providerConsoleClient }: ProviderCons
           />
 
           <RateCardSection versions={snapshot.rateCards} />
+          <PricingSimulator snapshot={snapshot} client={client} />
           <SettlementHistory settlements={snapshot.settlements} />
         </>
       )}
@@ -213,7 +219,7 @@ function RegistrationForm({
   onError,
 }: {
   client: ProviderConsoleClient;
-  onRegistered: (providerId: string) => Promise<void>;
+  onRegistered: (provider: ProviderRegistration) => Promise<void>;
   onError: (message: string) => void;
 }) {
   const [identity, setIdentity] = useState('');
@@ -234,7 +240,7 @@ function RegistrationForm({
         agreementTerms: agreementTerms.trim(),
         mode,
       });
-      await onRegistered(provider.providerId);
+      await onRegistered(provider);
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Registration failed.');
     } finally {
@@ -915,6 +921,12 @@ function RateCardSection({ versions }: { versions: RateCardVersion[] }) {
                     </p>
                     <p className="mt-1 text-muted-foreground">{describeRateCardVersion(version, rows)}</p>
                     <p className="mt-1 font-mono text-xs">Extractor {version.quantityExtractor}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Free units per call: {version.freeUnits ?? 0}.{' '}
+                      {version.tiers?.length
+                        ? `Tiers: ${version.tiers.map((tier) => `${tier.upToUnits ?? '∞'} units @ ${tier.priceStroops} stroops`).join(' · ')}`
+                        : 'Flat per-unit pricing.'}
+                    </p>
                   </li>
                 ))}
               </ul>

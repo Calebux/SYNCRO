@@ -10,6 +10,7 @@ export type SettlementStatus = 'settled' | 'unsettled' | 'in_dispute';
 
 export interface ProviderRegistration {
   providerId: string;
+  providerSecret?: string;
   identity: string;
   payoutAddress: string;
   upstreamBaseUrl: string;
@@ -40,6 +41,9 @@ export interface RateCardVersion {
   sequence: number;
   label: string;
   price: number;
+  priceStroops?: number;
+  freeUnits?: number;
+  tiers?: { upToUnits: number | null; priceStroops: number }[];
   unit: string;
   quantityExtractor: string;
   pathPattern: string;
@@ -55,6 +59,9 @@ export interface ProviderRoute {
   method: string;
   unit: string;
   price: number;
+  priceStroops?: number;
+  freeUnits?: number;
+  tiers?: { upToUnits: number | null; priceStroops: number }[];
   quantityExtractor: string;
   scopeKey: string;
   createdAt: string;
@@ -77,6 +84,8 @@ export interface ProviderSettlement {
   status: SettlementStatus;
   meteredAt: string;
   channelId: string;
+  /** Missing on historical records created before agent attribution was added. */
+  agentId?: string;
 }
 
 export interface ProviderRevenue {
@@ -91,6 +100,25 @@ export interface ProviderConsoleSnapshot {
   rateCards: RateCardVersion[];
   settlements: ProviderSettlement[];
   revenue: ProviderRevenue;
+}
+
+export interface PricingSimulationInput {
+  routeId: string;
+  source: 'historical' | 'hypothetical';
+  priceStroops: number;
+  freeUnits: number;
+  tiers?: { upToUnits: number | null; priceStroops: number }[];
+  platformFeeBps: number;
+  traffic?: { agentId: string; calls: number; unitsPerCall: number }[];
+}
+
+export interface PricingSimulationResult {
+  source: 'historical' | 'hypothetical';
+  feeRateBps: number;
+  feeIsEstimate: boolean;
+  currentRateCardVersion: string;
+  rows: { agentId: string; calls: number; draftGrossStroops: number; draftPlatformFeeStroops: number; draftProviderNetStroops: number; currentGrossStroops: number; differenceStroops: number }[];
+  totals: { calls: number; draftGrossStroops: number; draftPlatformFeeStroops: number; draftProviderNetStroops: number; currentGrossStroops: number; differenceStroops: number };
 }
 
 export interface RegisterProviderInput {
@@ -110,6 +138,7 @@ export interface RouteDraft {
 }
 
 export const PROVIDER_SESSION_KEY = 'syncro.providerConsole.providerId';
+export const PROVIDER_SECRET_SESSION_KEY = 'syncro.providerConsole.providerSecret';
 
 export const RATE_CARD_NON_RETROACTIVE_NOTICE =
   'Price changes are not retroactive. Each version applies only to calls metered on or after its effective time. Calls already metered keep the version that was in force then.';
@@ -204,10 +233,12 @@ function errorMessage(body: unknown): string {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const providerKey = typeof window !== 'undefined' ? window.sessionStorage.getItem(PROVIDER_SECRET_SESSION_KEY) : null;
   const response = await fetch(`${apiBase()}${path}`, {
     ...init,
     headers: {
       'content-type': 'application/json',
+      ...(providerKey ? { 'x-provider-key': providerKey } : {}),
       ...(init?.headers ?? {}),
     },
   });
@@ -229,6 +260,7 @@ export interface ProviderConsoleClient {
   registerRoute(providerId: string, input: RouteDraft): Promise<ProviderRoute>;
   reviseRoute(providerId: string, routeId: string, input: Partial<RouteDraft>): Promise<{ route: ProviderRoute; version: RateCardVersion }>;
   loadConsole(providerId: string): Promise<ProviderConsoleSnapshot>;
+  simulatePricing(providerId: string, input: PricingSimulationInput): Promise<PricingSimulationResult>;
 }
 
 export const providerConsoleClient: ProviderConsoleClient = {
@@ -289,6 +321,9 @@ export const providerConsoleClient: ProviderConsoleClient = {
         body: JSON.stringify(input),
       },
     );
+  },
+  simulatePricing(providerId, input) {
+    return request<PricingSimulationResult>(`/api/v3/providers/${providerId}/pricing-simulator`, { method: 'POST', body: JSON.stringify(input) });
   },
   async loadConsole(providerId) {
     const [provider, routes, rateCards, settlements, revenue] = await Promise.all([

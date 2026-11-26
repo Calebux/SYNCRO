@@ -1,6 +1,6 @@
 import type { DegradedPolicy } from '../../../packages/metering/src/degraded-admission';
 import type { RateLimitPolicy } from '../../../packages/metering/src/rate-limit';
-import type { RouteUnit } from './pricing';
+import type { PricingTier, RouteUnit } from './pricing';
 
 export type ProviderMode = 'staging' | 'production';
 
@@ -39,8 +39,12 @@ export interface RegisteredRoute {
   pathPattern: string;
   method: string;
   unit: RouteUnit;
-  /** Integer stroops per billable unit. */
+  /** Integer stroops per billable unit (fallback when tiers are absent). */
   priceStroops: number;
+  /** Free units included on each call. */
+  freeUnits?: number;
+  /** Marginal price tiers after free units. */
+  tiers?: PricingTier[];
   /** Hard admission maximum used to reserve before an upstream call. */
   maxBillableUnits: number;
   quantityExtractor: string;
@@ -61,8 +65,10 @@ export interface RateCardVersion {
   routeId: string;
   sequence: number;
   label: string;
-  /** Integer stroops per billable unit. */
+  /** Integer stroops per billable unit (fallback when tiers are absent). */
   priceStroops: number;
+  freeUnits?: number;
+  tiers?: PricingTier[];
   unit: RouteUnit;
   maxBillableUnits: number;
   quantityExtractor: string;
@@ -96,6 +102,8 @@ export interface ProviderSettlement {
   status: SettlementStatus;
   meteredAt: string;
   channelId: string;
+  /** Agent that made the paid call; optional for settlements recorded before attribution was added. */
+  agentId?: string;
 }
 
 /** Three buckets, kept separate. There is no combined total. */
