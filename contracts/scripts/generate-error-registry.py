@@ -17,6 +17,9 @@ CONTRACT_ERROR_BASES = {
     "agent-registry": 1400,
     "zk-payment-verifier": 1500,
     "payment-channel": 1600,
+    # NOTE: payment-channel error variants added for #1841 (checkpoint),
+    # #1842 (batch submit_state) and #1843 (agent sub-keys) are picked up
+    # automatically from payment-channel/src/lib.rs and emitted under base 1600.
     "contract-upgrade": 1700,
     "allowance": 1800,
     "payment-adapter": 1900,

@@ -78,6 +78,42 @@ export const SOROBAN_CONTRACT_INTERFACES: SorobanContractInterface[] = [
       },
     ],
   },
+  {
+    contract: "PaymentChannel",
+    source: "contracts/contracts/payment-channel/src/lib.rs",
+    functions: [
+      {
+        name: "open_channel",
+        args: ["Address", "Address", "I128", "U64"],
+        namedArgs: [{ name: "payer", kind: "Address" }, { name: "payee", kind: "Address" }, { name: "deposit", kind: "I128" }, { name: "expiry", kind: "U64" }],
+      },
+      {
+        name: "submit_state",
+        args: ["BytesN32", "I128", "U64", "BytesN32"],
+        namedArgs: [{ name: "channel_id", kind: "BytesN32" }, { name: "amount", kind: "I128" }, { name: "nonce", kind: "U64" }, { name: "sig", kind: "BytesN32" }],
+      },
+      {
+        name: "submit_state_batch",
+        args: ["BytesN32", "I128", "U64", "BytesN32"],
+        namedArgs: [{ name: "channel_id", kind: "BytesN32" }, { name: "amount", kind: "I128" }, { name: "nonce", kind: "U64" }, { name: "sig", kind: "BytesN32" }],
+      },
+      {
+        name: "submit_state_agent",
+        args: ["BytesN32", "I128", "U64", "BytesN32", "Address"],
+        namedArgs: [{ name: "channel_id", kind: "BytesN32" }, { name: "amount", kind: "I128" }, { name: "nonce", kind: "U64" }, { name: "sig", kind: "BytesN32" }, { name: "agent", kind: "Address" }],
+      },
+      {
+        name: "checkpoint",
+        args: ["BytesN32", "I128", "U64", "BytesN32"],
+        namedArgs: [{ name: "channel_id", kind: "BytesN32" }, { name: "amount", kind: "I128" }, { name: "nonce", kind: "U64" }, { name: "sig", kind: "BytesN32" }],
+      },
+      {
+        name: "close_channel",
+        args: ["BytesN32", "I128", "U64", "BytesN32"],
+        namedArgs: [{ name: "channel_id", kind: "BytesN32" }, { name: "amount", kind: "I128" }, { name: "nonce", kind: "U64" }, { name: "sig", kind: "BytesN32" }],
+      },
+    ],
+  },
 ];
 
 /** Lookup a function definition by contract name and Soroban method name. */
@@ -112,9 +148,19 @@ export interface SubscriptionRenewalContract {
   renew(args: { owner: string; sub_id: bigint; approval_id: bigint; amount: bigint; max_retries: bigint; cooldown_ledgers: bigint; cycle_id: bigint; succeed: boolean }): Promise<unknown>;
 }
 
+export interface PaymentChannelContract {
+  open_channel(args: { payer: string; payee: string; deposit: bigint; expiry: bigint }): Promise<unknown>;
+  submit_state(args: { channel_id: Uint8Array; amount: bigint; nonce: bigint; sig: Uint8Array }): Promise<unknown>;
+  submit_state_batch(args: { channel_id: Uint8Array; amount: bigint; nonce: bigint; sig: Uint8Array }): Promise<unknown>;
+  submit_state_agent(args: { channel_id: Uint8Array; amount: bigint; nonce: bigint; sig: Uint8Array; agent: string }): Promise<unknown>;
+  checkpoint(args: { channel_id: Uint8Array; amount: bigint; nonce: bigint; sig: Uint8Array }): Promise<unknown>;
+  close_channel(args: { channel_id: Uint8Array; amount: bigint; nonce: bigint; sig: Uint8Array }): Promise<unknown>;
+}
+
 export interface GeneratedContractMap {
   "SubscriptionRegistry": SubscriptionRegistryContract;
   "SubscriptionLogging": SubscriptionLoggingContract;
   "SubscriptionRenewal": SubscriptionRenewalContract;
+  "PaymentChannel": PaymentChannelContract;
 }
 

@@ -40,6 +40,18 @@ const reauthSchema = z.object({
   statement: z.string().min(1),
 });
 
+// Channel-signing authorisation surface (see docs/design/agent-subkey-channel-signing.md).
+// The channel contract verifies state signatures against the registry's current agent
+// key, its scope and expiry. Revocation only rejects *new* states: earlier states stay
+// valid because they were signed while the key was still authorised.
+const channelSigningKeySchema = z.object({
+  channelId: z.string().min(1),
+  agentId: z.string().min(1),
+  stateSignature: z.string().min(1),
+  stateSequence: z.number().int().nonnegative(),
+  signedAt: z.string().datetime().optional(),
+});
+
 interface PrincipalRequest extends Request {
   principalPublicKey?: string;
 }
@@ -165,6 +177,32 @@ export function createAgentConsoleRouter(service: AgentConsoleService = agentCon
     try {
       const agent = service.revokeAgent(req.principalPublicKey!, agentIdFrom(req.params.agentId), inFlightCount);
       return res.json({ data: agent });
+    } catch (error) {
+      return sendError(res, error);
+    }
+  });
+
+  router.get('/:agentId/channel-signing-key', requireSession, (req: PrincipalRequest, res) => {
+    try {
+      return res.json({
+        data: service.channelSigningKey(req.principalPublicKey!, agentIdFrom(req.params.agentId)),
+      });
+    } catch (error) {
+      return sendError(res, error);
+    }
+  });
+
+  router.post('/:agentId/channel-signing-key/verify', requireSession, (req: PrincipalRequest, res) => {
+    const parsed = channelSigningKeySchema.safeParse(req.body);
+    if (!parsed.success) return sendValidation(res, parsed.error);
+    try {
+      return res.json({
+        data: service.verifyChannelStateSignature(
+          req.principalPublicKey!,
+          agentIdFrom(req.params.agentId),
+          parsed.data,
+        ),
+      });
     } catch (error) {
       return sendError(res, error);
     }

@@ -14,10 +14,12 @@ export interface PaymentChannel {
 
 export interface ChannelHistoryItem {
   id: string;
-  type: 'open' | 'topup' | 'payment' | 'close' | 'dispute';
+  type: 'open' | 'topup' | 'payment' | 'close' | 'dispute' | 'checkpoint';
   amount?: string;
   timestamp: string;
   description?: string;
+  checkpointedAmount?: string;
+  nonce?: string;
 }
 
 export interface ChannelStreamSnapshot {
@@ -35,7 +37,8 @@ export type ChannelHistoryEventType =
   | 'state_submitted'
   | 'close_initiated'
   | 'dispute'
-  | 'finalize';
+  | 'finalize'
+  | 'checkpoint';
 
 export interface ChannelStateEvent {
   id: string;
@@ -177,6 +180,50 @@ export async function topUpChannel(channelId: string, amount: string): Promise<P
   const channel = await res.json();
   upsertChannel(channel);
   return channel;
+}
+
+export interface ChannelCheckpointState {
+  nonce: string;
+  balanceA: string;
+  balanceB: string;
+}
+
+export interface ChannelCheckpointResult {
+  channel: PaymentChannel;
+  checkpointedAmount: string;
+  nonce: string;
+  paidOut: string;
+}
+
+export async function checkpointChannel(
+  channelId: string,
+  state: ChannelCheckpointState,
+  signatures: string[],
+): Promise<ChannelCheckpointResult> {
+  const res = await fetch(`${API_BASE}/api/payment-channels/${channelId}/checkpoint`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ state, signatures }),
+  });
+  if (!res.ok) throw new Error('Failed to checkpoint channel');
+  const result = await res.json() as ChannelCheckpointResult;
+  const channel = result.channel;
+  const historyItem: ChannelHistoryItem = {
+    id: `checkpoint-${channelId}-${result.nonce}`,
+    type: 'checkpoint',
+    amount: result.paidOut,
+    timestamp: new Date().toISOString(),
+    description: 'Partial withdrawal from open channel',
+    checkpointedAmount: result.checkpointedAmount,
+    nonce: result.nonce,
+  };
+  const updated: PaymentChannel = {
+    ...channel,
+    history: [...(channel.history ?? []), historyItem],
+  };
+  upsertChannel(updated);
+  return { ...result, channel: updated };
 }
 
 export async function closeChannel(channelId: string, unilateral: boolean = false): Promise<PaymentChannel> {

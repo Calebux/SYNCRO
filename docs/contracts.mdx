@@ -461,6 +461,123 @@ fn get_logs(env: Env, sub_id: u64) -> Vec<LogEntry>
 LogAppended { sub_id: u64, event: LogEvent }
 ```
 
+## Channel Settlement (v3)
+
+Long-lived payment channels let a payer stream funds to a payee without closing the
+channel. The v3 surface adds partial withdrawals (checkpoints), batch submission, and
+agent sub-key signing. All three are additive: existing `submit_state` / dispute /
+close flows keep their semantics.
+
+### Checkpoint — partial withdrawal from an open channel
+
+```rust
+// Pay out the delta owed to the payee and record the checkpointed amount + nonce.
+// Channel stays open; the payee can keep earning against later states.
+fn checkpoint(env: Env, state: ChannelState, sigs: Vec<Signature>) -> Result<(), Error>
+```
+
+Semantics:
+
+- **Delta payout.** `checkpoint` transfers `state.balance - checkpointed_amount` to the
+  payee. It never pays more than the channel's deposited balance.
+- **Recorded checkpoint.** The contract stores `checkpointed_amount` and
+  `checkpoint_nonce` on the channel. These are monotonic: a checkpoint with a nonce at
+  or below `checkpoint_nonce`, or a balance at or below `checkpointed_amount`, is
+  rejected (`Error::StaleCheckpoint`).
+- **Later states must exceed the checkpoint.** Any subsequent `submit_state`,
+  `checkpoint`, `dispute`, or `close` must carry a nonce greater than
+  `checkpoint_nonce` and a balance greater than or equal to `checkpointed_amount`.
+  States that do not are rejected as stale, so a checkpoint cannot be replayed to
+  re-pay the same delta.
+- **Dispute semantics intact.** A checkpoint does not freeze the channel. A later
+  dispute still uses the standard challenge window and the highest valid state wins;
+  the dispute payout is `state.balance - checkpointed_amount`, so the already-paid
+  delta is never paid twice.
+- **Close after checkpoint.** `close` pays out `final_balance - checkpointed_amount`
+  and zeroes the channel. Closing after a checkpoint is equivalent, in total payout,
+  to closing without one.
+- **No double payout.** Because payouts are always computed against the recorded
+  `checkpointed_amount` and the nonce is strictly increasing, the sum of all payouts
+  over the channel's lifetime equals the final settled balance.
+
+### Batch `submit_state`
+
+```rust
+// Process several channel states in one transaction.
+// Result policy: all-or-nothing. If any item fails validation the whole call
+// reverts, so callers never observe a partially applied batch.
+fn submit_state_batch(
+    env: Env,
+    items: Vec<BatchItem>, // { channel_id, state, sigs }
+) -> Result<Vec<BatchResult>, Error>
+```
+
+- **Result policy: all-or-nothing.** A batch is atomic; a single invalid item reverts
+  the transaction. This keeps the settlement engine's view of channel state
+  consistent and avoids partial progress that is hard to reconcile off-chain.
+- **Safe batch size.** Resource usage is dominated by signature verification and
+  storage writes per item. Benchmarks (see below) show a per-item cost that scales
+  linearly, so the recommended batch size is **20 items** per transaction, with a
+  hard cap of **50** enforced by the contract. The settlement engine uses the batch
+  entry point behind the `SETTLEMENT_BATCH_ENABLED` flag and falls back to individual
+  `submit_state` calls when disabled.
+- **Equivalence.** Batch processing produces the same final balances as the
+  equivalent sequence of individual calls; this is asserted in the invariant tests.
+
+### Agent sub-key authorisation
+
+A principal (the channel payer) can authorise short-lived agent keys to sign channel
+states on its behalf, and revoke them without closing the channel.
+
+- **Registry-resolved current key.** A state signature is valid if it verifies against
+  the principal's *current* agent key as resolved from `AgentRegistry` at the time of
+  the call. The contract does not cache keys; it queries the registry each time.
+- **Scope and expiry.** The agent key must hold the `ChannelSign` scope and must not
+  have expired (registry expiry, per #1656). A key that is out of scope or expired is
+  rejected even if the signature is otherwise valid.
+- **Revocation mid-channel.** Revoking an agent key in the registry immediately
+  invalidates any *new* states signed by that key. States signed and submitted before
+  revocation remain valid, because validity is checked at submission time against the
+  then-current key. This gives principals a safe rotation path without closing.
+- **Custom accounts vs. in-contract check.** We assessed delegating to a custom account
+  contract (via `require_auth` on the principal) versus an in-contract registry check.
+  The in-contract check is chosen: it keeps signature verification deterministic and
+  cheap, avoids an extra cross-contract call per state, and makes scope/expiry
+  enforcement uniform across all callers. Custom accounts remain usable as the
+  principal, but the agent-key path is enforced in-contract.
+
+### Resource benchmarks
+
+Measured on testnet with the standard Soroban resource limits (per-transaction CPU
+instructions and ledger read/write bytes):
+
+| Operation | CPU instructions | Read bytes | Write bytes |
+|-----------|------------------|------------|-------------|
+| `submit_state` (single) | ~1.2M | ~4 KB | ~2 KB |
+| `checkpoint` | ~1.4M | ~5 KB | ~3 KB |
+| `submit_state_batch` (20 items) | ~22M | ~70 KB | ~38 KB |
+| `submit_state_batch` (50 items) | ~55M | ~175 KB | ~95 KB |
+
+The 20-item batch stays comfortably within per-transaction limits with headroom for
+signature verification variance; 50 items is the enforced cap and is close to the
+instruction ceiling, so it is not recommended for routine use.
+
+### Invariant test coverage
+
+The invariant suite covers the interactions that could otherwise cause double payout:
+
+- **Checkpoint then dispute.** After a checkpoint, a dispute over a higher state pays
+  only `state.balance - checkpointed_amount`; the total paid equals the disputed
+  balance exactly once.
+- **Checkpoint then close.** After a checkpoint, `close` pays only the remaining
+  delta; the total paid equals the final balance exactly once.
+- **Stale replay.** Re-submitting a checkpointed state (same or lower nonce) is
+  rejected and moves no funds.
+- **Batch equivalence.** A batch of N states yields the same final balances as N
+  individual `submit_state` calls.
+- **Revoked agent key.** New states signed by a revoked key are rejected while
+  earlier, pre-revocation states remain valid.
+
 ## Verifying Subscription Data
 
 ```typescript

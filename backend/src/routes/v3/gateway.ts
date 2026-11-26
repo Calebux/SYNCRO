@@ -17,6 +17,7 @@ import { unitEconomicsService } from '../../services/v3/unit-economics-service';
 import { optionalAuthenticate, AuthenticatedRequest, UserRole } from '../../middleware/auth';
 import { meteredRouteRegistry } from '../../services/v3/metering-units';
 import { receiptService } from '../../v3/receipt-runtime';
+import { createHmac, timingSafeEqual } from 'crypto';
 
 /**
  * Minimal view of the provider registry needed to authorize the unit-economics
@@ -80,6 +81,120 @@ function defaultProviderDirectory(): ProviderDirectory {
 }
 
 const OPERATOR_ROLES: UserRole[] = ['owner', 'operator', 'admin'];
+
+/** How long a signed quote stays valid before it must be re-requested. */
+const QUOTE_TTL_MS = 60_000;
+
+/** Channel-independent rate limit for the side-effect-free quote endpoint. */
+const QUOTE_RATE_LIMIT_WINDOW_MS = 60_000;
+const QUOTE_RATE_LIMIT_MAX = 120;
+
+const quoteRequestSchema = z
+  .object({
+    method: z.string().min(1).max(16),
+    path: z.string().min(1).max(2048),
+    sizeHint: z.number().finite().nonnegative().optional(),
+  })
+  .strict();
+
+interface SignedQuote {
+  method: string;
+  path: string;
+  sizeHint: number | null;
+  price: number;
+  unit: string;
+  asset: string;
+  rateCardVersion: string;
+  issuedAt: number;
+  expiresAt: number;
+  signature: string;
+}
+
+/** Deterministic serialization of the signed quote fields (excludes signature). */
+function quoteSigningPayload(quote: Omit<SignedQuote, 'signature'>): string {
+  return JSON.stringify([
+    quote.method,
+    quote.path,
+    quote.sizeHint,
+    quote.price,
+    quote.unit,
+    quote.asset,
+    quote.rateCardVersion,
+    quote.issuedAt,
+    quote.expiresAt,
+  ]);
+}
+
+function signQuote(quote: Omit<SignedQuote, 'signature'>): string {
+  return receiptService.signMessage(quoteSigningPayload(quote));
+}
+
+function verifyQuoteSignature(quote: SignedQuote): boolean {
+  const expected = signQuote({
+    method: quote.method,
+    path: quote.path,
+    sizeHint: quote.sizeHint,
+    price: quote.price,
+    unit: quote.unit,
+    asset: quote.asset,
+    rateCardVersion: quote.rateCardVersion,
+    issuedAt: quote.issuedAt,
+    expiresAt: quote.expiresAt,
+  });
+  const a = Buffer.from(expected);
+  const b = Buffer.from(quote.signature ?? '');
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/**
+ * In-memory, channel-independent fixed-window limiter keyed by client IP.
+ * Quotes are free and unauthenticated, so they must be throttled without
+ * requiring a channel identity.
+ */
+function makeQuoteRateLimiter() {
+  const buckets = new Map<string, { count: number; resetAt: number }>();
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const now = Date.now();
+    const key = req.ip ?? req.socket.remoteAddress ?? 'unknown';
+    let bucket = buckets.get(key);
+    if (!bucket || bucket.resetAt <= now) {
+      bucket = { count: 0, resetAt: now + QUOTE_RATE_LIMIT_WINDOW_MS };
+      buckets.set(key, bucket);
+    }
+    bucket.count += 1;
+    if (bucket.count > QUOTE_RATE_LIMIT_MAX) {
+      res.setHeader('Retry-After', String(Math.ceil((bucket.resetAt - now) / 1000)));
+      res.status(429).json({ error: 'Too Many Requests', message: 'Quote rate limit exceeded' });
+      return;
+    }
+    next();
+  };
+}
+
+/**
+ * Resolve the metered route a quote refers to. The quote path is the gateway
+ * route (e.g. `/api/v3/gateway/proxy`); fall back to the bare route segment.
+ */
+function resolveQuoteRoute(path: string) {
+  const normalized = path.split('?')[0].replace(/\/+$/, '');
+  const direct = meteredRouteRegistry.getRouteConfig(normalized);
+  if (direct) return direct;
+  const segment = normalized.split('/').filter(Boolean).pop();
+  if (!segment) return null;
+  return meteredRouteRegistry.getRouteConfig(`/api/v3/gateway/${segment}`) ?? null;
+}
+
+/**
+ * Compute the quoted price using the same rate-card math as the charge path so
+ * constant-priced routes quote exactly what they will be billed.
+ */
+function computeQuotePrice(
+  routeConfig: ReturnType<typeof meteredRouteRegistry.getRouteConfig>,
+  sizeHint: number | undefined,
+): number {
+  const units = sizeHint ?? routeConfig.reservationBound;
+  return Math.round(units * routeConfig.unitPrice * 100) / 100;
+}
 
 /**
  * Authorize a read of a provider's economics: either an authenticated
@@ -146,6 +261,7 @@ export function createV3GatewayRouter(
   const lifecycle = createGatewayLifecycle();
   const providers = deps.providers ?? defaultProviderDirectory();
   const economicsAuthorizer = makeEconomicsAuthorizer(providers);
+  const quoteRateLimiter = makeQuoteRateLimiter();
 
   const middlewareStack = [
     lifecycle.resolveIdentity,
@@ -211,6 +327,92 @@ export function createV3GatewayRouter(
       error: 'Payment required: machine-readable payment instruction challenge',
       challenge,
     });
+  });
+
+  /**
+   * Side-effect-free quote endpoint (#1845).
+   *
+   * Prices a prospective call from the rate card without reserving meters or
+   * touching the payment lifecycle. The returned quote is signed so a later
+   * dispute can reference it, and carries an expiry that is enforced if the
+   * quote is presented again.
+   */
+  router.post('/quote', quoteRateLimiter, (req: Request, res: Response) => {
+    const parsed = quoteRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: 'Validation Error',
+        message: 'method, path and an optional non-negative sizeHint are required',
+      });
+    }
+
+    const { method, path, sizeHint } = parsed.data;
+    const routeConfig = resolveQuoteRoute(path);
+    if (!routeConfig) {
+      return res.status(404).json({ error: 'Not Found', message: 'No metered route matches this path' });
+    }
+
+    const issuedAt = Date.now();
+    const expiresAt = issuedAt + QUOTE_TTL_MS;
+    const unsigned: Omit<SignedQuote, 'signature'> = {
+      method: method.toUpperCase(),
+      path,
+      sizeHint: sizeHint ?? null,
+      price: computeQuotePrice(routeConfig, sizeHint),
+      unit: routeConfig.unit,
+      asset: routeConfig.settlementAsset,
+      rateCardVersion: routeConfig.version,
+      issuedAt,
+      expiresAt,
+    };
+    const quote: SignedQuote = { ...unsigned, signature: signQuote(unsigned) };
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        price: quote.price,
+        unit: quote.unit,
+        asset: quote.asset,
+        rateCardVersion: quote.rateCardVersion,
+        expiresAt: new Date(quote.expiresAt).toISOString(),
+        quote,
+      },
+    });
+  });
+
+  /**
+   * Validate a previously issued quote. Rejects tampered or expired quotes so a
+   * stale price cannot be presented as the basis for a charge.
+   */
+  router.post('/quote/verify', quoteRateLimiter, (req: Request, res: Response) => {
+    const parsed = z
+      .object({
+        method: z.string().min(1).max(16),
+        path: z.string().min(1).max(2048),
+        sizeHint: z.number().finite().nonnegative().nullable().optional(),
+        price: z.number().finite().nonnegative(),
+        unit: z.string(),
+        asset: z.string(),
+        rateCardVersion: z.string(),
+        issuedAt: z.number().int().nonnegative(),
+        expiresAt: z.number().int().nonnegative(),
+        signature: z.string().min(1),
+      })
+      .strict()
+      .safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation Error', message: 'Malformed quote' });
+    }
+
+    const quote: SignedQuote = { ...parsed.data, sizeHint: parsed.data.sizeHint ?? null };
+    if (!verifyQuoteSignature(quote)) {
+      return res.status(400).json({ error: 'Invalid quote', message: 'Quote signature does not verify' });
+    }
+    if (Date.now() > quote.expiresAt) {
+      return res.status(410).json({ error: 'Quote expired', message: 'This quote is no longer valid' });
+    }
+
+    return res.json({ success: true, data: { valid: true, quote } });
   });
 
   /**
