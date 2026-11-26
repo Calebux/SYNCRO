@@ -40,6 +40,9 @@ export const envSchema = z.object({
   SOROBAN_CONTRACT_ADDRESS: z.string().min(1, { message: 'Missing SOROBAN_CONTRACT_ADDRESS' }),
   SOROBAN_RPC_URL: z.string().url().optional(),
   STELLAR_SECRET_KEY: z.string().optional(),
+  STELLAR_SPONSOR_SECRET_KEY: z.string().optional(),
+  STELLAR_USDC_ISSUER: z.string().optional(),
+  SPONSORED_AGENT_ACCOUNTS_ENABLED: z.enum(['true', 'false']).default('false'),
   STELLAR_NETWORK_PASSPHRASE: z.string().optional(),
   STELLAR_NETWORK: z.enum(['testnet', 'mainnet', 'futurenet']).default('testnet'),
   ENABLE_BLOCKCHAIN: z.string().default('true'),
@@ -296,6 +299,13 @@ export function validateEnv(): Readonly<BackendEnv> {
     // Reject STELLAR_NETWORK=testnet in production
     if (data.STELLAR_NETWORK === 'testnet' || data.STELLAR_NETWORK === 'futurenet') {
       prodErrors.push(`STELLAR_NETWORK is set to "${data.STELLAR_NETWORK}"`);
+    }
+
+    if (data.SPONSORED_AGENT_ACCOUNTS_ENABLED === 'true') {
+      if (!data.STELLAR_USDC_ISSUER) prodErrors.push('STELLAR_USDC_ISSUER is required when sponsored agent accounts are enabled');
+      if (!data.STELLAR_SPONSOR_SECRET_KEY && !data.STELLAR_SECRET_KEY) prodErrors.push('STELLAR_SPONSOR_SECRET_KEY or STELLAR_SECRET_KEY is required when sponsored agent accounts are enabled');
+      if (data.SECRET_PROVIDER_TYPE === 'local') prodErrors.push('SECRET_PROVIDER_TYPE must be aws or vault when sponsored agent accounts are enabled in production');
+      if (data.ENABLE_BLOCKCHAIN === 'false') prodErrors.push('ENABLE_BLOCKCHAIN must be true when sponsored agent accounts are enabled');
     }
 
     // Reject ENABLE_TESTNET_ACTIONS in production

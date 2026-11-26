@@ -40,6 +40,8 @@ packages must have a manifest + `.env.example` that agree; no-env packages must
 `JWT_SECRET`, `ADMIN_API_KEY`,
 `STELLAR_NETWORK_URL`, `SOROBAN_CONTRACT_ADDRESS`.
 
+For managed sponsored agent wallets (issue #1858), set `SPONSORED_AGENT_ACCOUNTS_ENABLED=true`, `STELLAR_USDC_ISSUER`, and a funded `STELLAR_SPONSOR_SECRET_KEY` (or `STELLAR_SECRET_KEY`). Store generated agent signing keys with AWS Secrets Manager or Vault in production; keep the feature disabled until the network-specific USDC issuer and sponsor account are verified.
+
 `STRIPE_*` are optional (payments can be disabled); `PORT`, `NODE_ENV`,
 `FRONTEND_URL`, and the feature flags have defaults. The full list lives in
 `backend/scripts/env.manifest.js`. Production additionally enforces mainnet
