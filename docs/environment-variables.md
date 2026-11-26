@@ -37,6 +37,7 @@ Single source of truth for every environment variable used across the Synchro st
 | `JWT_SECRET` | client | Ops | all | **Yes** | Yes (prod) | JWT signing secret (min 32 chars) |
 | `ENCRYPTION_KEY` | client | Ops | all | **Yes** | Yes (prod) | Encryption key for sensitive data (min 32 chars) |
 | `LOG_LEVEL` | both | Ops | all | No | No | `debug` \| `info` \| `warn` \| `error` (default: `info`) |
+| `SPEND_FORECAST_ALERT_WINDOW_HOURS` | backend | Ops | all | No | No | Hours ahead of projected cap/channel exhaustion at which the forecast alert fires (default: 24) |
 | `MAINTENANCE_MODE` | client | Ops | all | No | No | `true` \| `false` (default: `false`) |
 | `METER_DEGRADED_LOG_PATH` | backend | Ops | all | No | No | JSONL log of calls served unbilled during a counter-store outage (#1444); default `<cwd>/data/metering/degraded-usage.jsonl` |
 
