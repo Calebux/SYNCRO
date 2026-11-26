@@ -91,6 +91,9 @@ the open [`v3-rewrite`](https://github.com/Calebux/SYNCRO/labels/v3-rewrite) iss
 The earlier v2 rewrite ([#1323](https://github.com/Calebux/SYNCRO/issues/1323)) is
 superseded; its infrastructure and quality work carries over, its product work does not.
 
+For the post-rewrite ecosystem plan (SDK languages, framework integrations, and protocol
+interoperability), see the [Public Ecosystem Roadmap](./docs/ECOSYSTEM_ROADMAP.md).
+
 ## Project Structure & Ownership
 
 - [Directory Ownership Matrix](./docs/archive/DIRECTORY_OWNERSHIP_MATRIX.md) — complete ownership information
