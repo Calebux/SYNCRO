@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, ArrowRight, CircleAlert, RefreshCw, ShieldAlert } from 'lucide-react';
+import { DashboardNav } from '@/components/dashboard/dashboard-nav';
 import type { PrincipalAnalytics } from '@syncro/shared/domain';
 import { getPrincipalAnalytics } from '@/lib/api/v3-analytics';
 import { getSpendCapAlerts } from '@/lib/spend-cap-alerts';
@@ -40,11 +41,11 @@ export function PrincipalOverview() {
     useEffect(() => { void load(); }, []);
 
     if (loading && !analytics) {
-        return <main className="min-h-screen bg-[#f6f7f4] p-6 md:p-10"><div className="mx-auto max-w-7xl animate-pulse space-y-5"><div className="h-12 w-72 rounded bg-gray-200" /><div className="grid gap-5 md:grid-cols-3"><div className="h-32 rounded-2xl bg-white" /><div className="h-32 rounded-2xl bg-white" /><div className="h-32 rounded-2xl bg-white" /></div><div className="h-80 rounded-2xl bg-white" /></div></main>;
+        return <main className="min-h-screen bg-[#f6f7f4] p-6 md:p-10"><div className="mx-auto max-w-7xl space-y-5"><DashboardNav current="overview" /><div className="animate-pulse space-y-5"><div className="h-12 w-72 rounded bg-gray-200" /><div className="grid gap-5 md:grid-cols-3"><div className="h-32 rounded-2xl bg-white" /><div className="h-32 rounded-2xl bg-white" /><div className="h-32 rounded-2xl bg-white" /></div><div className="h-80 rounded-2xl bg-white" /></div></div></main>;
     }
 
     if (!analytics) {
-        return <main className="min-h-screen bg-[#f6f7f4] p-6 md:p-10"><div className="mx-auto max-w-xl rounded-2xl border border-red-200 bg-white p-8 text-center"><CircleAlert className="mx-auto mb-3 h-10 w-10 text-red-600" /><h1 className="text-xl font-semibold text-gray-950">Overview unavailable</h1><p className="mt-2 text-sm text-gray-600">{error}</p><button onClick={() => void load()} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-gray-950 px-4 py-2 text-sm font-medium text-white"><RefreshCw className="h-4 w-4" />Retry</button></div></main>;
+        return <main className="min-h-screen bg-[#f6f7f4] p-6 md:p-10"><div className="mx-auto max-w-xl space-y-4"><DashboardNav current="overview" /><div className="rounded-2xl border border-red-200 bg-white p-8 text-center"><CircleAlert className="mx-auto mb-3 h-10 w-10 text-red-600" /><h1 className="text-xl font-semibold text-gray-950">Overview unavailable</h1><p className="mt-2 text-sm text-gray-600">{error}</p><button onClick={() => void load()} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-gray-950 px-4 py-2 text-sm font-medium text-white"><RefreshCw className="h-4 w-4" />Retry</button></div></div></main>;
     }
 
     const totalCapacity = analytics.capUtilizationPerAgent.reduce((sum, agent) => sum + agent.capacity, 0);
@@ -57,7 +58,8 @@ export function PrincipalOverview() {
             <div className="mx-auto max-w-7xl space-y-6">
                 <header className="flex flex-wrap items-end justify-between gap-4">
                     <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Principal console</p>
+                        <DashboardNav current="overview" />
+                        <p className="mt-4 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Principal console</p>
                         <h1 className="mt-2 text-3xl font-semibold tracking-tight md:text-4xl">Spend overview</h1>
                         <p className="mt-2 max-w-2xl text-sm text-gray-600">Know what your agents are spending, how long their channels will last, and what needs attention.</p>
                     </div>
