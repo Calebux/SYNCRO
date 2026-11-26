@@ -11,6 +11,7 @@ use soroban_sdk::{
     Vec,
 };
 use syncro_contract_common as syncro_common;
+use syncro_contract_common::admin as common_admin;
 
 pub const DEFAULT_TIMELOCK_SECONDS: u64 = 172_800;
 
@@ -18,6 +19,7 @@ pub const DEFAULT_TIMELOCK_SECONDS: u64 = 172_800;
 #[derive(Clone)]
 enum DataKey {
     Admin,
+    PendingAdmin,
     Guardians,
     GuardianCount,
     TreasuryBalance,
@@ -52,6 +54,8 @@ pub enum TreasuryError {
     InsufficientBalance = 2108,
     DuplicateGuardian = 2109,
     GuardianSetFull = 2110,
+    NoPendingAdmin = 2111,
+    NotPendingAdmin = 2112,
 }
 
 #[contract]
@@ -266,14 +270,55 @@ impl FeeCollector {
             .unwrap_or(0)
     }
 
+    pub fn transfer_admin(env: Env, admin: Address, new_admin: Address) {
+        Self::require_initialized(&env);
+        if !common_admin::is_admin(&env, &admin) {
+            panic_with_error!(&env, TreasuryError::Unauthorized);
+        }
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingAdmin, &new_admin);
+        env.events()
+            .publish((Symbol::new(&env, "admin"), Symbol::new(&env, "xfer_init")), new_admin);
+    }
+
+    pub fn accept_admin(env: Env, new_admin: Address) {
+        Self::require_initialized(&env);
+        if !common_admin::can_accept(&env, &new_admin) {
+            panic_with_error!(&env, TreasuryError::NotPendingAdmin);
+        }
+        new_admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::Admin, &new_admin);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.events()
+            .publish((Symbol::new(&env, "admin"), Symbol::new(&env, "xfer_ok")), new_admin);
+    }
+
+    pub fn cancel_transfer_admin(env: Env, admin: Address) {
+        Self::require_initialized(&env);
+        if !common_admin::is_admin(&env, &admin) {
+            panic_with_error!(&env, TreasuryError::Unauthorized);
+        }
+        admin.require_auth();
+        if !env.storage().instance().has(&DataKey::PendingAdmin) {
+            panic_with_error!(&env, TreasuryError::NoPendingAdmin);
+        }
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.events()
+            .publish((Symbol::new(&env, "admin"), Symbol::new(&env, "xfer_cxl")), admin);
+    }
+
+    pub fn get_pending_admin(env: Env) -> Option<Address> {
+        Self::require_initialized(&env);
+        env.storage().instance().get(&DataKey::PendingAdmin)
+    }
+
     pub fn set_guardians(env: Env, admin: Address, new_guardians: Vec<Address>) {
         Self::require_initialized(&env);
-        let stored_admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .expect("not initialized");
-        if stored_admin != admin {
+        if !common_admin::is_admin(&env, &admin) {
             panic_with_error!(&env, TreasuryError::Unauthorized);
         }
         admin.require_auth();
@@ -298,12 +343,7 @@ impl FeeCollector {
 
     pub fn set_timelock(env: Env, admin: Address, duration_seconds: u64) {
         Self::require_initialized(&env);
-        let stored_admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .expect("not initialized");
-        if stored_admin != admin {
+        if !common_admin::is_admin(&env, &admin) {
             panic_with_error!(&env, TreasuryError::Unauthorized);
         }
         admin.require_auth();

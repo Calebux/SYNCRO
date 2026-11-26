@@ -2,10 +2,12 @@
 
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
-    vec, Address, Env,
+    token, vec, Address, Env,
 };
 
 use super::*;
+
+use payment_channel::{PaymentChannelContract, PaymentChannelContractClient};
 
 fn setup() -> (Env, Address, Address, Address, Address) {
     let env = Env::default();
@@ -94,4 +96,67 @@ fn test_guardian_update_and_timelock_change() {
 
     client.set_timelock(&admin, &7200u64);
     assert_eq!(client.get_timelock(), 7200);
+}
+
+#[test]
+fn test_finalized_channel_fee_lands_in_collector() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    // Protocol fee taken at settlement (basis points of the channel deposit).
+    const FEE_BPS: u32 = 100; // 1%
+
+    let admin = Address::generate(&env);
+    let guardian1 = Address::generate(&env);
+    let guardian2 = Address::generate(&env);
+    let guardian3 = Address::generate(&env);
+
+    // Register the fee collector and initialise it.
+    let collector_id = env.register_contract(None, FeeCollector);
+    let collector = FeeCollectorClient::new(&env, &collector_id);
+    let guardians = vec![
+        &env,
+        guardian1.clone(),
+        guardian2.clone(),
+        guardian3.clone(),
+    ];
+    collector.init(&admin, &guardians);
+
+    // Register the payment channel contract and initialise it, routing the
+    // protocol fee leg to the fee collector address.
+    let channel_id = env.register_contract(None, PaymentChannelContract);
+    let channel = PaymentChannelContractClient::new(&env, &channel_id);
+    channel.init(&admin, &collector_id, &FEE_BPS);
+
+    // Fund the sender and open a channel with a deposit.
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token_id = env.register_stellar_asset_contract(token_admin.clone());
+    let token_client = token::StellarAssetClient::new(&env, &token_id);
+    let token_balance = token::Client::new(&env, &token_id);
+
+    let deposit: i128 = 10_000;
+    token_client.mint(&sender, &deposit);
+    token_client.mint(&channel_id, &0);
+
+    let channel_key = channel.open(&sender, &recipient, &token_id, &deposit);
+    assert_eq!(token_balance.balance(&channel_id), deposit);
+
+    // Initiate close; the fee leg is computed from the deposit.
+    channel.initiate_close(&channel_key, &deposit);
+
+    // Advance past the dispute deadline and finalize.
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + DEFAULT_TIMELOCK_SECONDS + 1);
+    channel.finalize(&channel_key);
+
+    // The protocol fee must have landed in the collector.
+    let expected_fee: i128 = deposit * FEE_BPS as i128 / 10_000;
+    assert_eq!(collector.get_balance(), expected_fee);
+    assert_eq!(token_balance.balance(&collector_id), expected_fee);
+    assert_eq!(
+        token_balance.balance(&recipient),
+        deposit - expected_fee
+    );
 }

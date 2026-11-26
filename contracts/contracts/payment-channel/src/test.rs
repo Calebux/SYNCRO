@@ -1043,3 +1043,44 @@ fn neg_watchtower_submit_unauthorized() {
 fn neg_watchtower_submit_wrong_state() {
     watchtower_submit_wrong_state_rejected();
 }
+
+// ── Protocol fee sink (#1834) ─────────────────────────────────────────────────
+
+/// Settlement must route the protocol fee leg to the registered fee-collector.
+#[test]
+fn finalize_routes_protocol_fee_to_fee_collector() {
+    let (env, _admin, depositor, counterparty, token, token_client) = setup();
+    let client = register_contract(&env);
+
+    // Register a fee-collector contract and point the payment channel at it.
+    let collector_id = env.register_contract(None, fee_collector::FeeCollectorContract);
+    let collector = fee_collector::FeeCollectorContractClient::new(&env, &collector_id);
+    let collector_admin = Address::generate(&env);
+    collector.init(&collector_admin);
+    client.set_fee_collector(&collector_id);
+
+    let deposit = 1_000i128;
+    let channel_id = client.open_channel(&depositor, &counterparty, &token, &deposit, &W);
+    client.initiate_close(&channel_id, &600, &400, &1, &depositor);
+
+    let channel = client.get_channel(&channel_id).unwrap();
+    env.ledger().set_timestamp(channel.dispute_deadline + 1);
+
+    let collector_before = token_client.balance(&collector_id);
+    let depositor_before = token_client.balance(&depositor);
+    let counterparty_before = token_client.balance(&counterparty);
+
+    client.finalize(&channel_id, &1);
+
+    // The fee leg must have landed in the collector.
+    let fee = token_client.balance(&collector_id) - collector_before;
+    assert!(fee > 0, "protocol fee must be non-zero");
+
+    // The remainder is disbursed to the parties; nothing is stranded.
+    let depositor_paid = token_client.balance(&depositor) - depositor_before;
+    let counterparty_paid = token_client.balance(&counterparty) - counterparty_before;
+    assert_eq!(depositor_paid + counterparty_paid + fee, deposit);
+
+    let closed = client.get_channel(&channel_id).unwrap();
+    assert_eq!(closed.state, ChannelState::Closed);
+}
