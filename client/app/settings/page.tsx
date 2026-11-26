@@ -28,6 +28,7 @@ export default async function SettingsPage() {
           {[
             { href: "/settings/wallet", label: "Wallet Management" },
             { href: "/settings/security", label: "Security & Two-Factor Authentication" },
+            { href: "/settings/api-keys", label: "API Key Management" },
             { href: "/settings/privacy",  label: "Privacy & Data" },
           ].map(({ href, label }) => (
             <a
