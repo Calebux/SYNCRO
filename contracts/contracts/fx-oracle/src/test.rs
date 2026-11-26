@@ -22,6 +22,10 @@ fn setup() -> (Env, Address, Address, Address) {
     (env, contract_id, admin, signer1)
 }
 
+// ADR #1832: fx-oracle is adopted as the trusted rate source for the v3
+// rate boundary. The tests below cover the staleness checks and the
+// integration surface (validate_rate / convert) that the v3 path relies on.
+
 #[test]
 fn test_init() {
     let (env, _id, admin, _signer) = setup();
@@ -215,6 +219,103 @@ fn test_validate_rate_stale() {
 }
 
 #[test]
+fn test_validate_rate_at_staleness_boundary() {
+    let (env, id, _admin, signer1) = setup();
+    let client = FxOracleContractClient::new(&env, &id);
+
+    client.add_signer(&signer1);
+
+    let base = String::from_str(&env, "USD");
+    let quote = String::from_str(&env, "EUR");
+    let rate = 92_000_000_i128;
+    let timestamp = env.ledger().timestamp();
+
+    client.update_rate(&base, &quote, &rate, &timestamp, &signer1);
+
+    // Exactly at the staleness bound the rate is still valid.
+    env.ledger().with_mut(|li| {
+        li.timestamp = timestamp + 3600;
+    });
+
+    let validated = client.validate_rate(&base, &quote);
+    assert_eq!(validated.rate, rate);
+}
+
+#[test]
+fn test_validate_rate_after_refresh() {
+    let (env, id, _admin, signer1) = setup();
+    let client = FxOracleContractClient::new(&env, &id);
+
+    client.add_signer(&signer1);
+
+    let base = String::from_str(&env, "USD");
+    let quote = String::from_str(&env, "EUR");
+    let rate = 92_000_000_i128;
+    let timestamp = env.ledger().timestamp();
+
+    client.update_rate(&base, &quote, &rate, &timestamp, &signer1);
+
+    // Move past the staleness bound, then refresh the rate.
+    env.ledger().with_mut(|li| {
+        li.timestamp = timestamp + 7200;
+    });
+
+    let refreshed_rate = 93_000_000_i128;
+    let refreshed_at = env.ledger().timestamp();
+    client.update_rate(&base, &quote, &refreshed_rate, &refreshed_at, &signer1);
+
+    let validated = client.validate_rate(&base, &quote);
+    assert_eq!(validated.rate, refreshed_rate);
+    assert_eq!(validated.timestamp, refreshed_at);
+}
+
+#[test]
+#[should_panic(expected = "Rate is stale")]
+fn test_validate_rate_stale_with_custom_bound() {
+    let (env, id, _admin, signer1) = setup();
+    let client = FxOracleContractClient::new(&env, &id);
+
+    client.add_signer(&signer1);
+    client.set_staleness_bound(&60);
+
+    let base = String::from_str(&env, "USD");
+    let quote = String::from_str(&env, "EUR");
+    let rate = 92_000_000_i128;
+    let timestamp = env.ledger().timestamp();
+
+    client.update_rate(&base, &quote, &rate, &timestamp, &signer1);
+
+    env.ledger().with_mut(|li| {
+        li.timestamp = timestamp + 61;
+    });
+
+    client.validate_rate(&base, &quote);
+}
+
+#[test]
+#[should_panic(expected = "Rate is stale")]
+fn test_convert_rejects_stale_rate() {
+    let (env, id, _admin, signer1) = setup();
+    let client = FxOracleContractClient::new(&env, &id);
+
+    client.add_signer(&signer1);
+
+    let base = String::from_str(&env, "USD");
+    let quote = String::from_str(&env, "EUR");
+    let rate = 92_000_000_i128;
+    let timestamp = env.ledger().timestamp();
+
+    client.update_rate(&base, &quote, &rate, &timestamp, &signer1);
+
+    env.ledger().with_mut(|li| {
+        li.timestamp = timestamp + 3601;
+    });
+
+    // The rate boundary must not settle against a stale rate.
+    client.convert(&100_00000000_i128, &base, &quote);
+}
+
+#[test]
 #[should_panic(expected = "Signer no longer authorized")]
 fn test_validate_rate_signer_removed() {
     let (env, id, _admin, signer1) = setup();
@@ -256,6 +357,32 @@ fn test_convert() {
 
     // Expected: 100 * 0.92 = 92 EUR
     assert_eq!(amount_eur, 92_00000000_i128);
+}
+
+#[test]
+fn test_convert_uses_oracle_rate_not_client_supplied() {
+    let (env, id, _admin, signer1) = setup();
+    let client = FxOracleContractClient::new(&env, &id);
+
+    client.add_signer(&signer1);
+
+    let base = String::from_str(&env, "USD");
+    let quote = String::from_str(&env, "EUR");
+    let rate = 92_000_000_i128;
+    let timestamp = env.ledger().timestamp();
+
+    client.update_rate(&base, &quote, &rate, &timestamp, &signer1);
+
+    // The conversion must be derived from the oracle-stored rate, so the
+    // result is deterministic regardless of any caller-provided value.
+    let amount_usd = 250_00000000_i128; // 250 USD
+    let amount_eur = client.convert(&amount_usd, &base, &quote);
+
+    // Expected: 250 * 0.92 = 230 EUR
+    assert_eq!(amount_eur, 230_00000000_i128);
+
+    // And the stored rate is unchanged by the conversion.
+    assert_eq!(client.get_rate(&base, &quote).rate, rate);
 }
 
 #[test]

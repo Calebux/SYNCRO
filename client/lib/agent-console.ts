@@ -50,6 +50,35 @@ export interface AuthorityDraft {
   period: SpendPeriod;
 }
 
+export interface AnchorInfo {
+  id: string;
+  name: string;
+  homeDomain: string;
+  assetCode: string;
+  assetIssuer: string | null;
+  minAmount: string;
+  maxAmount: string;
+  fee: string;
+  network: 'testnet' | 'mainnet';
+}
+
+export interface FiatDeposit {
+  depositId: string;
+  anchorId: string;
+  interactiveUrl: string;
+  status: 'pending' | 'completed' | 'failed' | 'expired';
+  amount: string;
+  channelId: string;
+  topUpId: string | null;
+  channelBalance: string | null;
+}
+
+export interface ChannelBalance {
+  channelId: string;
+  balance: string;
+  assetCode: string;
+}
+
 const SESSION_STORAGE_KEY = 'syncro.principal.session';
 
 export function agentApiBase(): string {
@@ -163,4 +192,75 @@ export async function revokeAgent(base: string, token: string, agentId: string):
 
 export async function inspectImportedKey(value: string): Promise<{ publicKey: string; secretKey: string | null }> {
   return identifyKey(value);
+}
+
+export async function loadAnchors(base: string, token: string): Promise<AnchorInfo[]> {
+  return request(base, '/api/v3/anchors', { token });
+}
+
+export async function startFiatDeposit(
+  base: string,
+  token: string,
+  input: { anchorId: string; channelId: string; amount: string },
+): Promise<FiatDeposit> {
+  return request(base, '/api/v3/anchors/deposits', {
+    method: 'POST',
+    token,
+    body: input,
+  });
+}
+
+export async function loadFiatDeposit(base: string, token: string, depositId: string): Promise<FiatDeposit> {
+  return request(base, `/api/v3/anchors/deposits/${depositId}`, { token });
+}
+
+export async function loadChannelBalance(base: string, token: string, channelId: string): Promise<ChannelBalance> {
+  return request(base, `/api/v3/channels/${channelId}/balance`, { token });
+}
+
+export interface FiatDepositFlowOptions {
+  base: string;
+  token: string;
+  anchorId: string;
+  channelId: string;
+  amount: string;
+  openInteractive: (url: string) => void;
+  pollIntervalMs?: number;
+  timeoutMs?: number;
+  onUpdate?: (deposit: FiatDeposit) => void;
+}
+
+export interface FiatDepositFlowResult {
+  deposit: FiatDeposit;
+  channelBalance: ChannelBalance;
+}
+
+export async function runFiatDepositFlow(options: FiatDepositFlowOptions): Promise<FiatDepositFlowResult> {
+  const pollIntervalMs = options.pollIntervalMs ?? 3000;
+  const timeoutMs = options.timeoutMs ?? 15 * 60 * 1000;
+  const startedAt = Date.now();
+
+  let deposit = await startFiatDeposit(options.base, options.token, {
+    anchorId: options.anchorId,
+    channelId: options.channelId,
+    amount: options.amount,
+  });
+  options.onUpdate?.(deposit);
+  options.openInteractive(deposit.interactiveUrl);
+
+  while (deposit.status === 'pending') {
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error('The deposit did not complete in time. Please try again.');
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    deposit = await loadFiatDeposit(options.base, options.token, deposit.depositId);
+    options.onUpdate?.(deposit);
+  }
+
+  if (deposit.status !== 'completed') {
+    throw new Error(`The deposit ${deposit.status}. No funds were added to the channel.`);
+  }
+
+  const channelBalance = await loadChannelBalance(options.base, options.token, options.channelId);
+  return { deposit, channelBalance };
 }

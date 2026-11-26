@@ -4,5 +4,32 @@
   "sorobanRpcUrl": "https://soroban-testnet.stellar.org",
   "stellarNetworkUrl": "https://soroban-testnet.stellar.org",
   "deployedAt": "2026-05-31T00:00:00Z",
-  "commitSha": null
+  "commitSha": null,
+  "anchors": [
+    {
+      "name": "SDF Test Anchor",
+      "homeDomain": "testanchor.stellar.org",
+      "sep24": {
+        "enabled": true,
+        "transferServerSep24": "https://testanchor.stellar.org/sep24",
+        "interactiveUrl": "https://testanchor.stellar.org/sep24/interactive"
+      },
+      "supportedAssets": [
+        {
+          "code": "USDC",
+          "issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+          "minDeposit": "1",
+          "maxDeposit": "10000",
+          "depositFeePercent": "0"
+        },
+        {
+          "code": "XLM",
+          "issuer": null,
+          "minDeposit": "10",
+          "maxDeposit": "50000",
+          "depositFeePercent": "0"
+        }
+      ]
+    }
+  ]
 }
