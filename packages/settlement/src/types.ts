@@ -29,13 +29,24 @@ export type ChannelStatus = 'open' | 'closing' | 'closed';
  * This is the payload that peers exchange and sign; it carries the
  * monotonically increasing nonce and the balances each peer is owed.
  */
-export interface SignedChannelState {
+export interface ChannelStatePayload {
   /** Channel this state belongs to. */
   channelId: string;
+  /** Address of the Soroban settlement contract. */
+  contractAddress: string;
+  /** Version of the state contract. */
+  contractVersion: string;
   /** Monotonically increasing version of the state. */
   nonce: number;
-  /** Balance owed to each peer, keyed by peer address. */
-  balances: Record<string, bigint>;
+  payerBalance: bigint;
+  payeeBalance: bigint;
+  windowStart: number;
+  windowEnd: number;
+}
+
+export interface SignedChannelState {
+  state: ChannelStatePayload;
+  signature: string;
 }
 
 /**

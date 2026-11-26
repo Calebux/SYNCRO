@@ -169,6 +169,19 @@ export {
 } from './redis-counter-store';
 export { RedisMeter, type RedisMeterOptions } from './redis-meter';
 
+// Provider analytics events (issue #1855)
+export {
+  PROVIDER_USAGE_EVENT_SCHEMA_VERSION,
+  UsageEventDispatcher,
+  WebhookUsageEventSink,
+  NatsUsageEventSink,
+  KafkaUsageEventSink,
+  type ProviderUsageEvent,
+  type UsageEventOutbox,
+  type UsageEventSink,
+  type UsageEventDispatcherOptions,
+} from './provider-usage-events';
+
 // Overage policy
 export {
   createOverageState,
