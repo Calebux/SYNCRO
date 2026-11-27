@@ -89,6 +89,10 @@ export type {
   FailureHandler,
   MeteredOptions,
   HostedGatewayConfig,
+  SyncroProviderManifest,
+  ManifestAssetDescriptor,
+  ManifestRouteDescriptor,
+  ManifestReceiptKeyEntry,
 } from "./provider/index.js";
 
 export {

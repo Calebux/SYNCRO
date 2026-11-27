@@ -1,5 +1,62 @@
 import { pricing, type RoutePricing, type PricingDeclarationInput, type RoutePricingRule } from './pricing.js';
 
+// ── Manifest types (inlined to keep the middleware self-contained) ───────────
+
+/**
+ * Minimal asset descriptor included in the provider manifest (issue #1828).
+ */
+export interface ManifestAssetDescriptor {
+  asset: string;
+  network: string;
+  scheme: string;
+  contract?: string;
+}
+
+/**
+ * Minimal route descriptor included in the provider manifest (issue #1828).
+ */
+export interface ManifestRouteDescriptor {
+  routeId?: string;
+  pathPattern: string;
+  method: string;
+  unit: string;
+  priceStroops?: number;
+  price?: number;
+  currency?: string;
+  maxBillableUnits?: number;
+  rateCardVersion?: string;
+  effectiveFrom?: string;
+}
+
+/**
+ * Minimal receipt key entry included in the provider manifest (issue #1828).
+ * Mirrors ReceiptPublicKeyEntry from the backend ReceiptService.
+ */
+export interface ManifestReceiptKeyEntry {
+  keyId: string;
+  status: 'current' | 'previous';
+  publicKeyPem: string;
+  rotatedAt?: string;
+}
+
+/**
+ * SyncroProviderManifest v1.0 — the wire shape the SDK provider middleware
+ * serves at `GET /__syncro/manifest` and
+ * `GET /.well-known/syncro/:providerId` (issue #1828).
+ */
+export interface SyncroProviderManifest {
+  manifestVersion: '1.0';
+  providerId?: string;
+  identity?: string;
+  gatewayUrl: string;
+  mode: 'staging' | 'production';
+  acceptedAssets: ManifestAssetDescriptor[];
+  routes: ManifestRouteDescriptor[];
+  receiptKeys: ManifestReceiptKeyEntry[];
+  termsUrl: string;
+  generatedAt: string;
+}
+
 export interface SyncroReceipt {
   id: string;
   timestamp: string;
@@ -49,6 +106,19 @@ export interface MeteredOptions<Req extends MeteredRequest = MeteredRequest, Res
   receiptHeaderName?: string;
   verifyProof?: (proof: string | undefined, cost: RoutePricingRule, req: Req) => Promise<boolean> | boolean;
   meterCall?: (receipt: SyncroReceipt, req: Req) => Promise<void> | void;
+  /**
+   * Optional manifest to serve at `GET /__syncro/manifest` (and
+   * `GET /.well-known/syncro/<providerId>` when `providerId` is set).
+   *
+   * When present the middleware intercepts these paths and responds with the
+   * manifest before the payment check, so a consumer agent can discover the
+   * provider's prices and receipt-signing keys without making a paid call
+   * (issue #1828).
+   *
+   * Pass a static object or an async factory (called once per request so the
+   * provider can serve a live snapshot from its own registry).
+   */
+  manifest?: SyncroProviderManifest | (() => SyncroProviderManifest | Promise<SyncroProviderManifest>);
 }
 
 function headerValue(value: string | string[] | undefined): string | undefined {
@@ -108,6 +178,48 @@ export function metered<
   return async (req: Req, res: Res, next: MeteredNext) => {
     const method = req.method ?? '';
     const path = req.path || req.url?.split('?')[0] || '/';
+
+    // ── Manifest intercept (issue #1828) ──────────────────────────────────
+    // Serve the manifest at `GET /__syncro/manifest` and
+    // `GET /.well-known/syncro/:providerId` (any path ending in that prefix).
+    // This runs before the payment check so consumers can discover prices
+    // without any paid credential.
+    if (options.manifest && method.toUpperCase() === 'GET') {
+      const isManifestPath =
+        path === '/__syncro/manifest' ||
+        path.startsWith('/__syncro/manifest?') ||
+        path.startsWith('/.well-known/syncro/');
+
+      if (isManifestPath) {
+        try {
+          const manifest =
+            typeof options.manifest === 'function'
+              ? await options.manifest()
+              : options.manifest;
+
+          if (typeof res.setHeader === 'function') {
+            res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
+            res.setHeader('Content-Type', 'application/json');
+          }
+          if (typeof res.status === 'function') {
+            return res.status(200).json({ data: manifest });
+          }
+          // Fallback: attach manifest to locals and continue
+          res.locals = res.locals || {};
+          res.locals.syncroManifest = manifest;
+          return next();
+        } catch (err) {
+          if (typeof res.status === 'function') {
+            return res.status(503).json({
+              error: 'Service Unavailable',
+              message: 'Manifest generation failed',
+            });
+          }
+          return next(err);
+        }
+      }
+    }
+    // ── End manifest intercept ────────────────────────────────────────────
     const costRule = routePricing.match(method, path);
 
     if (costRule.price <= 0) {
