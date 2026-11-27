@@ -1,0 +1,78 @@
+{
+  "description": "Cross-language test vectors for channel-state signing and domain-separated encoding (SYNCRO v3). Generated from packages/settlement/src/state-store.ts and verified in Rust tests against contracts/contracts/payment-channel.",
+  "encoding": {
+    "format": "pipe-delimited string",
+    "fields": [
+      "domain-separator",
+      "channelId",
+      "contractAddress (lowercased)",
+      "contractVersion",
+      "nonce",
+      "payerBalance (decimal string)",
+      "payeeBalance (decimal string)",
+      "windowStart",
+      "windowEnd"
+    ],
+    "domainSeparator": "channel-state",
+    "hashAlgorithm": "sha256",
+    "signAlgorithm": "hmac-sha256"
+  },
+  "vectors": [
+    {
+      "name": "edge_case_zero_balances",
+      "state": {
+        "channelId": "ch-zero-001",
+        "contractAddress": "GBV3TESTCONTRACTADDRESS123456789",
+        "contractVersion": 1,
+        "nonce": 1,
+        "payerBalance": "0",
+        "payeeBalance": "0",
+        "windowStart": 1700000000000,
+        "windowEnd": 1700003600000
+      },
+      "signingKey": "test-secret-key-vector-1"
+    },
+    {
+      "name": "edge_case_max_i128",
+      "state": {
+        "channelId": "ch-max-002",
+        "contractAddress": "GBV3TESTCONTRACTADDRESS123456789",
+        "contractVersion": 1,
+        "nonce": 100,
+        "payerBalance": "340282366920938463463374607431768211455",
+        "payeeBalance": "340282366920938463463374607431768211455",
+        "windowStart": 1700000000000,
+        "windowEnd": 1700036000000
+      },
+      "signingKey": "test-secret-key-vector-2"
+    },
+    {
+      "name": "edge_case_nonce_zero",
+      "state": {
+        "channelId": "ch-nonce0-003",
+        "contractAddress": "GBV3TESTCONTRACTADDRESS123456789",
+        "contractVersion": 1,
+        "nonce": 0,
+        "payerBalance": "5000",
+        "payeeBalance": "1000",
+        "windowStart": 1699990000000,
+        "windowEnd": 1700000000000
+      },
+      "signingKey": "test-secret-key-vector-3"
+    },
+    {
+      "name": "edge_case_large_window_values",
+      "state": {
+        "channelId": "ch-large-004",
+        "contractAddress": "GBV3TESTCONTRACTADDRESS123456789",
+        "contractVersion": 2,
+        "nonce": 999999,
+        "payerBalance": "1234567890123456789",
+        "payeeBalance": "9876543210987654321",
+        "windowStart": 9999999999999,
+        "windowEnd": 99999999999999
+      },
+      "signingKey": "test-secret-key-vector-4"
+    }
+  ]
+}

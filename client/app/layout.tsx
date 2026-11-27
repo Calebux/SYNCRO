@@ -9,6 +9,7 @@ import { PWAProvider } from "../components/pwa-provider";
 import CookieConsent from "@/components/cookie-consent";
 import Link from "next/link";
 import { NonceProvider } from "../components/providers/nonce-provider";
+import { QueryProvider } from "../components/providers/query-provider";
 
 const _geist = GeistSans;
 const _geistMono = GeistMono;
@@ -39,12 +40,18 @@ export default async function RootLayout({
         <html lang="en">
             <body className={`font-sans antialiased`} suppressHydrationWarning>
                 <NonceProvider nonce={nonce}>
-                    <PWAProvider>{children}</PWAProvider>
+                    <QueryProvider>
+                        <PWAProvider>{children}</PWAProvider>
+                    </QueryProvider>
                 </NonceProvider>
                 <footer className="py-4 text-center text-xs text-gray-500">
+                    <Link href="/agents" className="hover:underline">Agents</Link>
+                    <span className="mx-2">·</span>
                     <Link href="/privacy" className="hover:underline">Privacy Policy</Link>
                     <span className="mx-2">·</span>
                     <Link href="/terms" className="hover:underline">Terms of Service</Link>
+                    <span className="mx-2">·</span>
+                    <Link href="/provider" className="hover:underline">Provider console</Link>
                 </footer>
                 <CookieConsent />
             </body>

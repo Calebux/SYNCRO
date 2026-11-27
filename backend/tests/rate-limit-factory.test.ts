@@ -25,6 +25,7 @@ describe('RateLimiterFactory', () => {
       expect(RateLimiterFactory.getStoreStatus()).toEqual({
         type: 'redis',
         available: true,
+        degraded: false,
       });
     });
 
@@ -37,6 +38,7 @@ describe('RateLimiterFactory', () => {
       expect(RateLimiterFactory.getStoreStatus()).toEqual({
         type: 'memory',
         available: true,
+        degraded: true,
       });
     });
 
@@ -81,6 +83,23 @@ describe('RateLimiterFactory', () => {
       const limiter = RateLimiterFactory.createMfaLimiter();
 
       expect(limiter).toBeDefined();
+    });
+  });
+
+  describe('createSessionChallengeLimiter', () => {
+    it('should create session challenge limiter with correct configuration', () => {
+      const limiter = RateLimiterFactory.createSessionChallengeLimiter();
+      expect(limiter).toBeDefined();
+    });
+  });
+
+  describe('sensitive mutation limiters', () => {
+    it('creates login, import, payment, refund, and api-key limiters', () => {
+      expect(RateLimiterFactory.createLoginLimiter()).toBeDefined();
+      expect(RateLimiterFactory.createImportLimiter()).toBeDefined();
+      expect(RateLimiterFactory.createPaymentLimiter()).toBeDefined();
+      expect(RateLimiterFactory.createRefundLimiter()).toBeDefined();
+      expect(RateLimiterFactory.createApiKeyLimiter()).toBeDefined();
     });
   });
 
@@ -129,6 +148,7 @@ describe('RateLimiterFactory', () => {
       expect(status).toEqual({
         type: 'memory',
         available: false,
+        degraded: false,
       });
     });
 
@@ -142,6 +162,7 @@ describe('RateLimiterFactory', () => {
       expect(status).toEqual({
         type: 'redis',
         available: true,
+        degraded: false,
       });
     });
   });

@@ -1,0 +1,13 @@
+{
+  "id": "amazon-en-order-shipped",
+  "merchant": "Amazon Prime",
+  "locale": "en",
+  "kind": "negative",
+  "notes": "Clear negative: one-off retail order.",
+  "email": {
+    "subject": "Your order has shipped",
+    "from": "Amazon <ship-confirm@amazon.com>",
+    "body": "Your package is on the way. Arriving Tuesday. Order total $42.10."
+  },
+  "expected": null
+}

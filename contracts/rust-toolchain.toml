@@ -1,0 +1,7 @@
+# Pins the exact Rust toolchain used for release builds.
+# Guardians and CI must use this version to reproduce the published WASM hashes.
+# Update this file (and re-verify all hashes) when upgrading soroban-sdk.
+[toolchain]
+channel  = "1.81.0"
+targets  = ["wasm32-unknown-unknown"]
+profile  = "minimal"

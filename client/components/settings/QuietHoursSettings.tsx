@@ -1,14 +1,14 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Switch } from "@/components/ui/switch"
-import { Label } from "@/components/ui/label"
-import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
+import { Button } from "@syncro/ui"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@syncro/ui"
+import { Switch } from "@syncro/ui"
+import { Label } from "@syncro/ui"
+import { Input } from "@syncro/ui"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@syncro/ui"
+import { Alert, AlertDescription } from "@syncro/ui"
+import { Badge } from "@syncro/ui"
 import { Loader2, Moon, Sun, Bell, BellOff, Clock, AlertTriangle } from "lucide-react"
 import { toast } from "sonner"
 import { 
@@ -20,6 +20,8 @@ import {
   type QuietHoursTestResult,
   type DelayedNotification
 } from "@/lib/api/user-preferences"
+import { formatDateTime } from "@/lib/timezone-utils"
+import { useUserSettings } from "@/components/providers/user-settings-provider"
 
 // Common timezones for the dropdown
 const COMMON_TIMEZONES = [
@@ -38,6 +40,7 @@ const COMMON_TIMEZONES = [
 ]
 
 export default function QuietHoursSettings() {
+  const { settings } = useUserSettings()
   const [preferences, setPreferences] = useState<UserPreferences | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -278,8 +281,9 @@ export default function QuietHoursSettings() {
                 </Badge>
               </div>
               <div>
-                <strong>Test Time:</strong> {new Date(testResult.testTime).toLocaleString()}
+                <strong>Test Time:</strong> {formatDateTime(testResult.testTime)}
               </div>
+
               <div>
                 <strong>Your Timezone:</strong> {testResult.userTimezone}
               </div>
@@ -288,9 +292,10 @@ export default function QuietHoursSettings() {
               </div>
               {testResult.quietHoursEndTime && (
                 <div className="col-span-2">
-                  <strong>Delayed notifications will be sent at:</strong> {new Date(testResult.quietHoursEndTime).toLocaleString()}
+                  <strong>Delayed notifications will be sent at:</strong> {formatDateTime(testResult.quietHoursEndTime)}
                 </div>
               )}
+
             </div>
           </CardContent>
         </Card>
@@ -330,8 +335,9 @@ export default function QuietHoursSettings() {
                         {notification.notification_payload?.body || 'No description'}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        Scheduled for: {new Date(notification.scheduled_send_time).toLocaleString()}
+                        Scheduled for: {formatDateTime(notification.scheduled_send_time)}
                       </p>
+
                     </div>
                     <Badge variant="outline">
                       {notification.priority}

@@ -1,4 +1,4 @@
-import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, type APIRequestContext } from '@playwright/test';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://backend-ai-sub.onrender.com';
 
@@ -30,48 +30,4 @@ export async function loginViaApi(request: APIRequestContext, user: { email: str
 
   expect(response.ok()).toBeTruthy();
   return response;
-}
-
-export async function bootstrapMockAuthenticatedUi(page: Page) {
-  await page.addInitScript(() => {
-    window.localStorage.setItem('onboarding_completed', 'true');
-  });
-
-  await page.route('**/api/auth/me', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        user: {
-          id: 'e2e-mock-user',
-          email: 'e2e@example.com',
-          name: 'E2E User',
-        },
-      }),
-    });
-  });
-
-  await page.goto('/');
-
-  const individualButton = page.getByRole('button', { name: /continue as individual/i });
-  if (await individualButton.isVisible()) {
-    await individualButton.click();
-  }
-
-  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
-}
-
-export async function openSubscriptions(page: Page) {
-  await page.getByRole('button', { name: 'Navigate to Subscriptions' }).click();
-  await expect(page.getByRole('heading', { name: 'Subscriptions' })).toBeVisible();
-}
-
-export async function addCustomSubscription(page: Page, name: string, price: string) {
-  await openSubscriptions(page);
-  await page.getByRole('button', { name: /add subscription/i }).click();
-  await page.getByRole('button', { name: /add custom subscription/i }).click();
-  await page.getByLabel(/subscription name/i).fill(name);
-  await page.getByLabel(/monthly price/i).fill(price);
-  await page.getByRole('button', { name: /add to dashboard/i }).click();
-  await expect(page.getByText(name).first()).toBeVisible();
 }

@@ -1,5 +1,5 @@
 "use client"
-
+import { Toast } from "./use-toast"
 import { useState, useCallback, useEffect } from "react"
 import { 
   enrollTOTP, 
@@ -14,7 +14,7 @@ import type { MFAEnrollResponse, MFAStatus, MFAFactor } from "@/lib/types"
 import { getErrorMessage } from "@/lib/network-utils"
 
 interface UseMFAOptions {
-  onToast?: (toast: any) => void
+  onToast?: (toast: Omit<Toast, "id">) => void
 }
 
 export function useMFA({ onToast }: UseMFAOptions = {}) {

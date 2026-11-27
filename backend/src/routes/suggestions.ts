@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest } from '../middleware/auth';
+import { validate } from '../middleware/validate';
 import { suggestionService, SuggestionType } from '../services/suggestion-service';
 import logger from '../config/logger';
 
@@ -10,7 +11,8 @@ const router = Router();
  * GET /api/suggestions
  * Returns money-saving suggestions for the authenticated user.
  */
-router.get('/', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+// VALIDATION_BYPASS: No request body or params needed
+router.get('/', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const suggestions = await suggestionService.generateSuggestions(req.user!.id);
     res.json({ suggestions });
@@ -27,6 +29,7 @@ const dismissSchema = z.object({
     'unused_subscription',
     'duplicate_service',
     'plan_downgrade',
+    'suggest_cheaper_alternatives',
   ]),
 });
 
@@ -35,18 +38,14 @@ const dismissSchema = z.object({
  * Dismisses a suggestion for 30 days.
  * Body: { subscriptionId: string, suggestionType: SuggestionType }
  */
-router.post('/dismiss', authenticate, async (req: AuthenticatedRequest, res: Response) => {
-  const parsed = dismissSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
-    return;
-  }
+router.post('/dismiss', validate(dismissSchema), async (req: AuthenticatedRequest, res: Response) => {
+  const parsed = req.body;
 
   try {
     await suggestionService.dismissSuggestion(
       req.user!.id,
-      parsed.data.subscriptionId,
-      parsed.data.suggestionType as SuggestionType,
+      parsed.subscriptionId,
+      parsed.suggestionType as SuggestionType,
     );
     res.json({ success: true });
   } catch (error) {

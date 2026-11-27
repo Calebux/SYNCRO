@@ -1,0 +1,18 @@
+{
+  "id": "disneyplus-en-monthly",
+  "merchant": "Disney+",
+  "locale": "en",
+  "kind": "positive",
+  "notes": "Monthly Disney+ receipt.",
+  "email": {
+    "subject": "Your Disney+ subscription receipt",
+    "from": "Disney Plus <billing@disneyplus.com>",
+    "body": "Your subscription has been renewed for $13.99/month. Payment received."
+  },
+  "expected": {
+    "name": "Disney+",
+    "amount": 13.99,
+    "currency": "USD",
+    "interval": "monthly"
+  }
+}

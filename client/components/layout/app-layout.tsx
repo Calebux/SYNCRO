@@ -5,8 +5,6 @@ import React from "react";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
 import { MobileMenuButton } from "./mobile-menu-button";
-import { BudgetAlert } from "./budget-alert";
-import { BulkActionsBar } from "./bulk-actions-bar";
 import { CommandPalette } from "@/components/command-palette";
 
 interface AppLayoutProps {
@@ -22,24 +20,6 @@ interface AppLayoutProps {
     onMobileMenuToggle: () => void;
     unreadNotifications: number;
     onNotificationsToggle: () => void;
-    deletedCount?: number;
-    onDeletedToggle?: () => void;
-    onAddSubscription?: () => void;
-    budgetAlert?: {
-        level: "critical" | "warning";
-        message: string;
-        percentage: string;
-    } | null;
-    selectedSubscriptionsCount: number;
-    canUndo: boolean;
-    canRedo: boolean;
-    bulkActionLoading: boolean;
-    onUndo: () => void;
-    onRedo: () => void;
-    onBulkExport: () => void;
-    onBulkPause: () => void;
-    onBulkCancel: () => void;
-    onBulkDelete: () => void;
     isOffline: boolean;
     onNavigate?: (path: string) => void;
     onCommandAction?: (action: string) => void;
@@ -58,20 +38,6 @@ export function AppLayout({
     onMobileMenuToggle,
     unreadNotifications,
     onNotificationsToggle,
-    deletedCount = 0,
-    onDeletedToggle,
-    onAddSubscription,
-    budgetAlert,
-    selectedSubscriptionsCount,
-    canUndo,
-    canRedo,
-    bulkActionLoading,
-    onUndo,
-    onRedo,
-    onBulkExport,
-    onBulkPause,
-    onBulkCancel,
-    onBulkDelete,
     isOffline,
     onNavigate,
     onCommandAction,
@@ -82,7 +48,7 @@ export function AppLayout({
                 darkMode ? "bg-[#1E2A35] text-[#F9F6F2]" : "bg-[#F9F6F2] text-[#1E2A35]"
             } flex transition-colors duration-300`}
             role="main"
-            aria-label="Subscription dashboard"
+            aria-label="Dashboard"
         >
             <a
                 href="#main-content"
@@ -118,33 +84,12 @@ export function AppLayout({
                         onDarkModeToggle={onDarkModeToggle}
                         unreadNotifications={unreadNotifications}
                         onNotificationsToggle={onNotificationsToggle}
-                        deletedCount={deletedCount}
-                        onDeletedToggle={onDeletedToggle}
-                        onAddSubscription={onAddSubscription}
                     />
-
-                    {budgetAlert && <BudgetAlert alert={budgetAlert} darkMode={darkMode} />}
-
-                    {activeView === "subscriptions" && (
-                        <BulkActionsBar
-                            selectedCount={selectedSubscriptionsCount}
-                            darkMode={darkMode}
-                            canUndo={canUndo}
-                            canRedo={canRedo}
-                            bulkActionLoading={bulkActionLoading}
-                            onUndo={onUndo}
-                            onRedo={onRedo}
-                            onExport={onBulkExport}
-                            onPause={onBulkPause}
-                            onCancel={onBulkCancel}
-                            onDelete={onBulkDelete}
-                        />
-                    )}
 
                     {children}
                 </div>
             </main>
-            
+
             <CommandPalette onNavigate={onNavigate} onAction={onCommandAction} />
         </div>
     );

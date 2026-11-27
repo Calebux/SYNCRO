@@ -25,6 +25,21 @@ export async function getAuthenticatedUser(request: NextRequest) {
   return user
 }
 
+export type AuthenticatedUser = NonNullable<Awaited<ReturnType<typeof getAuthenticatedUser>>>
+
+/**
+ * Assert that route infrastructure supplied an authenticated user.
+ * This keeps auth failure responses consistent even when route handlers are
+ * tested with mocked auth functions.
+ */
+export function assertAuthenticatedUser(
+  user: Awaited<ReturnType<typeof getAuthenticatedUser>> | null | undefined
+): asserts user is AuthenticatedUser {
+  if (!user) {
+    throw ApiErrors.unauthorized('Invalid or expired session')
+  }
+}
+
 /**
  * Create request context from request
  */
@@ -53,25 +68,52 @@ export async function requireAuth(request: NextRequest) {
   return user
 }
 
-/**
- * Require specific role/permission
- * Extend this based on your authorization model
- */
+export type UserRole = 'owner' | 'admin' | 'member' | 'viewer' | 'user'
+
+export const ROLE_HIERARCHY: Record<UserRole, number> = {
+  owner: 5,
+  admin: 4,
+  member: 3,
+  viewer: 2,
+  user: 1,
+}
+
+async function getUserRole(userId: string): Promise<UserRole> {
+  const supabase = await createClient()
+
+  // Primary: authoritative user_roles table (replaces user_metadata.role)
+  const { data: roleRow, error: roleError } = await supabase
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', userId)
+    .single()
+
+  if (!roleError && roleRow?.role) {
+    return roleRow.role as UserRole
+  }
+
+  // Fallback: profiles.role for users not yet in user_roles
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', userId)
+    .single()
+
+  return (profile?.role as UserRole) || 'user'
+}
+
 export async function requireRole(
   request: NextRequest,
-  allowedRoles: string[]
+  allowedRoles: UserRole[]
 ) {
   const user = await getAuthenticatedUser(request)
-  
-  // TODO: Implement role checking based on your user model
-  // For now, we'll check user metadata or a roles table
-  const userRole = user.user_metadata?.role || 'user'
+  const userRole = await getUserRole(user.id)
   
   if (!allowedRoles.includes(userRole)) {
     throw ApiErrors.forbidden(`Requires one of: ${allowedRoles.join(', ')}`)
   }
 
-  return user
+  return { user, role: userRole }
 }
 
 /**
@@ -99,24 +141,34 @@ export function checkOwnership(userId: string, resourceUserId: string) {
   }
 }
 
-/**
- * API Route Handler with Authentication
- * Wrapper for authenticated API routes
- */
+export async function requireMinRole(
+  request: NextRequest,
+  minRole: UserRole
+) {
+  const user = await getAuthenticatedUser(request)
+  const userRole = await getUserRole(user.id)
+  
+  if (ROLE_HIERARCHY[userRole] < ROLE_HIERARCHY[minRole]) {
+    throw ApiErrors.forbidden(`Requires ${minRole} role or higher`)
+  }
+
+  return { user, role: userRole }
+}
+
 export function withAuth<T extends unknown[]>(
   handler: (request: NextRequest, user: Awaited<ReturnType<typeof getAuthenticatedUser>>, ...args: T) => Promise<Response>,
   options?: {
-    requireRole?: string[]
+    requireRole?: UserRole[]
   }
 ) {
   return async (request: NextRequest, ...args: T): Promise<Response> => {
     let user = await getAuthenticatedUser(request)
     
     if (options?.requireRole) {
-      user = await requireRole(request, options.requireRole)
+      const result = await requireRole(request, options.requireRole)
+      user = result.user
     }
 
     return handler(request, user, ...args)
   }
 }
-

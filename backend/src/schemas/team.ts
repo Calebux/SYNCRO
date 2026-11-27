@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const VALID_ROLES = ['admin', 'member', 'viewer'] as const;
+const VALID_ROLES = ['admin', 'operator', 'member', 'viewer'] as const;
 
 export const inviteTeamSchema = z.object({
   email: z

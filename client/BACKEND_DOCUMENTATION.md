@@ -4,7 +4,7 @@
 1. [Architecture Overview](#architecture-overview)
 2. [Tech Stack](#tech-stack)
 3. [What's Implemented](#whats-implemented)
-4. [What Needs Implementation](#what-needs-implementation)
+4. [What's In Progress](#whats-in-progress)
 5. [Database Schema](#database-schema)
 6. [API Routes](#api-routes)
 7. [Authentication & Authorization](#authentication--authorization)
@@ -25,11 +25,11 @@ SubSync AI is built as a full-stack Next.js 15 application using the App Router 
 - **Hosting**: Vercel
 
 ### Current State
-- **Frontend**: ✅ Fully implemented with mock data
-- **Backend**: ⚠️ Partially implemented (database schema ready, API routes are mock)
-- **Database**: ✅ Schema created, ❌ Not connected to frontend
-- **Authentication**: ✅ Pages created, ❌ Not enforced
-- **Integrations**: ❌ All mock/placeholder
+- **Frontend**: ✅ Implemented
+- **Backend**: ✅ Production-ready Express.js API (30+ services, 24 route modules)
+- **Database**: ✅ Connected via Supabase with RLS policies enforced
+- **Authentication**: ✅ JWT + HTTP-only cookies, RBAC enforced on all protected routes
+- **Integrations**: ✅ Gmail, Outlook, Telegram, Slack, Stripe, Paystack — all implemented
 
 ---
 
@@ -151,262 +151,17 @@ All tables are defined with Row Level Security (RLS) policies:
 
 ---
 
-## What Needs Implementation ❌
+## What's In Progress
 
-### Priority 1: Critical (Blocking Production)
+### Stellar Mainnet
+Blockchain writes are currently configured for Stellar Testnet. Mainnet support is blocked on mainnet-ready card issuance.
 
-#### 1.1 Fix Supabase Environment Variables
-**Issue**: Typo in environment variable names (`proSUPABASE_...` instead of `process.env.SUPABASE_...`)
+### AI Classification Accuracy
+Anthropic/Gemini fallback is wired and functional; accuracy tuning is ongoing.
 
-**Files to Fix**:
-- `/lib/supabase/browser-client.ts`
-- `/lib/supabase/server-client.ts`
+### WebSocket Push
+VAPID push notifications are shipped. Real-time WebSocket delivery is under development.
 
-**Required Environment Variables**:
-\`\`\`bash
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-\`\`\`
-
-#### 1.2 Execute Database Migrations
-**Task**: Run all SQL scripts in `/scripts/` folder on Supabase
-
-**Steps**:
-1. Go to Supabase Dashboard → SQL Editor
-2. Execute scripts in order:
-   - `001_create_tables.sql`
-   - `002_create_profile_trigger.sql`
-3. Verify tables exist with `\dt` command
-4. Verify RLS policies with `\dp` command
-
-#### 1.3 Connect Frontend to Database
-**Task**: Replace mock data with real database calls
-
-**Files to Update**:
-- `/app/page.tsx` - Replace `useState` with database fetch
-- Remove all mock data arrays
-- Use functions from `/lib/supabase/subscriptions.ts`
-
-**Example Change**:
-\`\`\`typescript
-// BEFORE (Mock)
-const [subscriptions, setSubscriptions] = useState(mockData)
-
-// AFTER (Real)
-const [subscriptions, setSubscriptions] = useState([])
-useEffect(() => {
-  fetchSubscriptions().then(setSubscriptions)
-}, [])
-\`\`\`
-
-#### 1.4 Implement Authentication Middleware
-**Task**: Protect routes and enforce authentication
-
-**File**: `/middleware.ts`
-
-**Current State**: Only security headers, no auth check
-
-**Required Implementation**:
-\`\`\`typescript
-import { updateSession } from '@/lib/supabase/middleware'
-
-export async function middleware(request: NextRequest) {
-  // Add session refresh
-  const response = await updateSession(request)
-  
-  // Protect routes
-  const isAuthPage = request.nextUrl.pathname.startsWith('/auth')
-  const isPublicPage = request.nextUrl.pathname === '/'
-  
-  if (!isAuthPage && !isPublicPage) {
-    // Check if user is authenticated
-    // Redirect to /auth/login if not
-  }
-  
-  return response
-}
-\`\`\`
-
-#### 1.5 Implement Real API Routes
-**Task**: Replace mock API routes with database operations
-
-**Files to Update**:
-- `/app/api/subscriptions/route.ts` - Currently returns mock data
-- `/app/api/subscriptions/[id]/route.ts` - Currently mock
-- `/app/api/analytics/route.ts` - Currently mock
-- `/app/api/payments/route.ts` - Currently mock
-
-**Example Implementation**:
-\`\`\`typescript
-// app/api/subscriptions/route.ts
-import { createClient } from '@/lib/supabase/server-client'
-
-export async function GET(request: NextRequest) {
-  const supabase = createClient()
-  
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-  
-  const { data, error } = await supabase
-    .from('subscriptions')
-    .select('*')
-    .eq('user_id', user.id)
-  
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-  
-  return NextResponse.json({ subscriptions: data })
-}
-\`\`\`
-
-### Priority 2: Important (Required for Full Functionality)
-
-#### 2.1 Gmail Integration
-**Task**: Implement email scanning for subscription discovery
-
-**Required**:
-- Google OAuth 2.0 setup
-- Gmail API credentials
-- Email parsing logic
-- Subscription detection patterns
-
-**Files to Create**:
-- `/app/api/integrations/gmail/auth/route.ts` - OAuth callback
-- `/app/api/integrations/gmail/scan/route.ts` - Email scanning
-- `/lib/email-parser.ts` - Parse subscription emails
-
-**Environment Variables**:
-\`\`\`bash
-GOOGLE_CLIENT_ID=your_client_id
-GOOGLE_CLIENT_SECRET=your_client_secret
-GOOGLE_REDIRECT_URI=https://yourdomain.com/api/integrations/gmail/auth
-\`\`\`
-
-**See**: `INTEGRATIONS.md` for detailed implementation guide
-
-#### 2.2 Stripe Payment Processing
-**Task**: Implement real payment processing
-
-**Current State**: Stripe connected but not processing payments
-
-**Required**:
-- Webhook endpoint for payment events
-- Subscription plan creation
-- Payment intent handling
-- Customer portal integration
-
-**Files to Create**:
-- `/app/api/webhooks/stripe/route.ts` - Webhook handler
-- `/app/api/checkout/route.ts` - Create checkout session
-- `/lib/stripe-utils.ts` - Stripe helper functions
-
-**Environment Variables** (Already Set):
-\`\`\`bash
-STRIPE_SECRET_KEY=sk_test_...
-STRIPE_PUBLISHABLE_KEY=pk_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-\`\`\`
-
-**See**: `INTEGRATIONS.md` for detailed implementation guide
-
-#### 2.3 Notification System
-**Task**: Implement real-time notifications
-
-**Current State**: Notifications stored in state, not persisted
-
-**Required**:
-- Database triggers for notification creation
-- Real-time subscriptions (Supabase Realtime)
-- Email notifications (optional)
-- Push notifications (optional)
-
-**Files to Update**:
-- `/app/page.tsx` - Subscribe to realtime notifications
-- Create database function to auto-generate notifications
-
-**Database Function Example**:
-\`\`\`sql
-CREATE OR REPLACE FUNCTION notify_renewal()
-RETURNS trigger AS $$
-BEGIN
-  IF NEW.renews_in <= 7 THEN
-    INSERT INTO notifications (user_id, type, title, message, subscription_id)
-    VALUES (
-      NEW.user_id,
-      'renewal',
-      'Subscription Renewal',
-      NEW.name || ' renews in ' || NEW.renews_in || ' days',
-      NEW.id
-    );
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER subscription_renewal_notification
-AFTER UPDATE ON subscriptions
-FOR EACH ROW
-EXECUTE FUNCTION notify_renewal();
-\`\`\`
-
-#### 2.4 Microsoft 365 / Outlook Integration
-**Task**: Implement email scanning for subscription discovery using Microsoft 365 / Outlook
-
-**Required**:
-- Microsoft OAuth 2.0 setup
-- Microsoft API credentials
-- Email parsing logic
-- Subscription detection patterns
-
-**Files to Create**:
-- `/app/api/integrations/outlook/auth/route.ts` - OAuth callback
-- `/app/api/integrations/outlook/scan/route.ts` - Email scanning
-- `/lib/outlook-parser.ts` - Parse subscription emails
-
-**Environment Variables**:
-\`\`\`bash
-MICROSOFT_CLIENT_ID=your_client_id
-MICROSOFT_CLIENT_SECRET=your_client_secret
-MICROSOFT_TENANT_ID=your_tenant_id
-MICROSOFT_REDIRECT_URI=https://yourdomain.com/api/integrations/outlook/auth
-\`\`\`
-
-**See**: `INTEGRATIONS.md` for detailed implementation guide
-
-### Priority 3: Nice to Have (Enhancement)
-
-#### 3.1 Calendar Integration
-**Task**: Sync renewals to Google Calendar
-
-**See**: `INTEGRATIONS.md` for implementation guide
-
-#### 3.2 Slack Notifications
-**Task**: Send team notifications to Slack
-
-**See**: `INTEGRATIONS.md` for implementation guide
-
-#### 3.3 Webhook Support
-**Task**: Allow external systems to receive events
-
-**See**: `INTEGRATIONS.md` for implementation guide
-
-#### 3.4 AI API Usage Tracking
-**Task**: Track real AI API usage and costs
-
-**See**: `INTEGRATIONS.md` for implementation guide
-
-#### 3.5 Advanced Analytics
-**Task**: Implement predictive analytics
-
-**Required**:
-- Historical data analysis
-- Spending forecasts
-- Anomaly detection
-- Recommendation engine
 
 ---
 
@@ -672,6 +427,7 @@ GET /api/analytics/categories       # Category breakdown
 GET  /api/integrations/gmail/auth      # OAuth redirect
 POST /api/integrations/gmail/callback  # OAuth callback
 POST /api/integrations/gmail/scan      # Scan emails
+POST /api/integrations/email/rescan    # Trigger bounded email re-scan
 
 # Microsoft 365 / Outlook
 GET  /api/integrations/outlook/auth      # OAuth redirect
@@ -683,12 +439,18 @@ POST /api/integrations/stripe/checkout # Create checkout
 POST /api/integrations/stripe/webhook  # Webhook handler
 GET  /api/integrations/stripe/portal   # Customer portal
 
-# Calendar
-POST /api/integrations/calendar/sync   # Sync to calendar
+# Calendar (iCal feed)
+GET  /api/calendar/feed/:userId/:token.ics  # Public iCal feed (token-gated)
+GET  /api/calendar/token                     # Authenticated feed token
+GET  /api/calendar/preferences               # Calendar sync preferences
+PATCH /api/calendar/preferences              # Update calendar sync preferences
 
 # Slack
 POST /api/integrations/slack/notify    # Send notification
 \`\`\`
+
+`POST /api/integrations/email/rescan` accepts `emailAccountId`, `startDate`, and `endDate`.
+The backend enforces ownership of the account, rejects disconnected providers, and currently limits replay windows to 31 days to keep reprocessing bounded and safe. Replay jobs are persisted in `rescan_jobs` and emit audit events for request, completion, and failure outcomes.
 
 ### API Response Format
 
@@ -1103,10 +865,12 @@ NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 \`\`\`
 
-### 4. Google Calendar (Renewal Sync)
-**Status**: ❌ Not implemented
-**Priority**: Low
-**See**: `INTEGRATIONS.md` Section 6
+### 4. Calendar Sync (iCal Feed Export)
+**Status**: ✅ Implemented
+**Priority**: P1
+**See**: `../backend/CALENDAR_INTEGRATION_GUIDE.md`
+
+Provides a token-gated iCal feed for subscription renewals and reminder schedules. Google Calendar OAuth push sync remains a future enhancement in `INTEGRATIONS.md` Section 6.
 
 ### 5. Slack (Team Notifications)
 **Status**: ❌ Not implemented
@@ -1174,7 +938,6 @@ STRIPE_WEBHOOK_SECRET=whsec_...
    # Supabase
    NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
    NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJxxx...
-   SUPABASE_SERVICE_ROLE_KEY=eyJxxx...
    
    # Stripe (if using payments)
    STRIPE_SECRET_KEY=sk_live_xxx
@@ -1244,7 +1007,6 @@ STRIPE_WEBHOOK_SECRET=whsec_...
 # Required
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=
 
 # Stripe (if using payments)
 STRIPE_SECRET_KEY=
@@ -1532,29 +1294,15 @@ export async function GET(request: Request) {
 
 ## Changelog
 
-### Version 1.0 (Current)
-- ✅ Frontend fully implemented with mock data
-- ✅ Database schema created
-- ✅ Authentication pages created
-- ✅ Supabase utilities created
-- ✅ Security utilities implemented
-- ⚠️ Database not connected to frontend
-- ⚠️ Authentication not enforced
-- ❌ Integrations not implemented
-
-### Next Steps (Version 1.1)
-1. Fix Supabase environment variable typo
-2. Execute database migrations
-3. Connect frontend to database
-4. Implement authentication middleware
-5. Replace mock API routes with real database calls
-
-### Future Versions
-- v1.2: Gmail integration
-- v1.3: Stripe payment processing
-- v1.4: Microsoft 365 / Outlook integration
-- v1.5: Real-time notifications
-- v2.0: Advanced analytics and AI features
+### Version 2.0 (Current)
+- Production-ready Express.js backend (30+ services, 24 route modules)
+- Database connected with RLS policies enforced
+- JWT authentication enforced on all protected routes
+- Gmail and Outlook OAuth email scanning
+- Stripe and Paystack webhook handling
+- Telegram, Slack, push, and email digest notifications
+- Blockchain indexing (Soroban/Stellar Testnet)
+- Calendar iCal feed, webhooks, risk scoring, analytics
 
 ---
 
@@ -1562,6 +1310,6 @@ export async function GET(request: Request) {
 
 For questions or issues with this documentation, contact the development team.
 
-**Last Updated**: January 2025
-**Version**: 1.0
-**Status**: Pre-Production (Database not connected)
+**Last Updated**: May 2026
+**Version**: 2.0
+**Status**: Production

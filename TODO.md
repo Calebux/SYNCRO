@@ -1,12 +1,8 @@
-# Transaction Visualization (Blockchain Explorer Links) - Implementation TODO
+# TODO
 
-## Plan
+- [x] Fix backend admin privacy metrics: replace placeholder DB table/column names with correct schema mappings for each metric.
 
-- [x] 1. Understand codebase and locate relevant files
-- [x] 2. Create `client/components/ui/blockchain-badge.tsx` component
-- [x] 3. Update `backend/src/subscription-renewal-history-timeline/RenewalHistoryTimeline.jsx` to use clickable BlockchainBadge
-- [x] 4. Verify implementation meets acceptance criteria
+- [x] Ensure JSON + CSV endpoints use identical aggregated dataset.
+- [x] Verify admin gating (authenticate + requireRole) and no user-level rows exposed.
+- [x] Run backend TypeScript compile/tests if available.
 
-## Acceptance Criteria
-
-- [x] Clicking the badge opens the transaction details in a new tab

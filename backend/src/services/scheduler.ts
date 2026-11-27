@@ -1,15 +1,23 @@
 import cron from 'node-cron';
 import logger from '../config/logger';
-import { reminderEngine } from './reminder-engine';
+import { container } from './container';
 import { riskDetectionService } from './risk-detection/risk-detection-service';
 import { expiryService } from './expiry-service';
 import { renewalLockService } from './renewal-lock-service';
-import { digestService } from './digest-service';
 import { webhookService } from './webhook-service';
 import { complianceService } from './compliance-service';
 import { supabase } from '../config/database';
 import { suggestionService } from './suggestion-service';
 import { idempotencyService } from './idempotency';
+import { subscriptionService } from './subscription-service';
+import { jobAlertService } from './job-alert-service';
+import { agentWalletRotationService } from './agent-wallet-rotation';
+import { telegramNotificationService } from './telegram-notification-service';
+import { getTTLBumpWorker } from '../workers/ttl-bump-worker';
+import { getArchivalWorker } from '../workers/archival-worker';
+import { getTTLConfig } from '../config/ttl-config';
+import { blockchainService } from './blockchain-service';
+import { renewalSagaRecoveryService } from './renewal-saga/renewal-saga-recovery-service';
 
 export class SchedulerService {
   private jobs: cron.ScheduledTask[] = [];
@@ -22,7 +30,9 @@ export class SchedulerService {
       cron.schedule('0 9 * * *', async () => {
         logger.info('Running scheduled reminder processing');
         try {
-          await reminderEngine.processReminders();
+          await jobAlertService.runMonitoredJob('reminder-processing', () =>
+            container.reminderEngine.processReminders(),
+          );
         } catch (error) {
           logger.error('Error in scheduled reminder processing:', error);
         }
@@ -34,8 +44,10 @@ export class SchedulerService {
       cron.schedule('0 0 * * *', async () => {
         logger.info('Running scheduled reminder scheduling');
         try {
-          await reminderEngine.scheduleReminders();
-          await reminderEngine.scheduleTrialReminders();
+          await jobAlertService.runMonitoredJob('reminder-scheduling', async () => {
+            await container.reminderEngine.scheduleReminders();
+            await container.reminderEngine.scheduleTrialReminders();
+          });
         } catch (error) {
           logger.error('Error in scheduled reminder scheduling:', error);
         }
@@ -47,7 +59,9 @@ export class SchedulerService {
       cron.schedule('*/30 * * * *', async () => {
         logger.info('Running scheduled retry processing');
         try {
-          await reminderEngine.processRetries();
+          await jobAlertService.runMonitoredJob('reminder-retries', () =>
+            container.reminderEngine.processRetries(),
+          );
         } catch (error) {
           logger.error('Error in scheduled retry processing:', error);
         }
@@ -59,7 +73,7 @@ export class SchedulerService {
       cron.schedule('*/15 * * * *', async () => {
         logger.info('Running delayed notification processing');
         try {
-          await reminderEngine.processDelayedNotifications();
+          await container.reminderEngine.processDelayedNotifications();
         } catch (error) {
           logger.error('Error in delayed notification processing:', error);
         }
@@ -89,7 +103,9 @@ export class SchedulerService {
       cron.schedule('0 2 * * *', async () => {
         logger.info('Running scheduled expiry processing');
         try {
-          await expiryService.processExpiries();
+          await jobAlertService.runMonitoredJob('expiry-processing', () =>
+            expiryService.processExpiries(),
+          );
         } catch (error) {
           logger.error('Error in scheduled expiry processing:', error);
         }
@@ -101,6 +117,7 @@ export class SchedulerService {
       cron.schedule('*/5 * * * *', async () => {
         try {
           await renewalLockService.releaseExpiredLocks();
+          await renewalSagaRecoveryService.recoverStuckSagas();
         } catch (error) {
           logger.error('Error in scheduled renewal lock cleanup:', error);
         }
@@ -112,23 +129,25 @@ export class SchedulerService {
       cron.schedule('*/5 * * * *', async () => {
         logger.info('Running scheduled webhook retry processing');
         try {
-          await webhookService.processRetries();
+          await jobAlertService.runMonitoredJob('webhook-retries', () =>
+            webhookService.processRetries(),
+          );
         } catch (error) {
           logger.error('Error in scheduled webhook retry processing:', error);
         }
       }),
     );
 
-    // ── 1st of every month at 8 AM UTC: monthly digest ───────────────────
-    // Cron: minute=0, hour=8, day=1, month=*, weekday=*
+    // ── Weekly on Monday at 9 AM UTC: Telegram spending summaries ────────
     this.jobs.push(
-      cron.schedule('0 8 1 * *', async () => {
-        logger.info('Running monthly digest job');
+      cron.schedule('0 9 * * 1', async () => {
+        logger.info('Running weekly Telegram spending summaries');
         try {
-          const result = await digestService.runMonthlyDigest();
-          logger.info('Monthly digest job completed', result);
+          await jobAlertService.runMonitoredJob('telegram-weekly-summary', () =>
+            telegramNotificationService.sendWeeklySummariesToAllUsers(),
+          );
         } catch (error) {
-          logger.error('Error in monthly digest job:', error);
+          logger.error('Error in weekly Telegram summary job:', error);
         }
       }),
     );
@@ -142,6 +161,19 @@ export class SchedulerService {
           logger.info(`Hard delete job completed: ${processed} accounts processed`);
         } catch (error) {
           logger.error('Error in hard delete job:', error);
+        }
+      }),
+    );
+
+    // ── Daily at 3:30 AM UTC: soft-delete retention cleanup ──────────────
+    this.jobs.push(
+      cron.schedule('30 3 * * *', async () => {
+        logger.info('Running soft-delete retention cleanup');
+        try {
+          const { deletedCount } = await subscriptionService.purgeDeletedSubscriptions(30);
+          logger.info(`Retention cleanup completed: purged ${deletedCount} subscriptions`);
+        } catch (error) {
+          logger.error('Error in soft-delete retention cleanup:', error);
         }
       }),
     );
@@ -183,6 +215,102 @@ export class SchedulerService {
         }
       }),
     );
+
+    // ── Agent wallet rotation ─────────────────────────────────────────────
+    // The rotation service respects AGENT_ROTATION_SCHEDULE. When the schedule
+    // is "daily" or "weekly" the cron fires at the appropriate cadence but the
+    // service itself decides whether a rotation is actually due, so running
+    // both jobs is safe — the extra trigger for weekly rotations is a no-op
+    // on non-rotation days.
+
+    // Daily check at 00:05 UTC (shortly after midnight to avoid contention)
+    this.jobs.push(
+      cron.schedule('5 0 * * *', async () => {
+        logger.info('Running daily agent wallet rotation check');
+        try {
+          const results = await agentWalletRotationService.rotateAll(false);
+          if (results.length > 0) {
+            logger.info(`Agent wallet rotation: rotated ${results.length} agent(s)`, {
+              agents: results.map((r) => r.agentName),
+            });
+          } else {
+            logger.info('Agent wallet rotation: no rotations due');
+          }
+        } catch (error) {
+          logger.error('Error in agent wallet rotation job:', error);
+        }
+      }),
+    );
+
+    // Weekly check on Mondays at 00:10 UTC (belt-and-suspenders for weekly schedule)
+    this.jobs.push(
+      cron.schedule('10 0 * * 1', async () => {
+        logger.info('Running weekly agent wallet rotation check');
+        try {
+          const results = await agentWalletRotationService.rotateAll(false);
+          if (results.length > 0) {
+            logger.info(`Agent wallet rotation (weekly): rotated ${results.length} agent(s)`, {
+              agents: results.map((r) => r.agentName),
+            });
+          }
+        } catch (error) {
+          logger.error('Error in weekly agent wallet rotation job:', error);
+        }
+      }),
+    );
+
+    // ── TTL Management: Daily at midnight UTC: TTL bump worker ────────────
+    // Scans contract entries with TTL near expiration and extends them.
+    // Schedule is configurable via TTL_WORKER_SCHEDULE env var (default: 0 0 * * * = daily midnight)
+    const ttlConfig = getTTLConfig();
+    if (ttlConfig.enableTtlBumping) {
+      this.jobs.push(
+        cron.schedule(ttlConfig.workerSchedule, async () => {
+          logger.info('Running TTL bump worker');
+          try {
+            const ttlBumpWorker = getTTLBumpWorker(blockchainService);
+            const stats = await jobAlertService.runMonitoredJob('ttl-bump-worker', () =>
+              ttlBumpWorker.run(),
+            );
+            logger.info('TTL bump worker completed', {
+              totalProcessed: stats.totalProcessed,
+              totalBumped: stats.totalBumped,
+              totalFailed: stats.totalFailed,
+              durationMs: stats.durationMs,
+            });
+          } catch (error) {
+            logger.error('Error in TTL bump worker:', error);
+          }
+        }),
+      );
+      logger.info(`TTL bump worker scheduled: ${ttlConfig.workerSchedule}`);
+    }
+
+    // ── TTL Management: Daily at 2 AM UTC: Archival worker ────────────────
+    // Detects expired entries and creates snapshots + on-chain archival records.
+    // Schedule is configurable via TTL_ARCHIVAL_SCHEDULE env var (default: 0 2 * * * = daily 2 AM)
+    if (ttlConfig.enableArchival) {
+      this.jobs.push(
+        cron.schedule(ttlConfig.archivalSchedule, async () => {
+          logger.info('Running archival worker');
+          try {
+            const archivalWorker = getArchivalWorker(blockchainService);
+            const stats = await jobAlertService.runMonitoredJob('archival-worker', () =>
+              archivalWorker.run(),
+            );
+            logger.info('Archival worker completed', {
+              totalScanned: stats.totalScanned,
+              totalArchived: stats.totalArchived,
+              totalFailed: stats.totalFailed,
+              durationMs: stats.durationMs,
+            });
+          } catch (error) {
+            logger.error('Error in archival worker:', error);
+          }
+        }),
+      );
+      logger.info(`Archival worker scheduled: ${ttlConfig.archivalSchedule}`);
+    }
 
     logger.info(`Started ${this.jobs.length} scheduled jobs`);
   }

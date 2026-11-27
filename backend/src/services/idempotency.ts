@@ -2,31 +2,60 @@ import { supabase } from '../config/database';
 import logger from '../config/logger';
 import crypto from 'crypto';
 
-export interface IdempotencyRecord {
+export interface IdempotencyRecord<TResponse = unknown> {
   id: string;
   key: string;
   user_id: string;
+  route: string;
   request_hash: string;
   response_status: number;
-  response_body: any;
+  response_body: TResponse;
   created_at: string;
   expires_at: string;
 }
 
 /**
+ * Default `route` value for callers that predate route-scoping (e.g. the
+ * internal renewal orchestrator, which uses this table as a generic
+ * dedup store rather than for an HTTP route). Keeping this distinct from
+ * any real "METHOD /path" string means it can never collide with a route
+ * looked up by the idempotency middleware.
+ */
+const UNSCOPED_ROUTE = '*';
+
+export interface TypedIdempotentResponse<TResponse = unknown> {
+  status: number;
+  body: TResponse;
+  idempotencyKey: string;
+}
+
+export interface SerializablePayload {
+  toJSON(): string;
+}
+
+export type SerializableInput = string | number | boolean | null | undefined | 
+  SerializableObject | SerializableArray;
+
+interface SerializableObject {
+  [key: string]: SerializableInput;
+}
+
+interface SerializableArray extends Array<SerializableInput> {}
+
+/**
  * Idempotency service to prevent duplicate operations
  * Uses request hashing and key-based deduplication
  */
-export class IdempotencyService {
+export class IdempotencyService<TPayload extends SerializableInput = SerializableInput, TResponse = unknown> {
   private readonly ttlHours = 24; 
 
   /**
    * Generate idempotency key from request
    */
-  generateKey(userId: string, operation: string, payload: any): string {
+  generateKey(userId: string, operation: string, payload: TPayload): string {
     const payloadHash = crypto
       .createHash('sha256')
-      .update(JSON.stringify(payload))
+      .update(this.serializePayload(payload))
       .digest('hex')
       .substring(0, 16);
 
@@ -34,13 +63,53 @@ export class IdempotencyService {
   }
 
   /**
+   * Look up an idempotency record by (key, user, route) alone — regardless
+   * of whether the stored request_hash matches the caller's current
+   * request. Callers (the idempotency middleware) compare the hash
+   * themselves so they can distinguish a safe replay from a reused key
+   * with a different body (409).
+   */
+  async checkKey(
+    key: string,
+    userId: string,
+    route: string
+  ): Promise<{ record: IdempotencyRecord<TResponse> | null }> {
+    try {
+      const { data: existing, error } = await supabase
+        .from('idempotency_keys')
+        .select('*')
+        .eq('key', key)
+        .eq('user_id', userId)
+        .eq('route', route)
+        .gt('expires_at', new Date().toISOString())
+        .maybeSingle();
+
+      if (error) {
+        // Log but don't throw - idempotency is best-effort and must never
+        // be the reason a legitimate request fails.
+        logger.error('Idempotency key lookup error:', error);
+        return { record: null };
+      }
+
+      return { record: (existing as IdempotencyRecord<TResponse>) ?? null };
+    } catch (error) {
+      logger.error('Idempotency key lookup failed:', error);
+      return { record: null };
+    }
+  }
+
+  /**
    * Check if request is idempotent and return cached response if exists
+   *
+   * @deprecated kept for backward compatibility with the hash-scoped
+   * lookup path. New callers should use {@link checkKey}, which is
+   * route-scoped and lets the caller decide replay vs. conflict.
    */
   async checkIdempotency(
     key: string,
     userId: string,
     requestHash: string
-  ): Promise<{ isDuplicate: boolean; cachedResponse?: any }> {
+  ): Promise<{ isDuplicate: boolean; cachedResponse?: TypedIdempotentResponse<TResponse> }> {
     try {
       // Check for existing idempotency record
       const { data: existing, error } = await supabase
@@ -86,7 +155,8 @@ export class IdempotencyService {
     userId: string,
     requestHash: string,
     responseStatus: number,
-    responseBody: any
+    responseBody: TResponse,
+    route: string = UNSCOPED_ROUTE
   ): Promise<void> {
     try {
       const expiresAt = new Date();
@@ -95,6 +165,7 @@ export class IdempotencyService {
       const { error } = await supabase.from('idempotency_keys').insert({
         key,
         user_id: userId,
+        route,
         request_hash: requestHash,
         response_status: responseStatus,
         response_body: responseBody,
@@ -102,8 +173,21 @@ export class IdempotencyService {
       });
 
       if (error) {
-        // Log but don't throw - idempotency is best-effort
-        logger.warn('Failed to store idempotency record:', error);
+        // A unique-violation here means two concurrent requests raced to
+        // store the same (key, user, route) — the first writer wins and
+        // the loser's response was already served to its caller, so this
+        // is expected under concurrency and not an error worth failing
+        // the request over.
+        if (error.code === '23505') {
+          logger.info('Idempotency record already stored by a concurrent request', {
+            key,
+            userId,
+            route,
+          });
+        } else {
+          // Log but don't throw - idempotency is best-effort
+          logger.warn('Failed to store idempotency record:', error);
+        }
       }
     } catch (error) {
       logger.error('Idempotency storage failed:', error);
@@ -112,12 +196,19 @@ export class IdempotencyService {
   }
 
   /**
+   * Type-safe serialization for hash input
+   */
+  private serializePayload(payload: TPayload): string {
+    return JSON.stringify(payload);
+  }
+
+  /**
    * Hash request payload for idempotency checking
    */
-  hashRequest(payload: any): string {
+  hashRequest(payload: TPayload): string {
     return crypto
       .createHash('sha256')
-      .update(JSON.stringify(payload))
+      .update(this.serializePayload(payload))
       .digest('hex');
   }
 
@@ -208,4 +299,10 @@ export class IdempotencyService {
   }
 }
 
+// Type-safe factory function for creating typed idempotency services
+export function createIdempotencyService<TPayload extends SerializableInput = SerializableInput, TResponse = unknown>(): IdempotencyService<TPayload, TResponse> {
+  return new IdempotencyService<TPayload, TResponse>();
+}
+
+// Default untyped instance for backward compatibility
 export const idempotencyService = new IdempotencyService();

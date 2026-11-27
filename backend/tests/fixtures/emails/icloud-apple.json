@@ -1,0 +1,14 @@
+{
+  "provider": "icloud",
+  "messageId": "icloud-msg-apple-001",
+  "subject": "Your Apple invoice receipt",
+  "from": "noreply@email.apple.com",
+  "body": "Apple Media Services\n\nSubscription confirmed. iCloud+ billed $0.99/month. Payment received.\nInvoice #APL-1001",
+  "receivedAt": "2026-05-03T16:00:00.000Z",
+  "expected": {
+    "nameContains": "apple",
+    "amount": 0.99,
+    "currency": "USD",
+    "interval": "monthly"
+  }
+}

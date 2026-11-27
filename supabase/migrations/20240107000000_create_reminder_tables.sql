@@ -38,7 +38,7 @@ create table if not exists public.notification_deliveries (
   id uuid primary key default gen_random_uuid(),
   reminder_schedule_id uuid not null references public.reminder_schedules(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
-  channel text not null check (channel in ('email', 'push')),
+  channel text not null check (channel in ('email', 'push', 'slack')),
   status text not null check (status in ('pending', 'sent', 'failed', 'retrying')),
   attempt_count integer default 0,
   max_attempts integer default 3,
@@ -103,4 +103,3 @@ create index if not exists blockchain_logs_user_id_idx on public.blockchain_logs
 create index if not exists blockchain_logs_event_type_idx on public.blockchain_logs(event_type);
 create index if not exists blockchain_logs_status_idx on public.blockchain_logs(status);
 create index if not exists blockchain_logs_transaction_hash_idx on public.blockchain_logs(transaction_hash);
-

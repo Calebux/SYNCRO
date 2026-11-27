@@ -3,18 +3,32 @@ name: Deploy to Staging
 on:
   push:
     branches: [develop]
+    paths:
+      - 'client/**'
+      - 'shared/**'
+      - '.github/workflows/staging-deploy.yml'
+  workflow_dispatch:
+    inputs:
+      force_full_run:
+        description: 'Force a full staging deployment'
+        type: boolean
+        default: false
 
 jobs:
   deploy-staging:
     name: Deploy to Staging (Vercel)
+    if: github.repository == 'Calebux/SYNCRO' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: 'npm'

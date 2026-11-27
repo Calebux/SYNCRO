@@ -5,7 +5,9 @@ import { UserPreferences, PartialUserPreferences } from '../types/reminder';
 export class UserPreferenceService {
     private readonly defaultPreferences: Omit<UserPreferences, 'user_id' | 'updated_at'> = {
         notification_channels: ['email'],
+        spend_cap_alert_channels: [],
         reminder_timing: [7, 3, 1],
+        reminder_jitter_level: 'off', // default to no jitter
         email_opt_ins: {
             marketing: false,
             reminders: true,
@@ -21,6 +23,12 @@ export class UserPreferenceService {
         quiet_hours_end: '08:00',
         quiet_hours_timezone: 'UTC',
         critical_alerts_only: true,
+        currency: 'USD',
+        timezone: 'UTC',
+        locale: 'en-US',
+        preferred_gift_card_provider: 'atomic_wallet',
+        privacy_mode_enabled: false,
+        subscription_priority_order: [],
     };
 
     /**

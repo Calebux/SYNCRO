@@ -1,0 +1,57 @@
+name: "Setup Node.js"
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: "Node.js version to install"
+        type: string
+        default: "20"
+      cache:
+        description: "Enable npm caching"
+        type: boolean
+        default: true
+      cache-dependency-path:
+        description: "Path to package-lock.json for cache key"
+        type: string
+        default: ""
+      working-directory:
+        description: "Working directory for the job"
+        type: string
+        default: "."
+
+jobs:
+  setup-node:
+    name: Setup Node.js
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    outputs:
+      node-version: ${{ steps.setup-node.outputs.node-version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Resolve npm cache lockfile
+        id: cache-lockfile
+        working-directory: ${{ github.workspace }}
+        env:
+          REQUESTED_PATH: ${{ inputs.cache-dependency-path }}
+          WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        run: |
+          path="${REQUESTED_PATH:-${WORKING_DIRECTORY}/package-lock.json}"
+          if [ ! -f "$path" ]; then path=package-lock.json; fi
+          if [ ! -f "$path" ]; then echo "No npm lockfile found: $path" >&2; exit 1; fi
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
+        id: setup-node
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: ${{ inputs.cache && 'npm' || '' }}
+          cache-dependency-path: ${{ steps.cache-lockfile.outputs.path }}
+
+      - name: Verify Node.js version
+        run: node --version

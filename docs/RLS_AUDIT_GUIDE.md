@@ -295,8 +295,8 @@ Create scripts to automatically:
 
 - [Supabase RLS Guide](https://supabase.com/docs/guides/auth/row-level-security)
 - [PostgreSQL RLS Documentation](https://www.postgresql.org/docs/current/ddl-rowsecurity.html)
-- [SYNCRO Security Architecture](./SECURITY.md)
-- [Database Migration Guide](./MIGRATIONS.md)
+- SYNCRO Security Architecture
+- Database Migration Guide
 
 ## Support
 

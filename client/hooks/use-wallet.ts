@@ -19,9 +19,15 @@ export function useWallet() {
       setError(null);
     });
 
+    const unsubChange = stellarWallet.on('walletChanged', (newInfo, oldInfo) => {
+      setWallet(newInfo || null);
+      setError(null);
+    });
+
     return () => {
       unsubConnect();
       unsubDisconnect();
+      unsubChange();
     };
   }, []);
 
@@ -31,6 +37,7 @@ export function useWallet() {
     try {
       const info = await stellarWallet.connect(network);
       setWallet(info);
+      return info;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to connect wallet';
       setError(message);

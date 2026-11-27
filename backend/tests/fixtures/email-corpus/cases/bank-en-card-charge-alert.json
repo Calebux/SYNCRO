@@ -1,0 +1,13 @@
+{
+  "id": "bank-en-card-charge-alert",
+  "merchant": "Unknown",
+  "locale": "en",
+  "kind": "negative",
+  "notes": "Ambiguous negative: bank alert about a charge, not a merchant subscription email.",
+  "email": {
+    "subject": "A charge was made on your card",
+    "from": "Meridian Bank <alerts@meridian-bank.example>",
+    "body": "You were charged $15.99 at a merchant. If you do not recognise this, contact us."
+  },
+  "expected": null
+}

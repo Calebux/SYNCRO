@@ -1,0 +1,17 @@
+[package]
+name = "resolver-registry"
+version = "0.0.1"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+soroban-sdk = { workspace = true }
+syncro-contract-common = { package = "syncro-contract-common", path = "../common" }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+proptest = { workspace = true }
+escrow = { path = "../escrow" }

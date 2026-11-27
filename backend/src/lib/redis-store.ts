@@ -106,11 +106,20 @@ export class RateLimitRedisStore {
   }
 
   /**
+   * Returns true when Redis was configured but is currently unavailable,
+   * meaning the system is operating in degraded mode with a memory fallback.
+   */
+  isDegraded(): boolean {
+    return !!(rateLimitConfig.redis.enabled && rateLimitConfig.redis.url && !this.isConnected);
+  }
+
+  /**
    * Get Redis connection health status
    */
-  getHealthStatus(): { connected: boolean; reconnectAttempts: number; error?: string } {
+  getHealthStatus(): { connected: boolean; degraded: boolean; reconnectAttempts: number; error?: string } {
     return {
       connected: this.isConnected,
+      degraded: this.isDegraded(),
       reconnectAttempts: this.reconnectAttempts,
       error: this.isConnected ? undefined : 'Redis connection unavailable',
     };
