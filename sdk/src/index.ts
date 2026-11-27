@@ -120,3 +120,18 @@ export type {
   PaidReceipt,
   PaidReceiptPayload,
 } from "./types.js";
+
+// ─── Merkle receipt commitments (issue #1800) ────────────────────────────────
+export {
+  hashLeaf,
+  buildReceiptTree,
+  generateProof,
+  verifyInclusion,
+  buildSettlementRecord,
+} from "./merkle.js";
+export type {
+  Receipt,
+  MerkleSibling,
+  MerkleProof,
+  SettlementRecord,
+} from "./merkle.js";

@@ -1,0 +1,334 @@
+---
+title: "Tutorial: Charge for an existing REST API with the reverse proxy"
+description: "Put the SYNCRO proxy in front of any REST API, price two routes, and collect your first payout — in under 15 minutes."
+---
+
+> **Testnet only.** All commands and amounts here are for the Stellar testnet.
+> Never use real funds until you switch to a `production` provider.
+
+## What you will build
+
+```
+Consumer  ──►  SYNCRO proxy (Docker)  ──►  Your existing API
+                     │
+              prices each route
+              meters every call
+              settles to your wallet
+```
+
+You bring an existing HTTP service. The proxy handles the payment layer — you
+do not change a single line of your API's code.
+
+---
+
+## Prerequisites
+
+| Requirement | Notes |
+|---|---|
+| Docker ≥ 24 and Docker Compose v2 | `docker compose version` to verify |
+| A funded Stellar testnet wallet | Use [Stellar Laboratory](https://laboratory.stellar.org/#account-creator?network=test) to create and fund one |
+| `curl` or any HTTP client | Used for registration and testing |
+| Your existing API running and reachable | Can be on `localhost` or a remote host |
+
+---
+
+## Step 1 — Create a pricing file
+
+The proxy reads a `pricing.yaml` file that maps HTTP method + path patterns to
+prices. Create one next to your `docker-compose.yml`:
+
+```yaml
+# pricing.yaml
+version: "1"
+currency: "USDC"
+
+routes:
+  - method: POST
+    path: /v1/summarise
+    price: "0.05"          # $0.05 per call
+    unit: call
+
+  - method: GET
+    path: /v1/status
+    price: "0.001"         # $0.001 per call
+    unit: call
+```
+
+**Fields**
+
+| Field | Required | Description |
+|---|---|---|
+| `method` | ✓ | HTTP verb (`GET`, `POST`, `PUT`, `DELETE`, `*` for any) |
+| `path` | ✓ | Exact path or glob pattern (`/v1/*`) |
+| `price` | ✓ | Decimal string in `currency` units |
+| `unit` | ✓ | `call` for per-request pricing |
+| `currency` | — | Defaults to `USDC` |
+
+Routes are matched top-to-bottom; the first match wins. Any request to an
+unpriced path is forwarded without charge.
+
+---
+
+## Step 2 — Run the proxy with Docker Compose
+
+Create a `docker-compose.yml` alongside your `pricing.yaml`:
+
+```yaml
+# docker-compose.yml
+services:
+  syncro-proxy:
+    image: ghcr.io/calebux/syncro-proxy:v3
+    ports:
+      - "4000:4000"           # consumers hit :4000
+    environment:
+      UPSTREAM_BASE_URL: "http://host.docker.internal:8080"  # your API
+      SYNCRO_GATEWAY_URL: "https://api-testnet.syncro.app"
+      PROVIDER_ID: "${PROVIDER_ID}"
+      PROVIDER_SECRET: "${PROVIDER_SECRET}"
+      STELLAR_NETWORK: testnet
+      PORT: "4000"
+      LOG_LEVEL: info
+    volumes:
+      - ./pricing.yaml:/app/pricing.yaml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # remove if your API is remote
+```
+
+Replace `http://host.docker.internal:8080` with your API's actual base URL.
+
+Start it:
+
+```bash
+docker compose up -d
+```
+
+The proxy starts on `http://localhost:4000`. It logs `proxy ready` when
+healthy. You will fill in `PROVIDER_ID` and `PROVIDER_SECRET` in the next step.
+
+---
+
+## Step 3 — Register as a provider
+
+Registration is a single `curl` call. Use your testnet Stellar wallet address
+for `payoutAddress`.
+
+```bash
+curl -s -X POST https://api-testnet.syncro.app/api/v3/providers \
+  -H 'content-type: application/json' \
+  -d '{
+    "name": "my-api-provider",
+    "payoutAddress": "G<YOUR_TESTNET_ADDRESS>",
+    "upstreamBaseUrl": "http://localhost:4000",
+    "mode": "staging"
+  }' | tee provider.json
+```
+
+The response contains your `id` and `providerSecret` — the secret is shown
+**once only**, so save it now:
+
+```bash
+export PROVIDER_ID=$(jq -r '.data.id' provider.json)
+export PROVIDER_SECRET=$(jq -r '.data.providerSecret' provider.json)
+```
+
+Add both to a `.env` file so Docker Compose picks them up:
+
+```bash
+echo "PROVIDER_ID=$PROVIDER_ID" >> .env
+echo "PROVIDER_SECRET=$PROVIDER_SECRET" >> .env
+```
+
+Restart the proxy so it loads the new values:
+
+```bash
+docker compose restart syncro-proxy
+```
+
+---
+
+## Step 4 — Verify your payout address
+
+Before the gateway will forward paid calls, it must confirm you control the
+payout wallet.
+
+```bash
+# 1. Request a challenge
+curl -s -X POST \
+  "https://api-testnet.syncro.app/api/v3/providers/$PROVIDER_ID/payout-challenge" \
+  | tee challenge.json
+
+CHALLENGE=$(jq -r '.data.challenge' challenge.json)
+```
+
+Sign `$CHALLENGE` with your Stellar secret key. You can use the
+[Stellar Laboratory signing tool](https://laboratory.stellar.org/#txsigner?network=test)
+or the SYNCRO SDK:
+
+```bash
+# Using the SYNCRO SDK helper (requires Node ≥ 18)
+npx @syncro/sdk sign-challenge \
+  --secret-key S<YOUR_TESTNET_SECRET> \
+  --challenge "$CHALLENGE"
+```
+
+Submit the signature:
+
+```bash
+curl -s -X POST \
+  "https://api-testnet.syncro.app/api/v3/providers/$PROVIDER_ID/payout-verify" \
+  -H "content-type: application/json" \
+  -H "x-provider-key: $PROVIDER_SECRET" \
+  -d "{\"signature\":\"<SIGNATURE_FROM_ABOVE>\"}"
+```
+
+A `200 OK` with `"verified": true` means you are ready to accept paid calls.
+
+---
+
+## Step 5 — Register the two priced routes
+
+Tell the gateway which routes you are charging for. These must match the
+entries in `pricing.yaml`.
+
+```bash
+# Route 1 — POST /v1/summarise at $0.05
+curl -s -X POST \
+  "https://api-testnet.syncro.app/api/v3/providers/$PROVIDER_ID/routes" \
+  -H "content-type: application/json" \
+  -H "x-provider-key: $PROVIDER_SECRET" \
+  -d '{"pathPattern":"/v1/summarise","method":"POST","unit":"call","price":"0.05"}'
+
+# Route 2 — GET /v1/status at $0.001
+curl -s -X POST \
+  "https://api-testnet.syncro.app/api/v3/providers/$PROVIDER_ID/routes" \
+  -H "content-type: application/json" \
+  -H "x-provider-key: $PROVIDER_SECRET" \
+  -d '{"pathPattern":"/v1/status","method":"GET","unit":"call","price":"0.001"}'
+```
+
+Both calls should return `201 Created`.
+
+---
+
+## Step 6 — Make a test paid call
+
+Use the SYNCRO CLI to send a paid call through the proxy. The CLI handles
+channel management and the x402 payment handshake automatically.
+
+```bash
+# Install the CLI once
+npm install -g @syncro/cli
+
+# Configure it with a funded testnet spending key
+syncro config set spending-key S<YOUR_CONSUMER_TESTNET_SECRET>
+syncro config set gateway https://api-testnet.syncro.app
+
+# Make a paid call to your priced route
+syncro call \
+  --provider "$PROVIDER_ID" \
+  --path /v1/summarise \
+  --method POST \
+  --body '{"text":"hello world"}'
+```
+
+A successful call prints the upstream response body and a receipt:
+
+```
+✓ paid  $0.05  receipt: rcpt_…
+{"summary":"hello world"}
+```
+
+Call the cheaper route too so you have revenue from two routes:
+
+```bash
+syncro call \
+  --provider "$PROVIDER_ID" \
+  --path /v1/status \
+  --method GET
+```
+
+---
+
+## Step 7 — View your revenue
+
+```bash
+curl -s \
+  "https://api-testnet.syncro.app/api/v3/providers/$PROVIDER_ID/revenue" \
+  -H "x-provider-key: $PROVIDER_SECRET" \
+  | jq
+```
+
+Example response:
+
+```json
+{
+  "data": {
+    "totalEarned": "0.051",
+    "currency": "USDC",
+    "pendingSettlement": "0.051",
+    "settledToDate": "0.000"
+  }
+}
+```
+
+You can also see a per-route breakdown:
+
+```bash
+curl -s \
+  "https://api-testnet.syncro.app/api/v3/providers/$PROVIDER_ID/revenue?breakdown=route" \
+  -H "x-provider-key: $PROVIDER_SECRET" \
+  | jq
+```
+
+---
+
+## Step 8 — Trigger a payout
+
+Settlements batch automatically, but you can request one immediately on the
+testnet:
+
+```bash
+curl -s -X POST \
+  "https://api-testnet.syncro.app/api/v3/providers/$PROVIDER_ID/settlements" \
+  -H "x-provider-key: $PROVIDER_SECRET" \
+  | jq
+```
+
+Then poll until `status` is `completed`:
+
+```bash
+SETTLEMENT_ID=$(curl -s \
+  "https://api-testnet.syncro.app/api/v3/providers/$PROVIDER_ID/settlements" \
+  -H "x-provider-key: $PROVIDER_SECRET" \
+  | jq -r '.data[0].id')
+
+curl -s \
+  "https://api-testnet.syncro.app/api/v3/providers/$PROVIDER_ID/settlements/$SETTLEMENT_ID" \
+  -H "x-provider-key: $PROVIDER_SECRET" \
+  | jq '.data.status'
+# "completed"
+```
+
+The funds arrive at your testnet payout address. Verify on
+[Stellar Expert (testnet)](https://stellar.expert/explorer/testnet).
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `upstream_error` on paid call | Proxy cannot reach your API | Check `UPSTREAM_BASE_URL` and that your API is running |
+| `staging_mainnet_forbidden` | `STELLAR_NETWORK` is set to `mainnet` | Set it back to `testnet` for staging providers |
+| `RATE_CARD_VERSION_STALE` | Route prices changed after the agent fetched them | The SDK retries automatically; if it persists, run `syncro call` again |
+| `401 Unauthorized` on route registration | Wrong `PROVIDER_SECRET` | Re-export `PROVIDER_SECRET` from `provider.json` |
+| Revenue shows `0.000` | Paid call did not settle | Check the proxy logs: `docker compose logs syncro-proxy` |
+
+---
+
+## Next steps
+
+- **Go to production** — register a separate provider with `"mode": "production"` and production keys. See [Provider Guide](/PROVIDER_GUIDE) for the promotion path.
+- **Metered billing** — charge per token or per unit instead of per call. See [SDK Reference](/sdk-reference) for the `metered()` helper.
+- **Rate card versioning** — understand what happens when you update prices mid-flight. See [Rate card versioning](/gateway/rate-card-versioning).
+- **Provider Console** — the same register → verify → price → settle flow is available in the UI at [app.syncro.app](https://app.syncro.app).
