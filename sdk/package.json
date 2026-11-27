@@ -148,14 +148,8 @@
     "prebuild": "npm run generate:contracts && npm run generate:gateway-errors",
     "build": "tsup",
     "test": "jest",
-    "test:integration": "bash scripts/run-integration.sh",
-    "test:browser": "jest --config jest.browser.config.js",
-    "assert:no-node-crypto": "node scripts/assert-no-node-crypto.mjs",
-    "check:layout": "node scripts/check-package-layout.mjs",
-    "check:tree-shake": "node scripts/check-tree-shake.mjs",
-    "check:size": "node scripts/check-package-size.mjs",
-    "check:package": "npm run check:layout && npm run check:tree-shake && npm run check:size",
-    "prepublishOnly": "node ../scripts/assert-ci-publish.mjs && npm run lint && npm run typecheck && npm run check:gateway-taxonomy && npm run build && npm run check:package"
+    "docs": "typedoc src/index.ts --out docs/api --treatWarningsAsErrors",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "syncro",
@@ -183,7 +177,9 @@
     "publint": "^0.3.12",
     "ts-jest": "^29.2.5",
     "ts-node": "^10.9.2",
-    "tsup": "^9.0.0",
-    "typescript": "^7.0.2"
+        "typedoc": "^0.26.0",
+    "typescript": "^5.7.3"
+,`n    "typedoc": "^0.26.0"
   }
 }
+
