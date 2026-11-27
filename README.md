@@ -31,6 +31,8 @@ SYNCRO bills what actually happened:
 - **No custody** — funds sit in a payment channel the payer can unilaterally close.
 - **No per-call gas** — calls accumulate off-chain as signed channel states; the chain
   is touched on open, top-up, and close.
+- **Understand the trade-offs** — [see how payment channels make per-call payments
+  cheap](./docs/payment-channels.mdx), including the current testnet fee comparison.
 - **Scoped authority** — an agent spends only within the scope and cap its principal
   granted it, enforced on-chain rather than by the gateway alone.
 - **Verifiable** — every settled call produces a receipt binding the request hash, the
@@ -90,6 +92,9 @@ tracked in [#1404](https://github.com/Calebux/SYNCRO/issues/1404). The work surf
 the open [`v3-rewrite`](https://github.com/Calebux/SYNCRO/labels/v3-rewrite) issues.
 The earlier v2 rewrite ([#1323](https://github.com/Calebux/SYNCRO/issues/1323)) is
 superseded; its infrastructure and quality work carries over, its product work does not.
+
+For the post-rewrite ecosystem plan (SDK languages, framework integrations, and protocol
+interoperability), see the [Public Ecosystem Roadmap](./docs/ECOSYSTEM_ROADMAP.md).
 
 ## Project Structure & Ownership
 
