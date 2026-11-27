@@ -3,7 +3,7 @@
  * Repo path: backend/src/jobs/signed-state-replication-job.ts
  *
  * Ships rows from channel_state_journal (see migration
- * 0001_signed_state_journal.sql) to a second, non-Supabase location as soon
+ * 20261124000001_signed_state_journal.sql) to a second, non-Supabase location as soon
  * as they land, then marks them replicated_at.
  *
  * This does NOT by itself give zero RPO — Supabase's own Point-in-Time

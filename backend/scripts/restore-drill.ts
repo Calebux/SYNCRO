@@ -20,7 +20,7 @@
  *   1. Restore Supabase staging project to a target point in time (manual,
  *      via dashboard/CLI) OR spin up a fresh scratch DB and replay the
  *      store-backup-job.ts exports + apply the migration in
- *      0001_signed_state_journal.sql.
+ *      20261124000001_signed_state_journal.sql.
  *   2. Point this script's SUPABASE_URL/SUPABASE_KEY env vars at that
  *      restored/scratch instance — never production.
  *   3. Run this script. It reports RTO (how long the drill took, which you

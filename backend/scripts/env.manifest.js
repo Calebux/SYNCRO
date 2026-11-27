@@ -59,6 +59,7 @@ const optional = [
 
   // Stellar / Soroban (optional config + feature flags)
   'SOROBAN_RPC_URL',
+  'SOROBAN_RPC_URLS',
   'STELLAR_SECRET_KEY',
   'STELLAR_NETWORK_PASSPHRASE',
   'STELLAR_NETWORK',

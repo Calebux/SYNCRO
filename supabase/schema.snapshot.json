@@ -523,6 +523,121 @@
       ]
     },
     {
+      "name": "channel_signer_lease",
+      "columns": [
+        {
+          "name": "channel_id",
+          "pgType": "UUID PRIMARY KEY REFERENCES payment_channels(id)",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "created_at",
+          "pgType": "TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "instance_id",
+          "pgType": "TEXT NOT NULL",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "last_nonce_allocated",
+          "pgType": "BIGINT NOT NULL DEFAULT 0",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "lease_acquired_at",
+          "pgType": "TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "lease_expires_at",
+          "pgType": "TIMESTAMPTZ NOT NULL",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "updated_at",
+          "pgType": "TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        }
+      ]
+    },
+    {
+      "name": "channel_state_journal",
+      "columns": [
+        {
+          "name": "channel_id",
+          "pgType": "uuid not null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "channel_row_state",
+          "pgType": "text not null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "channel_state",
+          "pgType": "jsonb not null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "id",
+          "pgType": "bigint generated always as identity primary key",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "recorded_at",
+          "pgType": "timestamptz not null default now()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "replicated_at",
+          "pgType": "timestamptz",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "sequence_number",
+          "pgType": "bigint not null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "user_id",
+          "pgType": "uuid not null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        }
+      ]
+    },
+    {
       "name": "channel_states",
       "columns": [
         {
@@ -706,6 +821,116 @@
       ]
     },
     {
+      "name": "degraded_usage_log",
+      "columns": [
+        {
+          "name": "agent_id",
+          "pgType": "text not null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "amount",
+          "pgType": "numeric not null check (amount >= 0)",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "correlation_id",
+          "pgType": "text",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "created_at",
+          "pgType": "timestamptz not null default now()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "id",
+          "pgType": "uuid primary key default gen_random_uuid()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "last_error",
+          "pgType": "text",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "meter_applied_at",
+          "pgType": "timestamptz",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "reason",
+          "pgType": "text not null check (\r\n                        reason in ('meter_unavailable', 'meter_write_failed', 'degraded_mode')",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "replay_attempts",
+          "pgType": "integer not null default 0 check (replay_attempts >= 0)",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "replay_state",
+          "pgType": "text not null default",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "reservation_id",
+          "pgType": "text not null unique",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "route",
+          "pgType": "text not null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "served_at",
+          "pgType": "timestamptz not null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "unit_name",
+          "pgType": "text not null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "units",
+          "pgType": "numeric not null check (units >= 0)",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        }
+      ]
+    },
+    {
       "name": "deletion_audit_trail",
       "columns": [
         {
@@ -786,60 +1011,6 @@
       ]
     },
     {
-      "name": "digest_audit_log",
-      "columns": [
-        {
-          "name": "digest_type",
-          "pgType": "TEXT         NOT NULL DEFAULT",
-          "tsType": "string",
-          "nullable": true,
-          "hasDefault": false
-        },
-        {
-          "name": "error_message",
-          "pgType": "TEXT",
-          "tsType": "string",
-          "nullable": true,
-          "hasDefault": false
-        },
-        {
-          "name": "id",
-          "pgType": "UUID         PRIMARY KEY DEFAULT gen_random_uuid()",
-          "tsType": "string",
-          "nullable": true,
-          "hasDefault": false
-        },
-        {
-          "name": "period_label",
-          "pgType": "TEXT         NOT NULL",
-          "tsType": "string",
-          "nullable": true,
-          "hasDefault": false
-        },
-        {
-          "name": "sent_at",
-          "pgType": "TIMESTAMPTZ  NOT NULL DEFAULT NOW()",
-          "tsType": "string",
-          "nullable": true,
-          "hasDefault": false
-        },
-        {
-          "name": "status",
-          "pgType": "TEXT         NOT NULL DEFAULT",
-          "tsType": "string",
-          "nullable": true,
-          "hasDefault": false
-        },
-        {
-          "name": "user_id",
-          "pgType": "UUID         NOT NULL REFERENCES auth",
-          "tsType": "string",
-          "nullable": true,
-          "hasDefault": false
-        }
-      ]
-    },
-    {
       "name": "dismissed_suggestions",
       "columns": [
         {
@@ -880,6 +1051,184 @@
         {
           "name": "user_id",
           "pgType": "UUID        NOT NULL REFERENCES profiles(id)",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        }
+      ]
+    },
+    {
+      "name": "domain_event_dead_letter",
+      "columns": [
+        {
+          "name": "correlation_id",
+          "pgType": "TEXT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "created_at",
+          "pgType": "TIMESTAMPTZ NOT NULL DEFAULT now()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "event_id",
+          "pgType": "TEXT NOT NULL UNIQUE",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "event_name",
+          "pgType": "TEXT NOT NULL",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "event_payload",
+          "pgType": "JSONB NOT NULL",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "failed_at",
+          "pgType": "TIMESTAMPTZ NOT NULL DEFAULT now()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "id",
+          "pgType": "UUID PRIMARY KEY DEFAULT gen_random_uuid()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "last_error",
+          "pgType": "TEXT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "retry_count",
+          "pgType": "INTEGER NOT NULL",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "user_id",
+          "pgType": "UUID NOT NULL",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        }
+      ]
+    },
+    {
+      "name": "domain_event_outbox",
+      "columns": [
+        {
+          "name": "correlation_id",
+          "pgType": "TEXT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "created_at",
+          "pgType": "TIMESTAMPTZ NOT NULL DEFAULT now()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "event_id",
+          "pgType": "TEXT NOT NULL UNIQUE",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "event_name",
+          "pgType": "TEXT NOT NULL",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "event_payload",
+          "pgType": "JSONB NOT NULL",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "id",
+          "pgType": "UUID PRIMARY KEY DEFAULT gen_random_uuid()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "last_error",
+          "pgType": "TEXT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "max_retries",
+          "pgType": "INTEGER NOT NULL DEFAULT 5",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "next_retry_at",
+          "pgType": "TIMESTAMPTZ",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "published_at",
+          "pgType": "TIMESTAMPTZ",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "retry_count",
+          "pgType": "INTEGER NOT NULL DEFAULT 0",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "status",
+          "pgType": "TEXT NOT NULL DEFAULT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "updated_at",
+          "pgType": "TIMESTAMPTZ NOT NULL DEFAULT now()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "user_id",
+          "pgType": "UUID NOT NULL",
           "tsType": "string",
           "nullable": true,
           "hasDefault": false
@@ -974,6 +1323,182 @@
         {
           "name": "type",
           "pgType": "text NOT NULL CHECK (type IN ('top_up', 'deduction')",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "user_id",
+          "pgType": "uuid NOT NULL REFERENCES auth",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        }
+      ]
+    },
+    {
+      "name": "gift_card_ledger_checkpoints",
+      "columns": [
+        {
+          "name": "account_id",
+          "pgType": "text NOT NULL",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "checkpoint_balance",
+          "pgType": "numeric(12, 2)",
+          "tsType": "number",
+          "nullable": false,
+          "hasDefault": false
+        },
+        {
+          "name": "id",
+          "pgType": "uuid PRIMARY KEY DEFAULT gen_random_uuid()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "is_valid",
+          "pgType": "boolean NOT NULL DEFAULT true",
+          "tsType": "boolean",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "notes",
+          "pgType": "text",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "verified_at",
+          "pgType": "timestamptz NOT NULL DEFAULT now()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        }
+      ]
+    },
+    {
+      "name": "gift_card_ledger_postings",
+      "columns": [
+        {
+          "name": "account_id",
+          "pgType": "text NOT NULL",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "amount",
+          "pgType": "numeric(12, 2)",
+          "tsType": "number",
+          "nullable": false,
+          "hasDefault": false
+        },
+        {
+          "name": "created_at",
+          "pgType": "timestamptz NOT NULL DEFAULT now()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "gift_card_id",
+          "pgType": "uuid REFERENCES public",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "id",
+          "pgType": "uuid PRIMARY KEY DEFAULT gen_random_uuid()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "reason_code",
+          "pgType": "text NOT NULL",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "subscription_id",
+          "pgType": "uuid REFERENCES public",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "transaction_id",
+          "pgType": "uuid NOT NULL REFERENCES public",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "user_id",
+          "pgType": "uuid REFERENCES auth",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        }
+      ]
+    },
+    {
+      "name": "gift_card_ledger_transactions",
+      "columns": [
+        {
+          "name": "created_at",
+          "pgType": "timestamptz NOT NULL DEFAULT now()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "description",
+          "pgType": "text",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "id",
+          "pgType": "uuid PRIMARY KEY DEFAULT gen_random_uuid()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "metadata",
+          "pgType": "jsonb DEFAULT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "reason_code",
+          "pgType": "text NOT NULL CHECK (\r\n    reason_code IN (\r\n      'PURCHASE',\r\n      'REDEMPTION',\r\n      'EXPIRY',\r\n      'ADJUSTMENT',\r\n      'REVERSAL',\r\n      'TOP_UP',\r\n      'DEDUCTION'\r\n    )",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "reference_id",
+          "pgType": "text",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "reversal_of_transaction_id",
+          "pgType": "uuid REFERENCES public",
           "tsType": "string",
           "nullable": true,
           "hasDefault": false
@@ -1307,6 +1832,193 @@
       ]
     },
     {
+      "name": "meter_usage_ledger",
+      "columns": [
+        {
+          "name": "actual_amount",
+          "pgType": "numeric null check (actual_amount is null or actual_amount >= 0)",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "actual_units",
+          "pgType": "numeric null check (actual_units is null or actual_units >= 0)",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "agent_id",
+          "pgType": "text not null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "committed_at",
+          "pgType": "timestamptz null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "correlation_id",
+          "pgType": "text",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "expires_at",
+          "pgType": "timestamptz not null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "fallback_used",
+          "pgType": "boolean not null default false",
+          "tsType": "boolean",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "fx_rate",
+          "pgType": "numeric not null default 1 check (fx_rate > 0)",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "fx_source",
+          "pgType": "text not null default",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "id",
+          "pgType": "uuid primary key default gen_random_uuid()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "meter_idempotency_key",
+          "pgType": "text unique",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "metered_at",
+          "pgType": "timestamptz null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "orphan_class",
+          "pgType": "text",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "rate_card_version",
+          "pgType": "text not null default",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "release_reason",
+          "pgType": "text",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "released_at",
+          "pgType": "timestamptz null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "reservation_id",
+          "pgType": "text not null unique",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "reserved_amount",
+          "pgType": "numeric not null default 0 check (reserved_amount >= 0)",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "reserved_at",
+          "pgType": "timestamptz not null default now()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "reserved_units",
+          "pgType": "numeric not null default 0 check (reserved_units >= 0)",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "route",
+          "pgType": "text not null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "settled_at",
+          "pgType": "timestamptz null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "settlement_ref",
+          "pgType": "text",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "status",
+          "pgType": "text not null default",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "unit_name",
+          "pgType": "text not null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "unit_price",
+          "pgType": "numeric not null default 0 check (unit_price >= 0)",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        }
+      ]
+    },
+    {
       "name": "notification_deliveries",
       "columns": [
         {
@@ -1417,7 +2129,7 @@
           "pgType": "VARCHAR(255)",
           "tsType": "string",
           "nullable": false,
-          "hasDefault": false
+          "hasDefault": true
         },
         {
           "name": "channel_state",
@@ -1428,7 +2140,7 @@
         },
         {
           "name": "closed_at",
-          "pgType": "TIMESTAMP WITH TIME ZONE",
+          "pgType": "TIMESTAMPTZ",
           "tsType": "string",
           "nullable": true,
           "hasDefault": false
@@ -1477,7 +2189,7 @@
         },
         {
           "name": "metadata",
-          "pgType": "JSONB DEFAULT",
+          "pgType": "JSONB NOT NULL DEFAULT",
           "tsType": "string",
           "nullable": true,
           "hasDefault": false
@@ -1491,7 +2203,7 @@
         },
         {
           "name": "opened_at",
-          "pgType": "TIMESTAMP WITH TIME ZONE DEFAULT NOW()",
+          "pgType": "TIMESTAMPTZ NOT NULL DEFAULT NOW()",
           "tsType": "string",
           "nullable": true,
           "hasDefault": false
@@ -1500,7 +2212,7 @@
           "name": "recipient_id",
           "pgType": "VARCHAR(255)",
           "tsType": "string",
-          "nullable": false,
+          "nullable": true,
           "hasDefault": false
         },
         {
@@ -1683,9 +2395,9 @@
       "columns": [
         {
           "name": "created_at",
-          "pgType": "TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()",
+          "pgType": "TIMESTAMP WITH TIME ZONE DEFAULT NOW()",
           "tsType": "string",
-          "nullable": false,
+          "nullable": true,
           "hasDefault": false
         },
         {
@@ -1767,14 +2479,14 @@
         },
         {
           "name": "updated_at",
-          "pgType": "TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()",
+          "pgType": "TIMESTAMP WITH TIME ZONE DEFAULT NOW()",
           "tsType": "string",
-          "nullable": false,
+          "nullable": true,
           "hasDefault": false
         },
         {
           "name": "user_id",
-          "pgType": "UUID PRIMARY KEY REFERENCES auth",
+          "pgType": "UUID NOT NULL REFERENCES auth",
           "tsType": "string",
           "nullable": true,
           "hasDefault": false
@@ -1813,9 +2525,65 @@
           "hasDefault": true
         },
         {
+          "name": "company_name",
+          "pgType": "TEXT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "created_at",
+          "pgType": "TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "currency",
+          "pgType": "TEXT NOT NULL DEFAULT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "display_name",
+          "pgType": "TEXT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "email",
+          "pgType": "TEXT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "full_name",
+          "pgType": "TEXT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "id",
+          "pgType": "UUID PRIMARY KEY REFERENCES auth",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
           "name": "monthly_budget",
           "pgType": "DECIMAL(10,2)",
           "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "plan_type",
+          "pgType": "TEXT NOT NULL DEFAULT",
+          "tsType": "string",
           "nullable": true,
           "hasDefault": false
         },
@@ -1848,8 +2616,22 @@
           "hasDefault": false
         },
         {
+          "name": "timezone",
+          "pgType": "TEXT NOT NULL DEFAULT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
           "name": "two_fa_enabled_at",
           "pgType": "timestamptz",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "updated_at",
+          "pgType": "TIMESTAMPTZ NOT NULL DEFAULT NOW()",
           "tsType": "string",
           "nullable": true,
           "hasDefault": false
@@ -1911,6 +2693,184 @@
         {
           "name": "user_id",
           "pgType": "UUID NOT NULL REFERENCES auth",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        }
+      ]
+    },
+    {
+      "name": "reconciliation_discrepancies",
+      "columns": [
+        {
+          "name": "backend_amount",
+          "pgType": "text null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "contract_id",
+          "pgType": "text null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "details",
+          "pgType": "jsonb not null default",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "detected_at",
+          "pgType": "timestamptz not null default now()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "discrepancy_type",
+          "pgType": "text not null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "id",
+          "pgType": "uuid primary key default gen_random_uuid()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "invariant",
+          "pgType": "text not null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "on_chain_amount",
+          "pgType": "text null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "renewal_record_id",
+          "pgType": "uuid null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "resolution_action",
+          "pgType": "text not null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "resolution_notes",
+          "pgType": "text null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "resolution_status",
+          "pgType": "text not null default",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "resolved_at",
+          "pgType": "timestamptz null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "severity",
+          "pgType": "text not null check (severity in ('low', 'medium', 'high', 'critical')",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "tx_hash",
+          "pgType": "text null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        }
+      ]
+    },
+    {
+      "name": "reconciliation_runs",
+      "columns": [
+        {
+          "name": "discrepancies_found",
+          "pgType": "integer not null default 0",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "finished_at",
+          "pgType": "timestamptz not null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "id",
+          "pgType": "uuid primary key",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "mode",
+          "pgType": "text not null check (mode in ('sliding_window', 'full_sweep')",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "reconciliation_lag_ms",
+          "pgType": "bigint not null default 0",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "records_checked",
+          "pgType": "integer not null default 0",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "started_at",
+          "pgType": "timestamptz not null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "window_end",
+          "pgType": "timestamptz null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "window_start",
+          "pgType": "timestamptz null",
           "tsType": "string",
           "nullable": true,
           "hasDefault": false
@@ -2219,6 +3179,20 @@
       "name": "renewal_attempts",
       "columns": [
         {
+          "name": "attempt_id",
+          "pgType": "UUID NOT NULL DEFAULT gen_random_uuid()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "completed_steps",
+          "pgType": "JSONB NOT NULL DEFAULT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
           "name": "correlation_id",
           "pgType": "TEXT",
           "tsType": "string",
@@ -2228,6 +3202,13 @@
         {
           "name": "created_at",
           "pgType": "TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "current_step",
+          "pgType": "TEXT",
           "tsType": "string",
           "nullable": true,
           "hasDefault": false
@@ -2261,6 +3242,13 @@
           "hasDefault": false
         },
         {
+          "name": "needs_manual_reconciliation",
+          "pgType": "BOOLEAN NOT NULL DEFAULT FALSE",
+          "tsType": "boolean",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
           "name": "result",
           "pgType": "JSONB",
           "tsType": "Json",
@@ -2268,8 +3256,29 @@
           "hasDefault": false
         },
         {
+          "name": "saga_status",
+          "pgType": "TEXT NOT NULL DEFAULT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
           "name": "status",
           "pgType": "TEXT NOT NULL DEFAULT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "step_context",
+          "pgType": "JSONB NOT NULL DEFAULT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "step_started_at",
+          "pgType": "TIMESTAMPTZ",
           "tsType": "string",
           "nullable": true,
           "hasDefault": false
@@ -2291,6 +3300,13 @@
         {
           "name": "user_id",
           "pgType": "UUID NOT NULL REFERENCES auth",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "worker_id",
+          "pgType": "TEXT",
           "tsType": "string",
           "nullable": true,
           "hasDefault": false
@@ -2530,6 +3546,121 @@
         {
           "name": "user_id",
           "pgType": "UUID NOT NULL",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        }
+      ]
+    },
+    {
+      "name": "renewal_saga_step_log",
+      "columns": [
+        {
+          "name": "attempt_id",
+          "pgType": "UUID NOT NULL",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "created_at",
+          "pgType": "TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "direction",
+          "pgType": "TEXT NOT NULL CHECK (direction IN ('execute', 'compensate')",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "error_message",
+          "pgType": "TEXT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "id",
+          "pgType": "UUID PRIMARY KEY DEFAULT gen_random_uuid()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "output",
+          "pgType": "JSONB",
+          "tsType": "Json",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "status",
+          "pgType": "TEXT NOT NULL CHECK (status IN ('completed', 'failed')",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "step",
+          "pgType": "TEXT NOT NULL CHECK (step IN ('reserve', 'authorize_on_chain', 'charge', 'record', 'notify', 'release')",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        }
+      ]
+    },
+    {
+      "name": "spend_cap_alert_logs",
+      "columns": [
+        {
+          "name": "channel_id",
+          "pgType": "text NOT NULL",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "id",
+          "pgType": "uuid PRIMARY KEY DEFAULT gen_random_uuid()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "notification_channel",
+          "pgType": "text NOT NULL CHECK (notification_channel IN ('email', 'telegram')",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "period_start",
+          "pgType": "date NOT NULL",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "sent_at",
+          "pgType": "timestamptz NOT NULL DEFAULT now()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "threshold",
+          "pgType": "integer NOT NULL CHECK (threshold IN (80, 100)",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "user_id",
+          "pgType": "uuid NOT NULL REFERENCES auth",
           "tsType": "string",
           "nullable": true,
           "hasDefault": false
@@ -3494,6 +4625,261 @@
       ]
     },
     {
+      "name": "usage_reconciliation_reports",
+      "columns": [
+        {
+          "name": "created_at",
+          "pgType": "timestamptz not null default now()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "findings",
+          "pgType": "jsonb not null default",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "handed_off_amount",
+          "pgType": "numeric not null default 0",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "handed_off_count",
+          "pgType": "integer not null default 0",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "healthy",
+          "pgType": "boolean not null default false",
+          "tsType": "boolean",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "id",
+          "pgType": "uuid primary key default gen_random_uuid()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "metered_amount",
+          "pgType": "numeric not null default 0",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "metered_count",
+          "pgType": "integer not null default 0",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "metered_minus_settled",
+          "pgType": "numeric not null default 0",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "orphan_breakdown",
+          "pgType": "jsonb not null default",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "orphan_total_amount",
+          "pgType": "numeric not null default 0",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "orphan_total_count",
+          "pgType": "integer not null default 0",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "pre_repair_deltas",
+          "pgType": "jsonb not null default",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "rate_mismatch_amount",
+          "pgType": "numeric not null default 0 check (rate_mismatch_amount >= 0)",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "rate_mismatch_count",
+          "pgType": "integer not null default 0 check (rate_mismatch_count >= 0)",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "repair_outcomes",
+          "pgType": "jsonb not null default",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "replay_attempted_count",
+          "pgType": "integer not null default 0",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "replay_failed_count",
+          "pgType": "integer not null default 0",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "replayed_amount",
+          "pgType": "numeric not null default 0",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "replayed_count",
+          "pgType": "integer not null default 0",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "run_error",
+          "pgType": "text",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "run_id",
+          "pgType": "uuid not null unique",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "served_amount",
+          "pgType": "numeric not null default 0",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "served_count",
+          "pgType": "integer not null default 0",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "served_minus_metered",
+          "pgType": "numeric not null default 0",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "served_minus_settled",
+          "pgType": "numeric not null default 0",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "settled_amount",
+          "pgType": "numeric not null default 0",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "settled_count",
+          "pgType": "integer not null default 0",
+          "tsType": "number",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "window_end",
+          "pgType": "timestamptz not null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "window_start",
+          "pgType": "timestamptz not null",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        }
+      ]
+    },
+    {
+      "name": "usage_retention_archive",
+      "columns": [
+        {
+          "name": "archived_at",
+          "pgType": "timestamptz NOT NULL",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "data",
+          "pgType": "jsonb NOT NULL",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "id",
+          "pgType": "uuid PRIMARY KEY DEFAULT gen_random_uuid()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "source_id",
+          "pgType": "text NOT NULL",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "source_table",
+          "pgType": "text NOT NULL CHECK (source_table IN ('v3_receipts', 'meter_usage_ledger', 'channel_payments')",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        }
+      ]
+    },
+    {
       "name": "user_preferences",
       "columns": [
         {
@@ -3504,38 +4890,10 @@
           "hasDefault": false
         },
         {
-          "name": "calendar_export_reminders",
-          "pgType": "BOOLEAN NOT NULL DEFAULT TRUE",
-          "tsType": "boolean",
-          "nullable": true,
-          "hasDefault": false
-        },
-        {
-          "name": "calendar_sync_enabled",
-          "pgType": "BOOLEAN NOT NULL DEFAULT FALSE",
-          "tsType": "boolean",
-          "nullable": true,
-          "hasDefault": false
-        },
-        {
           "name": "created_at",
           "pgType": "timestamp with time zone default timezone('utc'::text, now()",
           "tsType": "string",
           "nullable": false,
-          "hasDefault": false
-        },
-        {
-          "name": "digest_day",
-          "pgType": "SMALLINT    NOT NULL DEFAULT 1",
-          "tsType": "string",
-          "nullable": true,
-          "hasDefault": false
-        },
-        {
-          "name": "digest_enabled",
-          "pgType": "BOOLEAN     NOT NULL DEFAULT FALSE",
-          "tsType": "boolean",
-          "nullable": true,
           "hasDefault": false
         },
         {
@@ -3549,13 +4907,6 @@
           "name": "encryption_key",
           "pgType": "text",
           "tsType": "string",
-          "nullable": true,
-          "hasDefault": false
-        },
-        {
-          "name": "include_year_to_date",
-          "pgType": "BOOLEAN     NOT NULL DEFAULT TRUE",
-          "tsType": "boolean",
           "nullable": true,
           "hasDefault": false
         },
@@ -3628,6 +4979,13 @@
           "tsType": "string",
           "nullable": true,
           "hasDefault": false
+        },
+        {
+          "name": "spend_cap_alert_channels",
+          "pgType": "text[]",
+          "tsType": "string[]",
+          "nullable": false,
+          "hasDefault": true
         },
         {
           "name": "subscription_priority_order",
@@ -3714,6 +5072,46 @@
         {
           "name": "username",
           "pgType": "TEXT",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        }
+      ]
+    },
+    {
+      "name": "v3_receipts",
+      "columns": [
+        {
+          "name": "channel_id",
+          "pgType": "text NOT NULL",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "created_at",
+          "pgType": "timestamptz NOT NULL DEFAULT now()",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "issued_at",
+          "pgType": "timestamptz NOT NULL",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "receipt",
+          "pgType": "jsonb NOT NULL",
+          "tsType": "string",
+          "nullable": true,
+          "hasDefault": false
+        },
+        {
+          "name": "receipt_id",
+          "pgType": "text PRIMARY KEY",
           "tsType": "string",
           "nullable": true,
           "hasDefault": false

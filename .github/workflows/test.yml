@@ -47,7 +47,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
           cache-dependency-path: client/package-lock.json
 
@@ -148,17 +148,17 @@ jobs:
               
               coverageSummary = `## 📊 Client Test Coverage Report
               
-| Metric | Coverage | Threshold | Status |
-|--------|----------|-----------|--------|
-| Lines | ${lines}% | 80% | ${lineStatus} |
-| Branches | ${branches}% | 75% | ${branchStatus} |
-| Functions | ${functions}% | 85% | ${functionStatus} |
-| Statements | ${statements}% | 80% | ${statementStatus} |
+              | Metric | Coverage | Threshold | Status |
+              |--------|----------|-----------|--------|
+              | Lines | ${lines}% | 80% | ${lineStatus} |
+              | Branches | ${branches}% | 75% | ${branchStatus} |
+              | Functions | ${functions}% | 85% | ${functionStatus} |
+              | Statements | ${statements}% | 80% | ${statementStatus} |
 
-${lines >= 80 && branches >= 75 && functions >= 85 && statements >= 80 ? '✅ All coverage thresholds passed!' : '⚠️ Some coverage thresholds not met. Please add more tests.'}
+              ${lines >= 80 && branches >= 75 && functions >= 85 && statements >= 80 ? '✅ All coverage thresholds passed!' : '⚠️ Some coverage thresholds not met. Please add more tests.'}
 
-[View detailed coverage report](https://codecov.io/gh/${{ github.repository }}/pull/${{ github.event.pull_request.number }})
-`;
+              [View detailed coverage report](https://codecov.io/gh/${{ github.repository }}/pull/${{ github.event.pull_request.number }})
+              `.replace(/^ {14}/gm, '');
             } catch (error) {
               coverageSummary = '⚠️ Unable to read coverage summary';
             }

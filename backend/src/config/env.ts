@@ -39,6 +39,7 @@ export const envSchema = z.object({
   STELLAR_NETWORK_URL: z.string().url({ message: 'Missing STELLAR_NETWORK_URL' }),
   SOROBAN_CONTRACT_ADDRESS: z.string().min(1, { message: 'Missing SOROBAN_CONTRACT_ADDRESS' }),
   SOROBAN_RPC_URL: z.string().url().optional(),
+  SOROBAN_RPC_URLS: z.string().optional(),
   STELLAR_SECRET_KEY: z.string().optional(),
   STELLAR_NETWORK_PASSPHRASE: z.string().optional(),
   STELLAR_NETWORK: z.enum(['testnet', 'mainnet', 'futurenet']).default('testnet'),
@@ -282,9 +283,20 @@ export function validateEnv(): Readonly<BackendEnv> {
     const prodErrors: string[] = [];
 
     // Reject testnet RPC URLs in production builds
-    const rpcUrl = data.SOROBAN_RPC_URL ?? data.STELLAR_NETWORK_URL ?? '';
-    if (rpcUrl.includes('testnet') || rpcUrl.includes('futurenet')) {
-      prodErrors.push(`SOROBAN_RPC_URL / STELLAR_NETWORK_URL points to non-production endpoint ("${rpcUrl}")`);
+    const configuredRpcUrls = data.SOROBAN_RPC_URLS
+      ?.split(',')
+      .map((url) => url.trim())
+      .filter(Boolean);
+    const rpcUrls = configuredRpcUrls?.length
+      ? configuredRpcUrls
+      : [data.SOROBAN_RPC_URL ?? data.STELLAR_NETWORK_URL];
+    const nonProductionRpcUrls = rpcUrls.filter(
+      (url) => url.includes('testnet') || url.includes('futurenet'),
+    );
+    if (nonProductionRpcUrls.length > 0) {
+      prodErrors.push(
+        `SOROBAN_RPC_URL(S) points to non-production endpoint(s) ("${nonProductionRpcUrls.join(', ')}")`,
+      );
     }
 
     // Reject testnet network passphrase in production

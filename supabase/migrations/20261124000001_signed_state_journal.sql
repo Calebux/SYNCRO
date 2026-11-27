@@ -1,6 +1,5 @@
 -- Signed-state durability journal
--- Repo path: supabase/migrations/<timestamp>_signed_state_journal.sql
--- (rename with your migration tool's timestamp convention, e.g. `supabase migration new signed_state_journal`)
+-- Applied after payment_channels exists so both journal triggers can be installed.
 --
 -- Why a trigger instead of application-code changes:
 -- The signed state (payment_channels.channel_state) is written from multiple

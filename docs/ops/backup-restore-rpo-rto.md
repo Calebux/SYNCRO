@@ -32,7 +32,7 @@ means a counterparty's stale close cannot be disputed.
 
 - **RPO target: effectively zero**, achieved via:
   - Supabase PITR / synchronous WAL (project-level, confirm status above).
-  - `channel_state_journal` (migration `0001_signed_state_journal.sql`) —
+  - `channel_state_journal` (migration `20261124000001_signed_state_journal.sql`) —
     every write to `channel_state`, from any code path, is captured
     atomically in the same transaction via a Postgres trigger.
   - Off-provider replication (`signed-state-replication-job.ts`) — ships

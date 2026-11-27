@@ -1,33 +1,16 @@
 -- Create privacy_preferences table
-CREATE TABLE IF NOT EXISTS public.privacy_preferences (
-  user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  privacy_mode BOOLEAN NOT NULL DEFAULT false,
-  stealth_addresses BOOLEAN NOT NULL DEFAULT false,
-  encrypt_on_chain BOOLEAN NOT NULL DEFAULT false,
-  payment_channels BOOLEAN NOT NULL DEFAULT false,
-  reminder_jitter BOOLEAN NOT NULL DEFAULT false,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
-);
+ALTER TABLE public.privacy_preferences
+  ADD COLUMN IF NOT EXISTS privacy_mode BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS stealth_addresses BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS encrypt_on_chain BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS payment_channels BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS reminder_jitter BOOLEAN NOT NULL DEFAULT false;
 
 -- Enable RLS on privacy_preferences
 ALTER TABLE public.privacy_preferences ENABLE ROW LEVEL SECURITY;
 
--- RLS Policies for privacy_preferences
-CREATE POLICY "privacy_preferences_select_own"
-  ON public.privacy_preferences FOR SELECT
-  USING (auth.uid() = user_id);
-
-CREATE POLICY "privacy_preferences_insert_own"
-  ON public.privacy_preferences FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "privacy_preferences_update_own"
-  ON public.privacy_preferences FOR UPDATE
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
-
 -- Trigger for privacy_preferences updated_at
+DROP TRIGGER IF EXISTS set_privacy_updated_at ON public.privacy_preferences;
 CREATE TRIGGER set_privacy_updated_at
   BEFORE UPDATE ON public.privacy_preferences
   FOR EACH ROW

@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v7
         with:
@@ -19,4 +21,6 @@ jobs:
       # The scanner has no dependencies — it uses only Node built-ins —
       # so no install step is needed.
       - name: Enforce TODO/FIXME issue references in critical paths
-        run: node scripts/check-todos.mjs
+        env:
+          TODO_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node scripts/check-todos.mjs --base "$TODO_BASE_SHA"

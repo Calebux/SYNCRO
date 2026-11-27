@@ -20,6 +20,10 @@ jobs:
   validate-docs:
     name: Validate Code Samples in Docs
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
     
     steps:
       - uses: actions/checkout@v7
@@ -57,13 +61,17 @@ jobs:
         run: node scripts/validate-docs.js
       
       - name: Comment on PR if validation fails
-        if: failure()
+        if: >-
+          failure() &&
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
         uses: actions/github-script@v9
         with:
           script: |
-            github.rest.issues.createComment({
+            await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '❌ Documentation code sample validation failed. Please fix the code examples in your markdown files.'
+              body: '❌ Documentation validation failed. Check the workflow logs for the failing step.'
             })

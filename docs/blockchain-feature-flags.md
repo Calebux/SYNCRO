@@ -68,6 +68,8 @@ STELLAR_NETWORK=testnet
 # RPC endpoint — MUST be set explicitly in production (no testnet fallback)
 STELLAR_NETWORK_URL=https://soroban-testnet.stellar.org
 SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
+# Optional CSV failover list; if configured, takes precedence over SOROBAN_RPC_URL.
+# SOROBAN_RPC_URLS=https://rpc-primary.example.com,https://rpc-secondary.example.com
 
 # Network passphrase — MUST be set explicitly in production
 STELLAR_NETWORK_PASSPHRASE=Test SDF Network ; September 2015
@@ -78,6 +80,11 @@ ENABLE_BLOCKCHAIN=true
 # Testnet-only actions — MUST be false in production
 ENABLE_TESTNET_ACTIONS=false
 ```
+
+`SOROBAN_RPC_URLS` enables provider failover for backend event polling. Providers
+are checked against each other every 30 seconds; nodes more than two ledgers
+behind are excluded until they catch up. When only one provider is healthy, the
+backend emits an error-level alert with provider health details.
 
 ### Client (`client/.env.local`)
 

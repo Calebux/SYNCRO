@@ -123,7 +123,7 @@ jobs:
           working-directory: sdk
 
       - name: Setup Rust + wasm32 target
-        uses: ./.github/workflows/_composite/setup-rust.yml
+        uses: ./.github/actions/setup-rust
         with:
           toolchain: "stable"
           targets: wasm32-unknown-unknown

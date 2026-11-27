@@ -4,8 +4,10 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'node:url';
 import { swaggerSpec } from '../src/swagger';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // documentation site can use it as the canonical API surface.
 const docsOutputDir = path.join(__dirname, '..', '..', 'docs', 'api-reference');
