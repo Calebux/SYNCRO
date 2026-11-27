@@ -4,6 +4,15 @@ import type { RouteUnit } from './pricing';
 
 export type ProviderMode = 'staging' | 'production';
 
+export type ProviderReviewStatus = 'pending' | 'approved' | 'rejected' | 'taken_down';
+export type ProviderReportCategory =
+  | 'impersonation'
+  | 'phishing'
+  | 'malicious_endpoint'
+  | 'policy_violation'
+  | 'other';
+export type ProviderReportStatus = 'open' | 'resolved' | 'dismissed';
+
 /**
  * What a provider does while the meter's counter store is unavailable
  * (Issue #1444): fail open and serve unbilled, or fail closed and refuse.
@@ -19,6 +28,11 @@ export interface ProviderRegistration {
   mode: ProviderMode;
   payoutVerified: boolean;
   payoutChallenge: string | null;
+  domainVerifiedAt: string | null;
+  reviewStatus: ProviderReviewStatus;
+  reviewedAt: string | null;
+  reviewReason: string | null;
+  takedownReason: string | null;
   /** Per-provider degraded-mode policy; platform default until overridden. */
   degradedMode: DegradedModePolicy;
   /**
@@ -31,6 +45,36 @@ export interface ProviderRegistration {
   providerSecret: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ProviderDirectoryEntry {
+  providerId: string;
+  identity: string;
+  mode: ProviderMode;
+  domain: string;
+  upstreamBaseUrl: string;
+  listedAt: string;
+}
+
+export interface ProviderReviewQueueEntry {
+  providerId: string;
+  identity: string;
+  mode: ProviderMode;
+  domain: string;
+  upstreamBaseUrl: string;
+  domainVerifiedAt: string | null;
+  createdAt: string;
+}
+
+export interface ProviderAbuseReport {
+  reportId: string;
+  providerId: string;
+  category: ProviderReportCategory;
+  details: string | null;
+  status: ProviderReportStatus;
+  createdAt: string;
+  resolvedAt: string | null;
+  resolution: string | null;
 }
 
 export interface RegisteredRoute {

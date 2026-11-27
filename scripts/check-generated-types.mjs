@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Fail if generated database / contract types are stale.
- * Regenerates artifacts in a temp copy and compares to the working tree.
+ * Regenerates artifacts, compares them to the working tree, and restores them.
  */
 
 import { spawnSync } from 'node:child_process';
@@ -26,7 +26,9 @@ function run(command, args) {
     cwd: ROOT,
     encoding: 'utf8',
     env: process.env,
+    shell: process.platform === 'win32',
   });
+  if (result.error) throw result.error;
   if (result.status !== 0) {
     if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);
@@ -35,22 +37,41 @@ function run(command, args) {
 }
 
 function main() {
-  run('node', ['scripts/generate-db-types.mjs']);
-  run('node', ['scripts/generate-contract-types.mjs']);
-  run('node', ['sdk/scripts/generate-contract-bindings.cjs']);
-
+  const originalFiles = new Map(
+    TRACKED.map((rel) => {
+      const abs = path.join(ROOT, rel);
+      return [rel, fs.existsSync(abs) ? fs.readFileSync(abs) : null];
+    }),
+  );
   const dirty = [];
-  for (const rel of TRACKED) {
-    const abs = path.join(ROOT, rel);
-    if (!fs.existsSync(abs)) {
-      dirty.push(`${rel} (missing)`);
-      continue;
+
+  try {
+    run('node', ['scripts/generate-db-types.mjs']);
+    run('node', ['scripts/generate-contract-types.mjs']);
+    run('npm', ['run', 'build', '-w', 'shared']);
+    run('node', ['sdk/scripts/generate-contract-bindings.cjs']);
+
+    for (const [rel, original] of originalFiles) {
+      const abs = path.join(ROOT, rel);
+      const generated = fs.existsSync(abs) ? fs.readFileSync(abs) : null;
+      const changed =
+        original === null
+          ? generated !== null
+          : generated === null || !original.equals(generated);
+      if (changed) dirty.push(rel);
     }
-    const status = spawnSync('git', ['status', '--porcelain', '--', rel], {
-      cwd: ROOT,
-      encoding: 'utf8',
-    });
-    if ((status.stdout || '').trim()) dirty.push(rel);
+  } finally {
+    for (const [rel, original] of originalFiles) {
+      const abs = path.join(ROOT, rel);
+      if (original === null) {
+        if (fs.existsSync(abs)) fs.unlinkSync(abs);
+      } else if (
+        !fs.existsSync(abs) ||
+        !original.equals(fs.readFileSync(abs))
+      ) {
+        fs.writeFileSync(abs, original);
+      }
+    }
   }
 
   if (dirty.length > 0) {

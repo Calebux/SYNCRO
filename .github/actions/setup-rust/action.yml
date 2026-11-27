@@ -1,0 +1,41 @@
+name: Setup Rust Toolchain
+description: Install Rust and cache the configured cargo workspace.
+
+inputs:
+  toolchain:
+    description: Rust toolchain to install.
+    required: false
+    default: stable
+  targets:
+    description: Comma-separated Rust targets to install.
+    required: false
+    default: wasm32-unknown-unknown
+  components:
+    description: Comma-separated Rust components to install.
+    required: false
+    default: ""
+  cache-workspaces:
+    description: Comma-separated Cargo workspaces to cache.
+    required: false
+    default: contracts
+
+runs:
+  using: composite
+  steps:
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ inputs.toolchain }}
+        targets: ${{ inputs.targets }}
+        components: ${{ inputs.components }}
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: ${{ inputs.cache-workspaces }}
+
+    - name: Verify Rust installation
+      shell: bash
+      run: |
+        rustc --version
+        cargo --version

@@ -395,7 +395,7 @@ impl EscrowContract {
             panic_with_error!(env, EscrowError::InvalidAmount);
         }
 
-        let mut seen = Vec::new();
+        let mut seen = Vec::new(env);
         for arbiter in arbiter_set.arbiters.iter() {
             if arbiter == payer || arbiter == payee {
                 panic_with_error!(env, EscrowError::SameArbiterAsParty);
@@ -495,7 +495,7 @@ impl EscrowContract {
             expires_at,
             description,
             arbiter_approved: false,
-            arbiter_approvals: Vec::new(),
+            arbiter_approvals: Vec::new(&env),
             payer_confirmed: false,
             payee_confirmed: false,
             // Non-metered escrows have no usage-window context.
@@ -743,7 +743,7 @@ impl EscrowContract {
 
         escrow.state = EscrowState::Disputed;
         escrow.arbiter_approved = false;
-        escrow.arbiter_approvals = Vec::new();
+        escrow.arbiter_approvals = Vec::new(&env);
 
         env.storage()
             .persistent()
@@ -772,9 +772,9 @@ impl EscrowContract {
         Self::validate_arbiter_set(&env, &new_set, &escrow.payer, &escrow.payee);
 
         escrow.arbiter_set = new_set.clone();
-        escrow.arbiter_approvals = Vec::new();
+        escrow.arbiter_approvals = Vec::new(&env);
         escrow.arbiter_approved = false;
-        escrow.arbiter = new_set.arbiters.first().cloned().unwrap_or(escrow.arbiter.clone());
+        escrow.arbiter = new_set.arbiters.first().unwrap_or(escrow.arbiter.clone());
 
         env.storage()
             .persistent()
@@ -1076,7 +1076,7 @@ impl EscrowContract {
             expires_at,
             description: String::from_str(&env, "v3 disputed usage window"),
             arbiter_approved: false,
-            arbiter_approvals: Vec::new(),
+            arbiter_approvals: Vec::new(&env),
             payer_confirmed: false,
             payee_confirmed: false,
             dispute_context: Some(window),

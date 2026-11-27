@@ -11,11 +11,12 @@
  *
  * Usage:
  *   node scripts/check-todos.mjs            # scan whole repo
+ *   node scripts/check-todos.mjs --base <sha> # scan files changed from a base commit
  *   node scripts/check-todos.mjs --warn-only  # never exit non-zero (report only)
  */
 
 import { readFileSync, statSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 // --- Configuration ---------------------------------------------------------
@@ -67,6 +68,21 @@ function getTrackedFiles() {
   }
 }
 
+function getChangedFiles(baseSha) {
+  try {
+    const out = execFileSync(
+      "git",
+      ["diff", "--name-only", "--diff-filter=ACMR", `${baseSha}...HEAD`],
+      { encoding: "utf8" },
+    );
+    return out.split("\n").filter(Boolean);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`Could not diff TODO changes against base ${baseSha}: ${detail}`);
+    process.exit(2);
+  }
+}
+
 function extOf(path) {
   const dot = path.lastIndexOf(".");
   return dot === -1 ? "" : path.slice(dot);
@@ -82,11 +98,11 @@ function isCritical(path) {
   );
 }
 
-function runScan({ warnOnly = false } = {}) {
+function runScan({ warnOnly = false, baseSha } = {}) {
   const blocking = [];
   const warnings = [];
 
-  for (const file of getTrackedFiles()) {
+  for (const file of baseSha ? getChangedFiles(baseSha) : getTrackedFiles()) {
     if (isIgnored(file)) continue;
     if (file.endsWith("check-todos.mjs")) continue; // don't scan the scanner
   if (/\.test\.[^.]+$/.test(file) || file.includes(".test.")) continue; // tests may mention TODO format
@@ -129,7 +145,13 @@ function printGroup(label, entries) {
 
 function main() {
   const warnOnly = process.argv.includes("--warn-only");
-  const { blocking, warnings } = runScan({ warnOnly });
+  const baseArg = process.argv.indexOf("--base");
+  const baseSha = baseArg >= 0 ? process.argv[baseArg + 1] : process.env.TODO_BASE_SHA;
+  if (baseArg >= 0 && !baseSha) {
+    console.error("--base requires a commit SHA.");
+    process.exit(2);
+  }
+  const { blocking, warnings } = runScan({ warnOnly, baseSha });
 
   if (warnings.length) {
     printGroup("⚠️  Untracked TODO/FIXME (non-critical, warning)", warnings);

@@ -23,11 +23,16 @@
  *   2 - Error occurred
  */
 
-const fs = require('fs');
-const path = require('path');
-const { execFileSync } = require('child_process');
-const https = require('https');
-const http = require('http');
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const require = createRequire(import.meta.url);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const fs = require('node:fs');
+const { execFileSync } = require('node:child_process');
+const https = require('node:https');
+const http = require('node:http');
 
 const SUPABASE_MIGRATIONS = path.join(__dirname, '..', 'supabase', 'migrations');
 const CLIENT_MIGRATIONS = path.join(__dirname, '..', 'client', 'supabase', 'migrations');
@@ -741,11 +746,11 @@ async function main() {
   }
 }
 
-if (require.main === module) {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main();
 }
 
-module.exports = {
+export {
   normalizeSQL,
   normalizeSchemaSnapshot,
   extractTables,

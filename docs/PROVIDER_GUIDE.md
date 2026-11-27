@@ -66,9 +66,40 @@ await fetch('/api/v3/providers/<providerId>/routes', {
 
 The following endpoints remain public (no `x-provider-key` required):
 
-- `POST /api/v3/providers` — registration
+- `POST /api/v3/providers` — registration (rate limited per source IP)
 - `POST /api/v3/providers/:providerId/payout-challenge` — generate a payout challenge
+- `POST /api/v3/providers/:providerId/reports` — report a provider (rate limited per source IP)
+- `GET /api/v3/providers/directory` — listed providers
 - `GET /api/v3/receipts/:receiptId` — receipt lookup
+
+## Directory listing, verification, and moderation
+
+Registration is open, but a new provider starts with `reviewStatus: 'pending'`
+and is **not** listed in the public directory. To become listed, the provider
+owner must prove control of the domain used by `upstreamBaseUrl` and an admin
+must approve the provider:
+
+1. `POST /api/v3/providers/:providerId/domain-challenge` (with
+   `x-provider-key`) returns a TXT record name and value.
+2. Publish the TXT record on the upstream hostname (for example
+   `_syncro-provider.api.example.com`), then call
+   `POST /api/v3/providers/:providerId/domain-verify` with the same key. The
+   gateway resolves the record over DNS and records `domainVerifiedAt`.
+3. An admin reviews the queue at `GET /api/v3/providers/review-queue` and
+   calls `PATCH /api/v3/providers/:providerId/review` with an `approve`
+   decision. Approval is rejected with `409` until the domain is verified.
+
+Only providers that are both verified and approved appear in
+`GET /api/v3/providers/directory`. The directory omits provider secrets and
+strips credentials from upstream URLs.
+
+Reports from consumers are queued at `GET /api/v3/providers/review-queue`
+(`data.reports`). Admins can remove a provider with
+`POST /api/v3/providers/:providerId/takedown`; a takedown unlists the provider
+and stops route resolution immediately. Reports can be closed with
+`POST /api/v3/providers/reports/:reportId/resolve`. All review, takedown, and
+report-resolution endpoints require the `x-admin-api-key` header and are rate
+limited.
 
 ## Example
 

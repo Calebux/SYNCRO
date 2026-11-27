@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 
-const fs = require("fs");
-const path = require("path");
-const { execSync } = require("child_process");
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import ts from "typescript";
+
+const SCRIPT_PATH = fileURLToPath(import.meta.url);
+const REPO_ROOT = path.resolve(path.dirname(SCRIPT_PATH), "..");
 
 /**
  * Validates code samples in markdown documentation
@@ -12,10 +17,9 @@ const { execSync } = require("child_process");
 const VALIDATED_DOCS = [
   "sdk/README.md",
   "backend/README.md",
+  "backend/README_RISK_DETECTION.md",
   "backend/SUBSCRIPTION_API.md",
 ];
-
-const SDK_SAMPLES_PATH = ".validated-samples";
 
 function extractCodeBlocks(markdown) {
   const blocks = [];
@@ -34,11 +38,24 @@ function extractCodeBlocks(markdown) {
 
 function validateTypeScriptSample(code) {
   try {
-    // Check syntax with TypeScript compiler
-    execSync(`npx tsc --noEmit --skipLibCheck 2>&1`, {
-      input: code,
-      stdio: ["pipe", "pipe", "pipe"],
+    const result = ts.transpileModule(code, {
+      compilerOptions: {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.ESNext,
+      },
+      reportDiagnostics: true,
     });
+    const errors = (result.diagnostics || []).filter(
+      (diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error,
+    );
+    if (errors.length > 0) {
+      return {
+        success: false,
+        error: errors
+          .map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))
+          .join("\n"),
+      };
+    }
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };
@@ -58,7 +75,7 @@ function validateJavaScriptSample(code) {
 function validateBashSample(code) {
   try {
     // Check syntax only (don't execute)
-    execSync(`bash -n`, {
+    execFileSync("bash", ["-n"], {
       input: code,
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -84,7 +101,7 @@ function validateSample(language, code) {
 }
 
 function validateFile(filePath) {
-  const fullPath = path.join(process.cwd(), filePath);
+  const fullPath = path.join(REPO_ROOT, filePath);
 
   if (!fs.existsSync(fullPath)) {
     return {
@@ -194,8 +211,14 @@ function main() {
   process.exit(0);
 }
 
-module.exports = { findAbsoluteFileLinks, extractCodeBlocks, validateFile };
+export {
+  findAbsoluteFileLinks,
+  extractCodeBlocks,
+  validateFile,
+  validateTypeScriptSample,
+  validateSample,
+};
 
-if (require.main === module) {
+if (process.argv[1] && path.resolve(process.argv[1]) === SCRIPT_PATH) {
   main();
 }

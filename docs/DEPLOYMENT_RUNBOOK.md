@@ -513,6 +513,7 @@ node client/scripts/validate-env.js
 |----------|-------------|
 | `STELLAR_NETWORK` | Active network: `testnet`, `mainnet`, or `futurenet`. **Must be `mainnet` in production.** |
 | `SOROBAN_RPC_URL` | Soroban RPC URL. **Required explicitly in production** (no testnet fallback). |
+| `SOROBAN_RPC_URLS` | Optional comma-separated Soroban RPC provider list. When set, this list takes precedence over `SOROBAN_RPC_URL`; requests fail over automatically, ledger checks exclude nodes more than two ledgers behind, and an error alert is logged when only one provider remains healthy. |
 | `STELLAR_SECRET_KEY` | Secret key (`S...`) for signing on-chain transactions. Optional if blockchain writes are disabled. |
 | `STELLAR_NETWORK_PASSPHRASE` | Network passphrase. Mainnet: `Public Global Stellar Network ; September 2015`. |
 | `ENABLE_BLOCKCHAIN` | Master switch for on-chain writes. Set `false` to use database-only logging. Default: `true`. |

@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 
-const { describe, it } = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const { findAbsoluteFileLinks } = require('./validate-docs');
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { findAbsoluteFileLinks, validateTypeScriptSample } from './validate-docs.js';
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 describe('validate-docs file:// guard', () => {
   it('finds absolute file:// markdown links', () => {
@@ -24,7 +27,14 @@ describe('validate-docs file:// guard', () => {
   });
 
   it('passes the real repository (no file:// links)', () => {
-    const findings = findAbsoluteFileLinks(path.join(__dirname, '..'));
+    const findings = findAbsoluteFileLinks(REPO_ROOT);
     assert.deepEqual(findings, [], `Unexpected file:// links: ${JSON.stringify(findings)}`);
+  });
+});
+
+describe('validate-docs TypeScript samples', () => {
+  it('accepts valid syntax and rejects malformed syntax', () => {
+    assert.equal(validateTypeScriptSample('const score: number = 1;').success, true);
+    assert.equal(validateTypeScriptSample('const score: = 1;').success, false);
   });
 });
