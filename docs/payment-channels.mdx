@@ -1,0 +1,120 @@
+---
+title: Why payment channels make per-call payments cheap
+description: "Compare per-call on-chain payments with a SYNCRO payment-channel lifecycle, and understand the trade-offs."
+---
+
+## The short version
+
+An ordinary on-chain payment writes each API call to Stellar. A SYNCRO payment
+channel instead locks a spending balance in a Soroban contract and records each
+call in a new signed state off-chain. The parties settle the final signed
+balances on-chain when the channel closes.
+
+That changes the network work from roughly **one transaction per call** to a
+small, mostly fixed number of transactions per channel. The payment itself is
+still made for every call; it is the blockchain transaction that is not.
+
+## Cost comparison
+
+The table uses the **100-stroop p50 inclusion fee** reported by Stellar's
+testnet Soroban RPC fee statistics at ledger **5,903,591**, checked on
+**November 24, 2026**. One XLM is 10,000,000 stroops.
+
+| API calls | On-chain payment for every call | One channel lifecycle | Channel fee per call |
+|---:|---:|---:|---:|
+| 1 | 100 stroops (0.000010 XLM) | 400 stroops (0.000040 XLM) | 400 stroops |
+| 100 | 10,000 stroops (0.001 XLM) | 400 stroops (0.000040 XLM) | 4 stroops |
+| 10,000 | 1,000,000 stroops (0.1 XLM) | 400 stroops (0.000040 XLM) | 0.04 stroops |
+| 1,000,000 | 100,000,000 stroops (10 XLM) | 400 stroops (0.000040 XLM) | 0.0004 stroops |
+
+The channel estimate counts four transactions: token allowance, channel open,
+close initiation, and finalization. If the required token allowance is already
+available, the lifecycle is three transactions (300 stroops at this inclusion
+fee). Disputes, top-ups, and other optional operations are not included. With
+these assumptions, a channel's inclusion-fee cost breaks even at four calls
+(three if approval is already available).
+
+**These are inclusion-fee comparisons, not all-in fee quotes.** Soroban
+contract calls also pay resource fees, which vary with the invocation and must
+be estimated by simulating it. The fee statistics do not give a resource-fee
+estimate for SYNCRO's specific contract calls. Actual fees can therefore be
+higher than the table, and the relative savings depend on the transactions
+being compared. The figures are testnet data, not a promise about mainnet fees.
+
+Source: [Stellar testnet Soroban RPC](https://soroban-testnet.stellar.org/)
+`getFeeStats` (`sorobanInclusionFee.p50` and `inclusionFee.p50`, both 100
+stroops at the recorded ledger).
+
+## What happens in a channel
+
+```mermaid
+sequenceDiagram
+    participant C as Consumer
+    participant G as SYNCRO gateway
+    participant P as Provider
+    participant S as Soroban channel
+
+    C->>S: Approve token allowance and open funded channel
+    loop Each API call
+        C->>G: Request with channel authorization
+        G->>P: Forward request and meter usage
+        P-->>G: API response
+        G-->>C: Response, receipt, and updated signed state
+        Note over C,P: State is recorded off-chain; no per-call chain transaction
+    end
+    C->>S: Initiate close with a signed balance state
+    Note over C,S: Challenge period: counterparty can dispute with a newer signed state
+    S-->>C: Finalize after the challenge deadline; distribute balances
+```
+
+The initial deposit is escrowed by the contract. During use, each call updates
+the parties' signed channel state off-chain. Closing starts a challenge period;
+after it expires, anyone with the expected sequence can finalize and the
+contract pays out the recorded balances.
+
+## Trust and operational trade-offs
+
+### Consumer risks
+
+- **Funds are locked.** The deposit is not available for other spending until
+  the channel is topped up, closed, and finalized. Plan the deposit and channel
+  lifetime accordingly.
+- **Keep the latest signed state.** If the provider initiates a close with an
+  older state, the consumer needs a newer state and must act within the
+  challenge period to contest it. Under the current contract, `dispute`
+  requires authorization from both parties; do not assume the consumer can
+  override a stale close alone.
+- **Monitor the deadline.** The contract cannot protect a consumer who misses
+  the challenge window or cannot get a transaction included before it expires.
+- **Metering is still an off-chain dependency.** A channel does not decide
+  whether an API response was useful or whether a request should have been
+  charged. Check the receipt and your provider agreement.
+
+### Provider risks
+
+- **Payout is delayed until finalization.** A provider may need to wait through
+  the challenge period before channel funds are released.
+- **Preserve signed states and receipts.** If the consumer starts closing with
+  a state that underpays the provider, the provider needs a newer state and
+  must challenge in time. The current contract's `dispute` call requires
+  authorization from both parties.
+- **A channel is not a service guarantee.** It does not ensure the consumer
+  will keep using the API, cover amounts above the funded balance, or resolve
+  disagreements about off-chain service quality.
+
+### What the challenge period protects
+
+Either party can start closing with a signed state. The other party gets time
+to submit a newer state if the close uses an out-of-date balance. In the
+current contract, submitting a dispute requires authorization from both the
+depositor and the counterparty. The window therefore does **not** give either
+party a unilateral override if the other party cannot or will not authorize
+the dispute. The contract requires increasing sequence numbers, resets the
+deadline when a dispute is submitted, and bounds the configured window between
+**one hour and 30 days**.
+
+The challenge period is **not** an arbitration process for API quality, a
+guarantee that a party will stay online, or protection against lost signing
+keys. Both parties should retain signed states and receipts, keep signing
+capability available for a dispute, and monitor the channel until it is
+finalized.
