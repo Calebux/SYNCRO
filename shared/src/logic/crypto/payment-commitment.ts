@@ -1,6 +1,6 @@
 import * as pedersen from './pedersen';
 import { sha256 } from '@noble/hashes/sha256';
-import { cryptoPrimitives } from './runtime/node';
+import { cryptoPrimitives } from '../../crypto/runtime/node';
 
 const DOMAIN_PREFIX = 'syncro:payment:v1';
 const COMMITMENT_VERSION = 1;

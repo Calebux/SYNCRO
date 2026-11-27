@@ -1,7 +1,7 @@
 import express from 'express';
 import request from 'supertest';
 import { createPublicKey, verify } from 'node:crypto';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from '@jest/globals';
 import { createV3GatewayRouter } from '../src/routes/v3/gateway';
 import { receiptService } from '../src/v3/receipt-runtime';
 

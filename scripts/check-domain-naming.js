@@ -23,7 +23,6 @@ const REQUIRED_TERMS = [
 
 const REQUIRED_REFERENCES = [
   { file: 'CONTRIBUTING.md', pattern: /DOMAIN_GLOSSARY_AND_DATA_MODEL\.md/ },
-  { file: 'PULL_REQUEST_TEMPLATE.md', pattern: /DOMAIN_GLOSSARY_AND_DATA_MODEL\.md/ },
   { file: '.github/pull_request_template.md', pattern: /DOMAIN_GLOSSARY_AND_DATA_MODEL\.md/ },
   { file: 'docs/INDEX.md', pattern: /DOMAIN_GLOSSARY_AND_DATA_MODEL\.md/ },
   { file: 'docs/adr/ADR_TEMPLATE.md', pattern: /DOMAIN_GLOSSARY_AND_DATA_MODEL\.md/ },

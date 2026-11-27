@@ -1,6 +1,6 @@
 import { sha256 } from '@noble/hashes/sha256';
 import { RistrettoPoint } from '@noble/curves/ed25519';
-import { cryptoPrimitives } from './runtime/node';
+import { cryptoPrimitives } from '../../crypto/runtime/node';
 
 const DOMAIN_PREFIX = 'Syncro-Pedersen-v1';
 const RISTRETTO_ORDER = 2n ** 252n + 27742317777372353535851937790883648493n;

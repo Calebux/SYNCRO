@@ -15,7 +15,7 @@
  */
 
 import { readFileSync, statSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 // --- Configuration ---------------------------------------------------------
@@ -67,6 +67,43 @@ function getTrackedFiles() {
   }
 }
 
+function getAddedLinesFromDiff(diff) {
+  const addedLines = [];
+  let file;
+  let lineNumber = 0;
+
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+++ b/")) {
+      file = line.slice(6);
+      continue;
+    }
+
+    if (line.startsWith("@@")) {
+      const match = line.match(/\+(\d+)(?:,\d+)?/);
+      lineNumber = match ? Number(match[1]) : 0;
+      continue;
+    }
+
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      addedLines.push({ file, line: lineNumber, text: line.slice(1) });
+      lineNumber += 1;
+    } else if (line.startsWith(" ")) {
+      lineNumber += 1;
+    }
+  }
+
+  return addedLines;
+}
+
+function getAddedLinesSince(base) {
+  const diff = execFileSync(
+    "git",
+    ["diff", "--no-ext-diff", "--unified=0", `${base}...HEAD`, "--"],
+    { encoding: "utf8" },
+  );
+  return getAddedLinesFromDiff(diff);
+}
+
 function extOf(path) {
   const dot = path.lastIndexOf(".");
   return dot === -1 ? "" : path.slice(dot);
@@ -82,37 +119,50 @@ function isCritical(path) {
   );
 }
 
-function runScan({ warnOnly = false } = {}) {
+function runScan({ warnOnly = false, base } = {}) {
   const blocking = [];
   const warnings = [];
 
-  for (const file of getTrackedFiles()) {
-    if (isIgnored(file)) continue;
-    if (file.endsWith("check-todos.mjs")) continue; // don't scan the scanner
-  if (/\.test\.[^.]+$/.test(file) || file.includes(".test.")) continue; // tests may mention TODO format
-    if (!SOURCE_EXTENSIONS.has(extOf(file))) continue;
+  const inspectLine = (file, line, text) => {
+    if (!TODO_TOKEN.test(text) || TRACKED_TODO.test(text)) return;
 
-    let content;
-    try {
-      if (statSync(file).isDirectory()) continue;
-      content = readFileSync(file, "utf8");
-    } catch {
-      continue; // deleted / unreadable
+    const entry = {
+      file,
+      line,
+      text: text.trim().slice(0, 120),
+    };
+    if (isCritical(file)) blocking.push(entry);
+    else warnings.push(entry);
+  };
+
+  if (base) {
+    for (const { file, line, text } of getAddedLinesSince(base)) {
+      if (!file || isIgnored(file) || !SOURCE_EXTENSIONS.has(extOf(file))) {
+        continue;
+      }
+      if (/\.test\.[^.]+$/.test(file) || file.includes(".test.")) continue;
+      inspectLine(file, line, text);
     }
+  } else {
+    for (const file of getTrackedFiles()) {
+      if (isIgnored(file)) continue;
+      if (file.endsWith("check-todos.mjs")) continue; // don't scan the scanner
+      if (/\.test\.[^.]+$/.test(file) || file.includes(".test.")) continue; // tests may mention TODO format
+      if (!SOURCE_EXTENSIONS.has(extOf(file))) continue;
 
-    const lines = content.split("\n");
-    lines.forEach((line, i) => {
-      if (!TODO_TOKEN.test(line)) return;
-      if (TRACKED_TODO.test(line)) return; // properly tracked, OK
+      let content;
+      try {
+        if (statSync(file).isDirectory()) continue;
+        content = readFileSync(file, "utf8");
+      } catch {
+        continue; // deleted / unreadable
+      }
 
-      const entry = {
-        file,
-        line: i + 1,
-        text: line.trim().slice(0, 120),
-      };
-      if (isCritical(file)) blocking.push(entry);
-      else warnings.push(entry);
-    });
+      const lines = content.split("\n");
+      lines.forEach((line, i) => {
+        inspectLine(file, i + 1, line);
+      });
+    }
   }
 
   return { blocking, warnings };
@@ -129,7 +179,12 @@ function printGroup(label, entries) {
 
 function main() {
   const warnOnly = process.argv.includes("--warn-only");
-  const { blocking, warnings } = runScan({ warnOnly });
+  const baseIndex = process.argv.indexOf("--base");
+  const base = baseIndex === -1 ? undefined : process.argv[baseIndex + 1];
+  if (baseIndex !== -1 && (!base || base.startsWith("--"))) {
+    throw new Error("--base requires a merge-base SHA");
+  }
+  const { blocking, warnings } = runScan({ warnOnly, base });
 
   if (warnings.length) {
     printGroup("⚠️  Untracked TODO/FIXME (non-critical, warning)", warnings);
@@ -173,4 +228,5 @@ export {
   isCritical,
   extOf,
   isIgnored,
+  getAddedLinesFromDiff,
 };

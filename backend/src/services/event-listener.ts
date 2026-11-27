@@ -5,7 +5,10 @@ import { reorgHandler } from './reorg-handler';
 import { generateCycleId } from '../utils/cycle-id';
 import { renewalCooldownService } from './renewal-cooldown-service';
 import { calculateBackoffDelay } from '../utils/retry';
-import { RpcClient } from '@syncro/shared/rpc-client';
+import {
+  resolveSorobanRpcEndpoints,
+  SorobanRpcPool,
+} from '@syncro/shared/soroban-rpc-pool';
 import {
   getBlockchainFlags,
   resolveStellarNetwork,
@@ -38,10 +41,11 @@ const MAX_BACKOFF_MS = 300_000; // 5 minutes
 const MAX_RETRY_ATTEMPTS = 10;
 const RETRY_INITIAL_DELAY_MS = 5000;
 const RETRY_MAX_DELAY_MS = 5 * 60 * 1000; // 5 minutes
+const RPC_HEALTH_CHECK_INTERVAL_MS = 30_000;
 
 export class EventListener {
   private contractId: string;
-  private rpcUrl: string = '';
+  private rpcUrls: string[] = [];
   private lastProcessedLedger: number = 0;
   private isRunning: boolean = false;
   private isProcessing: boolean = false;
@@ -60,7 +64,8 @@ export class EventListener {
   private _retryCount: number = 0;
   private _nextRetryAt: Date | null = null;
   private activeRequestController: AbortController | null = null;
-  private rpcClient: RpcClient;
+  private rpcPool: SorobanRpcPool;
+  private lastRpcHealthCheckAt = 0;
 
   constructor() {
     this.contractId = env.SOROBAN_CONTRACT_ADDRESS || '';
@@ -69,7 +74,7 @@ export class EventListener {
     const network = resolveStellarNetwork();
 
     // Resolve RPC URL — never silently fall back to testnet in production.
-    const configuredUrl = env.STELLAR_NETWORK_URL;
+    const configuredUrl = env.SOROBAN_RPC_URL ?? env.STELLAR_NETWORK_URL;
     if (!configuredUrl && flags.isProduction) {
       this._status = 'disabled';
       this._disabledReason =
@@ -77,19 +82,30 @@ export class EventListener {
         'Refusing to fall back to the testnet RPC endpoint.';
       logger.error(`EventListener disabled: ${this._disabledReason}`);
     } else {
-      this.rpcUrl =
-        configuredUrl ||
-        (network === 'mainnet'
+      const defaultUrl =
+        configuredUrl || (network === 'mainnet'
           ? 'https://soroban-rpc.creit.tech'
           : network === 'futurenet'
             ? 'https://rpc-futurenet.stellar.org'
             : 'https://soroban-testnet.stellar.org');
+      this.rpcUrls = resolveSorobanRpcEndpoints(defaultUrl, env.SOROBAN_RPC_URLS);
     }
 
-    this.rpcClient = new RpcClient({
+    this.rpcPool = new SorobanRpcPool({
+      endpoints: this.rpcUrls.length > 0 ? this.rpcUrls : [
+        'https://soroban-testnet.stellar.org',
+      ],
       timeoutMs: 15000,
-      maxRetries: 3,
-      circuitBreakerThreshold: 5,
+      onSingleHealthyEndpoint: (health) => {
+        logger.error('EventListener RPC degraded: only one provider is healthy', {
+          endpoints: health.map(({ url, healthy, latestLedger, lastError }) => ({
+            url,
+            healthy,
+            latestLedger,
+            lastError,
+          })),
+        });
+      },
     });
 
     if (!this.contractId) {
@@ -231,6 +247,17 @@ export class EventListener {
   }
 
   private async fetchAndProcessEvents() {
+    if (Date.now() - this.lastRpcHealthCheckAt >= RPC_HEALTH_CHECK_INTERVAL_MS) {
+      const health = await this.rpcPool.checkLedgerAgreement();
+      this.lastRpcHealthCheckAt = Date.now();
+      const lagging = health.filter((endpoint) => endpoint.lastError?.startsWith('Ledger '));
+      if (lagging.length > 0) {
+        logger.warn('EventListener RPC providers disagree on ledger; lagging providers disabled', {
+          endpoints: lagging.map(({ url, latestLedger, lastError }) => ({ url, latestLedger, lastError })),
+        });
+      }
+    }
+
     const currentLedger = await this.getCurrentLedger();
 
     // Check for reorg
@@ -256,7 +283,7 @@ export class EventListener {
   private async fetchEvents(fromLedger: number): Promise<ContractEvent[]> {
     const requestController = this.beginRequest();
     try {
-      const response = await this.rpcClient.fetch(this.rpcUrl, {
+      const response = await this.rpcPool.fetch({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -604,7 +631,7 @@ export class EventListener {
   private async getCurrentLedger(): Promise<number> {
     const requestController = this.beginRequest();
     try {
-      const response = await this.rpcClient.fetch(this.rpcUrl, {
+      const response = await this.rpcPool.fetch({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

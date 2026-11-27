@@ -5,6 +5,7 @@
 
 import type { Logger } from "./types.js";
 import { silentLogger } from "./logger.js";
+import { SorobanRpcPool } from "@syncro/shared/soroban-rpc-pool";
 
 export interface ContractEvent {
   type: string;
@@ -43,6 +44,7 @@ export interface RenewalFailedEvent {
   ledger: number;
   txHash: string;
   contractId: string;
+  schema_version?: number;
 }
 
 export type OnChainEvent =
@@ -75,6 +77,8 @@ export function isSupportedEventSchemaVersion(event: ContractEvent): boolean {
 export interface ListenToEventsOptions {
   /** Soroban RPC URL (e.g. https://soroban-testnet.stellar.org) */
   rpcUrl: string;
+  /** Optional ordered list of Soroban RPC providers; takes precedence over rpcUrl. */
+  rpcUrls?: string[];
   /** Contract address(es) to listen to */
   contractIds: string | string[];
   /** Poll interval in ms (default: 5000) */
@@ -89,12 +93,19 @@ export interface ListenToEventsOptions {
   reconnectDelayMs?: number;
   /** Optional signal to cancel polling or wait operations */
   signal?: AbortSignal;
+  /** How often to compare provider ledgers (default: 30000) */
+  healthCheckIntervalMs?: number;
+  /** Maximum ledger distance tolerated between providers (default: 2) */
+  maxLedgerLag?: number;
+  /** Logger used for provider-health alerts */
+  logger?: Logger;
 }
 
 const DEFAULT_POLL_INTERVAL_MS = 5000;
 const DEFAULT_RECONNECT_DELAY_MS = 1000;
 const DEFAULT_MAX_RECONNECT_ATTEMPTS = 5;
 const MAX_BACKOFF_MS = 60000;
+const DEFAULT_HEALTH_CHECK_INTERVAL_MS = 30_000;
 
 export async function fetchEvents(
   rpcUrl: string,
@@ -244,6 +255,23 @@ export function createEventListener(
   const maxReconnectAttempts =
     options.maxReconnectAttempts ?? DEFAULT_MAX_RECONNECT_ATTEMPTS;
   const logger = options.logger ?? silentLogger;
+  const rpcPool = new SorobanRpcPool({
+    endpoints: options.rpcUrls?.length ? options.rpcUrls : [options.rpcUrl],
+    ...(options.maxLedgerLag !== undefined
+      ? { maxLedgerLag: options.maxLedgerLag }
+      : {}),
+    onSingleHealthyEndpoint: (health) => {
+      logger.error("Soroban RPC degraded: only one provider is healthy", {
+        endpoints: health.map(({ url, healthy, latestLedger, lastError }) => ({
+          url,
+          healthy,
+          latestLedger,
+          lastError,
+        })),
+      });
+    },
+  });
+  let lastHealthCheckAt = 0;
 
   let isRunning = true;
   let lastProcessedLedger = 0;
@@ -252,7 +280,7 @@ export function createEventListener(
 
   logger.info("Event listener starting", {
     contractIds: contractIds.length,
-    rpcUrl: options.rpcUrl,
+    rpcProviderCount: rpcPool.getHealth().length,
   });
 
   const stop = () => {
@@ -282,18 +310,45 @@ export function createEventListener(
         lastProcessedLedger = await options.getLastLedger();
       }
 
-      const currentLedger = await getLatestLedger(options.rpcUrl, options.signal ? { signal: options.signal } : undefined);
+      if (Date.now() - lastHealthCheckAt >=
+          (options.healthCheckIntervalMs ?? DEFAULT_HEALTH_CHECK_INTERVAL_MS)) {
+        await rpcPool.checkLedgerAgreement(options.signal);
+        lastHealthCheckAt = Date.now();
+      }
+
+      const currentLedgerResponse = await rpcPool.fetch({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        ...(options.signal ? { signal: options.signal } : {}),
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getLatestLedger' }),
+      });
+      const currentLedgerData = await currentLedgerResponse.json() as {
+        result?: { sequence?: number };
+      };
+      const currentLedger = currentLedgerData.result?.sequence ?? 0;
       if (currentLedger < lastProcessedLedger) {
         lastProcessedLedger = Math.max(0, currentLedger - 1);
       }
 
       const fromLedger = lastProcessedLedger + 1;
-      const events = await fetchEvents(
-        options.rpcUrl,
-        contractIds,
-        fromLedger,
-        options.signal ? { signal: options.signal } : undefined
-      );
+      const eventsResponse = await rpcPool.fetch({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        ...(options.signal ? { signal: options.signal } : {}),
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'getEvents',
+          params: {
+            startLedger: fromLedger,
+            filters: contractIds.map((id) => ({ contractIds: [id] })),
+          },
+        }),
+      });
+      const eventsData = await eventsResponse.json() as {
+        result?: { events?: ContractEvent[] };
+      };
+      const events = eventsData.result?.events ?? [];
 
       consecutiveFailures = 0;
 

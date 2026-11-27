@@ -39,6 +39,9 @@
       "rpc-client": [
         "src/platform/rpc-client.ts"
       ],
+      "soroban-rpc-pool": [
+        "src/platform/soroban-rpc-pool.ts"
+      ],
       "sentry": [
         "src/platform/sentry.ts"
       ]
@@ -132,6 +135,11 @@
       "types": "./src/platform/rpc-client.ts",
       "import": "./src/platform/rpc-client.ts",
       "require": "./dist/platform/rpc-client.js"
+    },
+    "./soroban-rpc-pool": {
+      "types": "./src/platform/soroban-rpc-pool.ts",
+      "import": "./src/platform/soroban-rpc-pool.ts",
+      "require": "./dist/platform/soroban-rpc-pool.js"
     },
     "./sentry": {
       "types": "./src/platform/sentry.ts",

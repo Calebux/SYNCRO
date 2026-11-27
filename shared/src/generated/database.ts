@@ -291,6 +291,67 @@ export interface Database {
           user_id?: string | null;
         };
       };
+      "channel_signer_lease": {
+        Row: {
+          channel_id: string | null;
+          created_at: string | null;
+          instance_id: string | null;
+          last_nonce_allocated: string | null;
+          lease_acquired_at: string | null;
+          lease_expires_at: string | null;
+          updated_at: string | null;
+        };
+        Insert: {
+          channel_id?: string | null;
+          created_at?: string | null;
+          instance_id?: string | null;
+          last_nonce_allocated?: string | null;
+          lease_acquired_at?: string | null;
+          lease_expires_at?: string | null;
+          updated_at?: string | null;
+        };
+        Update: {
+          channel_id?: string | null;
+          created_at?: string | null;
+          instance_id?: string | null;
+          last_nonce_allocated?: string | null;
+          lease_acquired_at?: string | null;
+          lease_expires_at?: string | null;
+          updated_at?: string | null;
+        };
+      };
+      "channel_state_journal": {
+        Row: {
+          channel_id: string | null;
+          channel_row_state: string | null;
+          channel_state: string | null;
+          id: string | null;
+          recorded_at: string | null;
+          replicated_at: string | null;
+          sequence_number: string | null;
+          user_id: string | null;
+        };
+        Insert: {
+          channel_id?: string | null;
+          channel_row_state?: string | null;
+          channel_state?: string | null;
+          id?: string | null;
+          recorded_at?: string | null;
+          replicated_at?: string | null;
+          sequence_number?: string | null;
+          user_id?: string | null;
+        };
+        Update: {
+          channel_id?: string | null;
+          channel_row_state?: string | null;
+          channel_state?: string | null;
+          id?: string | null;
+          recorded_at?: string | null;
+          replicated_at?: string | null;
+          sequence_number?: string | null;
+          user_id?: string | null;
+        };
+      };
       "channel_states": {
         Row: {
           balance: number;
@@ -387,6 +448,59 @@ export interface Database {
           tx_hash?: string;
         };
       };
+      "degraded_usage_log": {
+        Row: {
+          agent_id: string | null;
+          amount: number | null;
+          correlation_id: string | null;
+          created_at: string | null;
+          id: string | null;
+          last_error: string | null;
+          meter_applied_at: string | null;
+          reason: string | null;
+          replay_attempts: number | null;
+          replay_state: string | null;
+          reservation_id: string | null;
+          route: string | null;
+          served_at: string | null;
+          unit_name: string | null;
+          units: number | null;
+        };
+        Insert: {
+          agent_id?: string | null;
+          amount?: number | null;
+          correlation_id?: string | null;
+          created_at?: string | null;
+          id?: string | null;
+          last_error?: string | null;
+          meter_applied_at?: string | null;
+          reason?: string | null;
+          replay_attempts?: number | null;
+          replay_state?: string | null;
+          reservation_id?: string | null;
+          route?: string | null;
+          served_at?: string | null;
+          unit_name?: string | null;
+          units?: number | null;
+        };
+        Update: {
+          agent_id?: string | null;
+          amount?: number | null;
+          correlation_id?: string | null;
+          created_at?: string | null;
+          id?: string | null;
+          last_error?: string | null;
+          meter_applied_at?: string | null;
+          reason?: string | null;
+          replay_attempts?: number | null;
+          replay_state?: string | null;
+          reservation_id?: string | null;
+          route?: string | null;
+          served_at?: string | null;
+          unit_name?: string | null;
+          units?: number | null;
+        };
+      };
       "deletion_audit_trail": {
         Row: {
           created_at: string | null;
@@ -433,35 +547,6 @@ export interface Database {
           user_id?: string | null;
         };
       };
-      "digest_audit_log": {
-        Row: {
-          digest_type: string | null;
-          error_message: string | null;
-          id: string | null;
-          period_label: string | null;
-          sent_at: string | null;
-          status: string | null;
-          user_id: string | null;
-        };
-        Insert: {
-          digest_type?: string | null;
-          error_message?: string | null;
-          id?: string | null;
-          period_label?: string | null;
-          sent_at?: string | null;
-          status?: string | null;
-          user_id?: string | null;
-        };
-        Update: {
-          digest_type?: string | null;
-          error_message?: string | null;
-          id?: string | null;
-          period_label?: string | null;
-          sent_at?: string | null;
-          status?: string | null;
-          user_id?: string | null;
-        };
-      };
       "dismissed_suggestions": {
         Row: {
           created_at: string | null;
@@ -485,6 +570,94 @@ export interface Database {
           id?: string | null;
           subscription_id?: string | null;
           suggestion_type?: string | null;
+          user_id?: string | null;
+        };
+      };
+      "domain_event_dead_letter": {
+        Row: {
+          correlation_id: string | null;
+          created_at: string | null;
+          event_id: string | null;
+          event_name: string | null;
+          event_payload: string | null;
+          failed_at: string | null;
+          id: string | null;
+          last_error: string | null;
+          retry_count: number | null;
+          user_id: string | null;
+        };
+        Insert: {
+          correlation_id?: string | null;
+          created_at?: string | null;
+          event_id?: string | null;
+          event_name?: string | null;
+          event_payload?: string | null;
+          failed_at?: string | null;
+          id?: string | null;
+          last_error?: string | null;
+          retry_count?: number | null;
+          user_id?: string | null;
+        };
+        Update: {
+          correlation_id?: string | null;
+          created_at?: string | null;
+          event_id?: string | null;
+          event_name?: string | null;
+          event_payload?: string | null;
+          failed_at?: string | null;
+          id?: string | null;
+          last_error?: string | null;
+          retry_count?: number | null;
+          user_id?: string | null;
+        };
+      };
+      "domain_event_outbox": {
+        Row: {
+          correlation_id: string | null;
+          created_at: string | null;
+          event_id: string | null;
+          event_name: string | null;
+          event_payload: string | null;
+          id: string | null;
+          last_error: string | null;
+          max_retries: number | null;
+          next_retry_at: string | null;
+          published_at: string | null;
+          retry_count: number | null;
+          status: string | null;
+          updated_at: string | null;
+          user_id: string | null;
+        };
+        Insert: {
+          correlation_id?: string | null;
+          created_at?: string | null;
+          event_id?: string | null;
+          event_name?: string | null;
+          event_payload?: string | null;
+          id?: string | null;
+          last_error?: string | null;
+          max_retries?: number | null;
+          next_retry_at?: string | null;
+          published_at?: string | null;
+          retry_count?: number | null;
+          status?: string | null;
+          updated_at?: string | null;
+          user_id?: string | null;
+        };
+        Update: {
+          correlation_id?: string | null;
+          created_at?: string | null;
+          event_id?: string | null;
+          event_name?: string | null;
+          event_payload?: string | null;
+          id?: string | null;
+          last_error?: string | null;
+          max_retries?: number | null;
+          next_retry_at?: string | null;
+          published_at?: string | null;
+          retry_count?: number | null;
+          status?: string | null;
+          updated_at?: string | null;
           user_id?: string | null;
         };
       };
@@ -540,6 +713,99 @@ export interface Database {
           reference_id?: string | null;
           subscription_id?: string | null;
           type?: string | null;
+          user_id?: string | null;
+        };
+      };
+      "gift_card_ledger_checkpoints": {
+        Row: {
+          account_id: string | null;
+          checkpoint_balance: number;
+          id: string | null;
+          is_valid: boolean | null;
+          notes: string | null;
+          verified_at: string | null;
+        };
+        Insert: {
+          account_id?: string | null;
+          checkpoint_balance: number;
+          id?: string | null;
+          is_valid?: boolean | null;
+          notes?: string | null;
+          verified_at?: string | null;
+        };
+        Update: {
+          account_id?: string | null;
+          checkpoint_balance?: number;
+          id?: string | null;
+          is_valid?: boolean | null;
+          notes?: string | null;
+          verified_at?: string | null;
+        };
+      };
+      "gift_card_ledger_postings": {
+        Row: {
+          account_id: string | null;
+          amount: number;
+          created_at: string | null;
+          gift_card_id: string | null;
+          id: string | null;
+          reason_code: string | null;
+          subscription_id: string | null;
+          transaction_id: string | null;
+          user_id: string | null;
+        };
+        Insert: {
+          account_id?: string | null;
+          amount: number;
+          created_at?: string | null;
+          gift_card_id?: string | null;
+          id?: string | null;
+          reason_code?: string | null;
+          subscription_id?: string | null;
+          transaction_id?: string | null;
+          user_id?: string | null;
+        };
+        Update: {
+          account_id?: string | null;
+          amount?: number;
+          created_at?: string | null;
+          gift_card_id?: string | null;
+          id?: string | null;
+          reason_code?: string | null;
+          subscription_id?: string | null;
+          transaction_id?: string | null;
+          user_id?: string | null;
+        };
+      };
+      "gift_card_ledger_transactions": {
+        Row: {
+          created_at: string | null;
+          description: string | null;
+          id: string | null;
+          metadata: string | null;
+          reason_code: string | null;
+          reference_id: string | null;
+          reversal_of_transaction_id: string | null;
+          user_id: string | null;
+        };
+        Insert: {
+          created_at?: string | null;
+          description?: string | null;
+          id?: string | null;
+          metadata?: string | null;
+          reason_code?: string | null;
+          reference_id?: string | null;
+          reversal_of_transaction_id?: string | null;
+          user_id?: string | null;
+        };
+        Update: {
+          created_at?: string | null;
+          description?: string | null;
+          id?: string | null;
+          metadata?: string | null;
+          reason_code?: string | null;
+          reference_id?: string | null;
+          reversal_of_transaction_id?: string | null;
           user_id?: string | null;
         };
       };
@@ -707,6 +973,92 @@ export interface Database {
           scan_id?: string | null;
           total_tokens?: number | null;
           user_id?: string | null;
+        };
+      };
+      "meter_usage_ledger": {
+        Row: {
+          actual_amount: number | null;
+          actual_units: number | null;
+          agent_id: string | null;
+          committed_at: string | null;
+          correlation_id: string | null;
+          expires_at: string | null;
+          fallback_used: boolean | null;
+          fx_rate: number | null;
+          fx_source: string | null;
+          id: string | null;
+          meter_idempotency_key: string | null;
+          metered_at: string | null;
+          orphan_class: string | null;
+          rate_card_version: string | null;
+          release_reason: string | null;
+          released_at: string | null;
+          reservation_id: string | null;
+          reserved_amount: number | null;
+          reserved_at: string | null;
+          reserved_units: number | null;
+          route: string | null;
+          settled_at: string | null;
+          settlement_ref: string | null;
+          status: string | null;
+          unit_name: string | null;
+          unit_price: number | null;
+        };
+        Insert: {
+          actual_amount?: number | null;
+          actual_units?: number | null;
+          agent_id?: string | null;
+          committed_at?: string | null;
+          correlation_id?: string | null;
+          expires_at?: string | null;
+          fallback_used?: boolean | null;
+          fx_rate?: number | null;
+          fx_source?: string | null;
+          id?: string | null;
+          meter_idempotency_key?: string | null;
+          metered_at?: string | null;
+          orphan_class?: string | null;
+          rate_card_version?: string | null;
+          release_reason?: string | null;
+          released_at?: string | null;
+          reservation_id?: string | null;
+          reserved_amount?: number | null;
+          reserved_at?: string | null;
+          reserved_units?: number | null;
+          route?: string | null;
+          settled_at?: string | null;
+          settlement_ref?: string | null;
+          status?: string | null;
+          unit_name?: string | null;
+          unit_price?: number | null;
+        };
+        Update: {
+          actual_amount?: number | null;
+          actual_units?: number | null;
+          agent_id?: string | null;
+          committed_at?: string | null;
+          correlation_id?: string | null;
+          expires_at?: string | null;
+          fallback_used?: boolean | null;
+          fx_rate?: number | null;
+          fx_source?: string | null;
+          id?: string | null;
+          meter_idempotency_key?: string | null;
+          metered_at?: string | null;
+          orphan_class?: string | null;
+          rate_card_version?: string | null;
+          release_reason?: string | null;
+          released_at?: string | null;
+          reservation_id?: string | null;
+          reserved_amount?: number | null;
+          reserved_at?: string | null;
+          reserved_units?: number | null;
+          route?: string | null;
+          settled_at?: string | null;
+          settlement_ref?: string | null;
+          status?: string | null;
+          unit_name?: string | null;
+          unit_price?: number | null;
         };
       };
       "notification_deliveries": {
@@ -1006,6 +1358,94 @@ export interface Database {
           user_id?: string | null;
         };
       };
+      "reconciliation_discrepancies": {
+        Row: {
+          backend_amount: string | null;
+          contract_id: string | null;
+          details: string | null;
+          detected_at: string | null;
+          discrepancy_type: string | null;
+          id: string | null;
+          invariant: string | null;
+          on_chain_amount: string | null;
+          renewal_record_id: string | null;
+          resolution_action: string | null;
+          resolution_notes: string | null;
+          resolution_status: string | null;
+          resolved_at: string | null;
+          severity: string | null;
+          tx_hash: string | null;
+        };
+        Insert: {
+          backend_amount?: string | null;
+          contract_id?: string | null;
+          details?: string | null;
+          detected_at?: string | null;
+          discrepancy_type?: string | null;
+          id?: string | null;
+          invariant?: string | null;
+          on_chain_amount?: string | null;
+          renewal_record_id?: string | null;
+          resolution_action?: string | null;
+          resolution_notes?: string | null;
+          resolution_status?: string | null;
+          resolved_at?: string | null;
+          severity?: string | null;
+          tx_hash?: string | null;
+        };
+        Update: {
+          backend_amount?: string | null;
+          contract_id?: string | null;
+          details?: string | null;
+          detected_at?: string | null;
+          discrepancy_type?: string | null;
+          id?: string | null;
+          invariant?: string | null;
+          on_chain_amount?: string | null;
+          renewal_record_id?: string | null;
+          resolution_action?: string | null;
+          resolution_notes?: string | null;
+          resolution_status?: string | null;
+          resolved_at?: string | null;
+          severity?: string | null;
+          tx_hash?: string | null;
+        };
+      };
+      "reconciliation_runs": {
+        Row: {
+          discrepancies_found: number | null;
+          finished_at: string | null;
+          id: string | null;
+          mode: string | null;
+          reconciliation_lag_ms: string | null;
+          records_checked: number | null;
+          started_at: string | null;
+          window_end: string | null;
+          window_start: string | null;
+        };
+        Insert: {
+          discrepancies_found?: number | null;
+          finished_at?: string | null;
+          id?: string | null;
+          mode?: string | null;
+          reconciliation_lag_ms?: string | null;
+          records_checked?: number | null;
+          started_at?: string | null;
+          window_end?: string | null;
+          window_start?: string | null;
+        };
+        Update: {
+          discrepancies_found?: number | null;
+          finished_at?: string | null;
+          id?: string | null;
+          mode?: string | null;
+          reconciliation_lag_ms?: string | null;
+          records_checked?: number | null;
+          started_at?: string | null;
+          window_end?: string | null;
+          window_start?: string | null;
+        };
+      };
       "recovery_codes": {
         Row: {
           code_hash: string | null;
@@ -1165,43 +1605,67 @@ export interface Database {
       };
       "renewal_attempts": {
         Row: {
+          attempt_id: string | null;
+          completed_steps: string | null;
           correlation_id: string | null;
           created_at: string | null;
+          current_step: string | null;
           cycle_id: number | null;
           id: string | null;
           idempotency_key: string | null;
           lock_holder: string | null;
+          needs_manual_reconciliation: boolean | null;
           result: Json | null;
+          saga_status: string | null;
           status: string | null;
+          step_context: string | null;
+          step_started_at: string | null;
           subscription_id: string | null;
           updated_at: string | null;
           user_id: string | null;
+          worker_id: string | null;
         };
         Insert: {
+          attempt_id?: string | null;
+          completed_steps?: string | null;
           correlation_id?: string | null;
           created_at?: string | null;
+          current_step?: string | null;
           cycle_id?: number | null;
           id?: string | null;
           idempotency_key?: string | null;
           lock_holder?: string | null;
+          needs_manual_reconciliation?: boolean | null;
           result?: Json | null;
+          saga_status?: string | null;
           status?: string | null;
+          step_context?: string | null;
+          step_started_at?: string | null;
           subscription_id?: string | null;
           updated_at?: string | null;
           user_id?: string | null;
+          worker_id?: string | null;
         };
         Update: {
+          attempt_id?: string | null;
+          completed_steps?: string | null;
           correlation_id?: string | null;
           created_at?: string | null;
+          current_step?: string | null;
           cycle_id?: number | null;
           id?: string | null;
           idempotency_key?: string | null;
           lock_holder?: string | null;
+          needs_manual_reconciliation?: boolean | null;
           result?: Json | null;
+          saga_status?: string | null;
           status?: string | null;
+          step_context?: string | null;
+          step_started_at?: string | null;
           subscription_id?: string | null;
           updated_at?: string | null;
           user_id?: string | null;
+          worker_id?: string | null;
         };
       };
       "renewal_dead_letter_queue": {
@@ -1321,6 +1785,67 @@ export interface Database {
           stealth_address?: string | null;
           subscription_id?: string | null;
           transaction_hash?: string | null;
+          user_id?: string | null;
+        };
+      };
+      "renewal_saga_step_log": {
+        Row: {
+          attempt_id: string | null;
+          created_at: string | null;
+          direction: string | null;
+          error_message: string | null;
+          id: string | null;
+          output: Json | null;
+          status: string | null;
+          step: string | null;
+        };
+        Insert: {
+          attempt_id?: string | null;
+          created_at?: string | null;
+          direction?: string | null;
+          error_message?: string | null;
+          id?: string | null;
+          output?: Json | null;
+          status?: string | null;
+          step?: string | null;
+        };
+        Update: {
+          attempt_id?: string | null;
+          created_at?: string | null;
+          direction?: string | null;
+          error_message?: string | null;
+          id?: string | null;
+          output?: Json | null;
+          status?: string | null;
+          step?: string | null;
+        };
+      };
+      "spend_cap_alert_logs": {
+        Row: {
+          channel_id: string | null;
+          id: string | null;
+          notification_channel: string | null;
+          period_start: string | null;
+          sent_at: string | null;
+          threshold: number | null;
+          user_id: string | null;
+        };
+        Insert: {
+          channel_id?: string | null;
+          id?: string | null;
+          notification_channel?: string | null;
+          period_start?: string | null;
+          sent_at?: string | null;
+          threshold?: number | null;
+          user_id?: string | null;
+        };
+        Update: {
+          channel_id?: string | null;
+          id?: string | null;
+          notification_channel?: string | null;
+          period_start?: string | null;
+          sent_at?: string | null;
+          threshold?: number | null;
           user_id?: string | null;
         };
       };
@@ -1822,17 +2347,133 @@ export interface Database {
           user_id?: string | null;
         };
       };
+      "usage_reconciliation_reports": {
+        Row: {
+          created_at: string | null;
+          findings: string | null;
+          handed_off_amount: number | null;
+          handed_off_count: number | null;
+          healthy: boolean | null;
+          id: string | null;
+          metered_amount: number | null;
+          metered_count: number | null;
+          metered_minus_settled: number | null;
+          orphan_breakdown: string | null;
+          orphan_total_amount: number | null;
+          orphan_total_count: number | null;
+          pre_repair_deltas: string | null;
+          rate_mismatch_amount: number | null;
+          rate_mismatch_count: number | null;
+          repair_outcomes: string | null;
+          replay_attempted_count: number | null;
+          replay_failed_count: number | null;
+          replayed_amount: number | null;
+          replayed_count: number | null;
+          run_error: string | null;
+          run_id: string | null;
+          served_amount: number | null;
+          served_count: number | null;
+          served_minus_metered: number | null;
+          served_minus_settled: number | null;
+          settled_amount: number | null;
+          settled_count: number | null;
+          window_end: string | null;
+          window_start: string | null;
+        };
+        Insert: {
+          created_at?: string | null;
+          findings?: string | null;
+          handed_off_amount?: number | null;
+          handed_off_count?: number | null;
+          healthy?: boolean | null;
+          id?: string | null;
+          metered_amount?: number | null;
+          metered_count?: number | null;
+          metered_minus_settled?: number | null;
+          orphan_breakdown?: string | null;
+          orphan_total_amount?: number | null;
+          orphan_total_count?: number | null;
+          pre_repair_deltas?: string | null;
+          rate_mismatch_amount?: number | null;
+          rate_mismatch_count?: number | null;
+          repair_outcomes?: string | null;
+          replay_attempted_count?: number | null;
+          replay_failed_count?: number | null;
+          replayed_amount?: number | null;
+          replayed_count?: number | null;
+          run_error?: string | null;
+          run_id?: string | null;
+          served_amount?: number | null;
+          served_count?: number | null;
+          served_minus_metered?: number | null;
+          served_minus_settled?: number | null;
+          settled_amount?: number | null;
+          settled_count?: number | null;
+          window_end?: string | null;
+          window_start?: string | null;
+        };
+        Update: {
+          created_at?: string | null;
+          findings?: string | null;
+          handed_off_amount?: number | null;
+          handed_off_count?: number | null;
+          healthy?: boolean | null;
+          id?: string | null;
+          metered_amount?: number | null;
+          metered_count?: number | null;
+          metered_minus_settled?: number | null;
+          orphan_breakdown?: string | null;
+          orphan_total_amount?: number | null;
+          orphan_total_count?: number | null;
+          pre_repair_deltas?: string | null;
+          rate_mismatch_amount?: number | null;
+          rate_mismatch_count?: number | null;
+          repair_outcomes?: string | null;
+          replay_attempted_count?: number | null;
+          replay_failed_count?: number | null;
+          replayed_amount?: number | null;
+          replayed_count?: number | null;
+          run_error?: string | null;
+          run_id?: string | null;
+          served_amount?: number | null;
+          served_count?: number | null;
+          served_minus_metered?: number | null;
+          served_minus_settled?: number | null;
+          settled_amount?: number | null;
+          settled_count?: number | null;
+          window_end?: string | null;
+          window_start?: string | null;
+        };
+      };
+      "usage_retention_archive": {
+        Row: {
+          archived_at: string | null;
+          data: string | null;
+          id: string | null;
+          source_id: string | null;
+          source_table: string | null;
+        };
+        Insert: {
+          archived_at?: string | null;
+          data?: string | null;
+          id?: string | null;
+          source_id?: string | null;
+          source_table?: string | null;
+        };
+        Update: {
+          archived_at?: string | null;
+          data?: string | null;
+          id?: string | null;
+          source_id?: string | null;
+          source_table?: string | null;
+        };
+      };
       "user_preferences": {
         Row: {
           automation_flags: string | null;
-          calendar_export_reminders: boolean | null;
-          calendar_sync_enabled: boolean | null;
           created_at: string;
-          digest_day: string | null;
-          digest_enabled: boolean | null;
           email_opt_ins: string | null;
           encryption_key: string | null;
-          include_year_to_date: boolean | null;
           notification_channels: string[];
           preferred_gift_card_provider: string | null;
           previous_encryption_key: string | null;
@@ -1843,20 +2484,16 @@ export interface Database {
           rotation_completed_at: string | null;
           rotation_in_progress: boolean | null;
           rotation_started_at: string | null;
+          spend_cap_alert_channels: string[];
           subscription_priority_order: string[];
           updated_at: string;
           user_id: string | null;
         };
         Insert: {
           automation_flags?: string | null;
-          calendar_export_reminders?: boolean | null;
-          calendar_sync_enabled?: boolean | null;
           created_at: string;
-          digest_day?: string | null;
-          digest_enabled?: boolean | null;
           email_opt_ins?: string | null;
           encryption_key?: string | null;
-          include_year_to_date?: boolean | null;
           notification_channels?: string[];
           preferred_gift_card_provider?: string | null;
           previous_encryption_key?: string | null;
@@ -1867,20 +2504,16 @@ export interface Database {
           rotation_completed_at?: string | null;
           rotation_in_progress?: boolean | null;
           rotation_started_at?: string | null;
+          spend_cap_alert_channels?: string[];
           subscription_priority_order?: string[];
           updated_at: string;
           user_id?: string | null;
         };
         Update: {
           automation_flags?: string | null;
-          calendar_export_reminders?: boolean | null;
-          calendar_sync_enabled?: boolean | null;
           created_at?: string;
-          digest_day?: string | null;
-          digest_enabled?: boolean | null;
           email_opt_ins?: string | null;
           encryption_key?: string | null;
-          include_year_to_date?: boolean | null;
           notification_channels?: string[];
           preferred_gift_card_provider?: string | null;
           previous_encryption_key?: string | null;
@@ -1891,6 +2524,7 @@ export interface Database {
           rotation_completed_at?: string | null;
           rotation_in_progress?: boolean | null;
           rotation_started_at?: string | null;
+          spend_cap_alert_channels?: string[];
           subscription_priority_order?: string[];
           updated_at?: string;
           user_id?: string | null;
@@ -1929,6 +2563,29 @@ export interface Database {
           updated_at?: string | null;
           user_id?: string | null;
           username?: string | null;
+        };
+      };
+      "v3_receipts": {
+        Row: {
+          channel_id: string | null;
+          created_at: string | null;
+          issued_at: string | null;
+          receipt: string | null;
+          receipt_id: string | null;
+        };
+        Insert: {
+          channel_id?: string | null;
+          created_at?: string | null;
+          issued_at?: string | null;
+          receipt?: string | null;
+          receipt_id?: string | null;
+        };
+        Update: {
+          channel_id?: string | null;
+          created_at?: string | null;
+          issued_at?: string | null;
+          receipt?: string | null;
+          receipt_id?: string | null;
         };
       };
       "wallet_verification_revocations": {
@@ -2145,6 +2802,14 @@ export type ChannelPaymentsRow = PublicTables["channel_payments"]["Row"];
 export type ChannelPaymentsInsert = PublicTables["channel_payments"]["Insert"];
 export type ChannelPaymentsUpdate = PublicTables["channel_payments"]["Update"];
 
+export type ChannelSignerLeaseRow = PublicTables["channel_signer_lease"]["Row"];
+export type ChannelSignerLeaseInsert = PublicTables["channel_signer_lease"]["Insert"];
+export type ChannelSignerLeaseUpdate = PublicTables["channel_signer_lease"]["Update"];
+
+export type ChannelStateJournalRow = PublicTables["channel_state_journal"]["Row"];
+export type ChannelStateJournalInsert = PublicTables["channel_state_journal"]["Insert"];
+export type ChannelStateJournalUpdate = PublicTables["channel_state_journal"]["Update"];
+
 export type ChannelStatesRow = PublicTables["channel_states"]["Row"];
 export type ChannelStatesInsert = PublicTables["channel_states"]["Insert"];
 export type ChannelStatesUpdate = PublicTables["channel_states"]["Update"];
@@ -2157,6 +2822,10 @@ export type ContractEventsRow = PublicTables["contract_events"]["Row"];
 export type ContractEventsInsert = PublicTables["contract_events"]["Insert"];
 export type ContractEventsUpdate = PublicTables["contract_events"]["Update"];
 
+export type DegradedUsageLogRow = PublicTables["degraded_usage_log"]["Row"];
+export type DegradedUsageLogInsert = PublicTables["degraded_usage_log"]["Insert"];
+export type DegradedUsageLogUpdate = PublicTables["degraded_usage_log"]["Update"];
+
 export type DeletionAuditTrailRow = PublicTables["deletion_audit_trail"]["Row"];
 export type DeletionAuditTrailInsert = PublicTables["deletion_audit_trail"]["Insert"];
 export type DeletionAuditTrailUpdate = PublicTables["deletion_audit_trail"]["Update"];
@@ -2165,13 +2834,17 @@ export type DemoRlsTableRow = PublicTables["demo_rls_table"]["Row"];
 export type DemoRlsTableInsert = PublicTables["demo_rls_table"]["Insert"];
 export type DemoRlsTableUpdate = PublicTables["demo_rls_table"]["Update"];
 
-export type DigestAuditLogRow = PublicTables["digest_audit_log"]["Row"];
-export type DigestAuditLogInsert = PublicTables["digest_audit_log"]["Insert"];
-export type DigestAuditLogUpdate = PublicTables["digest_audit_log"]["Update"];
-
 export type DismissedSuggestionsRow = PublicTables["dismissed_suggestions"]["Row"];
 export type DismissedSuggestionsInsert = PublicTables["dismissed_suggestions"]["Insert"];
 export type DismissedSuggestionsUpdate = PublicTables["dismissed_suggestions"]["Update"];
+
+export type DomainEventDeadLetterRow = PublicTables["domain_event_dead_letter"]["Row"];
+export type DomainEventDeadLetterInsert = PublicTables["domain_event_dead_letter"]["Insert"];
+export type DomainEventDeadLetterUpdate = PublicTables["domain_event_dead_letter"]["Update"];
+
+export type DomainEventOutboxRow = PublicTables["domain_event_outbox"]["Row"];
+export type DomainEventOutboxInsert = PublicTables["domain_event_outbox"]["Insert"];
+export type DomainEventOutboxUpdate = PublicTables["domain_event_outbox"]["Update"];
 
 export type EventCursorRow = PublicTables["event_cursor"]["Row"];
 export type EventCursorInsert = PublicTables["event_cursor"]["Insert"];
@@ -2180,6 +2853,18 @@ export type EventCursorUpdate = PublicTables["event_cursor"]["Update"];
 export type GiftCardLedgerRow = PublicTables["gift_card_ledger"]["Row"];
 export type GiftCardLedgerInsert = PublicTables["gift_card_ledger"]["Insert"];
 export type GiftCardLedgerUpdate = PublicTables["gift_card_ledger"]["Update"];
+
+export type GiftCardLedgerCheckpointsRow = PublicTables["gift_card_ledger_checkpoints"]["Row"];
+export type GiftCardLedgerCheckpointsInsert = PublicTables["gift_card_ledger_checkpoints"]["Insert"];
+export type GiftCardLedgerCheckpointsUpdate = PublicTables["gift_card_ledger_checkpoints"]["Update"];
+
+export type GiftCardLedgerPostingsRow = PublicTables["gift_card_ledger_postings"]["Row"];
+export type GiftCardLedgerPostingsInsert = PublicTables["gift_card_ledger_postings"]["Insert"];
+export type GiftCardLedgerPostingsUpdate = PublicTables["gift_card_ledger_postings"]["Update"];
+
+export type GiftCardLedgerTransactionsRow = PublicTables["gift_card_ledger_transactions"]["Row"];
+export type GiftCardLedgerTransactionsInsert = PublicTables["gift_card_ledger_transactions"]["Insert"];
+export type GiftCardLedgerTransactionsUpdate = PublicTables["gift_card_ledger_transactions"]["Update"];
 
 export type GlobalPrivacyFlagsRow = PublicTables["global_privacy_flags"]["Row"];
 export type GlobalPrivacyFlagsInsert = PublicTables["global_privacy_flags"]["Insert"];
@@ -2200,6 +2885,10 @@ export type InvoicesUpdate = PublicTables["invoices"]["Update"];
 export type LlmUsageLedgerRow = PublicTables["llm_usage_ledger"]["Row"];
 export type LlmUsageLedgerInsert = PublicTables["llm_usage_ledger"]["Insert"];
 export type LlmUsageLedgerUpdate = PublicTables["llm_usage_ledger"]["Update"];
+
+export type MeterUsageLedgerRow = PublicTables["meter_usage_ledger"]["Row"];
+export type MeterUsageLedgerInsert = PublicTables["meter_usage_ledger"]["Insert"];
+export type MeterUsageLedgerUpdate = PublicTables["meter_usage_ledger"]["Update"];
 
 export type NotificationDeliveriesRow = PublicTables["notification_deliveries"]["Row"];
 export type NotificationDeliveriesInsert = PublicTables["notification_deliveries"]["Insert"];
@@ -2224,6 +2913,14 @@ export type ProfilesUpdate = PublicTables["profiles"]["Update"];
 export type PushSubscriptionsRow = PublicTables["push_subscriptions"]["Row"];
 export type PushSubscriptionsInsert = PublicTables["push_subscriptions"]["Insert"];
 export type PushSubscriptionsUpdate = PublicTables["push_subscriptions"]["Update"];
+
+export type ReconciliationDiscrepanciesRow = PublicTables["reconciliation_discrepancies"]["Row"];
+export type ReconciliationDiscrepanciesInsert = PublicTables["reconciliation_discrepancies"]["Insert"];
+export type ReconciliationDiscrepanciesUpdate = PublicTables["reconciliation_discrepancies"]["Update"];
+
+export type ReconciliationRunsRow = PublicTables["reconciliation_runs"]["Row"];
+export type ReconciliationRunsInsert = PublicTables["reconciliation_runs"]["Insert"];
+export type ReconciliationRunsUpdate = PublicTables["reconciliation_runs"]["Update"];
 
 export type RecoveryCodesRow = PublicTables["recovery_codes"]["Row"];
 export type RecoveryCodesInsert = PublicTables["recovery_codes"]["Insert"];
@@ -2260,6 +2957,14 @@ export type RenewalLocksUpdate = PublicTables["renewal_locks"]["Update"];
 export type RenewalLogsRow = PublicTables["renewal_logs"]["Row"];
 export type RenewalLogsInsert = PublicTables["renewal_logs"]["Insert"];
 export type RenewalLogsUpdate = PublicTables["renewal_logs"]["Update"];
+
+export type RenewalSagaStepLogRow = PublicTables["renewal_saga_step_log"]["Row"];
+export type RenewalSagaStepLogInsert = PublicTables["renewal_saga_step_log"]["Insert"];
+export type RenewalSagaStepLogUpdate = PublicTables["renewal_saga_step_log"]["Update"];
+
+export type SpendCapAlertLogsRow = PublicTables["spend_cap_alert_logs"]["Row"];
+export type SpendCapAlertLogsInsert = PublicTables["spend_cap_alert_logs"]["Insert"];
+export type SpendCapAlertLogsUpdate = PublicTables["spend_cap_alert_logs"]["Update"];
 
 export type StealthPaymentsRow = PublicTables["stealth_payments"]["Row"];
 export type StealthPaymentsInsert = PublicTables["stealth_payments"]["Insert"];
@@ -2321,6 +3026,14 @@ export type TotpUsedCodesRow = PublicTables["totp_used_codes"]["Row"];
 export type TotpUsedCodesInsert = PublicTables["totp_used_codes"]["Insert"];
 export type TotpUsedCodesUpdate = PublicTables["totp_used_codes"]["Update"];
 
+export type UsageReconciliationReportsRow = PublicTables["usage_reconciliation_reports"]["Row"];
+export type UsageReconciliationReportsInsert = PublicTables["usage_reconciliation_reports"]["Insert"];
+export type UsageReconciliationReportsUpdate = PublicTables["usage_reconciliation_reports"]["Update"];
+
+export type UsageRetentionArchiveRow = PublicTables["usage_retention_archive"]["Row"];
+export type UsageRetentionArchiveInsert = PublicTables["usage_retention_archive"]["Insert"];
+export type UsageRetentionArchiveUpdate = PublicTables["usage_retention_archive"]["Update"];
+
 export type UserPreferencesRow = PublicTables["user_preferences"]["Row"];
 export type UserPreferencesInsert = PublicTables["user_preferences"]["Insert"];
 export type UserPreferencesUpdate = PublicTables["user_preferences"]["Update"];
@@ -2328,6 +3041,10 @@ export type UserPreferencesUpdate = PublicTables["user_preferences"]["Update"];
 export type UserTelegramConnectionsRow = PublicTables["user_telegram_connections"]["Row"];
 export type UserTelegramConnectionsInsert = PublicTables["user_telegram_connections"]["Insert"];
 export type UserTelegramConnectionsUpdate = PublicTables["user_telegram_connections"]["Update"];
+
+export type V3ReceiptsRow = PublicTables["v3_receipts"]["Row"];
+export type V3ReceiptsInsert = PublicTables["v3_receipts"]["Insert"];
+export type V3ReceiptsUpdate = PublicTables["v3_receipts"]["Update"];
 
 export type WalletVerificationRevocationsRow = PublicTables["wallet_verification_revocations"]["Row"];
 export type WalletVerificationRevocationsInsert = PublicTables["wallet_verification_revocations"]["Insert"];

@@ -15,7 +15,11 @@
 import logger from '../config/logger';
 import { supabase } from '../config/database';
 import { env } from '../config/env';
-import { RpcClient } from '@syncro/shared/rpc-client';import {
+import {
+  resolveSorobanRpcEndpoints,
+  SorobanRpcPool,
+} from '@syncro/shared/soroban-rpc-pool';
+import {
   getBlockchainFlags,
   resolveStellarNetwork,
 } from '../../../shared/blockchain-flags';
@@ -26,38 +30,48 @@ const _flags = getBlockchainFlags();
 const _network = resolveStellarNetwork();
 
 // Resolve RPC URL — never silently fall back to testnet in production.
-function resolveRpcUrl(): string {
+function resolveRpcUrls(): string[] {
+  const configuredUrls = resolveSorobanRpcEndpoints(
+    env.SOROBAN_RPC_URL,
+    env.SOROBAN_RPC_URLS,
+  );
+  if (configuredUrls.length > 0) return configuredUrls;
   const configured = env.SOROBAN_RPC_URL;
   if (!configured && _flags.isProduction) {
     throw new Error(
-      '[indexer] SOROBAN_RPC_URL must be explicitly set in production. ' +
+      '[indexer] SOROBAN_RPC_URL or SOROBAN_RPC_URLS must be explicitly set in production. ' +
         'Refusing to fall back to the testnet RPC endpoint.',
     );
   }
-  if (configured) return configured;
   // Non-production: pick a sensible default per network
-  if (_network === 'mainnet') return 'https://soroban-rpc.creit.tech';
-  if (_network === 'futurenet') return 'https://rpc-futurenet.stellar.org';
-  return 'https://soroban-testnet.stellar.org';
+  if (_network === 'mainnet') return ['https://soroban-rpc.creit.tech'];
+  if (_network === 'futurenet') return ['https://rpc-futurenet.stellar.org'];
+  return ['https://soroban-testnet.stellar.org'];
 }
 
-const RPC_URL = resolveRpcUrl();
+const RPC_URLS = resolveRpcUrls();
 const CONTRACT_ID = env.SOROBAN_CONTRACT_ADDRESS ?? '';
 const POLL_INTERVAL_MS = parseInt(
   env.INDEXER_POLL_INTERVAL_MS,
   10,
 );
 const BATCH_SIZE = parseInt(env.INDEXER_BATCH_SIZE, 10);
-const MAX_RETRIES = 5;
-const BASE_RETRY_MS = 1000;
-
-const rpcClient = new RpcClient({
-  maxRetries: MAX_RETRIES,
-  baseRetryDelayMs: BASE_RETRY_MS,
+const rpcPool = new SorobanRpcPool({
+  endpoints: RPC_URLS,
   timeoutMs: 15000,
-  circuitBreakerThreshold: 5,
-  circuitBreakerResetTimeoutMs: 30000,
+  onSingleHealthyEndpoint: (health) => {
+    logger.error('Indexer RPC degraded: only one provider is healthy', {
+      endpoints: health.map(({ url, healthy, latestLedger, lastError }) => ({
+        url,
+        healthy,
+        latestLedger,
+        lastError,
+      })),
+    });
+  },
 });
+const RPC_HEALTH_CHECK_INTERVAL_MS = 30_000;
+let lastRpcHealthCheckAt = 0;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -142,7 +156,7 @@ export function decodeEventByVersion(value: unknown, version?: number): unknown 
 
 async function rpcPost<T>(method: string, params: unknown): Promise<T> {
   try {
-    const res = await rpcClient.fetch(RPC_URL, {
+    const res = await rpcPool.fetch({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
@@ -154,7 +168,7 @@ async function rpcPost<T>(method: string, params: unknown): Promise<T> {
     logger.error('Indexer RPC call failed', {
       method,
       err: err instanceof Error ? err.message : String(err),
-      metrics: rpcClient.getMetrics(),
+      endpoints: rpcPool.getHealth(),
     });
     throw err;
   }
@@ -250,6 +264,17 @@ async function indexRange(from: number, to: number): Promise<void> {
 }
 
 async function tick(): Promise<void> {
+  if (Date.now() - lastRpcHealthCheckAt >= RPC_HEALTH_CHECK_INTERVAL_MS) {
+    const health = await rpcPool.checkLedgerAgreement();
+    lastRpcHealthCheckAt = Date.now();
+    const lagging = health.filter((endpoint) => endpoint.lastError?.startsWith('Ledger '));
+    if (lagging.length > 0) {
+      logger.warn('Indexer RPC providers disagree on ledger; lagging providers disabled', {
+        endpoints: lagging.map(({ url, latestLedger, lastError }) => ({ url, latestLedger, lastError })),
+      });
+    }
+  }
+
   const [cursor, latest] = await Promise.all([getCursor(), getLatestLedger()]);
 
   // Handle reorgs: a ledger that moved backwards rewinds via reorg-handler,
@@ -292,7 +317,11 @@ export async function startIndexer(): Promise<void> {
   }
 
   running = true;
-  logger.info('Indexer: started', { rpcUrl: RPC_URL, contractId: CONTRACT_ID, network: _network });
+  logger.info('Indexer: started', {
+    rpcProviderCount: RPC_URLS.length,
+    contractId: CONTRACT_ID,
+    network: _network,
+  });
 
   while (running) {
     try {

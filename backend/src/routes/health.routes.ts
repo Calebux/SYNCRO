@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { SorobanRpc, Keypair, Networks, Asset, Horizon } from '@stellar/stellar-sdk';
+import { rpc as SorobanRpc, Keypair, Networks, Asset, Horizon } from '@stellar/stellar-sdk';
 
 const router = Router();
 const prisma = new PrismaClient();
