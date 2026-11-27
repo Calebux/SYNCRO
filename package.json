@@ -18,7 +18,7 @@
   ],
   "scripts": {
     "prepare": "node -e \"try{require('fs').accessSync('.git');require('child_process').execSync('chmod +x .husky/pre-commit',{stdio:'ignore'})}catch(e){}\"",
-    "build": "turbo run build",
+    "build": "node init && turbo run build",
     "test": "turbo run test",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck --filter=!@syncro/contracts && npm run typecheck:root",
@@ -43,7 +43,7 @@
     "cleanup:migrations": "node scripts/cleanup-duplicate-migrations.js",
     "bootstrap": "node scripts/bootstrap.mjs",
     "seed:v3": "node backend/scripts/seed-v3.mjs",
-    "dev": "docker compose up -d",
+    "dev": "node init && docker compose up -d",
     "reset": "docker compose down -v",
     "doctor": "node scripts/doctor.mjs",
     "changeset": "changeset",

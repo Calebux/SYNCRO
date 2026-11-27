@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
 /**
- * Validates repository issue governance, triage policy, and labels taxonomy.
- * Fails CI if label definitions, triage policies, or templates drift from the taxonomy.
+ * Validates repository issue governance, triage policy, labels taxonomy,
+ * and the versioning policy / compatibility matrix.
+ * Fails CI if label definitions, triage policies, templates, or versioning
+ * documentation drift from the taxonomy.
  *
  * Usage: node scripts/check-issue-governance.js
  * Exit code: 0 if valid, 1 if invalid
@@ -50,6 +52,17 @@ const EXPECTED_LABELS = [
   'status:blocked',
   'status:wontfix',
   'status:done'
+];
+
+/** Required sections/terms in the versioning policy document. */
+const VERSIONING_POLICY_REQUIRED_PHRASES = [
+  'semver',
+  'gateway',
+  'compatibility matrix',
+  'deprecation window',
+  'contract',
+  '#1435',
+  'release checklist'
 ];
 
 function parseLabelsYaml(content) {
@@ -173,6 +186,54 @@ function checkTriagePolicy() {
   return errors;
 }
 
+function checkVersioningPolicy() {
+  const errors = [];
+  const policyPath = path.join(REPO_ROOT, 'docs', 'versioning-policy.md');
+
+  if (!fs.existsSync(policyPath)) {
+    return ['File docs/versioning-policy.md does not exist'];
+  }
+
+  try {
+    const content = fs.readFileSync(policyPath, 'utf8');
+    const lower = content.toLowerCase();
+
+    for (const phrase of VERSIONING_POLICY_REQUIRED_PHRASES) {
+      if (!lower.includes(phrase.toLowerCase())) {
+        errors.push(`Versioning policy lacks mention of "${phrase}"`);
+      }
+    }
+
+    if (content.includes('file://')) {
+      errors.push('Versioning policy must not contain absolute file:// links');
+    }
+  } catch (err) {
+    errors.push(`Failed to read versioning policy: ${err.message}`);
+  }
+
+  return errors;
+}
+
+function checkReleaseChecklist() {
+  const errors = [];
+  const checklistPath = path.join(REPO_ROOT, 'docs', 'release-checklist.md');
+
+  if (!fs.existsSync(checklistPath)) {
+    return ['File docs/release-checklist.md does not exist'];
+  }
+
+  try {
+    const content = fs.readFileSync(checklistPath, 'utf8');
+    if (!/compatibility matrix/i.test(content)) {
+      errors.push('Release checklist must include an item to update the compatibility matrix');
+    }
+  } catch (err) {
+    errors.push(`Failed to read release checklist: ${err.message}`);
+  }
+
+  return errors;
+}
+
 function checkTemplates() {
   const errors = [];
   const templates = ['bug_report.md', 'feature_request.md'];
@@ -214,7 +275,7 @@ function checkTemplates() {
 function main() {
   let allErrors = [];
 
-  console.log('🔍 Checking issue governance and labels taxonomy...');
+  console.log('🔍 Checking issue governance, labels taxonomy, and versioning policy...');
 
   const labelErrors = checkLabels();
   if (labelErrors.length > 0) {
@@ -224,6 +285,16 @@ function main() {
   const policyErrors = checkTriagePolicy();
   if (policyErrors.length > 0) {
     allErrors = allErrors.concat(policyErrors.map(e => `[Policy] ${e}`));
+  }
+
+  const versioningErrors = checkVersioningPolicy();
+  if (versioningErrors.length > 0) {
+    allErrors = allErrors.concat(versioningErrors.map(e => `[Versioning] ${e}`));
+  }
+
+  const checklistErrors = checkReleaseChecklist();
+  if (checklistErrors.length > 0) {
+    allErrors = allErrors.concat(checklistErrors.map(e => `[Release] ${e}`));
   }
 
   const templateErrors = checkTemplates();
@@ -239,7 +310,7 @@ function main() {
     process.exit(1);
   }
 
-  console.log('\n✅ Issue Governance and Labels Taxonomy verified successfully!');
+  console.log('\n✅ Issue Governance, Labels Taxonomy, and Versioning Policy verified successfully!');
 }
 
 if (require.main === module) {
@@ -248,8 +319,11 @@ if (require.main === module) {
 
 module.exports = {
   EXPECTED_LABELS,
+  VERSIONING_POLICY_REQUIRED_PHRASES,
   parseLabelsYaml,
   checkLabels,
   checkTriagePolicy,
+  checkVersioningPolicy,
+  checkReleaseChecklist,
   checkTemplates
 };

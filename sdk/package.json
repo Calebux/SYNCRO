@@ -1,7 +1,7 @@
 {
   "name": "@syncro/sdk",
   "version": "3.0.0",
-  "description": "Official SDK for the SYNCRO Payments Platform — v3 major release with subscription APIs removed",
+  "description": "Official SDK for the SYNCRO Payments Platform \u2014 v3 major release with subscription APIs removed",
   "packageManager": "npm@10.9.2",
   "type": "module",
   "sideEffects": false,
@@ -146,7 +146,7 @@
     "check:gateway-taxonomy": "node scripts/check-gateway-taxonomy.cjs",
     "generate": "npm run generate:contracts && npm run generate:gateway-errors",
     "prebuild": "npm run generate:contracts && npm run generate:gateway-errors",
-    "build": "tsup",
+    "build": "node init && tsup",
     "test": "jest",
     "test:integration": "bash scripts/run-integration.sh",
     "test:browser": "jest --config jest.browser.config.js",

@@ -1,23 +1,23 @@
 {
-  "name":"@therapotics/backend",
-  "version":"0.0.0",
-  "private":true,
-  "type":"module",
-  "scripts":{
-    "build":"tsc -p tsconfig.json",
-    "test":"vitest run",
-    "typecheck":"tsc -p tsconfig.json --noEmit",
-    "dev":"tsx watch src/index.ts",
-    "seed:v3":"node scripts/seed-v3.mjs",
-    "start":"node dist/index.js"
+  "name": "@therapotics/backend",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node init && tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "node init && tsx watch src/index.ts",
+    "seed:v3": "node scripts/seed-v3.mjs",
+    "start": "node init && node dist/index.js"
   },
-  "dependencies":{
-    "@therapotics/metering":"*",
-    "googleapis":"^186.0.0"
+  "dependencies": {
+    "@therapotics/metering": "*",
+    "googleapis": "^186.0.0"
   },
-  "devDependencies":{
-    "typescript":"^5.4.0",
-    "vitest":"^1.6.0",
-    "tsx":"^4.7.0"
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0",
+    "tsx": "^4.7.0"
   }
 }
