@@ -89,6 +89,7 @@ This index catalogs all documentation in the SYNCRO repository, organized by cat
 - [label-migration.md](label-migration.md) - Label migration guide
 
 ### Project Management
+- [ECOSYSTEM_ROADMAP.md](ECOSYSTEM_ROADMAP.md) - Post-v3 rewrite ecosystem roadmap (SDKs, integrations, protocol interop)
 - [ROADMAP.md](ROADMAP.md) - Project roadmap
 - [DOCUMENTATION_VALIDATION.md](DOCUMENTATION_VALIDATION.md) - Doc validation
 - [repo-issue-backlog-2026-05.md](repo-issue-backlog-2026-05.md) - Issue backlog
