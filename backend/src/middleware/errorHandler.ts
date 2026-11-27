@@ -69,14 +69,15 @@ export const errorHandler = (
   });
 
   // Don't leak internals in production
-  res.status(500).json({
-    type: 'https://syncro.app/errors/internal',
-    title: 'Internal Server Error',
-    status: 500,
-    detail: process.env.NODE_ENV === 'production' 
-      ? 'An unexpected error occurred.' 
-      : err.message,
-    instance,
-    requestId,
-  });
+  res
+    .status(500)
+    .type('application/problem+json')
+    .json({
+      type: 'https://syncro.app/errors/internal',
+      title: 'Internal Server Error',
+      status: 500,
+      detail: 'An unexpected error occurred.',
+      instance,
+      requestId,
+    });
 };

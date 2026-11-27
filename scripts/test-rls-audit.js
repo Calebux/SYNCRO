@@ -11,8 +11,14 @@ const { createClient } = require('@supabase/supabase-js');
 
 // Test configuration
 const SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:54321';
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!SUPABASE_SERVICE_ROLE_KEY) {
+  console.error('ERROR: SUPABASE_SERVICE_ROLE_KEY environment variable is required.');
+  console.error('  export SUPABASE_SERVICE_ROLE_KEY=<your-local-service-role-key>');
+  console.error('  See scripts/README.md for how to obtain the local key from `supabase status`.');
+  process.exit(1);
+}
 
 async function testRLSAudit() {
   console.log('🧪 Testing RLS Audit Script...');

@@ -1,0 +1,13 @@
+{
+  "id": "spotify-en-new-releases",
+  "merchant": "Spotify",
+  "locale": "en",
+  "kind": "negative",
+  "notes": "Clear negative: marketing email from a merchant the user does subscribe to.",
+  "email": {
+    "subject": "New releases for you this week",
+    "from": "Spotify <news@spotify.com>",
+    "body": "Here is what dropped this week from artists you follow. Open the app to listen."
+  },
+  "expected": null
+}

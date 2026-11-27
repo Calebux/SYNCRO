@@ -1,0 +1,19 @@
+{
+  "network": "testnet",
+  "deployed_at": null,
+  "deployed_ledger": null,
+  "deployer_address": null,
+  "commit_sha": null,
+  "contracts": {
+    "zk_payment_verifier": {
+      "contract_id": null,
+      "wasm_hash": null,
+      "version": null
+    },
+    "contract_upgrade": {
+      "contract_id": null,
+      "wasm_hash": null,
+      "version": null
+    }
+  }
+}

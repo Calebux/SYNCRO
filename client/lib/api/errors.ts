@@ -11,6 +11,8 @@ import { ZodError } from 'zod'
  * Custom API Error Class
  */
 export class ApiException extends Error {
+  public headers?: Record<string, string>
+
   constructor(
     public code: ErrorCode,
     public message: string,
@@ -88,12 +90,13 @@ export const ApiErrors = {
  * Convert Zod validation errors to API errors
  */
 export function zodErrorToApiError(error: ZodError): ApiException {
-  const firstError = error.errors[0]
+  const issues = error.issues
+  const firstError = issues[0]
   const field = firstError?.path.join('.')
   const message = firstError?.message || 'Validation failed'
 
   return ApiErrors.validationError(message, field, {
-    errors: error.errors.map((e) => ({
+    errors: issues.map((e) => ({
       field: e.path.join('.'),
       message: e.message,
       code: e.code,
@@ -119,7 +122,10 @@ export function createErrorResponse(
           requestId,
         },
       },
-      { status: error.statusCode }
+      {
+        status: error.statusCode,
+        headers: error.headers,
+      },
     )
   }
 
@@ -199,4 +205,3 @@ export function withErrorHandling<T extends unknown[]>(
     }
   }
 }
-

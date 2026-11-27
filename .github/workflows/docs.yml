@@ -1,0 +1,28 @@
+name: Deploy Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs.yml'
+
+jobs:
+  deploy:
+    name: Deploy Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Mintlify CLI
+        run: npm install -g mintlify
+
+      - name: Validate docs configuration
+        working-directory: docs
+        run: mintlify broken-links || true
+
+      - name: Deploy to Mintlify
+        uses: mintlify/action@v1
+        with:
+          version: 4

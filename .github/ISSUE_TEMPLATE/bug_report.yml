@@ -1,0 +1,119 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in SYNCRO
+title: "[BUG] "
+labels: ["status:triage", "type:bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this bug. Please fill out the form below with as much detail as possible.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of SYNCRO is affected?
+      options:
+        - Frontend
+        - Backend
+        - Blockchain
+        - Data
+        - Documentation
+        - Operations
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: How severe is this bug?
+      options:
+        - Critical (blocks production or major functionality)
+        - High (significant impact on functionality)
+        - Medium (affects functionality but workaround exists)
+        - Low (minor issue or cosmetic)
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Clear description of the bug
+      placeholder: Describe what's wrong...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Detailed steps to reproduce the behavior
+      placeholder: |
+        1. Go to...
+        2. Click on...
+        3. See error...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What should happen?
+      placeholder: Describe the expected behavior...
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happens?
+      placeholder: Describe what actually happens...
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      description: "REQUIRED: Define when this bug is considered fixed"
+      placeholder: |
+        - [ ] The system behaves as described in Expected Behavior
+        - [ ] No regressions in related functionality
+        - [ ] Tests added to prevent regression
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Where did this happen?
+      placeholder: |
+        - OS: 
+        - Browser / Node version: 
+        - SYNCRO version / commit: 
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and Screenshots
+      description: Add logs, error messages, or screenshots
+      placeholder: Paste logs or drag images here...
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other relevant information
+      placeholder: Related issues, attempted fixes, etc...
+    validations:
+      required: false

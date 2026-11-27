@@ -1,0 +1,18 @@
+{
+  "id": "spotify-de-monthly-receipt",
+  "merchant": "Spotify",
+  "locale": "de",
+  "kind": "positive",
+  "notes": "German receipt, comma decimal separator, no English keywords.",
+  "email": {
+    "subject": "Deine Spotify Rechnung",
+    "from": "Spotify <no-reply@spotify.com>",
+    "body": "Hallo,\n\ndein Abonnement wurde verlaengert. Wir haben EUR 10,99 pro Monat abgebucht.\n\nDanke."
+  },
+  "expected": {
+    "name": "Spotify",
+    "amount": 10.99,
+    "currency": "EUR",
+    "interval": "monthly"
+  }
+}

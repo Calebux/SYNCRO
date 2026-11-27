@@ -1,0 +1,116 @@
+name: Load/Perf Tests (Nightly)
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+env:
+  K6_VERSION: "0.54.0"
+  BASE_URL: ${{ vars.BASE_URL || 'http://localhost:3000' }}
+
+jobs:
+  reminder-load-test:
+    name: Reminder Job Scenarios
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install k6
+        run: |
+          curl -sL "https://github.com/grafana/k6/releases/download/v${K6_VERSION}/k6-v${K6_VERSION}-linux-amd64.tar.gz" | tar xz --strip=1 -C /usr/local/bin k6-v${K6_VERSION}-linux-amd64/k6
+
+      - name: Run reminder process scenario
+        run: |
+          k6 run tests/load-testing/load-test-reminders.js             --env BASE_URL=${{ env.BASE_URL }}             --env ADMIN_API_KEY=${{ secrets.ADMIN_API_KEY }}             --env SCENARIO=process             --tag test_run=nightly             --summary-export=/tmp/k6-reminder-process.json
+        continue-on-error: true
+
+      - name: Run reminder schedule scenario
+        run: |
+          k6 run tests/load-testing/load-test-reminders.js             --env BASE_URL=${{ env.BASE_URL }}             --env ADMIN_API_KEY=${{ secrets.ADMIN_API_KEY }}             --env SCENARIO=schedule             --tag test_run=nightly             --summary-export=/tmp/k6-reminder-schedule.json
+        continue-on-error: true
+
+      - name: Run reminder retry scenario
+        run: |
+          k6 run tests/load-testing/load-test-reminders.js             --env BASE_URL=${{ env.BASE_URL }}             --env ADMIN_API_KEY=${{ secrets.ADMIN_API_KEY }}             --env SCENARIO=retry             --tag test_run=nightly             --summary-export=/tmp/k6-reminder-retry.json
+        continue-on-error: true
+
+      - name: Run reminder status scenario
+        run: |
+          k6 run tests/load-testing/load-test-reminders.js             --env BASE_URL=${{ env.BASE_URL }}             --env SCENARIO=status             --tag test_run=nightly             --summary-export=/tmp/k6-reminder-status.json
+        continue-on-error: true
+
+      - name: Upload reminder test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: k6-reminder-results
+          path: /tmp/k6-reminder-*.json
+          retention-days: 7
+
+  renewal-load-test:
+    name: Renewal Orchestrator Scenarios
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install k6
+        run: |
+          curl -sL "https://github.com/grafana/k6/releases/download/v${K6_VERSION}/k6-v${K6_VERSION}-linux-amd64.tar.gz" | tar xz --strip=1 -C /usr/local/bin k6-v${K6_VERSION}-linux-amd64/k6
+
+      - name: Run renewal execution scenario
+        run: |
+          k6 run tests/load-testing/load-test-renewals.js             --env BASE_URL=${{ env.BASE_URL }}             --env ADMIN_API_KEY=${{ secrets.ADMIN_API_KEY }}             --env AUTH_TOKEN=${{ secrets.AUTH_TOKEN }}             --env SCENARIO=renewal_execution             --tag test_run=nightly             --summary-export=/tmp/k6-renewal-exec.json
+        continue-on-error: true
+
+      - name: Run dead letter query scenario
+        run: |
+          k6 run tests/load-testing/load-test-renewals.js             --env BASE_URL=${{ env.BASE_URL }}             --env ADMIN_API_KEY=${{ secrets.ADMIN_API_KEY }}             --env SCENARIO=dead_letter_query             --tag test_run=nightly             --summary-export=/tmp/k6-renewal-dlq.json
+        continue-on-error: true
+
+      - name: Run renewal metrics scenario
+        run: |
+          k6 run tests/load-testing/load-test-renewals.js             --env BASE_URL=${{ env.BASE_URL }}             --env ADMIN_API_KEY=${{ secrets.ADMIN_API_KEY }}             --env SCENARIO=renewal_metrics             --tag test_run=nightly             --summary-export=/tmp/k6-renewal-metrics.json
+        continue-on-error: true
+
+      - name: Upload renewal test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: k6-renewal-results
+          path: /tmp/k6-renewal-*.json
+          retention-days: 7
+
+  summarize:
+    name: Summarize Load Test Results
+    runs-on: ubuntu-latest
+    needs: [reminder-load-test, renewal-load-test]
+    if: always()
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Print summary
+        run: |
+          echo "## Load Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Reminder Job Scenarios" >> $GITHUB_STEP_SUMMARY
+          for f in k6-reminder-results/*.json; do
+            if [ -f "$f" ]; then
+              echo "- \`$(basename $f .json)\`" >> $GITHUB_STEP_SUMMARY
+              cat "$f" | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'  - p95: {d.get("metrics",{}).get("http_req_duration",{}).get("p(95)","N/A")}ms')" >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+            fi
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Renewal Orchestrator Scenarios" >> $GITHUB_STEP_SUMMARY
+          for f in k6-renewal-results/*.json; do
+            if [ -f "$f" ]; then
+              echo "- \`$(basename $f .json)\`" >> $GITHUB_STEP_SUMMARY
+              cat "$f" | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'  - p95: {d.get("metrics",{}).get("http_req_duration",{}).get("p(95)","N/A")}ms')" >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+            fi
+          done

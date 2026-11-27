@@ -1,0 +1,161 @@
+name: Rollback Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to roll back'
+        required: true
+        type: choice
+        default: production
+        options: [production, staging]
+      deployment_url:
+        description: 'Specific Vercel deployment URL to roll back to (leave empty to use last known good)'
+        required: false
+        type: string
+      reason:
+        description: 'Reason for rollback (included in Slack notification)'
+        required: true
+        type: string
+
+jobs:
+  rollback:
+    name: Rollback ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event.inputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Notify Slack — rollback initiated
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          [ -z "$SLACK_WEBHOOK_URL" ] && exit 0
+          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "text": "🔄 Rollback initiated by ${{ github.actor }}",
+              "blocks": [{
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*🔄 Rollback Initiated*\n*Environment:* ${{ github.event.inputs.environment }}\n*Initiated by:* ${{ github.actor }}\n*Reason:* ${{ github.event.inputs.reason }}\n\nRolling back now..."
+                }
+              }]
+            }'
+
+      - name: Find previous stable deployment
+        id: find_deployment
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          TARGET_URL="${{ github.event.inputs.deployment_url }}"
+
+          if [ -n "$TARGET_URL" ]; then
+            echo "Using specified deployment: $TARGET_URL"
+            echo "target_url=$TARGET_URL" >> $GITHUB_OUTPUT
+          else
+            echo "Finding previous production deployment..."
+            # Get list of recent deployments and pick the one before current production
+            DEPLOYMENTS=$(vercel ls --token=$VERCEL_TOKEN --scope=$VERCEL_ORG_ID 2>/dev/null | grep 'production' | awk '{print $1}')
+            PREVIOUS=$(echo "$DEPLOYMENTS" | sed -n '2p')
+            if [ -z "$PREVIOUS" ]; then
+              echo "❌ Could not find a previous deployment to roll back to"
+              exit 1
+            fi
+            TARGET_URL="https://$PREVIOUS.vercel.app"
+            echo "Found previous deployment: $TARGET_URL"
+            echo "target_url=$TARGET_URL" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Verify target deployment is healthy
+        run: |
+          TARGET="${{ steps.find_deployment.outputs.target_url }}"
+          echo "Checking health of rollback target: $TARGET"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 "$TARGET")
+          if [ "$STATUS" != "200" ]; then
+            echo "⚠️  Target deployment returned HTTP $STATUS — proceeding anyway"
+          else
+            echo "✅ Target deployment is healthy (HTTP 200)"
+          fi
+
+      - name: Execute rollback — promote previous deployment
+        id: rollback
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          TARGET="${{ steps.find_deployment.outputs.target_url }}"
+          DOMAIN="${{ secrets.PRODUCTION_DOMAIN }}"
+
+          echo "Aliasing $TARGET to $DOMAIN ..."
+          vercel alias "$TARGET" "$DOMAIN" \
+            --token=$VERCEL_TOKEN --scope=$VERCEL_ORG_ID
+
+          echo "rollback_target=$TARGET" >> $GITHUB_OUTPUT
+          echo "✅ Rollback complete — $DOMAIN now points to $TARGET"
+
+      - name: Verify production health after rollback
+        id: verify
+        run: |
+          PROD="https://${{ secrets.PRODUCTION_DOMAIN }}"
+          sleep 10
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$PROD/api/health")
+            if [ "$STATUS" = "200" ]; then
+              echo "health_ok=true" >> $GITHUB_OUTPUT
+              echo "✅ Production health verified after rollback"
+              exit 0
+            fi
+            echo "Attempt $i: HTTP $STATUS — retrying in 10s"
+            sleep 10
+          done
+          echo "health_ok=false" >> $GITHUB_OUTPUT
+          echo "⚠️  Health check did not confirm 200 — verify manually"
+
+      - name: Notify Slack — rollback complete
+        if: success()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          [ -z "$SLACK_WEBHOOK_URL" ] && exit 0
+          HEALTH_ICON=${{ steps.verify.outputs.health_ok == 'true' && '✅' || '⚠️' }}
+          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "text": "✅ Rollback completed successfully",
+              "blocks": [{
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*✅ Rollback Complete*\n*Environment:* ${{ github.event.inputs.environment }}\n*Rolled back to:* ${{ steps.rollback.outputs.rollback_target }}\n*Initiated by:* ${{ github.actor }}\n*Reason:* ${{ github.event.inputs.reason }}\n*Health check:* ${{ steps.verify.outputs.health_ok == '\''true'\'' && '\''✅ Passed'\'' || '\''⚠️  Check manually'\'' }}\n\nSee <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow run> for details."
+                }
+              }]
+            }'
+
+      - name: Notify Slack — rollback failed
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          [ -z "$SLACK_WEBHOOK_URL" ] && exit 0
+          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "text": "❌ Rollback FAILED — manual intervention required",
+              "blocks": [{
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*❌ ROLLBACK FAILED*\n*Environment:* ${{ github.event.inputs.environment }}\n*Initiated by:* ${{ github.actor }}\n*Reason:* ${{ github.event.inputs.reason }}\n\n*MANUAL INTERVENTION REQUIRED* — check <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow run> immediately."
+                }
+              }]
+            }'

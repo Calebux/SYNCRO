@@ -19,6 +19,13 @@ export const auditBatchSchema = z.object({
     .max(100, 'maximum 100 events per batch'),
 });
 
+/** Query params for the hash-chain verification endpoint (issue #1081). */
+export const auditVerifyQuerySchema = z.object({
+  startSequence: z.coerce.number().int().min(1).optional(),
+  endSequence: z.coerce.number().int().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(10000).default(1000),
+});
+
 export const auditQuerySchema = z.object({
   action: z.string().max(100).optional(),
   resourceType: z.string().max(100).optional(),

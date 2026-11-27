@@ -1,927 +1,1288 @@
+//! # Agent Spend-Cap Contract
+//!
+//! A principal issues a spend cap to an agent, denominated in token units, for
+//! a fixed period.  The gateway calls [`AgentSpendCapContract::can_transact`]
+//! before forwarding a paid request and calls
+//! [`AgentSpendCapContract::record_spend`] to settle once the request completes.
+//!
+//! ## Design decisions
+//!
+//! **Admission-only enforcement**
+//! The cap is checked *and* consumed at admission (`can_transact` + internal
+//! atomic debit), not at settlement.  This makes enforcement synchronous with
+//! the request decision and avoids a settlement window where the agent could
+//! race multiple concurrent requests against the same headroom.
+//!
+//! **No rollover**
+//! Unused allowance does NOT carry forward into the next period.  This bounds
+//! the principal's worst-case exposure: a cap of N means the agent can spend
+//! at most N per period, not N × (missed_periods + 1).
+//!
+//! **Period rollover**
+//! At the start of a new period the `consumed` counter resets to zero
+//! automatically (lazy evaluation on admission/query, no cron needed).
+//!
+//! **Scoped caps (issue #1658)**
+//! A cap may carry an optional scope key (a provider id or route scope encoded
+//! as a `Symbol`, e.g. `inference`, `storage`).  `can_transact_scoped` debits
+//! every cap of the `(principal, agent)` pair that matches the request: the
+//! cap scoped to the requested key AND any unscoped cap (which acts as an
+//! overall ceiling).  All matching caps must have headroom or nothing is
+//! debited.  An agent that exhausted its `inference` cap can therefore still
+//! spend under its `storage` cap.  `can_transact(cap_id, ..)` is unchanged and
+//! debits exactly the named cap, so unscoped caps behave as before.
+//!
+//! **Suspend / resume**
+//! A principal may suspend a cap at any time; suspended caps fail admission
+//! with a distinct `CapSuspended` error, separate from `CapExceeded`.
+
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, vec, Address, Env, String, Vec};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec,
+};
+use syncro_contract_common as syncro_common;
 
-// ── Storage keys ──────────────────────────────────────────────────────────────
+// ============================================================================
+// Constants
+// ============================================================================
 
-#[contracttype]
-#[derive(Clone)]
-enum DataKey {
-    Card(u64),
-    CardCount,
-    AdminList,
-    Threshold,
-    IssuerParams,
-    PendingOp(u64),
-    OpCount,
-}
+/// Minimum challenge / period length: 1 hour in seconds.
+pub const MIN_PERIOD_SECS: u64 = 3_600;
+/// Maximum challenge / period length: 1 year in seconds.
+pub const MAX_PERIOD_SECS: u64 = 365 * 24 * 3_600;
+/// Maximum number of caps one principal may issue to one agent.  Bounds the
+/// work `can_transact_scoped` does per call.
+pub const MAX_CAPS_PER_PAIR: u32 = 32;
 
-// ── Data types ────────────────────────────────────────────────────────────────
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum CardStatus {
-    Active,
-    Revoked,
-}
-
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct VirtualCard {
-    pub id: u64,
-    pub holder: Address,
-    pub issued_at: u64,
-    pub expires_at: u64,
-    pub status: CardStatus,
-    pub reference: String,
-}
-
-// ── Multi-sig administration types ─────────────────────────────────────────────
-
-#[contracttype]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum OpAction {
-    SetPaused(bool),
-    SetMaxExpiry(u64),
-    SetMaxActiveCards(u32),
-    AddAdmin(Address),
-    RemoveAdmin(Address),
-    ChangeThreshold(u32),
-}
-
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct IssuerParams {
-    pub max_expiry_seconds: u64,
-    pub max_active_cards: u32,
-    pub paused: bool,
-}
-
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct PendingOperation {
-    pub id: u64,
-    pub action: OpAction,
-    pub description: String,
-    pub proposed_by: Address,
-    pub signers: Vec<Address>,
-    pub created_at: u64,
-    pub executed: bool,
-}
+// ============================================================================
+// Error types
+// ============================================================================
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
-pub enum VirtualCardError {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    NotAdmin = 3,
-    ThresholdNotMet = 4,
-    OperationNotFound = 5,
-    AlreadySigned = 6,
-    AlreadyExecuted = 7,
-    InvalidThreshold = 8,
-    AdminNotFound = 9,
-    AdminAlreadyExists = 10,
-    WouldRemoveAllAdmins = 11,
-    ThresholdExceedsAdmins = 12,
-    CardAlreadyRevoked = 13,
-    OpExpired = 14,
-    ContractPaused = 15,
+pub enum SpendCapError {
+    /// The cap record does not exist.
+    CapNotFound = 1,
+    /// Caller is not the principal that issued the cap.
+    Unauthorized = 2,
+    /// The cap is suspended; no spending allowed.
+    CapSuspended = 3,
+    /// The requested amount would exceed the remaining allowance.
+    CapExceeded = 4,
+    /// A numeric parameter was out of the accepted range.
+    InvalidInput = 5,
+    /// The contract counter overflowed (practically unreachable).
+    CounterOverflow = 6,
+    /// The cap has already been issued for this (principal, agent) pair.
+    DuplicateCap = 7,
+    /// The period length is outside the contract-enforced bounds.
+    InvalidPeriod = 8,
+    /// No cap of the (principal, agent) pair matches the requested scope.
+    NoMatchingCap = 9,
+    /// The (principal, agent) pair already has `MAX_CAPS_PER_PAIR` caps.
+    TooManyCaps = 10,
+    /// The contract is already initialized.
+    AlreadyInitialized = 11,
+    /// The contract has no admin yet (init not called).
+    NotInitialized = 12,
+    /// No admin transfer is in progress.
+    NoPendingAdmin = 13,
+    /// The caller is not the nominated pending admin.
+    NotPendingAdmin = 14,
 }
 
-// ── Events ────────────────────────────────────────────────────────────────────
+// ============================================================================
+// Storage keys
+// ============================================================================
 
-#[contractevent]
-pub struct CardIssued {
-    pub card_id: u64,
-    pub holder: Address,
+#[contracttype]
+#[derive(Clone)]
+pub enum DataKey {
+    /// Contract admin (issue #1659: enables admin-key rotation without
+    /// redeploying). Unset until `init` is called.
+    Admin,
+    /// Address nominated to become admin; absent when no transfer is active.
+    PendingAdmin,
+    /// Spend cap record keyed by its numeric cap_id.
+    Cap(u64),
+    /// Global cap counter.
+    CapCounter,
+    /// Optional scope key of a cap (`Symbol`).  Key absent => unscoped cap.
+    /// Kept in its own entry so caps stored before issue #1658 still decode:
+    /// the `SpendCap` struct layout is unchanged.
+    CapScope(u64),
+    /// Ids of every cap issued for a (principal, agent) pair, in issue order.
+    /// Caps issued before issue #1658 are not in this index.
+    PairCaps(Address, Address),
 }
 
-#[contractevent]
-pub struct CardRevoked {
-    pub card_id: u64,
-    pub holder: Address,
+// ============================================================================
+// Data types
+// ============================================================================
+
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CapStatus {
+    Active = 1,
+    Suspended = 2,
 }
 
-#[contractevent]
-pub struct OperationProposed {
-    pub op_id: u64,
-    pub proposed_by: Address,
+/// A spend cap issued by `principal` to `agent`.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct SpendCap {
+    /// Unique identifier, auto-assigned.
+    pub id: u64,
+    /// The address that controls (and funded) this cap.
+    pub principal: Address,
+    /// The agent whose requests are gated by this cap.
+    pub agent: Address,
+    /// Maximum spend allowed per period, in token units.
+    pub allowance: i128,
+    /// How much of the current period's allowance has been consumed.
+    pub consumed: i128,
+    /// Length of each cap period in seconds.
+    pub period_secs: u64,
+    /// Ledger timestamp at which the current period started.
+    pub period_started_at: u64,
+    /// Whether the cap is currently usable.
+    pub status: CapStatus,
 }
 
-#[contractevent]
-pub struct OperationSigned {
-    pub op_id: u64,
-    pub signer: Address,
-    pub current_count: u32,
+impl SpendCap {
+    /// Remaining headroom for the current period.
+    pub fn remaining(&self) -> i128 {
+        self.allowance.saturating_sub(self.consumed)
+    }
+
+    /// True when the current ledger time has crossed into a new period.
+    pub fn period_has_rolled(&self, now: u64) -> bool {
+        now >= self.period_started_at.saturating_add(self.period_secs)
+    }
+
+    /// Roll the period forward (lazy, called on first access in a new period).
+    /// Unused allowance is discarded — no carryover by design.
+    pub fn roll_period(&mut self, now: u64) {
+        if self.period_has_rolled(now) {
+            // Advance the window: find the start of the current period.
+            let elapsed = now.saturating_sub(self.period_started_at);
+            let periods_elapsed = elapsed / self.period_secs;
+            self.period_started_at = self
+                .period_started_at
+                .saturating_add(periods_elapsed * self.period_secs);
+            self.consumed = 0;
+        }
+    }
 }
 
-#[contractevent]
-pub struct OperationExecuted {
-    pub op_id: u64,
-    pub action: u32,
-}
-
-#[contractevent]
-pub struct ParamsUpdated {
-    pub max_expiry_seconds: u64,
-    pub max_active_cards: u32,
-    pub paused: bool,
-}
-
-// ── Contract ──────────────────────────────────────────────────────────────────
+// ============================================================================
+// Contract
+// ============================================================================
 
 #[contract]
-pub struct VirtualCardContract;
+pub struct AgentSpendCapContract;
 
 #[contractimpl]
-impl VirtualCardContract {
-    // ── Initialization ────────────────────────────────────────────
+impl AgentSpendCapContract {
+    // ── Admin (two-step transfer, issue #1659) ────────────────────────────────
 
-    /// Initialize the contract with a multi-sig admin setup.
+    /// Initialize the contract with an admin address. Required before any
+    /// admin transfer; cap issuance itself stays principal-gated.
+    pub fn init(env: Env, admin: Address) -> Result<(), SpendCapError> {
+        if env.storage().instance().has(&DataKey::Admin) {
+            return Err(SpendCapError::AlreadyInitialized);
+        }
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        syncro_common::ttl::extend_instance(&env);
+        Ok(())
+    }
+
+    fn require_admin(env: &Env) -> Result<Address, SpendCapError> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(SpendCapError::NotInitialized)?;
+        admin.require_auth();
+        syncro_common::ttl::extend_instance(env);
+        Ok(admin)
+    }
+
+    /// Read the current admin address.
+    pub fn get_admin(env: Env) -> Result<Address, SpendCapError> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(SpendCapError::NotInitialized)
+    }
+
+    /// Read the pending admin address, if a transfer is in progress.
+    pub fn get_pending_admin(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::PendingAdmin)
+    }
+
+    /// Step 1 of admin handover: the current admin nominates `new_admin`.
+    /// Shared two-step pattern (issue #1659); see `syncro_common::admin`.
+    pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), SpendCapError> {
+        Self::require_admin(&env)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingAdmin, &new_admin);
+        env.events()
+            .publish(syncro_common::admin::topic_init(), new_admin);
+        Ok(())
+    }
+
+    /// Cancel an in-progress admin handover. Current admin only.
+    pub fn cancel_transfer_admin(env: Env) -> Result<(), SpendCapError> {
+        Self::require_admin(&env)?;
+        if !env.storage().instance().has(&DataKey::PendingAdmin) {
+            return Err(SpendCapError::NoPendingAdmin);
+        }
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.events()
+            .publish(syncro_common::admin::topic_cancel(), ());
+        Ok(())
+    }
+
+    /// Step 2: the nominated address accepts and becomes admin.
+    ///
+    /// Only the nominee may accept (`pending.require_auth()`), matching the
+    /// rule specified by `syncro_common::admin::can_accept`.
+    pub fn accept_admin(env: Env) -> Result<(), SpendCapError> {
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingAdmin)
+            .ok_or(SpendCapError::NoPendingAdmin)?;
+        pending.require_auth();
+        syncro_common::ttl::extend_instance(&env);
+        env.storage().instance().set(&DataKey::Admin, &pending);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.events()
+            .publish(syncro_common::admin::topic_accept(), pending);
+        Ok(())
+    }
+
+    // ── Issuance ─────────────────────────────────────────────────────────────
+
+    /// Issue a new spend cap.
     ///
     /// # Arguments
-    /// * `admins` — List of authorized admin addresses (must be non-empty)
-    /// * `threshold` — Minimum number of distinct admin signatures required
-    ///   to execute a sensitive operation (must be ≥ 2 and ≤ admins.len())
+    /// * `principal` — the address funding/controlling this cap (must auth)
+    /// * `agent`     — the address whose requests are gated
+    /// * `allowance` — max token units spendable per `period_secs` window
+    /// * `period_secs` — period length; must be in `[MIN_PERIOD_SECS, MAX_PERIOD_SECS]`
     ///
-    /// # Security
-    /// * Can only be called once
-    /// * Threshold of 1 is rejected (would defeat multi-sig purpose)
-    pub fn init(env: Env, admins: Vec<Address>, threshold: u32) {
-        if env.storage().instance().has(&DataKey::AdminList) {
-            panic!(VirtualCardError::AlreadyInitialized);
+    /// # Returns
+    /// The new `cap_id`.
+    pub fn issue_cap(
+        env: Env,
+        principal: Address,
+        agent: Address,
+        allowance: i128,
+        period_secs: u64,
+    ) -> Result<u64, SpendCapError> {
+        Self::issue_scoped_cap(env, principal, agent, allowance, period_secs, None)
+    }
+
+    /// Issue a spend cap limited to one provider / route scope.
+    ///
+    /// `scope` is an opaque key (e.g. `inference`, `storage`, or an id the
+    /// gateway maps a provider to), at most 32 chars of `[A-Za-z0-9_]`.
+    /// `None` issues an unscoped cap, identical to `issue_cap`.
+    ///
+    /// # Errors
+    /// Same as `issue_cap`, plus `TooManyCaps` when the pair already holds
+    /// `MAX_CAPS_PER_PAIR` caps.
+    pub fn issue_scoped_cap(
+        env: Env,
+        principal: Address,
+        agent: Address,
+        allowance: i128,
+        period_secs: u64,
+        scope: Option<Symbol>,
+    ) -> Result<u64, SpendCapError> {
+        principal.require_auth();
+
+        if allowance <= 0 {
+            return Err(SpendCapError::InvalidInput);
         }
-        if admins.is_empty() {
-            panic!(VirtualCardError::InvalidThreshold);
-        }
-        if threshold < 2 {
-            panic!(VirtualCardError::InvalidThreshold);
-        }
-        if threshold > admins.len() as u32 {
-            panic!(VirtualCardError::ThresholdExceedsAdmins);
+        if period_secs < MIN_PERIOD_SECS || period_secs > MAX_PERIOD_SECS {
+            return Err(SpendCapError::InvalidPeriod);
         }
 
-        let params = IssuerParams {
-            max_expiry_seconds: 31_536_000, // 1 year default
-            max_active_cards: 100,
-            paused: false,
+        let pair_key = DataKey::PairCaps(principal.clone(), agent.clone());
+        let mut pair_caps: Vec<u64> = syncro_common::ttl::persistent_get(&env, &pair_key)
+            .unwrap_or(Vec::new(&env));
+        if pair_caps.len() >= MAX_CAPS_PER_PAIR {
+            return Err(SpendCapError::TooManyCaps);
+        }
+
+        let cap_id = Self::next_id(&env)?;
+        let now = env.ledger().timestamp();
+
+        let cap = SpendCap {
+            id: cap_id,
+            principal: principal.clone(),
+            agent: agent.clone(),
+            allowance,
+            consumed: 0,
+            period_secs,
+            period_started_at: now,
+            status: CapStatus::Active,
         };
 
-        env.storage().instance().set(&DataKey::AdminList, &admins);
-        env.storage().instance().set(&DataKey::Threshold, &threshold);
-        env.storage().instance().set(&DataKey::IssuerParams, &params);
-        env.storage().instance().set(&DataKey::OpCount, &0u64);
-    }
+        syncro_common::ttl::persistent_set(&env, &DataKey::Cap(cap_id), &cap);
 
-    // ── Admin helpers ─────────────────────────────────────────────
+        pair_caps.push_back(cap_id);
+        syncro_common::ttl::persistent_set(&env, &pair_key, &pair_caps);
 
-    fn is_admin(env: &Env, addr: &Address) -> bool {
-        let admins: Vec<Address> = env
-            .storage()
-            .instance()
-            .get(&DataKey::AdminList)
-            .expect("not initialized");
-        admins.contains(addr)
-    }
-
-    fn require_admin(env: &Env, addr: &Address) {
-        if !Self::is_admin(env, addr) {
-            panic!(VirtualCardError::NotAdmin);
+        if let Some(scope_key) = scope {
+            syncro_common::ttl::persistent_set(&env, &DataKey::CapScope(cap_id), &scope_key);
+            env.events().publish(
+                (symbol_short!("cap"), symbol_short!("scoped")),
+                (cap_id, scope_key),
+            );
         }
-        addr.require_auth();
+
+        env.events().publish(
+            (symbol_short!("cap"), symbol_short!("issued")),
+            (cap_id, principal, agent, allowance, period_secs),
+        );
+
+        Ok(cap_id)
     }
 
-    fn get_threshold(env: &Env) -> u32 {
-        env.storage()
-            .instance()
-            .get(&DataKey::Threshold)
-            .expect("not initialized")
-    }
+    // ── Admission gate ────────────────────────────────────────────────────────
 
-    fn get_params(env: &Env) -> IssuerParams {
-        env.storage()
-            .instance()
-            .get(&DataKey::IssuerParams)
-            .expect("not initialized")
-    }
-
-    fn set_params(env: &Env, params: &IssuerParams) {
-        env.storage().instance().set(&DataKey::IssuerParams, params);
-        ParamsUpdated {
-            max_expiry_seconds: params.max_expiry_seconds,
-            max_active_cards: params.max_active_cards,
-            paused: params.paused,
-        }
-        .publish(env);
-    }
-
-    // ── Card operations ───────────────────────────────────────────
-
-    /// Issue a new virtual card to `holder`.
-    /// Returns the new card's ID.
+    /// Admission query called by the gateway **before** routing a paid request.
     ///
-    /// # Security
-    /// * Rejected when contract is paused
-    /// * Expiry is capped by `max_expiry_seconds`
-    pub fn issue_card(
+    /// Returns `Ok(remaining_after_debit)` and atomically debits `amount` from
+    /// the current period's allowance.  Any error is distinguishable by variant:
+    ///
+    /// * `CapNotFound`  — no such cap
+    /// * `CapSuspended` — cap exists but is suspended
+    /// * `CapExceeded`  — cap is active but headroom is insufficient
+    ///
+    /// The debit is applied inside this call so that concurrent requests cannot
+    /// both see positive headroom and both proceed.
+    pub fn can_transact(
         env: Env,
-        holder: Address,
-        expires_at: u64,
-        reference: String,
-    ) -> u64 {
-        holder.require_auth();
-
-        let params = Self::get_params(&env);
-        if params.paused {
-            panic!(VirtualCardError::ContractPaused);
+        cap_id: u64,
+        amount: i128,
+    ) -> Result<i128, SpendCapError> {
+        if amount <= 0 {
+            return Err(SpendCapError::InvalidInput);
         }
+
+        let mut cap: SpendCap = syncro_common::ttl::persistent_get(&env, &DataKey::Cap(cap_id))
+            .ok_or(SpendCapError::CapNotFound)?;
+
+        // Lazy period rollover — no carryover.
+        let now = env.ledger().timestamp();
+        cap.roll_period(now);
+
+        if cap.status == CapStatus::Suspended {
+            return Err(SpendCapError::CapSuspended);
+        }
+
+        let new_consumed = cap
+            .consumed
+            .checked_add(amount)
+            .ok_or(SpendCapError::InvalidInput)?;
+
+        if new_consumed > cap.allowance {
+            env.events().publish(
+                (symbol_short!("cap"), symbol_short!("exceeded")),
+                (cap_id, amount, cap.consumed, cap.allowance),
+            );
+            return Err(SpendCapError::CapExceeded);
+        }
+
+        // Atomic debit — persist before returning.
+        cap.consumed = new_consumed;
+        syncro_common::ttl::persistent_set(&env, &DataKey::Cap(cap_id), &cap);
+
+        env.events().publish(
+            (symbol_short!("cap"), symbol_short!("debited")),
+            (cap_id, amount, cap.consumed, cap.allowance),
+        );
+
+        Ok(cap.remaining())
+    }
+
+    /// Scoped admission query (issue #1658).
+    ///
+    /// Debits `amount` from EVERY cap of the `(principal, agent)` pair that
+    /// matches `scope`:
+    ///
+    /// * a cap scoped to the same key matches;
+    /// * an unscoped cap matches every request (overall ceiling);
+    /// * a cap scoped to a different key never matches;
+    /// * when `scope` is `None`, only unscoped caps match.
+    ///
+    /// All matching caps are checked first and debited together, so a failure
+    /// on one cap leaves every cap untouched.  Returns the smallest headroom
+    /// left across the matched caps (the binding constraint).
+    ///
+    /// # Errors
+    /// * `NoMatchingCap` — nothing matches the scope
+    /// * `CapSuspended`  — a matching cap is suspended
+    /// * `CapExceeded`   — a matching cap lacks headroom
+    pub fn can_transact_scoped(
+        env: Env,
+        principal: Address,
+        agent: Address,
+        scope: Option<Symbol>,
+        amount: i128,
+    ) -> Result<i128, SpendCapError> {
+        if amount <= 0 {
+            return Err(SpendCapError::InvalidInput);
+        }
+
+        let pair_caps: Vec<u64> = syncro_common::ttl::persistent_get(&env, &DataKey::PairCaps(principal, agent))
+            .unwrap_or(Vec::new(&env));
+        let now = env.ledger().timestamp();
+
+        // Pass 1: find matching caps and make sure ALL of them can pay.
+        let mut matched: Vec<SpendCap> = Vec::new(&env);
+        for cap_id in pair_caps.iter() {
+            let cap_scope: Option<Symbol> =
+                syncro_common::ttl::persistent_get(&env, &DataKey::CapScope(cap_id));
+            let matches = match (&cap_scope, &scope) {
+                (None, _) => true,
+                (Some(have), Some(want)) => have == want,
+                (Some(_), None) => false,
+            };
+            if !matches {
+                continue;
+            }
+
+            let mut cap: SpendCap = syncro_common::ttl::persistent_get(&env, &DataKey::Cap(cap_id))
+                .ok_or(SpendCapError::CapNotFound)?;
+            cap.roll_period(now);
+
+            if cap.status == CapStatus::Suspended {
+                return Err(SpendCapError::CapSuspended);
+            }
+            let new_consumed = cap
+                .consumed
+                .checked_add(amount)
+                .ok_or(SpendCapError::InvalidInput)?;
+            if new_consumed > cap.allowance {
+                env.events().publish(
+                    (symbol_short!("cap"), symbol_short!("exceeded")),
+                    (cap_id, amount, cap.consumed, cap.allowance),
+                );
+                return Err(SpendCapError::CapExceeded);
+            }
+            matched.push_back(cap);
+        }
+
+        if matched.is_empty() {
+            return Err(SpendCapError::NoMatchingCap);
+        }
+
+        // Pass 2: debit every matching cap.
+        let mut min_remaining = i128::MAX;
+        for matched_cap in matched.iter() {
+            let mut cap = matched_cap;
+            cap.consumed += amount; // cannot overflow: checked in pass 1
+            syncro_common::ttl::persistent_set(&env, &DataKey::Cap(cap.id), &cap);
+            env.events().publish(
+                (symbol_short!("cap"), symbol_short!("debited")),
+                (cap.id, amount, cap.consumed, cap.allowance),
+            );
+            let remaining = cap.remaining();
+            if remaining < min_remaining {
+                min_remaining = remaining;
+            }
+        }
+
+        Ok(min_remaining)
+    }
+
+    /// Scope key of a cap, or `None` for an unscoped cap.
+    pub fn get_cap_scope(env: Env, cap_id: u64) -> Option<Symbol> {
+        syncro_common::ttl::persistent_get(&env, &DataKey::CapScope(cap_id))
+    }
+
+    /// Ids of the caps issued by `principal` to `agent` (issue order).
+    /// Caps issued before issue #1658 are not listed.
+    pub fn get_pair_caps(env: Env, principal: Address, agent: Address) -> Vec<u64> {
+        syncro_common::ttl::persistent_get(&env, &DataKey::PairCaps(principal, agent))
+            .unwrap_or(Vec::new(&env))
+    }
+
+    // ── Queries ───────────────────────────────────────────────────────────────
+
+    /// Return the remaining headroom for the current period, accounting for
+    /// lazy rollover.  Does NOT mutate state.
+    pub fn get_balance(env: Env, cap_id: u64) -> Result<i128, SpendCapError> {
+        let mut cap: SpendCap = syncro_common::ttl::persistent_get(&env, &DataKey::Cap(cap_id))
+            .ok_or(SpendCapError::CapNotFound)?;
 
         let now = env.ledger().timestamp();
-        let max_expiry = now + params.max_expiry_seconds;
-        if expires_at > max_expiry {
-            panic!(VirtualCardError::OpExpired);
-        }
+        cap.roll_period(now);
 
-        let count: u64 = env.storage().instance().get(&DataKey::CardCount).unwrap_or(0);
-        let card_id = count + 1;
-
-        let card = VirtualCard {
-            id: card_id,
-            holder: holder.clone(),
-            issued_at: now,
-            expires_at,
-            status: CardStatus::Active,
-            reference,
-        };
-
-        env.storage().instance().set(&DataKey::Card(card_id), &card);
-        env.storage().instance().set(&DataKey::CardCount, &card_id);
-
-        CardIssued {
-            card_id,
-            holder,
-        }
-        .publish(&env);
-
-        card_id
+        Ok(cap.remaining())
     }
 
-    /// Revoke a card. Only the card holder may revoke their own card.
-    pub fn revoke_card(env: Env, card_id: u64) {
-        let mut card: VirtualCard = env
-            .storage()
-            .instance()
-            .get(&DataKey::Card(card_id))
-            .expect("card not found");
+    /// Return full cap metadata (after lazy rollover).
+    pub fn get_cap(env: Env, cap_id: u64) -> Result<SpendCap, SpendCapError> {
+        let mut cap: SpendCap = syncro_common::ttl::persistent_get(&env, &DataKey::Cap(cap_id))
+            .ok_or(SpendCapError::CapNotFound)?;
 
-        card.holder.require_auth();
-
-        if card.status == CardStatus::Revoked {
-            panic!(VirtualCardError::CardAlreadyRevoked);
-        }
-
-        card.status = CardStatus::Revoked;
-        env.storage().instance().set(&DataKey::Card(card_id), &card);
-
-        CardRevoked {
-            card_id,
-            holder: card.holder,
-        }
-        .publish(&env);
+        let now = env.ledger().timestamp();
+        cap.roll_period(now);
+        Ok(cap)
     }
 
-    /// Get card details.
-    pub fn get_card(env: Env, card_id: u64) -> VirtualCard {
-        env.storage()
-            .instance()
-            .get(&DataKey::Card(card_id))
-            .expect("card not found")
-    }
+    // ── Principal controls ────────────────────────────────────────────────────
 
-    /// Check whether a card is currently active and not expired.
-    pub fn is_active(env: Env, card_id: u64) -> bool {
-        let card: VirtualCard = env
-            .storage()
-            .instance()
-            .get(&DataKey::Card(card_id))
-            .expect("card not found");
-
-        card.status == CardStatus::Active && env.ledger().timestamp() < card.expires_at
-    }
-
-    // ── Multi-sig administration ──────────────────────────────────
-
-    /// Propose a sensitive operation that requires multi-sig approval.
+    /// Suspend a cap.  Only the issuing principal may call this.
     ///
-    /// Only an admin may propose. The proposer is automatically recorded
-    /// as the first signature.
-    pub fn propose_operation(
+    /// Returns `CapSuspended` error variant so callers can distinguish it from
+    /// suspension due to exceeding the limit.
+    pub fn suspend_cap(
         env: Env,
+        cap_id: u64,
         caller: Address,
-        action: OpAction,
-        description: String,
-    ) -> u64 {
-        Self::require_admin(&env, &caller);
+    ) -> Result<(), SpendCapError> {
+        caller.require_auth();
 
-        let count: u64 = env
+        let mut cap: SpendCap = syncro_common::ttl::persistent_get(&env, &DataKey::Cap(cap_id))
+            .ok_or(SpendCapError::CapNotFound)?;
+
+        if cap.principal != caller {
+            return Err(SpendCapError::Unauthorized);
+        }
+
+        cap.status = CapStatus::Suspended;
+        syncro_common::ttl::persistent_set(&env, &DataKey::Cap(cap_id), &cap);
+
+        env.events().publish(
+            (symbol_short!("cap"), symbol_short!("suspended")),
+            (cap_id, caller),
+        );
+
+        Ok(())
+    }
+
+    /// Resume a previously suspended cap.  Only the issuing principal may call.
+    pub fn resume_cap(
+        env: Env,
+        cap_id: u64,
+        caller: Address,
+    ) -> Result<(), SpendCapError> {
+        caller.require_auth();
+
+        let mut cap: SpendCap = syncro_common::ttl::persistent_get(&env, &DataKey::Cap(cap_id))
+            .ok_or(SpendCapError::CapNotFound)?;
+
+        if cap.principal != caller {
+            return Err(SpendCapError::Unauthorized);
+        }
+
+        cap.status = CapStatus::Active;
+        syncro_common::ttl::persistent_set(&env, &DataKey::Cap(cap_id), &cap);
+
+        env.events().publish(
+            (symbol_short!("cap"), symbol_short!("resumed")),
+            (cap_id, caller),
+        );
+
+        Ok(())
+    }
+
+    /// Increase the allowance on a cap.  Only the issuing principal may call.
+    pub fn top_up_cap(
+        env: Env,
+        cap_id: u64,
+        caller: Address,
+        additional: i128,
+    ) -> Result<(), SpendCapError> {
+        caller.require_auth();
+
+        if additional <= 0 {
+            return Err(SpendCapError::InvalidInput);
+        }
+
+        let mut cap: SpendCap = syncro_common::ttl::persistent_get(&env, &DataKey::Cap(cap_id))
+            .ok_or(SpendCapError::CapNotFound)?;
+
+        if cap.principal != caller {
+            return Err(SpendCapError::Unauthorized);
+        }
+
+        cap.allowance = cap
+            .allowance
+            .checked_add(additional)
+            .ok_or(SpendCapError::InvalidInput)?;
+
+        syncro_common::ttl::persistent_set(&env, &DataKey::Cap(cap_id), &cap);
+
+        env.events().publish(
+            (symbol_short!("cap"), symbol_short!("toppedup")),
+            (cap_id, additional, cap.allowance),
+        );
+
+        Ok(())
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    fn next_id(env: &Env) -> Result<u64, SpendCapError> {
+        let current: u64 = env
             .storage()
             .instance()
-            .get(&DataKey::OpCount)
-            .unwrap_or(0);
-        let op_id = count + 1;
-
-        let mut signers = Vec::new(&env);
-        signers.push_back(caller.clone());
-
-        let op = PendingOperation {
-            id: op_id,
-            action,
-            description,
-            proposed_by: caller.clone(),
-            signers,
-            created_at: env.ledger().timestamp(),
-            executed: false,
-        };
-
-        env.storage().instance().set(&DataKey::PendingOp(op_id), &op);
-        env.storage().instance().set(&DataKey::OpCount, &op_id);
-
-        OperationProposed {
-            op_id,
-            proposed_by: caller,
-        }
-        .publish(&env);
-
-        // Auto-execute if threshold is 1 (though init rejects threshold < 2)
-        Self::try_execute(&env, op_id);
-
-        op_id
-    }
-
-    /// Sign a pending operation.
-    ///
-    /// Only an admin who has NOT already signed may sign.
-    /// If the signature count reaches the threshold, the operation
-    /// executes automatically.
-    pub fn sign_operation(env: Env, caller: Address, op_id: u64) {
-        Self::require_admin(&env, &caller);
-
-        let mut op: PendingOperation = env
-            .storage()
-            .instance()
-            .get(&DataKey::PendingOp(op_id))
-            .expect("operation not found");
-
-        if op.executed {
-            panic!(VirtualCardError::AlreadyExecuted);
-        }
-        if op.signers.contains(&caller) {
-            panic!(VirtualCardError::AlreadySigned);
-        }
-
-        op.signers.push_back(caller.clone());
+            .get(&DataKey::CapCounter)
+            .unwrap_or(0u64);
+        let next = current
+            .checked_add(1)
+            .ok_or(SpendCapError::CounterOverflow)?;
         env.storage()
             .instance()
-            .set(&DataKey::PendingOp(op_id), &op);
-
-        OperationSigned {
-            op_id,
-            signer: caller,
-            current_count: op.signers.len(),
-        }
-        .publish(&env);
-
-        Self::try_execute(&env, op_id);
+            .set(&DataKey::CapCounter, &next);
+        // Keep the instance storage (cap counter) alive on every issuance.
+        syncro_common::ttl::extend_instance(env);
+        Ok(next)
     }
 
-    /// Attempt to execute a pending operation if threshold is met.
-    fn try_execute(env: &Env, op_id: u64) {
-        let op: PendingOperation = env
-            .storage()
-            .instance()
-            .get(&DataKey::PendingOp(op_id))
-            .expect("operation not found");
-
-        if op.executed {
-            return;
-        }
-
-        let threshold = Self::get_threshold(env);
-        if op.signers.len() < threshold {
-            return; // Not enough signatures yet
-        }
-
-        // Execute the action
-        match op.action {
-            OpAction::SetPaused(paused) => {
-                let mut params = Self::get_params(env);
-                params.paused = paused;
-                Self::set_params(env, &params);
-            }
-            OpAction::SetMaxExpiry(seconds) => {
-                let mut params = Self::get_params(env);
-                params.max_expiry_seconds = seconds;
-                Self::set_params(env, &params);
-            }
-            OpAction::SetMaxActiveCards(max) => {
-                let mut params = Self::get_params(env);
-                params.max_active_cards = max;
-                Self::set_params(env, &params);
-            }
-            OpAction::AddAdmin(new_admin) => {
-                let mut admins: Vec<Address> = env
-                    .storage()
-                    .instance()
-                    .get(&DataKey::AdminList)
-                    .expect("not initialized");
-                if admins.contains(&new_admin) {
-                    panic!(VirtualCardError::AdminAlreadyExists);
-                }
-                admins.push_back(new_admin);
-                env.storage().instance().set(&DataKey::AdminList, &admins);
-            }
-            OpAction::RemoveAdmin(admin_to_remove) => {
-                let mut admins: Vec<Address> = env
-                    .storage()
-                    .instance()
-                    .get(&DataKey::AdminList)
-                    .expect("not initialized");
-                if !admins.contains(&admin_to_remove) {
-                    panic!(VirtualCardError::AdminNotFound);
-                }
-                if admins.len() <= 1 {
-                    panic!(VirtualCardError::WouldRemoveAllAdmins);
-                }
-                // Remove by rebuilding the vec (Vec::remove not available in no_std)
-                let mut new_admins = Vec::new(env);
-                for a in admins.iter() {
-                    if a != admin_to_remove {
-                        new_admins.push_back(a);
-                    }
-                }
-                let threshold = Self::get_threshold(env);
-                if threshold > new_admins.len() as u32 {
-                    panic!(VirtualCardError::ThresholdExceedsAdmins);
-                }
-                env.storage()
-                    .instance()
-                    .set(&DataKey::AdminList, &new_admins);
-            }
-            OpAction::ChangeThreshold(new_threshold) => {
-                let admins: Vec<Address> = env
-                    .storage()
-                    .instance()
-                    .get(&DataKey::AdminList)
-                    .expect("not initialized");
-                if new_threshold < 2 {
-                    panic!(VirtualCardError::InvalidThreshold);
-                }
-                if new_threshold > admins.len() as u32 {
-                    panic!(VirtualCardError::ThresholdExceedsAdmins);
-                }
-                env.storage()
-                    .instance()
-                    .set(&DataKey::Threshold, &new_threshold);
-            }
-        }
-
-        // Mark executed
-        let mut executed_op = op;
-        executed_op.executed = true;
-        env.storage()
-            .instance()
-            .set(&DataKey::PendingOp(op_id), &executed_op);
-
-        OperationExecuted {
-            op_id,
-            action: 1,
-        }
-        .publish(env);
-    }
-
-    // ── Queries ───────────────────────────────────────────────────
-
-    pub fn get_admin_list(env: Env) -> Vec<Address> {
-        env.storage()
-            .instance()
-            .get(&DataKey::AdminList)
-            .expect("not initialized")
-    }
-
-    pub fn get_threshold(env: Env) -> u32 {
-        Self::get_threshold(&env)
-    }
-
-    pub fn get_issuer_params(env: Env) -> IssuerParams {
-        Self::get_params(&env)
-    }
-
-    pub fn get_pending_op(env: Env, op_id: u64) -> PendingOperation {
-        env.storage()
-            .instance()
-            .get(&DataKey::PendingOp(op_id))
-            .expect("operation not found")
-    }
-
-    pub fn get_op_count(env: Env) -> u64 {
-        env.storage()
-            .instance()
-            .get(&DataKey::OpCount)
-            .unwrap_or(0)
-    }
-
-    pub fn is_admin(env: Env, addr: Address) -> bool {
-        Self::is_admin(&env, &addr)
+    /// Returns the contract version.
+    pub fn version(_env: Env) -> u32 {
+        3
     }
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
+// ============================================================================
+// Tests
+// ============================================================================
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, Env};
+    use soroban_sdk::{testutils::Address as _, testutils::Ledger, Env};
+    use syncro_contract_common as syncro_common;
 
-    struct TestAdmins {
-        a: Address,
-        b: Address,
-        c: Address,
-    }
-
-    fn setup() -> (Env, VirtualCardContractClient<'static>, TestAdmins) {
+    fn setup() -> (Env, Address, Address) {
         let env = Env::default();
         env.mock_all_auths();
-        let contract_id = env.register_contract(None, VirtualCardContract);
-        let client = VirtualCardContractClient::new(&env, &contract_id);
-
-        let admins = TestAdmins {
-            a: Address::generate(&env),
-            b: Address::generate(&env),
-            c: Address::generate(&env),
-        };
-
-        let admin_vec = vec![&env, admins.a.clone(), admins.b.clone(), admins.c.clone()];
-        client.init(&admin_vec, &2u32);
-
-        (env, client, admins)
+        let principal = Address::generate(&env);
+        let agent = Address::generate(&env);
+        (env, principal, agent)
     }
 
-    fn setup_with_non_admin() -> (Env, VirtualCardContractClient<'static>, TestAdmins, Address) {
-        let (env, client, admins) = setup();
-        let non_admin = Address::generate(&env);
-        (env, client, admins, non_admin)
+    // Issue a standard cap with a 1-day period and 1000 allowance.
+    fn issue_default(
+        client: &AgentSpendCapContractClient,
+        principal: &Address,
+        agent: &Address,
+    ) -> u64 {
+        client.issue_cap(principal, agent, &1_000_i128, &MIN_PERIOD_SECS)
     }
 
-    // ── Existing card tests ───────────────────────────────────────
+    // ── Issue ────────────────────────────────────────────────────────────────
 
     #[test]
-    fn test_issue_card() {
-        let (env, client, _) = setup();
-        let holder = Address::generate(&env);
-        let reference = soroban_sdk::String::from_str(&env, "CARD-001");
+    fn test_issue_cap_success() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let card_id = client.issue_card(&holder, &(env.ledger().timestamp() + 3600), &reference);
-        assert_eq!(card_id, 1);
+        let cap_id = issue_default(&client, &principal, &agent);
+        assert_eq!(cap_id, 1);
 
-        let card = client.get_card(&card_id);
-        assert_eq!(card.holder, holder);
-        assert_eq!(card.status, CardStatus::Active);
+        let cap = client.get_cap(&cap_id);
+        assert_eq!(cap.allowance, 1_000);
+        assert_eq!(cap.consumed, 0);
+        assert_eq!(cap.status, CapStatus::Active);
+        assert_eq!(cap.principal, principal);
+        assert_eq!(cap.agent, agent);
     }
 
     #[test]
-    fn test_revoke_card() {
-        let (env, client, _) = setup();
-        let holder = Address::generate(&env);
-        let reference = soroban_sdk::String::from_str(&env, "CARD-002");
+    fn test_issue_cap_zero_allowance_rejected() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let card_id = client.issue_card(&holder, &(env.ledger().timestamp() + 3600), &reference);
-        client.revoke_card(&card_id);
-
-        let card = client.get_card(&card_id);
-        assert_eq!(card.status, CardStatus::Revoked);
+        let res = client.try_issue_cap(&principal, &agent, &0_i128, &MIN_PERIOD_SECS);
+        assert_eq!(res, Err(Ok(SpendCapError::InvalidInput)));
     }
 
     #[test]
-    #[should_panic(expected = "CardAlreadyRevoked")]
-    fn test_revoke_already_revoked() {
-        let (env, client, _) = setup();
-        let holder = Address::generate(&env);
-        let reference = soroban_sdk::String::from_str(&env, "CARD-003");
+    fn test_issue_cap_negative_allowance_rejected() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let card_id = client.issue_card(&holder, &(env.ledger().timestamp() + 3600), &reference);
-        client.revoke_card(&card_id);
-        client.revoke_card(&card_id); // should panic
+        let res = client.try_issue_cap(&principal, &agent, &-1_i128, &MIN_PERIOD_SECS);
+        assert_eq!(res, Err(Ok(SpendCapError::InvalidInput)));
     }
 
     #[test]
-    fn test_is_active_returns_false_after_revoke() {
-        let (env, client, _) = setup();
-        let holder = Address::generate(&env);
-        let reference = soroban_sdk::String::from_str(&env, "CARD-004");
+    fn test_issue_cap_period_too_short_rejected() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let card_id = client.issue_card(&holder, &(env.ledger().timestamp() + 3600), &reference);
-        assert!(client.is_active(&card_id));
-
-        client.revoke_card(&card_id);
-        assert!(!client.is_active(&card_id));
+        let res = client.try_issue_cap(&principal, &agent, &100_i128, &(MIN_PERIOD_SECS - 1));
+        assert_eq!(res, Err(Ok(SpendCapError::InvalidPeriod)));
     }
 
     #[test]
-    fn test_is_active_returns_false_when_expired() {
-        let (env, client, _) = setup();
-        let holder = Address::generate(&env);
-        let reference = soroban_sdk::String::from_str(&env, "CARD-005");
+    fn test_issue_cap_period_too_long_rejected() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let card_id = client.issue_card(&holder, &0u64, &reference);
-        assert!(!client.is_active(&card_id));
+        let res = client.try_issue_cap(&principal, &agent, &100_i128, &(MAX_PERIOD_SECS + 1));
+        assert_eq!(res, Err(Ok(SpendCapError::InvalidPeriod)));
     }
 
     #[test]
-    fn test_multiple_cards_independent() {
-        let (env, client, _) = setup();
-        let holder1 = Address::generate(&env);
-        let holder2 = Address::generate(&env);
-        let ref1 = soroban_sdk::String::from_str(&env, "CARD-A");
-        let ref2 = soroban_sdk::String::from_str(&env, "CARD-B");
+    fn test_issue_cap_ids_sequential() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let id1 = client.issue_card(&holder1, &(env.ledger().timestamp() + 3600), &ref1);
-        let id2 = client.issue_card(&holder2, &(env.ledger().timestamp() + 3600), &ref2);
-
+        let id1 = issue_default(&client, &principal, &agent);
+        let id2 = issue_default(&client, &principal, &agent);
+        let id3 = issue_default(&client, &principal, &agent);
         assert_eq!(id1, 1);
         assert_eq!(id2, 2);
-
-        client.revoke_card(&id1);
-        assert!(client.is_active(&id2));
-        assert!(!client.is_active(&id1));
+        assert_eq!(id3, 3);
     }
 
-    // ── Multi-sig tests ───────────────────────────────────────────
+    // ── Admission (can_transact) ──────────────────────────────────────────────
 
     #[test]
-    fn test_init_sets_admins_and_threshold() {
-        let (_, client, admins) = setup();
+    fn test_can_transact_debits_and_returns_remaining() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let list = client.get_admin_list();
-        assert_eq!(list.len(), 3);
-        assert!(client.is_admin(&admins.a));
-        assert!(client.is_admin(&admins.b));
-        assert!(client.is_admin(&admins.c));
-        assert_eq!(client.get_threshold(), 2);
-    }
+        let cap_id = issue_default(&client, &principal, &agent);
+        let remaining = client.can_transact(&cap_id, &300_i128);
+        assert_eq!(remaining, 700_i128);
 
-    #[test]
-    #[should_panic(expected = "AlreadyInitialized")]
-    fn test_init_cannot_be_called_twice() {
-        let (env, client, admins) = setup();
-        let admin_vec = vec![&env, admins.a.clone()];
-        client.init(&admin_vec, &1u32); // should panic
+        // Second call sees updated consumed.
+        let remaining2 = client.can_transact(&cap_id, &200_i128);
+        assert_eq!(remaining2, 500_i128);
     }
 
     #[test]
-    #[should_panic(expected = "InvalidThreshold")]
-    fn test_init_rejects_threshold_below_2() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let contract_id = env.register_contract(None, VirtualCardContract);
-        let client = VirtualCardContractClient::new(&env, &contract_id);
+    fn test_can_transact_cap_not_found() {
+        let (env, _, _) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let a = Address::generate(&env);
-        let admin_vec = vec![&env, a];
-        client.init(&admin_vec, &1u32); // should panic
+        let res = client.try_can_transact(&999_u64, &10_i128);
+        assert_eq!(res, Err(Ok(SpendCapError::CapNotFound)));
     }
 
     #[test]
-    #[should_panic(expected = "NotAdmin")]
-    fn test_non_admin_cannot_propose() {
-        let (env, client, _, non_admin) = setup_with_non_admin();
+    fn test_can_transact_suspended_cap_returns_cap_suspended() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let desc = String::from_str(&env, "Pause contract");
-        client.propose_operation(&non_admin, &OpAction::SetPaused(true), &desc);
+        let cap_id = issue_default(&client, &principal, &agent);
+        client.suspend_cap(&cap_id, &principal);
+
+        let res = client.try_can_transact(&cap_id, &10_i128);
+        // Must be CapSuspended, NOT CapExceeded
+        assert_eq!(res, Err(Ok(SpendCapError::CapSuspended)));
     }
 
     #[test]
-    fn test_single_sign_does_not_execute() {
-        let (env, client, admins) = setup();
+    fn test_can_transact_exceeded_returns_cap_exceeded() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let desc = String::from_str(&env, "Pause contract");
-        let op_id = client.propose_operation(&admins.a, &OpAction::SetPaused(true), &desc);
+        let cap_id = issue_default(&client, &principal, &agent);
 
-        let op = client.get_pending_op(&op_id);
-        assert!(!op.executed);
-        assert_eq!(op.signers.len(), 1);
+        // Exhaust the cap.
+        client.can_transact(&cap_id, &1_000_i128);
 
-        let params = client.get_issuer_params();
-        assert!(!params.paused); // not yet executed
+        // Next call must return CapExceeded, not CapSuspended.
+        let res = client.try_can_transact(&cap_id, &1_i128);
+        assert_eq!(res, Err(Ok(SpendCapError::CapExceeded)));
     }
 
     #[test]
-    fn test_two_signs_executes_pause() {
-        let (env, client, admins) = setup();
+    fn test_can_transact_exactly_at_limit_succeeds() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let desc = String::from_str(&env, "Pause contract");
-        let op_id = client.propose_operation(&admins.a, &OpAction::SetPaused(true), &desc);
-
-        // Second signature triggers execution
-        client.sign_operation(&admins.b, &op_id);
-
-        let op = client.get_pending_op(&op_id);
-        assert!(op.executed);
-
-        let params = client.get_issuer_params();
-        assert!(params.paused);
+        let cap_id = issue_default(&client, &principal, &agent);
+        let remaining = client.can_transact(&cap_id, &1_000_i128);
+        assert_eq!(remaining, 0_i128);
     }
 
     #[test]
-    #[should_panic(expected = "AlreadySigned")]
-    fn test_admin_cannot_sign_twice() {
-        let (env, client, admins) = setup();
+    fn test_can_transact_one_over_limit_rejected() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let desc = String::from_str(&env, "Pause contract");
-        let op_id = client.propose_operation(&admins.a, &OpAction::SetPaused(true), &desc);
-
-        client.sign_operation(&admins.a, &op_id); // should panic
+        let cap_id = issue_default(&client, &principal, &agent);
+        let res = client.try_can_transact(&cap_id, &1_001_i128);
+        assert_eq!(res, Err(Ok(SpendCapError::CapExceeded)));
     }
 
     #[test]
-    #[should_panic(expected = "AlreadyExecuted")]
-    fn test_cannot_sign_after_execution() {
-        let (env, client, admins) = setup();
+    fn test_can_transact_balance_unchanged_on_failure() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let desc = String::from_str(&env, "Pause contract");
-        let op_id = client.propose_operation(&admins.a, &OpAction::SetPaused(true), &desc);
-        client.sign_operation(&admins.b, &op_id);
+        let cap_id = issue_default(&client, &principal, &agent);
+        // Partially consume.
+        client.can_transact(&cap_id, &400_i128);
 
-        // Try to sign with third admin after execution
-        client.sign_operation(&admins.c, &op_id); // should panic
+        // Over-limit attempt.
+        let _ = client.try_can_transact(&cap_id, &700_i128);
+
+        // Balance must be unchanged at 600.
+        assert_eq!(client.get_balance(&cap_id), 600_i128);
+    }
+
+    // ── Period rollover ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_period_rollover_resets_consumed_no_carryover() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        let cap_id = issue_default(&client, &principal, &agent);
+        // Spend within the period.
+        client.can_transact(&cap_id, &900_i128);
+        assert_eq!(client.get_balance(&cap_id), 100_i128);
+
+        // Advance past the period.
+        let now = env.ledger().timestamp();
+        env.ledger().set_timestamp(now + MIN_PERIOD_SECS + 1);
+
+        // New period — full allowance available (no carryover of unused 100).
+        assert_eq!(client.get_balance(&cap_id), 1_000_i128);
     }
 
     #[test]
-    fn test_three_signs_also_works() {
-        let (env, client, admins) = setup();
+    fn test_multiple_period_rollovers() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let desc = String::from_str(&env, "Set max expiry");
-        let op_id = client.propose_operation(&admins.a, &OpAction::SetMaxExpiry(7_776_000), &desc);
+        let cap_id = issue_default(&client, &principal, &agent);
+        let start = env.ledger().timestamp();
 
-        client.sign_operation(&admins.b, &op_id);
+        // Spend 500 in period 0.
+        client.can_transact(&cap_id, &500_i128);
 
-        let op = client.get_pending_op(&op_id);
-        assert!(op.executed);
+        // Advance 5 periods.
+        env.ledger().set_timestamp(start + MIN_PERIOD_SECS * 5 + 1);
+        // Full 1000 available — the 500 unused from period 0 does NOT compound.
+        assert_eq!(client.get_balance(&cap_id), 1_000_i128);
 
-        let params = client.get_issuer_params();
-        assert_eq!(params.max_expiry_seconds, 7_776_000);
+        // Spend 300 in period 5.
+        client.can_transact(&cap_id, &300_i128);
+        assert_eq!(client.get_balance(&cap_id), 700_i128);
     }
 
     #[test]
-    fn test_issue_card_respects_max_expiry() {
-        let (env, client, admins) = setup();
+    fn test_can_transact_triggers_lazy_rollover() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        // Lower max expiry to 1 hour
-        let desc = String::from_str(&env, "Lower expiry");
-        let op_id = client.propose_operation(&admins.a, &OpAction::SetMaxExpiry(3600), &desc);
-        client.sign_operation(&admins.b, &op_id);
+        let cap_id = issue_default(&client, &principal, &agent);
+        client.can_transact(&cap_id, &999_i128);
 
-        let holder = Address::generate(&env);
-        let reference = String::from_str(&env, "CARD-006");
+        let now = env.ledger().timestamp();
+        env.ledger().set_timestamp(now + MIN_PERIOD_SECS + 1);
 
-        // Issue with expiry within limit — succeeds
-        let valid_expiry = env.ledger().timestamp() + 1800;
-        let card_id = client.issue_card(&holder, &valid_expiry, &reference);
-        assert_eq!(card_id, 1);
+        // After rollover 700 should be admitted (new period = 1000 available).
+        let remaining = client.can_transact(&cap_id, &700_i128);
+        assert_eq!(remaining, 300_i128);
+    }
 
-        // Issue with expiry beyond limit — fails
-        let bad_expiry = env.ledger().timestamp() + 7200;
-        // This would panic in a real test with proper auth mocking
-        // For brevity we verify the params were set correctly
-        let params = client.get_issuer_params();
-        assert_eq!(params.max_expiry_seconds, 3600);
+    // ── Suspend / resume ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_suspend_then_resume() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        let cap_id = issue_default(&client, &principal, &agent);
+        client.suspend_cap(&cap_id, &principal);
+
+        // Suspended.
+        assert_eq!(
+            client.try_can_transact(&cap_id, &10_i128),
+            Err(Ok(SpendCapError::CapSuspended))
+        );
+
+        // Resume.
+        client.resume_cap(&cap_id, &principal);
+        let remaining = client.can_transact(&cap_id, &10_i128);
+        assert_eq!(remaining, 990_i128);
     }
 
     #[test]
-    fn test_add_admin_via_multisig() {
-        let (env, client, admins) = setup();
-        let new_admin = Address::generate(&env);
+    fn test_suspend_unauthorized_rejected() {
+        let (env, principal, agent) = setup();
+        let attacker = Address::generate(&env);
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let desc = String::from_str(&env, "Add new admin");
-        let op_id = client.propose_operation(&admins.a, &OpAction::AddAdmin(new_admin.clone()), &desc);
-        client.sign_operation(&admins.b, &op_id);
+        let cap_id = issue_default(&client, &principal, &agent);
+        let res = client.try_suspend_cap(&cap_id, &attacker);
+        assert_eq!(res, Err(Ok(SpendCapError::Unauthorized)));
 
-        assert!(client.is_admin(&new_admin));
-        assert_eq!(client.get_admin_list().len(), 4);
+        // Cap must still be active.
+        assert_eq!(client.get_cap(&cap_id).status, CapStatus::Active);
     }
 
     #[test]
-    fn test_remove_admin_via_multisig() {
-        let (env, client, admins) = setup();
+    fn test_resume_unauthorized_rejected() {
+        let (env, principal, agent) = setup();
+        let attacker = Address::generate(&env);
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let desc = String::from_str(&env, "Remove admin C");
-        let op_id = client.propose_operation(&admins.a, &OpAction::RemoveAdmin(admins.c.clone()), &desc);
-        client.sign_operation(&admins.b, &op_id);
+        let cap_id = issue_default(&client, &principal, &agent);
+        client.suspend_cap(&cap_id, &principal);
 
-        assert!(!client.is_admin(&admins.c));
-        assert_eq!(client.get_admin_list().len(), 2);
+        let res = client.try_resume_cap(&cap_id, &attacker);
+        assert_eq!(res, Err(Ok(SpendCapError::Unauthorized)));
+
+        // Must remain suspended.
+        assert_eq!(client.get_cap(&cap_id).status, CapStatus::Suspended);
+    }
+
+    // ── Top-up ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_top_up_cap_increases_allowance() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        let cap_id = issue_default(&client, &principal, &agent);
+        client.top_up_cap(&cap_id, &principal, &500_i128);
+
+        let cap = client.get_cap(&cap_id);
+        assert_eq!(cap.allowance, 1_500_i128);
+        assert_eq!(client.get_balance(&cap_id), 1_500_i128);
     }
 
     #[test]
-    #[should_panic(expected = "ThresholdExceedsAdmins")]
-    fn test_cannot_remove_below_threshold() {
-        let (env, client, admins) = setup();
+    fn test_top_up_unauthorized_rejected() {
+        let (env, principal, agent) = setup();
+        let attacker = Address::generate(&env);
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        // With 3 admins and threshold 2, removing one leaves 2 — OK
-        // But if we change threshold to 3 first, then removing one would break it
-        let desc1 = String::from_str(&env, "Raise threshold");
-        let op1 = client.propose_operation(&admins.a, &OpAction::ChangeThreshold(3u32), &desc1);
-        client.sign_operation(&admins.b, &op1);
+        let cap_id = issue_default(&client, &principal, &agent);
+        let res = client.try_top_up_cap(&cap_id, &attacker, &500_i128);
+        assert_eq!(res, Err(Ok(SpendCapError::Unauthorized)));
+    }
 
-        // Now try to remove an admin — would leave 2 admins with threshold 3
-        let desc2 = String::from_str(&env, "Remove admin");
-        let op2 = client.propose_operation(&admins.a, &OpAction::RemoveAdmin(admins.c.clone()), &desc2);
-        client.sign_operation(&admins.b, &op2); // should panic
+    // ── get_balance ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_get_balance_unknown_cap() {
+        let (env, _, _) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        let res = client.try_get_balance(&999_u64);
+        assert_eq!(res, Err(Ok(SpendCapError::CapNotFound)));
+    }
+
+    // ── version ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_version_is_v3() {
+        let (env, _, _) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+        assert_eq!(client.version(), 3_u32);
+    }
+
+    // ── Scoped caps (issue #1658) ────────────────────────────────────────────
+
+    fn issue_scoped(
+        client: &AgentSpendCapContractClient,
+        principal: &Address,
+        agent: &Address,
+        allowance: i128,
+        scope: Option<Symbol>,
+    ) -> u64 {
+        client.issue_scoped_cap(principal, agent, &allowance, &MIN_PERIOD_SECS, &scope)
     }
 
     #[test]
-    fn test_change_threshold_via_multisig() {
-        let (env, client, admins) = setup();
+    fn test_scoped_cap_exhausted_does_not_block_other_scope() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let desc = String::from_str(&env, "Require all 3 signatures");
-        let op_id = client.propose_operation(&admins.a, &OpAction::ChangeThreshold(3u32), &desc);
-        client.sign_operation(&admins.b, &op_id);
+        let inference = Some(symbol_short!("inference"));
+        let storage = Some(symbol_short!("storage"));
+        let inf_cap = issue_scoped(&client, &principal, &agent, 5, inference.clone());
+        let sto_cap = issue_scoped(&client, &principal, &agent, 1, storage.clone());
 
-        assert_eq!(client.get_threshold(), 3);
+        // Exhaust the inference cap.
+        assert_eq!(
+            client.can_transact_scoped(&principal, &agent, &inference, &5_i128),
+            0_i128
+        );
+        assert_eq!(
+            client.try_can_transact_scoped(&principal, &agent, &inference, &1_i128),
+            Err(Ok(SpendCapError::CapExceeded))
+        );
+
+        // The storage cap is untouched and still spendable.
+        assert_eq!(client.get_balance(&sto_cap), 1_i128);
+        assert_eq!(
+            client.can_transact_scoped(&principal, &agent, &storage, &1_i128),
+            0_i128
+        );
+        assert_eq!(client.get_balance(&inf_cap), 0_i128);
     }
 
     #[test]
-    #[should_panic(expected = "InvalidThreshold")]
-    fn test_cannot_set_threshold_to_zero() {
-        let (env, client, admins) = setup();
+    fn test_scoped_request_without_matching_cap_is_rejected() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let desc = String::from_str(&env, "Bad threshold");
-        let op_id = client.propose_operation(&admins.a, &OpAction::ChangeThreshold(0u32), &desc);
-        client.sign_operation(&admins.b, &op_id); // should panic on execute
+        issue_scoped(&client, &principal, &agent, 100, Some(symbol_short!("inference")));
+
+        assert_eq!(
+            client.try_can_transact_scoped(
+                &principal,
+                &agent,
+                &Some(symbol_short!("compute")),
+                &1_i128
+            ),
+            Err(Ok(SpendCapError::NoMatchingCap))
+        );
+        // A request with no scope only matches unscoped caps.
+        assert_eq!(
+            client.try_can_transact_scoped(&principal, &agent, &None, &1_i128),
+            Err(Ok(SpendCapError::NoMatchingCap))
+        );
     }
 
     #[test]
-    fn test_hacked_single_key_cannot_execute() {
-        let (env, client, admins) = setup();
+    fn test_unscoped_cap_is_overall_ceiling_and_debit_is_atomic() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        // Admin A's key is compromised. Attacker proposes pausing.
-        let desc = String::from_str(&env, "Malicious pause");
-        let op_id = client.propose_operation(&admins.a, &OpAction::SetPaused(true), &desc);
+        let inference = Some(symbol_short!("inference"));
+        let storage = Some(symbol_short!("storage"));
+        let global = issue_scoped(&client, &principal, &agent, 10, None);
+        let inf_cap = issue_scoped(&client, &principal, &agent, 8, inference.clone());
+        let sto_cap = issue_scoped(&client, &principal, &agent, 8, storage.clone());
 
-        // Only one signature — NOT executed
-        let op = client.get_pending_op(&op_id);
-        assert!(!op.executed);
+        // 8 on inference: debits the inference cap AND the global cap.
+        assert_eq!(
+            client.can_transact_scoped(&principal, &agent, &inference, &8_i128),
+            0_i128
+        );
+        assert_eq!(client.get_balance(&global), 2_i128);
 
-        let params = client.get_issuer_params();
-        assert!(!params.paused); // contract still running
+        // 3 on storage fits its own cap (8) but not the global ceiling (2 left).
+        assert_eq!(
+            client.try_can_transact_scoped(&principal, &agent, &storage, &3_i128),
+            Err(Ok(SpendCapError::CapExceeded))
+        );
+        // Nothing was debited by the failed call.
+        assert_eq!(client.get_balance(&sto_cap), 8_i128);
+        assert_eq!(client.get_balance(&global), 2_i128);
+        assert_eq!(client.get_balance(&inf_cap), 0_i128);
 
-        // Admin B sees the pending op and does NOT sign.
-        // Attacker cannot force execution with only one key.
-
-        // Verify the operation remains pending
-        let op_after = client.get_pending_op(&op_id);
-        assert!(!op_after.executed);
-        assert_eq!(op_after.signers.len(), 1);
+        // 2 on storage still fits both.
+        assert_eq!(
+            client.can_transact_scoped(&principal, &agent, &storage, &2_i128),
+            0_i128
+        );
     }
 
     #[test]
-    fn test_pause_blocks_card_issuance() {
-        let (env, client, admins) = setup();
+    fn test_returns_smallest_remaining_headroom() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        let desc = String::from_str(&env, "Pause for maintenance");
-        let op_id = client.propose_operation(&admins.a, &OpAction::SetPaused(true), &desc);
-        client.sign_operation(&admins.b, &op_id);
+        let inference = Some(symbol_short!("inference"));
+        issue_scoped(&client, &principal, &agent, 100, None);
+        issue_scoped(&client, &principal, &agent, 30, inference.clone());
 
-        let holder = Address::generate(&env);
-        let reference = String::from_str(&env, "CARD-PAUSED");
-
-        // issue_card would panic — we verify via params
-        let params = client.get_issuer_params();
-        assert!(params.paused);
+        // global would have 90 left, scoped 20 -> binding constraint is 20.
+        assert_eq!(
+            client.can_transact_scoped(&principal, &agent, &inference, &10_i128),
+            20_i128
+        );
     }
 
     #[test]
-    fn test_unpause_resumes_operations() {
-        let (env, client, admins) = setup();
+    fn test_unscoped_caps_keep_current_behaviour() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        // Pause
-        let desc1 = String::from_str(&env, "Pause");
-        let op1 = client.propose_operation(&admins.a, &OpAction::SetPaused(true), &desc1);
-        client.sign_operation(&admins.b, &op1);
+        // issue_cap + can_transact(cap_id) work exactly as before.
+        let cap_id = issue_default(&client, &principal, &agent);
+        assert_eq!(client.get_cap_scope(&cap_id), None);
+        assert_eq!(client.can_transact(&cap_id, &300_i128), 700_i128);
 
-        // Unpause
-        let desc2 = String::from_str(&env, "Unpause");
-        let op2 = client.propose_operation(&admins.a, &OpAction::SetPaused(false), &desc2);
-        client.sign_operation(&admins.b, &op2);
+        // And the unscoped cap is also reachable through the scoped path.
+        assert_eq!(
+            client.can_transact_scoped(&principal, &agent, &None, &100_i128),
+            600_i128
+        );
+        assert_eq!(client.get_balance(&cap_id), 600_i128);
+    }
 
-        let params = client.get_issuer_params();
-        assert!(!params.paused);
+    #[test]
+    fn test_can_transact_on_scoped_cap_debits_only_that_cap() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
 
-        // Card issuance works again
-        let holder = Address::generate(&env);
-        let reference = String::from_str(&env, "CARD-RESUMED");
-        let card_id = client.issue_card(&holder, &(env.ledger().timestamp() + 3600), &reference);
-        assert_eq!(card_id, 1);
+        let global = issue_scoped(&client, &principal, &agent, 10, None);
+        let inf_cap = issue_scoped(&client, &principal, &agent, 5, Some(symbol_short!("inference")));
+
+        // Naming the cap explicitly bypasses matching.
+        assert_eq!(client.can_transact(&inf_cap, &2_i128), 3_i128);
+        assert_eq!(client.get_balance(&global), 10_i128);
+    }
+
+    #[test]
+    fn test_suspended_scoped_cap_only_blocks_its_own_scope() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        let inference = Some(symbol_short!("inference"));
+        let storage = Some(symbol_short!("storage"));
+        let inf_cap = issue_scoped(&client, &principal, &agent, 5, inference.clone());
+        issue_scoped(&client, &principal, &agent, 5, storage.clone());
+
+        client.suspend_cap(&inf_cap, &principal);
+
+        assert_eq!(
+            client.try_can_transact_scoped(&principal, &agent, &inference, &1_i128),
+            Err(Ok(SpendCapError::CapSuspended))
+        );
+        assert_eq!(
+            client.can_transact_scoped(&principal, &agent, &storage, &1_i128),
+            4_i128
+        );
+    }
+
+    #[test]
+    fn test_scoped_caps_roll_over_independently() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        let inference = Some(symbol_short!("inference"));
+        let cap_id = issue_scoped(&client, &principal, &agent, 5, inference.clone());
+        client.can_transact_scoped(&principal, &agent, &inference, &5_i128);
+
+        let now = env.ledger().timestamp();
+        env.ledger().set_timestamp(now + MIN_PERIOD_SECS + 1);
+
+        assert_eq!(client.get_balance(&cap_id), 5_i128);
+        assert_eq!(
+            client.can_transact_scoped(&principal, &agent, &inference, &5_i128),
+            0_i128
+        );
+    }
+
+    #[test]
+    fn test_scope_and_index_are_recorded() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        let scoped = issue_scoped(&client, &principal, &agent, 5, Some(symbol_short!("storage")));
+        let unscoped = issue_scoped(&client, &principal, &agent, 5, None);
+
+        assert_eq!(client.get_cap_scope(&scoped), Some(symbol_short!("storage")));
+        assert_eq!(client.get_cap_scope(&unscoped), None);
+
+        let ids = client.get_pair_caps(&principal, &agent);
+        assert_eq!(ids.len(), 2);
+        assert_eq!(ids.get(0), Some(scoped));
+        assert_eq!(ids.get(1), Some(unscoped));
+    }
+
+    #[test]
+    fn test_too_many_caps_per_pair_rejected() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        for _ in 0..MAX_CAPS_PER_PAIR {
+            issue_default(&client, &principal, &agent);
+        }
+        let res = client.try_issue_scoped_cap(&principal, &agent, &10_i128, &MIN_PERIOD_SECS, &None);
+        assert_eq!(res, Err(Ok(SpendCapError::TooManyCaps)));
+
+        // A different agent is unaffected.
+        let other = Address::generate(&env);
+        issue_default(&client, &principal, &other);
+    }
+
+    /// Migration check: a cap stored before #1658 has no scope entry and no
+    /// index entry.  It must still be readable and spendable by id.
+    #[test]
+    fn test_legacy_cap_without_scope_entry_still_works() {
+        let (env, principal, agent) = setup();
+        let id = env.register(AgentSpendCapContract, ());
+        let client = AgentSpendCapContractClient::new(&env, &id);
+
+        env.as_contract(&id, || {
+            let legacy = SpendCap {
+                id: 99,
+                principal: principal.clone(),
+                agent: agent.clone(),
+                allowance: 50,
+                consumed: 0,
+                period_secs: MIN_PERIOD_SECS,
+                period_started_at: 0,
+                status: CapStatus::Active,
+            };
+            syncro_common::ttl::persistent_set(&env, &DataKey::Cap(99), &legacy);
+        });
+
+        assert_eq!(client.get_cap_scope(&99_u64), None);
+        assert_eq!(client.can_transact(&99_u64, &20_i128), 30_i128);
+        // Not indexed, so the scoped path does not see it.
+        assert_eq!(client.get_pair_caps(&principal, &agent).len(), 0);
     }
 }
+
+#[cfg(test)]
+mod fuzz;
+
+#[cfg(test)]
+mod admin_transfer;
+
+#[cfg(test)]
+mod negative;

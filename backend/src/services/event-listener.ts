@@ -1,40 +1,38 @@
 import logger from '../config/logger';
 import { supabase } from '../config/database';
+import { env } from '../config/env';
 import { reorgHandler } from './reorg-handler';
 import { generateCycleId } from '../utils/cycle-id';
 import { renewalCooldownService } from './renewal-cooldown-service';
 import { calculateBackoffDelay } from '../utils/retry';
+import { RpcClient } from '@syncro/shared/rpc-client';
+import {
+  getBlockchainFlags,
+  resolveStellarNetwork,
+} from '../../../shared/blockchain-flags';
 
-interface ContractEvent {
-  type: string;
-  ledger: number;
-  txHash: string;
-  contractId: string;
-  topics: string[];
-  value: any;
-}
-
-interface ProcessedEvent {
-  sub_id: number;
-  event_type: string;
-  ledger: number;
-  tx_hash: string;
-  event_data: any;
-}
+import { 
+  ContractEvent, 
+  ProcessedEvent, 
+  EventType,
+  RenewalSuccessPayload,
+  RenewalFailedPayload,
+  StateTransitionPayload,
+  ApprovalCreatedPayload,
+  ApprovalRejectedPayload,
+  ExecutorAssignedPayload,
+  DuplicateRenewalRejectedPayload,
+  LifecycleTimestampUpdatedPayload,
+  ContractEventValue,
+  CURRENT_CONTRACT_EVENT_SCHEMA_VERSION,
+} from '../types/contract-events';
+import { rpcEventResponseSchema } from '../schemas/contract-events';
+import { Subscription } from '../types/subscription';
 
 export type EventListenerStatus = 'running' | 'stopped' | 'disabled' | 'retrying' | 'failed';
 
-export interface EventListenerHealth {
-  status: EventListenerStatus;
-  isRunning: boolean;
-  lastSuccessfulPoll: string | null;
-  consecutiveErrors: number;
-  lastProcessedLedger: number | null;
-  reason?: string;
-  retryCount?: number;
-  nextRetryAt?: string | null;
-}
-
+const SUPPORTED_CONTRACT_EVENT_SCHEMA_VERSIONS = [CURRENT_CONTRACT_EVENT_SCHEMA_VERSION] as const;
+/** See job-alert-config.ts `event-listener` thresholds (default: 10 consecutive failures). */
 const ALERT_THRESHOLD = 10;
 const MAX_BACKOFF_MS = 300_000; // 5 minutes
 const MAX_RETRY_ATTEMPTS = 10;
@@ -43,14 +41,14 @@ const RETRY_MAX_DELAY_MS = 5 * 60 * 1000; // 5 minutes
 
 export class EventListener {
   private contractId: string;
-  private rpcUrl: string;
+  private rpcUrl: string = '';
   private lastProcessedLedger: number = 0;
   private isRunning: boolean = false;
   private isProcessing: boolean = false;
 
   // Configurable via env var — defaults to 5 seconds
   private readonly pollInterval: number = parseInt(
-    process.env.EVENT_LISTENER_INTERVAL_MS ?? '5000',
+    env.EVENT_LISTENER_INTERVAL_MS,
     10
   );
 
@@ -61,15 +59,49 @@ export class EventListener {
   private _disabledReason?: string;
   private _retryCount: number = 0;
   private _nextRetryAt: Date | null = null;
+  private activeRequestController: AbortController | null = null;
+  private rpcClient: RpcClient;
 
   constructor() {
-    this.contractId = process.env.SOROBAN_CONTRACT_ADDRESS || '';
-    this.rpcUrl = process.env.STELLAR_NETWORK_URL || 'https://soroban-testnet.stellar.org';
+    this.contractId = env.SOROBAN_CONTRACT_ADDRESS || '';
+
+    const flags = getBlockchainFlags();
+    const network = resolveStellarNetwork();
+
+    // Resolve RPC URL — never silently fall back to testnet in production.
+    const configuredUrl = env.STELLAR_NETWORK_URL;
+    if (!configuredUrl && flags.isProduction) {
+      this._status = 'disabled';
+      this._disabledReason =
+        'STELLAR_NETWORK_URL must be explicitly set in production. ' +
+        'Refusing to fall back to the testnet RPC endpoint.';
+      logger.error(`EventListener disabled: ${this._disabledReason}`);
+    } else {
+      this.rpcUrl =
+        configuredUrl ||
+        (network === 'mainnet'
+          ? 'https://soroban-rpc.creit.tech'
+          : network === 'futurenet'
+            ? 'https://rpc-futurenet.stellar.org'
+            : 'https://soroban-testnet.stellar.org');
+    }
+
+    this.rpcClient = new RpcClient({
+      timeoutMs: 15000,
+      maxRetries: 3,
+      circuitBreakerThreshold: 5,
+    });
 
     if (!this.contractId) {
       this._status = 'disabled';
       this._disabledReason = 'SOROBAN_CONTRACT_ADDRESS not configured';
       logger.warn('EventListener disabled: SOROBAN_CONTRACT_ADDRESS not configured');
+    }
+
+    if (!flags.blockchainEnabled) {
+      this._status = 'disabled';
+      this._disabledReason = 'ENABLE_BLOCKCHAIN=false — event listener is disabled';
+      logger.warn(`EventListener disabled: ${this._disabledReason}`);
     }
   }
 
@@ -224,7 +256,7 @@ export class EventListener {
   private async fetchEvents(fromLedger: number): Promise<ContractEvent[]> {
     const requestController = this.beginRequest();
     try {
-      const response = await fetch(this.rpcUrl, {
+      const response = await this.rpcClient.fetch(this.rpcUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -239,17 +271,53 @@ export class EventListener {
         signal: requestController.signal,
       });
 
-      const data: any = await response.json();
-      return data.result?.events || [];
+      const data = await response.json();
+      const parsed = rpcEventResponseSchema.safeParse(data);
+      
+      if (!parsed.success) {
+        logger.error('RPC event response validation failed', { 
+          error: parsed.error.format(),
+          raw: data 
+        });
+        return [];
+      }
+
+      return parsed.data.result?.events || [];
     } finally {
       this.endRequest(requestController);
     }
+  }
+
+  private getEventSchemaVersion(event: ContractEvent): number {
+    const rawVersion = (event.value as any)?.schema_version;
+    return typeof rawVersion === 'number'
+      ? rawVersion
+      : CURRENT_CONTRACT_EVENT_SCHEMA_VERSION;
+  }
+
+  private isSupportedSchemaVersion(event: ContractEvent): boolean {
+    const version = this.getEventSchemaVersion(event);
+    const supported = SUPPORTED_CONTRACT_EVENT_SCHEMA_VERSIONS.includes(version as typeof SUPPORTED_CONTRACT_EVENT_SCHEMA_VERSIONS[number]);
+
+    if (!supported) {
+      logger.warn('Unsupported contract event schema version', {
+        eventType: event.type,
+        txHash: event.txHash,
+        ledger: event.ledger,
+        schemaVersion: version,
+        supportedVersions: SUPPORTED_CONTRACT_EVENT_SCHEMA_VERSIONS,
+      });
+    }
+
+    return supported;
   }
 
   private async processEvents(events: ContractEvent[]): Promise<ProcessedEvent[]> {
     const processed: ProcessedEvent[] = [];
 
     for (const event of events) {
+      if (!this.isSupportedSchemaVersion(event)) continue;
+
       const handler = this.getEventHandler(event.type);
       if (handler) {
         const result = await handler(event);
@@ -262,22 +330,22 @@ export class EventListener {
 
   private getEventHandler(eventType: string) {
     const handlers: Record<string, (e: ContractEvent) => Promise<ProcessedEvent | null>> = {
-      RenewalSuccess: this.handleRenewalSuccess.bind(this),
-      RenewalFailed: this.handleRenewalFailed.bind(this),
-      StateTransition: this.handleStateTransition.bind(this),
-      ApprovalCreated: this.handleApprovalCreated.bind(this),
-      ApprovalRejected: this.handleApprovalRejected.bind(this),
-      ExecutorAssigned: this.handleExecutorAssigned.bind(this),
-      ExecutorRemoved: this.handleExecutorRemoved.bind(this),
-      DuplicateRenewalRejected: this.handleDuplicateRenewalRejected.bind(this),
-      LifecycleTimestampUpdated: this.handleLifecycleTimestampUpdated.bind(this),
+      [EventType.RENEWAL_SUCCESS]: this.handleRenewalSuccess.bind(this),
+      [EventType.RENEWAL_FAILED]: this.handleRenewalFailed.bind(this),
+      [EventType.STATE_TRANSITION]: this.handleStateTransition.bind(this),
+      [EventType.APPROVAL_CREATED]: this.handleApprovalCreated.bind(this),
+      [EventType.APPROVAL_REJECTED]: this.handleApprovalRejected.bind(this),
+      [EventType.EXECUTOR_ASSIGNED]: this.handleExecutorAssigned.bind(this),
+      [EventType.EXECUTOR_REMOVED]: this.handleExecutorRemoved.bind(this),
+      [EventType.DUPLICATE_RENEWAL_REJECTED]: this.handleDuplicateRenewalRejected.bind(this),
+      [EventType.LIFECYCLE_TIMESTAMP_UPDATED]: this.handleLifecycleTimestampUpdated.bind(this),
     };
 
     return handlers[eventType];
   }
 
   private async handleRenewalSuccess(event: ContractEvent): Promise<ProcessedEvent | null> {
-    const { sub_id } = event.value;
+    const { sub_id } = event.value as RenewalSuccessPayload;
 
     const { data: sub } = await supabase
       .from('subscriptions')
@@ -285,9 +353,9 @@ export class EventListener {
       .eq('blockchain_sub_id', sub_id)
       .single();
 
-    const updateData: Record<string, any> = {
+    const updateData: Partial<Subscription> = {
       status: 'active',
-      last_payment_date: new Date().toISOString(),
+      last_interaction_at: new Date().toISOString(),
       failure_count: 0,
       last_renewal_attempt_at: new Date().toISOString(),
     };
@@ -319,7 +387,7 @@ export class EventListener {
   }
 
   private async handleRenewalFailed(event: ContractEvent): Promise<ProcessedEvent | null> {
-    const { sub_id, failure_count } = event.value;
+    const { sub_id, failure_count } = event.value as RenewalFailedPayload;
 
     const { data: sub } = await supabase
       .from('subscriptions')
@@ -327,7 +395,7 @@ export class EventListener {
       .eq('blockchain_sub_id', sub_id)
       .single();
 
-    const updateData: Record<string, any> = {
+    const updateData: Partial<Subscription> = {
       status: 'retrying',
       failure_count,
       last_renewal_attempt_at: new Date().toISOString(),
@@ -361,7 +429,7 @@ export class EventListener {
   }
 
   private async handleStateTransition(event: ContractEvent): Promise<ProcessedEvent | null> {
-    const { sub_id, new_state } = event.value;
+    const { sub_id, new_state } = event.value as StateTransitionPayload;
 
     const statusMap: Record<string, string> = {
       Active: 'active',
@@ -384,7 +452,7 @@ export class EventListener {
   }
 
   private async handleApprovalCreated(event: ContractEvent): Promise<ProcessedEvent | null> {
-    const { sub_id, approval_id, max_spend, expires_at } = event.value;
+    const { sub_id, approval_id, max_spend, expires_at } = event.value as ApprovalCreatedPayload;
 
     await supabase
       .from('renewal_approvals')
@@ -406,7 +474,7 @@ export class EventListener {
   }
 
   private async handleApprovalRejected(event: ContractEvent): Promise<ProcessedEvent | null> {
-    const { sub_id, approval_id, reason } = event.value;
+    const { sub_id, approval_id, reason } = event.value as ApprovalRejectedPayload;
 
     await supabase
       .from('renewal_approvals')
@@ -427,7 +495,7 @@ export class EventListener {
   }
 
   private async handleExecutorAssigned(event: ContractEvent): Promise<ProcessedEvent | null> {
-    const { sub_id, executor } = event.value;
+    const { sub_id, executor } = event.value as ExecutorAssignedPayload;
 
     await supabase
       .from('subscriptions')
@@ -444,7 +512,7 @@ export class EventListener {
   }
 
   private async handleExecutorRemoved(event: ContractEvent): Promise<ProcessedEvent | null> {
-    const { sub_id } = event.value;
+    const { sub_id } = event.value as { sub_id: number };
 
     await supabase
       .from('subscriptions')
@@ -461,7 +529,7 @@ export class EventListener {
   }
 
   private async handleDuplicateRenewalRejected(event: ContractEvent): Promise<ProcessedEvent | null> {
-    const { sub_id, cycle_id } = event.value;
+    const { sub_id, cycle_id } = event.value as DuplicateRenewalRejectedPayload;
     logger.warn('Duplicate renewal rejected', { sub_id, cycle_id, ledger: event.ledger });
 
     return {
@@ -474,7 +542,7 @@ export class EventListener {
   }
 
   private async handleLifecycleTimestampUpdated(event: ContractEvent): Promise<ProcessedEvent | null> {
-    const { sub_id, event_kind, timestamp } = event.value;
+    const { sub_id, event_kind, timestamp } = event.value as LifecycleTimestampUpdatedPayload;
 
     const column = LIFECYCLE_COLUMN_MAP[event_kind as number];
     if (!column) {
@@ -530,13 +598,13 @@ export class EventListener {
   private async updateLastProcessedLedger(ledger: number) {
     await supabase
       .from('event_cursor')
-      .upsert({ id: 1, last_ledger: ledger });
+      .upsert({ id: 1, last_ledger: ledger } as any);
   }
 
   private async getCurrentLedger(): Promise<number> {
     const requestController = this.beginRequest();
     try {
-      const response = await fetch(this.rpcUrl, {
+      const response = await this.rpcClient.fetch(this.rpcUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -547,8 +615,8 @@ export class EventListener {
         signal: requestController.signal,
       });
 
-      const data: any = await response.json();
-      return data.result?.sequence || 0;
+      const data = await response.json();
+      return (data as any).result?.sequence || 0;
     } finally {
       this.endRequest(requestController);
     }

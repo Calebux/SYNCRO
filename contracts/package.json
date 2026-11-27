@@ -1,0 +1,12 @@
+{
+  "name": "@syncro/contracts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Soroban contracts workspace wrapper for the monorepo task graph",
+  "scripts": {
+    "build": "node ../scripts/run-cargo.mjs build --target wasm32-unknown-unknown --release",
+    "test": "node ../scripts/run-cargo.mjs test",
+    "typecheck": "node ../scripts/run-cargo.mjs check --target wasm32-unknown-unknown",
+    "lint": "node ../scripts/run-cargo.mjs fmt --all -- --check"
+  }
+}

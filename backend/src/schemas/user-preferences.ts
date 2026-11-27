@@ -7,11 +7,17 @@ export const userPreferencesUpdateSchema = z.object({
     .array(z.enum(['email', 'push']))
     .min(1, 'At least one notification channel is required')
     .optional(),
+  spend_cap_alert_channels: z
+    .array(z.enum(['email', 'telegram']))
+    .max(2)
+    .refine((channels) => new Set(channels).size === channels.length, 'Notification channels must be unique')
+    .optional(),
   reminder_timing: z
     .array(z.number().int().min(1).max(365))
     .min(1, 'At least one reminder timing is required')
     .max(10, 'Maximum 10 reminder timings allowed')
     .optional(),
+  reminder_jitter_level: z.enum(['off', 'low', 'medium', 'high']).optional(),
   email_opt_ins: z
     .object({
       marketing: z.boolean().optional(),
@@ -28,11 +34,23 @@ export const userPreferencesUpdateSchema = z.object({
   risk_notification_threshold: z
     .enum(['LOW', 'MEDIUM', 'HIGH'])
     .optional(),
+  currency: z.string().min(3).max(5).optional(),
+  timezone: z.string().optional(),
+  locale: z.string().optional(),
+  preferred_gift_card_provider: z
+    .enum(['atomic_wallet', 'bitrefill', 'coincards'])
+    .optional(),
+  privacy_mode_enabled: z.boolean().optional(),
+  encryption_key: z.string().optional(),
+  subscription_priority_order: z
+    .array(z.string().uuid('Each subscription ID must be a valid UUID'))
+    .max(500, 'Maximum 500 subscriptions in priority order')
+    .optional(),
 });
 
 // ─── Quiet Hours Schema ─────────────────────────────────────────────────────
 
-export const quietHoursUpdateSchema = z.object({
+const quietHoursUpdateFields = z.object({
   quiet_hours_enabled: z.boolean(),
   quiet_hours_start: z
     .string()
@@ -47,14 +65,20 @@ export const quietHoursUpdateSchema = z.object({
     .min(1, 'Timezone is required')
     .optional(),
   critical_alerts_only: z.boolean().optional(),
-}).refine(
-  (data) => {
-    // If quiet hours are enabled, start and end times are required
-    if (data.quiet_hours_enabled) {
-      return data.quiet_hours_start && data.quiet_hours_end && data.quiet_hours_timezone;
-    }
-    return true;
-  },
+});
+
+function requireQuietHoursDetails<T extends {
+  quiet_hours_enabled?: boolean;
+  quiet_hours_start?: string;
+  quiet_hours_end?: string;
+  quiet_hours_timezone?: string;
+}>(data: T): boolean {
+  return !data.quiet_hours_enabled
+    || Boolean(data.quiet_hours_start && data.quiet_hours_end && data.quiet_hours_timezone);
+}
+
+export const quietHoursUpdateSchema = quietHoursUpdateFields.refine(
+  requireQuietHoursDetails,
   {
     message: 'When quiet hours are enabled, start time, end time, and timezone are required',
     path: ['quiet_hours_enabled'],
@@ -63,7 +87,12 @@ export const quietHoursUpdateSchema = z.object({
 
 // ─── Combined User Preferences Schema ───────────────────────────────────────
 
-export const fullUserPreferencesUpdateSchema = userPreferencesUpdateSchema.merge(quietHoursUpdateSchema);
+export const fullUserPreferencesUpdateSchema = userPreferencesUpdateSchema
+  .merge(quietHoursUpdateFields.partial())
+  .refine(requireQuietHoursDetails, {
+    message: 'When quiet hours are enabled, start time, end time, and timezone are required',
+    path: ['quiet_hours_enabled'],
+  });
 
 // ─── Timezone Validation ────────────────────────────────────────────────────
 
@@ -83,6 +112,9 @@ export const timezoneSchema = z.string().refine(
 );
 
 // Update the quiet hours schema to use proper timezone validation
-export const quietHoursUpdateSchemaWithValidation = quietHoursUpdateSchema.extend({
+export const quietHoursUpdateSchemaWithValidation = quietHoursUpdateFields.extend({
   quiet_hours_timezone: timezoneSchema.optional(),
+}).refine(requireQuietHoursDetails, {
+  message: 'When quiet hours are enabled, start time, end time, and timezone are required',
+  path: ['quiet_hours_enabled'],
 });

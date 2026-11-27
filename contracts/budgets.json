@@ -1,0 +1,133 @@
+{
+  "budgets": [
+    {
+      "contract": "escrow",
+      "entrypoint": "create_escrow",
+      "scenario": "average",
+      "description": "Create escrow agreement",
+      "cpu_instructions": 50000,
+      "memory_bytes": 12288,
+      "measured_at": "2026-08-30T23:25:00Z",
+      "notes": "Arbiter set validation, state initialization"
+    },
+    {
+      "contract": "escrow",
+      "entrypoint": "approve_release",
+      "scenario": "average",
+      "description": "Approve escrow release",
+      "cpu_instructions": 28000,
+      "memory_bytes": 4096,
+      "measured_at": "2026-08-30T23:25:00Z",
+      "notes": "Signature verification, state transition"
+    },
+    {
+      "contract": "escrow",
+      "entrypoint": "resolve_dispute",
+      "scenario": "worst_case",
+      "description": "Resolve dispute with custom split",
+      "cpu_instructions": 85000,
+      "memory_bytes": 20480,
+      "measured_at": "2026-08-30T23:25:00Z",
+      "notes": "Multi-arbiter approvals, complex split calculation, cross-contract token transfers"
+    },
+    {
+      "contract": "escrow",
+      "entrypoint": "release_funds",
+      "scenario": "average",
+      "description": "Release escrowed funds",
+      "cpu_instructions": 65000,
+      "memory_bytes": 16384,
+      "measured_at": "2026-08-30T23:25:00Z",
+      "notes": "Token transfer cross-contract call"
+    },
+    {
+      "contract": "virtual_card",
+      "entrypoint": "create_card",
+      "scenario": "average",
+      "description": "Create virtual card",
+      "cpu_instructions": 55000,
+      "memory_bytes": 16384,
+      "measured_at": "2026-08-30T23:25:00Z",
+      "notes": "Card initialization, state setup"
+    },
+    {
+      "contract": "virtual_card",
+      "entrypoint": "execute_payment",
+      "scenario": "worst_case",
+      "description": "Execute payment with all validations",
+      "cpu_instructions": 145000,
+      "memory_bytes": 28672,
+      "measured_at": "2026-08-30T23:25:00Z",
+      "notes": "Signature verification, spending limits, logging, token transfer"
+    },
+    {
+      "contract": "payment_channel",
+      "entrypoint": "open_channel",
+      "scenario": "average",
+      "description": "Open payment channel",
+      "cpu_instructions": 62000,
+      "memory_bytes": 18432,
+      "measured_at": "2026-08-30T23:25:00Z",
+      "notes": "Channel state setup, participant validation"
+    },
+    {
+      "contract": "payment_channel",
+      "entrypoint": "close_channel",
+      "scenario": "average",
+      "description": "Close payment channel",
+      "cpu_instructions": 58000,
+      "memory_bytes": 12288,
+      "measured_at": "2026-08-30T23:25:00Z",
+      "notes": "Final settlement, token transfers"
+    },
+    {
+      "contract": "contract_upgrade",
+      "entrypoint": "propose_upgrade",
+      "scenario": "average",
+      "description": "Propose contract upgrade",
+      "cpu_instructions": 38000,
+      "memory_bytes": 12288,
+      "measured_at": "2026-08-30T23:25:00Z",
+      "notes": "Proposal creation, guardian check"
+    },
+    {
+      "contract": "contract_upgrade",
+      "entrypoint": "approve_upgrade",
+      "scenario": "average",
+      "description": "Approve upgrade proposal",
+      "cpu_instructions": 32000,
+      "memory_bytes": 8192,
+      "measured_at": "2026-08-30T23:25:00Z",
+      "notes": "Approval tracking, threshold check"
+    },
+    {
+      "contract": "contract_upgrade",
+      "entrypoint": "execute_upgrade",
+      "scenario": "average",
+      "description": "Execute approved upgrade",
+      "cpu_instructions": 42000,
+      "memory_bytes": 10240,
+      "measured_at": "2026-08-30T23:25:00Z",
+      "notes": "Timelock validation, rollback setup"
+    },
+    {
+      "contract": "contract_upgrade",
+      "entrypoint": "rollback_upgrade",
+      "scenario": "average",
+      "description": "Rollback to previous WASM",
+      "cpu_instructions": 28000,
+      "memory_bytes": 6144,
+      "measured_at": "2026-08-30T23:25:00Z",
+      "notes": "Hash verification, state cleanup"
+    }
+  ],
+  "metadata": {
+    "version": "1.0",
+    "tolerance_pct": 5.0,
+    "description": "Resource budgets for all SYNCRO contract entrypoints. Used by CI to detect regressions.",
+    "soroban_version": "20.5+",
+    "measured_at": "2026-08-30T23:25:00Z",
+    "max_transaction_instructions": 10000000,
+    "notes": "Worst-case scenarios include all validations, logging, and cross-contract calls. Tolerance of 5% allows for minor variations in Soroban versions."
+  }
+}

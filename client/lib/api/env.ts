@@ -10,23 +10,27 @@ import { z } from 'zod'
  * Uses partial() to allow missing optional vars, but validates required ones
  */
 const envSchema = z.object({
-  // Supabase (required)
+  // Supabase — anon key only; service-role key intentionally excluded from client
+  // to prevent accidental privilege escalation. Backend uses SERVICE_ROLE_KEY directly.
   NEXT_PUBLIC_SUPABASE_URL: z.string().url('Invalid Supabase URL').optional(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1, 'Supabase anon key required').optional(),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1, 'Supabase service role key required').optional(),
 
   // API Configuration
+  // NEXT_PUBLIC_API_URL is the canonical name; NEXT_PUBLIC_API_BASE is the
+  // deprecated alias kept for backward compatibility (see docs/ENVIRONMENT.md).
+  NEXT_PUBLIC_API_URL: z.string().url('Invalid API URL').optional(),
   NEXT_PUBLIC_API_BASE: z.string().url('Invalid API base URL').optional(),
   API_SECRET_KEY: z.string().min(1, 'API secret key required').optional(),
 
   // Rate Limiting
   RATE_LIMIT_ENABLED: z.string().transform((val) => val === 'true').default('true'),
   RATE_LIMIT_REDIS_URL: z.string().url('Invalid Redis URL').optional(),
-
-  // External Services
-  STRIPE_SECRET_KEY: z.string().optional(),
-  STRIPE_WEBHOOK_SECRET: z.string().optional(),
-  PAYSTACK_SECRET_KEY: z.string().optional(),
+  RATE_LIMIT_IMPORT_MAX: z.string().optional(),
+  RATE_LIMIT_IMPORT_WINDOW_MINUTES: z.string().optional(),
+  RATE_LIMIT_PAYMENT_MAX: z.string().optional(),
+  RATE_LIMIT_PAYMENT_WINDOW_MINUTES: z.string().optional(),
+  RATE_LIMIT_TAG_MUTATION_MAX: z.string().optional(),
+  RATE_LIMIT_TAG_MUTATION_WINDOW_MINUTES: z.string().optional(),
 
   // System
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -62,14 +66,18 @@ export function getEnv(): Env {
     validatedEnv = envSchema.parse({
       NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
       NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-      SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+      NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
       NEXT_PUBLIC_API_BASE: process.env.NEXT_PUBLIC_API_BASE,
       API_SECRET_KEY: process.env.API_SECRET_KEY,
       RATE_LIMIT_ENABLED: process.env.RATE_LIMIT_ENABLED,
       RATE_LIMIT_REDIS_URL: process.env.RATE_LIMIT_REDIS_URL,
-      STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
-      STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
-      PAYSTACK_SECRET_KEY: process.env.PAYSTACK_SECRET_KEY,
+      RATE_LIMIT_IMPORT_MAX: process.env.RATE_LIMIT_IMPORT_MAX,
+      RATE_LIMIT_IMPORT_WINDOW_MINUTES: process.env.RATE_LIMIT_IMPORT_WINDOW_MINUTES,
+      RATE_LIMIT_PAYMENT_MAX: process.env.RATE_LIMIT_PAYMENT_MAX,
+      RATE_LIMIT_PAYMENT_WINDOW_MINUTES: process.env.RATE_LIMIT_PAYMENT_WINDOW_MINUTES,
+      RATE_LIMIT_TAG_MUTATION_MAX: process.env.RATE_LIMIT_TAG_MUTATION_MAX,
+      RATE_LIMIT_TAG_MUTATION_WINDOW_MINUTES:
+        process.env.RATE_LIMIT_TAG_MUTATION_WINDOW_MINUTES,
       NODE_ENV: process.env.NODE_ENV,
       LOG_LEVEL: process.env.LOG_LEVEL,
       MAINTENANCE_MODE: process.env.MAINTENANCE_MODE,
@@ -86,7 +94,7 @@ export function getEnv(): Env {
       console.warn('Some environment variables are missing or invalid:', error)
       return {} as Env
     }
-    
+
     if (error instanceof z.ZodError) {
       const missing = error.errors.map((e) => e.path.join('.')).join(', ')
       throw new Error(`Missing or invalid environment variables: ${missing}`)
@@ -121,14 +129,15 @@ export function isMaintenanceMode(): boolean {
  */
 export function getApiConfig() {
   const env = getEnv()
-  const stagingApi  = 'https://backend-staging.onrender.com'
+  const stagingApi = 'https://backend-staging.onrender.com'
   const productionApi = 'https://backend-ai-sub.onrender.com'
   const defaultBase =
     process.env.NEXT_PUBLIC_APP_ENV === 'staging' ? stagingApi : productionApi
   return {
-    baseUrl: env.NEXT_PUBLIC_API_BASE || defaultBase,
+    // Prefer the canonical NEXT_PUBLIC_API_URL; fall back to the deprecated
+    // NEXT_PUBLIC_API_BASE so existing deployments keep working.
+    baseUrl: env.NEXT_PUBLIC_API_URL || env.NEXT_PUBLIC_API_BASE || defaultBase,
     secretKey: env.API_SECRET_KEY,
     rateLimitEnabled: env.RATE_LIMIT_ENABLED,
   }
 }
-

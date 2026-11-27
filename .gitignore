@@ -10,6 +10,8 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 .pnpm-debug.log*
+pnpm-lock.yaml
+yarn.lock
 
 # Environment variables
 .env
@@ -38,6 +40,9 @@ pids/
 *.pid
 *.seed
 *.pid.lock
+
+# Local degraded-mode usage log (Issue #1444) — reconciled, never committed
+data/metering/
 
 # Coverage directory used by tools like istanbul
 coverage/
@@ -82,6 +87,11 @@ Thumbs.db
 .cache
 .parcel-cache
 
+# Turbo
+.turbo
+**/.turbo
+
+
 # Next.js (if used)
 .next/
 out/
@@ -103,3 +113,14 @@ coverage/
 CLAUDE.md
 
 !backend/package-lock.json
+
+# Transpiled test artifacts — ts-jest compiles TypeScript at runtime; never commit JS output from backend/tests
+backend/tests/**/*.js
+backend/tests/**/*.js.map
+backend/tests/**/*.d.ts
+backend/tests/**/*.d.ts.map
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo

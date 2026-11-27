@@ -1,0 +1,485 @@
+---
+title: Soroban Contracts
+description: "On-chain contract addresses, function signatures, and events"
+---
+
+## Deployed Contracts
+
+| Contract | Network | Address |
+|----------|---------|---------|
+| `SubscriptionRegistry` | Testnet | `CXXX...` (set after deployment) |
+| `SubscriptionRenewal` | Testnet | `CYYY...` (set after deployment) |
+| `VirtualCard` | Testnet | `CZZZ...` (set after deployment) |
+| `Escrow` | Testnet | `CAAA...` (set after deployment) |
+| `AgentRegistry` | Testnet | `CBBB...` (set after deployment) |
+| `SubscriptionLogging` | Testnet | `CCCC...` (set after deployment) |
+
+## SubscriptionRegistry
+
+Stores the canonical list of subscriptions and metadata for each user.
+
+### Functions
+
+```rust
+// Create a new subscription for a user
+fn create_subscription(
+    env: Env,
+    user: Address,
+    service_id: String,
+    billing_interval: u64,
+    expected_amount: i128,
+    next_renewal: u64,
+) -> BytesN<32>
+
+// Update an existing subscription's metadata
+fn update_subscription(
+    env: Env,
+    subscription_id: BytesN<32>,
+    user: Address,
+    service_id: Option<String>,
+    billing_interval: Option<u64>,
+    expected_amount: Option<i128>,
+    next_renewal: Option<u64>,
+)
+
+// Cancel a subscription by marking it as inactive
+fn cancel_subscription(env: Env, subscription_id: BytesN<32>, user: Address)
+
+// Get subscription metadata by ID
+fn get_subscription(env: Env, subscription_id: BytesN<32>) -> Option<SubscriptionMetadata>
+
+// Get all subscription IDs for a user
+fn get_user_subscriptions(env: Env, user: Address) -> Vec<BytesN<32>>
+```
+
+### Events
+
+```rust
+// Emitted on successful subscription creation
+SubscriptionCreatedEvent {
+    subscription_id: BytesN<32>,
+    user: Address,
+    service_id: String,
+    billing_interval: u64,
+    expected_amount: i128,
+    next_renewal: u64,
+}
+
+// Emitted when subscription metadata is updated
+SubscriptionUpdatedEvent {
+    subscription_id: BytesN<32>,
+    user: Address,
+    service_id: String,
+    billing_interval: u64,
+    expected_amount: i128,
+    next_renewal: u64,
+}
+
+// Emitted when a subscription is cancelled
+SubscriptionCancelledEvent {
+    subscription_id: BytesN<32>,
+    user: Address,
+    service_id: String,
+}
+```
+
+## SubscriptionRenewal
+
+Authorises, schedules, and executes subscription renewal payments.
+
+### Functions
+
+```rust
+// Initialize the renewal contract with an admin address
+fn init(env: Env, admin: Address)
+
+// Toggle pause state (admin only)
+fn set_paused(env: Env, paused: bool)
+
+// Query the current pause state
+fn is_paused(env: Env) -> bool
+
+// Set the logging contract address (admin only)
+fn set_logging_contract(env: Env, address: Address)
+
+// Initialize subscription terms in the renewal system
+fn init_sub(
+    env: Env,
+    owner: Address,
+    merchant: Address,
+    amount: i128,
+    frequency: u64,
+    spending_cap: i128,
+    sub_id: u64,
+)
+
+// Explicitly cancel a subscription in the renewal system
+fn cancel_sub(env: Env, sub_id: u64)
+
+// Get subscription data
+fn get_sub(env: Env, sub_id: u64) -> SubscriptionData
+
+// Get lifecycle timestamps for a subscription
+fn get_lifecycle(env: Env, sub_id: u64) -> LifecycleTimestamps
+
+// Assign an execution agent for a subscription
+fn set_executor(env: Env, sub_id: u64, executor: Address)
+
+// Remove execution agent for a subscription
+fn remove_executor(env: Env, sub_id: u64)
+
+// Get current execution agent for a subscription
+fn get_executor(env: Env, sub_id: u64) -> Option<Address>
+
+// Set billing window for a subscription
+fn set_window(env: Env, sub_id: u64, billing_start: u64, billing_end: u64)
+
+// Get billing window for a subscription
+fn get_window(env: Env, sub_id: u64) -> Option<RenewalWindow>
+
+// Approve a renewal payment cycle
+fn approve_renewal(
+    env: Env,
+    sub_id: u64,
+    approval_id: u64,
+    max_spend: i128,
+    expires_at: u32,
+)
+
+// Configure protocol fee (admin only)
+fn set_fee_config(env: Env, percentage: u32, recipient: Address)
+
+// Retrieve the current fee configuration
+fn get_fee_config(env: Env) -> Option<FeeConfig>
+
+// Acquire a processing lock to prevent race conditions
+fn acquire_renewal_lock(env: Env, sub_id: u64, lock_timeout: u32)
+
+// Release a processing lock
+fn release_renewal_lock(env: Env, sub_id: u64)
+
+// Query current renewal lock details
+fn get_renewal_lock(env: Env, sub_id: u64) -> Option<RenewalLockData>
+
+// Set global spending cap for a user (admin only)
+fn set_user_cap(env: Env, user: Address, cap: i128)
+
+// Get global spending cap for a user
+fn get_user_cap(env: Env, user: Address) -> i128
+
+// Get current spent amount under global cap
+fn get_user_spent(env: Env, user: Address) -> i128
+
+// Process the renewal payment cycle (callable by owner or executor)
+fn renew(
+    env: Env,
+    caller: Address,
+    sub_id: u64,
+    approval_id: u64,
+    amount: i128,
+    max_retries: u32,
+    cooldown_ledgers: u32,
+    cycle_id: u64,
+    succeed: bool,
+) -> bool
+```
+
+### Events
+
+```rust
+// Emitted on successful renewal execution
+RenewalSuccess { sub_id: u64, owner: Address }
+
+// Emitted on failed renewal attempt
+RenewalFailed { sub_id: u64, failure_count: u32, ledger: u32 }
+
+// Emitted on state transition (e.g. Active, Retrying, Failed, Cancelled)
+StateTransition { sub_id: u64, new_state: SubscriptionState }
+
+// Emitted when pause state changes
+PauseToggled { paused: bool }
+
+// Emitted when a renewal cycle is approved
+ApprovalCreated { sub_id: u64, approval_id: u64, max_spend: i128, expires_at: u32 }
+
+// Emitted when an approval consumption fails
+ApprovalRejected { sub_id: u64, approval_id: u64, reason: u32 }
+
+// Emitted when an executor is assigned/removed
+ExecutorAssigned { sub_id: u64, executor: Address }
+ExecutorRemoved { sub_id: u64 }
+
+// Emitted when the billing window is updated
+WindowUpdated { sub_id: u64, billing_start: u64, billing_end: u64 }
+
+// Emitted when caps are violated
+SpendingCapViolated { sub_id: u64, amount: i128, cap: i128 }
+GlobalCapViolated { owner: Address, amount: i128, cap: i128 }
+
+// Emitted when processing lock status changes
+RenewalLockAcquired { sub_id: u64, locked_at: u32, lock_timeout: u32 }
+RenewalLockReleased { sub_id: u64, released_at: u32 }
+RenewalLockExpired { sub_id: u64, original_locked_at: u32, expired_at: u32 }
+```
+
+### Renewal Timing — User-Visible Behaviour
+
+Understanding when a renewal can execute helps you avoid unexpected failures.
+
+#### Approval window
+
+Before any renewal executes, you must create an **approval** via `approve_renewal()`. An approval:
+
+- Is **single-use** — once consumed it cannot be reused, even if the renewal fails after the approval check.
+- Has a **ledger-based expiry** (`expires_at` is a ledger sequence number, not a clock time). If the ledger advances past this number before the renewal runs, the approval is void and you must create a new one.
+- Has a **spend limit** (`max_spend`). If the renewal amount exceeds this limit, the approval is rejected and you must create a new approval with a higher limit.
+
+**What this means for you:**
+- Create a fresh approval for each billing cycle.
+- Set `expires_at` far enough in the future to cover any expected delay between approval and execution.
+- If a renewal fails with "Invalid or expired approval", check whether the approval was already consumed (single-use) or has expired, then create a new one.
+
+#### Renewal window
+
+You can optionally restrict renewals to a specific time range using `set_window()`. If a window is set:
+
+- Renewals attempted **before** `billing_start` are rejected with "Outside renewal window".
+- Renewals attempted **after** `billing_end` are rejected with "Outside renewal window".
+- The window uses **Unix timestamps** (seconds since epoch), not ledger sequence numbers.
+
+> **Important:** The approval is consumed *before* the window is checked. If the window check fails, the approval is already marked as used. You must create a new approval before retrying.
+
+If no window is set, there is no time restriction on when a renewal can execute.
+
+**What this means for you:**
+- Set `billing_start` and `billing_end` to bracket your expected billing date (e.g. a 48-hour window centred on the billing date).
+- If a renewal fails with "Outside renewal window", wait until the window opens — but remember you will also need a fresh approval.
+
+#### Approval rejection reason codes
+
+| Code | Meaning | Action required |
+|------|---------|-----------------|
+| `1` | Approval expired | Create a new approval with a later `expires_at` |
+| `2` | Approval already used | Create a new approval for this cycle |
+| `3` | Amount exceeds `max_spend` | Create a new approval with a higher `max_spend` |
+| `4` | Approval not found | Create an approval before triggering renewal |
+
+## VirtualCard
+
+Non-custodial virtual card for subscription payments.
+
+### Functions
+
+```rust
+// Issue a new virtual card for a user
+fn issue_card(
+    env: Env,
+    user: Address,
+    amount: i128,
+    card_type: CardType,
+    expires_at: u64,
+) -> Result<u32, VirtualCardError>
+
+// Process a payment from a virtual card
+fn process_payment(
+    env: Env,
+    card_id: u32,
+    amount: i128,
+    merchant: String,
+) -> Result<u32, VirtualCardError>
+
+// Get current card balance
+fn get_balance(env: Env, card_id: u32) -> i128
+
+// Get the full card metadata
+fn get_card(env: Env, card_id: u32) -> Result<Card, VirtualCardError>
+
+// Activate a pending card
+fn activate_card(env: Env, card_id: u32, caller: Address) -> Result<(), VirtualCardError>
+
+// Permanently close a card
+fn deactivate_card(env: Env, card_id: u32, caller: Address, reason: String) -> Result<(), VirtualCardError>
+
+// Temporarily suspend a card
+fn suspend_card(env: Env, card_id: u32, caller: Address) -> Result<(), VirtualCardError>
+
+// Verify card ownership
+fn verify_ownership(env: Env, card_id: u32, claimant: Address) -> bool
+
+// Check if card is eligible for transaction
+fn can_transact(env: Env, card_id: u32, amount: i128) -> bool
+
+// Returns the contract version
+fn version(env: Env) -> u32
+```
+
+### Events
+
+- `card_issued`: Emitted with topic `("card_issued", user)` and data `(card_id, amount, timestamp)`.
+- `payment_processed`: Emitted with topic `("payment_processed", "card")` and data `(card_id, amount, merchant, timestamp)`.
+- `card_activated`: Emitted with topic `("card_activated", user)` and data `(card_id, timestamp)`.
+- `card_deactivated`: Emitted with topic `("card_deactivated", "card")` and data `(card_id, reason, timestamp)`.
+- `card_suspended`: Emitted with topic `("card_suspended", user)` and data `(card_id, timestamp)`.
+
+## Escrow
+
+Arbiter-mediated secure escrow agreement with dispute resolution workflow.
+
+### Functions
+
+```rust
+// Initialize the escrow contract with an admin address
+fn init(env: Env, admin: Address)
+
+// Create a new escrow agreement
+fn create_escrow(
+    env: Env,
+    payer: Address,
+    payee: Address,
+    arbiter: Address,
+    token: Address,
+    amount: i128,
+    expires_at: u64,
+    description: String,
+) -> u64
+
+// Deposit/fund the escrow (payer only)
+fn deposit(env: Env, escrow_id: u64)
+
+// Approve release of funds (arbiter/second signature only)
+fn approve_release(env: Env, escrow_id: u64)
+
+// Release funds to the payee (payee authorization required)
+fn release(env: Env, escrow_id: u64)
+
+// Claim refund (unilaterally after expiry, or before approval)
+fn refund(env: Env, escrow_id: u64)
+
+// Raise a dispute (payer or payee)
+fn raise_dispute(env: Env, escrow_id: u64, caller: Address)
+
+// Resolve dispute (arbiter only; 1 = release to payee, 2 = refund to payer)
+fn resolve_dispute(env: Env, escrow_id: u64, resolution: u32)
+
+// Retrieve escrow agreement details
+fn get_escrow(env: Env, escrow_id: u64) -> EscrowAgreement
+
+// Get total count of escrows created
+fn get_escrow_count(env: Env) -> u64
+
+// Check if escrow is currently refundable
+fn is_refundable(env: Env, escrow_id: u64) -> bool
+
+// Check if escrow is currently releasable
+fn is_releasable(env: Env, escrow_id: u64) -> bool
+```
+
+### Events
+
+```rust
+// Emitted when an escrow agreement is created
+EscrowCreated { escrow_id: u64, payer: Address, payee: Address, arbiter: Address, amount: i128 }
+
+// Emitted when the escrow is funded
+EscrowFunded { escrow_id: u64, amount: i128 }
+
+// Emitted when the arbiter approves release (second signature)
+EscrowApproved { escrow_id: u64, arbiter: Address }
+
+// Emitted when funds are released to the payee
+EscrowReleased { escrow_id: u64, payee: Address, amount: i128 }
+
+// Emitted when funds are refunded to the payer
+EscrowRefunded { escrow_id: u64, payer: Address, amount: i128 }
+
+// Emitted when a dispute is raised
+EscrowDisputed { escrow_id: u64, raised_by: Address }
+
+// Emitted when a dispute is resolved by the arbiter
+EscrowResolved { escrow_id: u64, resolution: u32 }
+```
+
+## AgentRegistry
+
+Manages authorized subscription execution agents and their functional permission scopes.
+
+### Functions
+
+```rust
+// Initialize the agent registry with an admin address
+fn init(env: Env, admin: Address) -> Result<(), Error>
+
+// Register a new agent (admin only)
+fn register(env: Env, agent: Address) -> Result<(), Error>
+
+// Update scope permissions mask for an agent (admin only)
+fn update_scopes(env: Env, agent: Address, scopes: u32) -> Result<(), Error>
+
+// Revoke an agent's authorization (admin only)
+fn revoke_agent(env: Env, agent: Address) -> Result<(), Error>
+
+// Check if an agent is authorized
+fn is_authorized(env: Env, agent: Address) -> bool
+
+// Panic if agent is not authorized
+fn require_authorized(env: Env, agent: Address)
+
+// Check if an agent has a specific permission scope
+fn has_scope(env: Env, agent: Address, scope: Scope) -> bool
+
+// Require agent authorization and scope (enforced with require_auth)
+fn require_scope(env: Env, agent: Address, scope: Scope)
+```
+
+### Events
+
+- `agent register`: Emitted under topic `("agent", "reg")` with data `agent`.
+- `agent scopes`: Emitted under topic `("agent", "scopes")` with data `(agent, scopes)`.
+- `agent revoke`: Emitted under topic `("agent", "revoke")` with data `agent`.
+
+## SubscriptionLogging
+
+Maintains an immutable, structured on-chain audit trail of subscription events.
+
+### Functions
+
+```rust
+// Initialize the logging contract with an admin address
+fn init(env: Env, admin: Address)
+
+// Record an event log (admin only)
+fn record_log(env: Env, sub_id: u64, event: LogEvent, data: String)
+
+// Get all recorded logs for a subscription
+fn get_logs(env: Env, sub_id: u64) -> Vec<LogEntry>
+```
+
+### Events
+
+```rust
+// Emitted when a log entry is successfully appended
+LogAppended { sub_id: u64, event: LogEvent }
+```
+
+## Verifying Subscription Data
+
+```typescript
+import { StellarSdk } from '@stellar/stellar-sdk';
+
+const server = new StellarSdk.SorobanRpc.Server('https://soroban-testnet.stellar.org');
+
+// Read subscription from contract
+const result = await server.simulateTransaction(...);
+```
+
+## Backend Interface Compatibility
+
+The backend maintains a TypeScript interface manifest at
+`shared/src/soroban-contract-interfaces.ts` that mirrors the function signatures
+declared in the Rust contracts above. Backend invoke bindings in
+`backend/src/blockchain/backend-contract-bindings.ts` must stay aligned with this
+manifest.
+
+CI runs `backend/tests/integration/contract-interface-drift.test.ts` when contracts
+change, causing failures on interface drift between the backend and deployed
+contract signatures.

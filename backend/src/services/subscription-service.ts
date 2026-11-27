@@ -1,12 +1,14 @@
 import { supabase } from "../config/database";
 import { blockchainService } from "./blockchain-service";
 import { renewalCooldownService } from "./renewal-cooldown-service";
-import { analyticsService } from "./analytics-service";
 import { webhookService } from "./webhook-service";
 import { referralService } from "./referral-service";
+import { userPreferenceService } from "./user-preference-service";
 import logger from "../config/logger";
 import { DatabaseTransaction } from "../utils/transaction";
-import SERVICE_CATEGORIES from "../../services/service-categories";
+import SERVICE_CATEGORIES from "./service-categories";
+import { validateCursor, encodeCursor } from "../utils/pagination";
+import { deriveStealthAddress, encryptMetadata } from "@syncro/shared/crypto";
 import type {
   Subscription,
   SubscriptionCreateInput,
@@ -14,6 +16,9 @@ import type {
   ListSubscriptionsOptions,
   ListSubscriptionsResult,
 } from "../types/subscription";
+import { queryCacheService } from "./query-cache-service";
+import { domainEventBus } from "../lib/event-bus";
+import type { SubscriptionCreatedEvent, SubscriptionUpdatedEvent, SubscriptionDeletedEvent, SubscriptionCancelledEvent, SubscriptionRestoredEvent } from "@syncro/shared/domain-events";
 
 export interface BlockchainSyncResult {
   success: boolean;
@@ -27,6 +32,110 @@ export interface SubscriptionSyncResult {
   syncStatus: "synced" | "partial" | "failed";
 }
 
+function makeEventId(): string {
+  return `evt_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function buildCreatedEvent(userId: string, subscription: Subscription): SubscriptionCreatedEvent {
+  return {
+    eventName: 'subscription.created',
+    eventId: makeEventId(),
+    occurredAt: new Date().toISOString(),
+    userId,
+    subscriptionId: subscription.id,
+    subscription: {
+      id: subscription.id,
+      name: subscription.name,
+      provider: subscription.provider,
+      price: subscription.price,
+      currency: subscription.currency,
+      billingCycle: subscription.billing_cycle,
+      category: subscription.category,
+      status: subscription.status,
+      nextBillingDate: subscription.next_billing_date,
+      stealthIndex: subscription.stealth_index,
+      stealthAddress: subscription.stealth_address,
+    },
+  };
+}
+
+function buildUpdatedEvent(userId: string, subscription: Subscription, previousStatus: string, updatedFields: string[]): SubscriptionUpdatedEvent {
+  return {
+    eventName: 'subscription.updated',
+    eventId: makeEventId(),
+    occurredAt: new Date().toISOString(),
+    userId,
+    subscriptionId: subscription.id,
+    previousStatus,
+    updatedFields,
+    subscription: {
+      id: subscription.id,
+      name: subscription.name,
+      provider: subscription.provider,
+      price: subscription.price,
+      currency: subscription.currency,
+      billingCycle: subscription.billing_cycle,
+      category: subscription.category,
+      status: subscription.status,
+      nextBillingDate: subscription.next_billing_date,
+    },
+  };
+}
+
+function buildDeletedEvent(userId: string, subscriptionId: string, previousStatus: string): SubscriptionDeletedEvent {
+  return {
+    eventName: 'subscription.deleted',
+    eventId: makeEventId(),
+    occurredAt: new Date().toISOString(),
+    userId,
+    subscriptionId,
+    previousStatus,
+  };
+}
+
+function buildCancelledEvent(userId: string, subscriptionId: string, previousStatus: string): SubscriptionCancelledEvent {
+  return {
+    eventName: 'subscription.cancelled',
+    eventId: makeEventId(),
+    occurredAt: new Date().toISOString(),
+    userId,
+    subscriptionId,
+    previousStatus,
+  };
+}
+
+function buildRestoredEvent(userId: string, subscriptionId: string): SubscriptionRestoredEvent {
+  return {
+    eventName: 'subscription.restored',
+    eventId: makeEventId(),
+    occurredAt: new Date().toISOString(),
+    userId,
+    subscriptionId,
+  };
+}
+
+function buildPausedEvent(userId: string, subscriptionId: string, reason?: string, resumeAt?: string): SubscriptionPausedEvent {
+  return {
+    eventName: 'subscription.paused',
+    eventId: makeEventId(),
+    occurredAt: new Date().toISOString(),
+    userId,
+    subscriptionId,
+    reason,
+    resumeAt,
+  };
+}
+
+function buildResumedEvent(userId: string, subscriptionId: string): SubscriptionResumedEvent {
+  return {
+    eventName: 'subscription.resumed',
+    eventId: makeEventId(),
+    occurredAt: new Date().toISOString(),
+    userId,
+    subscriptionId,
+  };
+}
+
 /**
  * Subscription service with blockchain sync and transaction management
  */
@@ -34,10 +143,34 @@ export class SubscriptionService {
   async createSubscription(
     userId: string,
     input: SubscriptionCreateInput,
-    idempotencyKey?: string,
   ): Promise<SubscriptionSyncResult> {
-    return await DatabaseTransaction.execute(async (client) => {
+    const result = await DatabaseTransaction.execute(async (client) => {
       try {
+        // Determine the next stealth derivation index for this user
+        const { data: indexRow } = await client
+          .from("subscriptions")
+          .select("stealth_index")
+          .eq("user_id", userId)
+          .order("stealth_index", { ascending: false })
+          .limit(1)
+          .single();
+
+        const stealthIndex = indexRow ? (indexRow.stealth_index as number) + 1 : 0;
+
+        // Derive stealth address when the user has a stored stealth meta-address.
+        const { data: profile, error: profileError } = await client
+          .from('profiles')
+          .select('stealth_meta_address')
+          .eq('id', userId)
+          .single();
+
+        if (profileError) {
+          throw new Error(`Failed to load user profile: ${profileError.message}`);
+        }
+
+        const metaAddress = profile?.stealth_meta_address ?? null;
+        let stealthAddress: string | null = null;
+
         const { data: subscription, error: dbError } = await client
           .from("subscriptions")
           .insert({
@@ -57,6 +190,8 @@ export class SubscriptionService {
             visibility: input.visibility || "private",
             tags: input.tags || [],
             email_account_id: input.email_account_id || null,
+            stealth_index: stealthIndex,
+            stealth_address: null,
             updated_at: new Date().toISOString(),
           })
           .select()
@@ -64,6 +199,16 @@ export class SubscriptionService {
 
         if (dbError) {
           throw new Error(`Database error: ${dbError.message}`);
+        }
+
+        // Now that we have the subscription id, derive and persist the stealth address
+        if (metaAddress) {
+          stealthAddress = deriveStealthAddress(metaAddress, subscription.id, stealthIndex);
+          await client
+            .from("subscriptions")
+            .update({ stealth_address: stealthAddress })
+            .eq("id", subscription.id);
+          subscription.stealth_address = stealthAddress;
         }
 
         // Attempt blockchain sync (non-blocking)
@@ -97,14 +242,10 @@ export class SubscriptionService {
           };
         }
 
-        // Trigger budget check (don't let it block response)
-        analyticsService.checkBudgetThreshold(userId).catch(e => 
-          logger.error('Background budget check failed:', e)
-        );
-
-        // Trigger referral conversion on first subscription (non-blocking)
-        referralService.markConverted(userId).catch(e =>
-          logger.error('Background referral conversion check failed:', e)
+        // Publish subscription created event for cross-cutting reactions
+        const createdEvent = buildCreatedEvent(userId, subscription);
+        domainEventBus.publish(createdEvent).catch(e =>
+          logger.error('Failed to publish subscription.created event:', e)
         );
 
         return {
@@ -117,6 +258,9 @@ export class SubscriptionService {
         throw error;
       }
     });
+
+    await this.invalidateSubscriptionCache(userId);
+    return result;
   }
 
   /**
@@ -127,7 +271,7 @@ export class SubscriptionService {
     userId: string,
     subscriptionId: string,
   ): Promise<SubscriptionSyncResult> {
-    return await DatabaseTransaction.execute(async (client) => {
+    const result = await DatabaseTransaction.execute(async (client) => {
       try {
         // 1. Verify ownership and get subscription details
         const { data: existing, error: fetchError } = await client
@@ -167,17 +311,10 @@ export class SubscriptionService {
         }
 
         // 3. Cancel all pending reminders for this subscription
-        const { error: reminderError } = await client
+        await client
           .from("reminder_schedules")
           .delete()
           .eq("subscription_id", subscriptionId);
-
-        if (reminderError) {
-          logger.warn("Failed to delete reminders during subscription deletion", {
-            subscriptionId,
-            error: reminderError.message,
-          });
-        }
 
         // 4. Sync to blockchain (non-fatal if it fails)
         let blockchainResult;
@@ -210,10 +347,10 @@ export class SubscriptionService {
           };
         }
 
-        // 5. Log and trigger budget check
-        logger.info("Subscription deleted", { subscriptionId, userId, syncStatus });
-        analyticsService.checkBudgetThreshold(userId).catch(e =>
-          logger.error('Background budget check failed:', e)
+        // 5. Publish subscription deleted event
+        const deletedEvent = buildDeletedEvent(userId, subscriptionId, existing.status);
+        domainEventBus.publish(deletedEvent).catch(e =>
+          logger.error('Failed to publish subscription.deleted event:', e)
         );
 
         return {
@@ -226,6 +363,9 @@ export class SubscriptionService {
         throw error;
       }
     });
+
+    await this.invalidateSubscriptionCache(userId);
+    return result;
   }
 
   async cancelSubscription(
@@ -266,8 +406,11 @@ export class SubscriptionService {
         }
 
         // 3. Cancel all pending reminders for this subscription
-        const { error: reminderError } = await client
+        await client
           .from("reminder_schedules")
+          .delete()
+          .eq("subscription_id", subscriptionId);
+
         let blockchainResult;
         let syncStatus: "synced" | "partial" | "failed" = "synced";
 
@@ -298,6 +441,12 @@ export class SubscriptionService {
           };
         }
 
+        // Publish subscription cancelled event
+        const cancelledEvent = buildCancelledEvent(userId, subscriptionId, subscription.status);
+        domainEventBus.publish(cancelledEvent).catch(e =>
+          logger.error('Failed to publish subscription.cancelled event:', e)
+        );
+
         return {
           subscription: updatedSubscription,
           blockchainResult,
@@ -312,6 +461,121 @@ export class SubscriptionService {
 
 
 
+
+  /**
+   * Restore a soft-deleted subscription
+   */
+  async restoreSubscription(
+    userId: string,
+    subscriptionId: string,
+  ): Promise<SubscriptionSyncResult> {
+    return await DatabaseTransaction.execute(async (client) => {
+      try {
+        const { data: existing, error: fetchError } = await client
+          .from("subscriptions")
+          .select("*")
+          .eq("id", subscriptionId)
+          .eq("user_id", userId)
+          .single();
+
+        if (fetchError || !existing) {
+          throw new Error("Subscription not found or access denied");
+        }
+
+        if (existing.status !== "deleted") {
+          throw new Error("Subscription is not deleted");
+        }
+
+        const { data: subscription, error: updateError } = await client
+          .from("subscriptions")
+          .update({
+            status: "active",
+            deleted_at: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", subscriptionId)
+          .eq("user_id", userId)
+          .select()
+          .single();
+
+        if (updateError) {
+          throw new Error(`Restore failed: ${updateError.message}`);
+        }
+
+        let blockchainResult;
+        let syncStatus: "synced" | "partial" | "failed" = "synced";
+
+        try {
+          blockchainResult = await blockchainService.syncSubscription(
+            userId,
+            subscriptionId,
+            "create", // We sync a restore as a create on the blockchain
+            subscription,
+          );
+
+          if (!blockchainResult.success) {
+            syncStatus = "partial";
+            logger.warn("Blockchain sync failed for subscription restore", {
+              subscriptionId,
+              error: blockchainResult.error,
+            });
+          }
+        } catch (blockchainError) {
+          syncStatus = "partial";
+          logger.error("Blockchain sync error during restore (non-fatal):", blockchainError);
+          blockchainResult = {
+            success: false,
+            error: blockchainError instanceof Error ? blockchainError.message : String(blockchainError),
+          };
+        }
+
+        // Publish subscription restored event
+        const restoredEvent = buildRestoredEvent(userId, subscriptionId);
+        domainEventBus.publish(restoredEvent).catch(e =>
+          logger.error('Failed to publish subscription.restored event:', e)
+        );
+
+        logger.info("Subscription restored", { subscriptionId, userId, syncStatus });
+        return { subscription, blockchainResult, syncStatus };
+      } catch (error) {
+        logger.error("Subscription restore failed:", error);
+        throw error;
+      }
+    });
+  }
+
+  /**
+   * Hard-delete subscriptions that were soft-deleted over 30 days ago
+   */
+  async purgeDeletedSubscriptions(daysToKeep: number = 30): Promise<{ deletedCount: number }> {
+    try {
+      const purgeDate = new Date();
+      purgeDate.setDate(purgeDate.getDate() - daysToKeep);
+
+      // Perform the actual hard delete from the database
+      // This cascades into reminders and tags via foreign keys if configured correctly,
+      // otherwise, we are just relying on the direct delete.
+      const { data, error, count } = await supabase
+        .from("subscriptions")
+        .delete({ count: "exact" })
+        .eq("status", "deleted")
+        .lt("deleted_at", purgeDate.toISOString());
+
+      if (error) {
+        throw new Error(`Purge failed: ${error.message}`);
+      }
+
+      const deletedCount = count || 0;
+      if (deletedCount > 0) {
+        logger.info(`Purged ${deletedCount} soft-deleted subscriptions (older than ${daysToKeep} days).`);
+      }
+
+      return { deletedCount };
+    } catch (error) {
+      logger.error("Failed to purge deleted subscriptions:", error);
+      throw error;
+    }
+  }
 
   async pauseSubscription(
     userId: string,
@@ -389,6 +653,11 @@ export class SubscriptionService {
         };
       }
 
+      const pausedEvent = buildPausedEvent(userId, subscriptionId, reason, resumeAt);
+      domainEventBus.publish(pausedEvent).catch(e =>
+        logger.error('Failed to publish subscription.paused event:', e)
+      );
+
       return {
         subscription: updatedSubscription,
         blockchainResult,
@@ -459,14 +728,17 @@ export class SubscriptionService {
         }
       } catch (blockchainError) {
         syncStatus = "partial";
-        logger.error("Blockchain sync error (non-fatal):", blockchainError);
+        logger.error("Blockchain sync error during resume (non-fatal):", blockchainError);
         blockchainResult = {
           success: false,
-          error: blockchainError instanceof Error
-            ? blockchainError.message
-            : String(blockchainError),
+          error: blockchainError instanceof Error ? blockchainError.message : String(blockchainError),
         };
       }
+
+      const resumedEvent = buildResumedEvent(userId, subscriptionId);
+      domainEventBus.publish(resumedEvent).catch(e =>
+        logger.error('Failed to publish subscription.resumed event:', e)
+      );
 
       return {
         subscription: updatedSubscription,
@@ -486,7 +758,7 @@ export class SubscriptionService {
     input: SubscriptionUpdateInput,
     expectedVersion?: number,
   ): Promise<SubscriptionSyncResult> {
-    return await DatabaseTransaction.execute(async (client) => {
+    const result = await DatabaseTransaction.execute(async (client) => {
       try {
         // 1. Fetch and verify ownership
         const { data: existing, error: fetchError } = await client
@@ -553,9 +825,11 @@ export class SubscriptionService {
           };
         }
 
-        // Trigger budget check
-        analyticsService.checkBudgetThreshold(userId).catch(e =>
-          logger.error('Background budget check failed:', e)
+        // Publish subscription updated event for cross-cutting reactions
+        const updatedFields = Object.keys(input).filter(key => key !== 'id');
+        const updatedEvent = buildUpdatedEvent(userId, subscription, existing.status, updatedFields);
+        domainEventBus.publish(updatedEvent).catch(e =>
+          logger.error('Failed to publish subscription.updated event:', e)
         );
 
         return {
@@ -568,12 +842,21 @@ export class SubscriptionService {
         throw error;
       }
     });
+
+    await this.invalidateSubscriptionCache(userId);
+    return result;
   }
 
   /**
    * Get subscription by ID (with ownership check)
    */
   async getSubscription(userId: string, subscriptionId: string): Promise<Subscription> {
+    const cacheKey = { subscriptionId };
+    const cached = await queryCacheService.get<Subscription>(userId, 'subscription_detail', cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const { data: subscription, error } = await supabase
       .from("subscriptions")
       .select("*")
@@ -585,6 +868,14 @@ export class SubscriptionService {
       throw new Error("Subscription not found or access denied");
     }
 
+    await queryCacheService.set(
+      userId,
+      'subscription_detail',
+      cacheKey,
+      subscription,
+      queryCacheService.getDefaultSubscriptionListTtl(),
+    );
+
     return subscription;
   }
 
@@ -595,7 +886,19 @@ export class SubscriptionService {
     userId: string,
     options: ListSubscriptionsOptions = {},
   ): Promise<ListSubscriptionsResult> {
+    const cachePayload = { ...options };
+    const cached = await queryCacheService.get<ListSubscriptionsResult>(
+      userId,
+      'subscription_list',
+      cachePayload,
+    );
+    if (cached) {
+      return cached;
+    }
+
     const limit = Math.min(options.limit ?? 20, 100);
+
+    const validatedCursor = validateCursor(options.cursor);
 
     let query = supabase
       .from("subscriptions")
@@ -606,29 +909,26 @@ export class SubscriptionService {
 
     if (options.status) {
       query = query.eq("status", options.status);
+    } else {
+      // By default exclude soft-deleted subscriptions
+      query = query.neq("status", "deleted");
     }
 
     if (options.category) {
       query = query.eq("category", options.category);
     }
 
-    if (options.cursor) {
-      try {
-        const decoded = JSON.parse(
-          Buffer.from(options.cursor, "base64").toString("utf-8"),
-        );
-        if (!decoded.created_at) {
-          throw new Error("Invalid cursor: missing created_at");
-        }
-        query = query.lt("created_at", decoded.created_at);
-      } catch {
-        throw new Error("Invalid pagination cursor");
-      }
+    if (options.encryptedOnly) {
+      query = query.eq("is_encrypted", true);
+    }
+
+    if (validatedCursor) {
+      query = query.lt("created_at", validatedCursor.createdAt);
     }
 
     const { data: rows, error, count } = await query;
 
-    if (error) {
+if (error) {
       throw new Error(`Failed to fetch subscriptions: ${error.message}`);
     }
 
@@ -638,21 +938,133 @@ export class SubscriptionService {
     // Build next cursor from the last item in the page
     const nextCursor =
       hasMore && subscriptions.length > 0
-        ? Buffer.from(
-          JSON.stringify({
-            created_at: subscriptions[subscriptions.length - 1].created_at,
-          }),
-        ).toString("base64")
+        ? encodeCursor({ createdAt: subscriptions[subscriptions.length - 1].created_at })
         : null;
 
-    return {
+    const result = {
       subscriptions,
       total: count ?? 0,
       hasMore,
       nextCursor,
     };
+
+    await queryCacheService.set(
+      userId,
+      'subscription_list',
+      cachePayload,
+      result,
+      queryCacheService.getDefaultSubscriptionListTtl(),
+    );
+
+    return result;
   }
 
+  private async invalidateSubscriptionCache(userId: string): Promise<void> {
+    await Promise.all([
+      queryCacheService.invalidateUserNamespace(userId, 'subscription_list'),
+      queryCacheService.invalidateUserNamespace(userId, 'subscription_detail'),
+      queryCacheService.invalidateUserNamespace(userId, 'analytics_summary'),
+    ]);
+  }
+
+  async getSubscriptionEncryptionSummary(userId: string): Promise<{
+    total: number;
+    encrypted: number;
+    unencrypted: number;
+  }> {
+    const { count: totalCount, error: totalError } = await supabase
+      .from("subscriptions")
+      .select("id", { head: true, count: "exact" })
+      .eq("user_id", userId);
+
+    if (totalError) {
+      throw new Error(`Failed to compute subscription summary: ${totalError.message}`);
+    }
+
+    const { count: encryptedCount, error: encryptedError } = await supabase
+      .from("subscriptions")
+      .select("id", { head: true, count: "exact" })
+      .eq("user_id", userId)
+      .eq("is_encrypted", true);
+
+    if (encryptedError) {
+      throw new Error(`Failed to compute encrypted subscription summary: ${encryptedError.message}`);
+    }
+
+    const total = totalCount ?? 0;
+    const encrypted = encryptedCount ?? 0;
+    return {
+      total,
+      encrypted,
+      unencrypted: Math.max(0, total - encrypted),
+    };
+  }
+
+  async encryptAllUnencryptedSubscriptions(userId: string, encryptionKey?: string): Promise<{ count: number }> {
+    const preferences = await userPreferenceService.getPreferences(userId);
+    const key = encryptionKey?.trim() || preferences.encryption_key;
+
+    if (!key) {
+      throw new Error("Encryption key is required to encrypt subscriptions");
+    }
+
+    const { data: subscriptions, error: fetchError } = await supabase
+      .from("subscriptions")
+      .select("id, name, price, category, renewal_url")
+      .eq("user_id", userId)
+      .eq("is_encrypted", false);
+
+    if (fetchError) {
+      throw new Error(`Failed to load subscriptions for encryption: ${fetchError.message}`);
+    }
+
+    if (!subscriptions || subscriptions.length === 0) {
+      return { count: 0 };
+    }
+
+    const updates = await Promise.all(
+      subscriptions.map(async (subscription: any) => {
+        const updated: Partial<Subscription> & Record<string, unknown> = {
+          is_encrypted: true,
+        };
+
+        if (typeof subscription.name === "string") {
+          updated.encrypted_name = JSON.stringify(await encryptMetadata(subscription.name, key));
+        }
+
+        if (typeof subscription.price === "number") {
+          updated.encrypted_price = JSON.stringify(await encryptMetadata(subscription.price.toString(), key));
+        }
+
+        if (typeof subscription.category === "string" && subscription.category.length > 0) {
+          updated.encrypted_category = JSON.stringify(await encryptMetadata(subscription.category, key));
+        }
+
+        if (typeof subscription.renewal_url === "string" && subscription.renewal_url.length > 0) {
+          updated.encrypted_renewal_url = JSON.stringify(await encryptMetadata(subscription.renewal_url, key));
+        }
+
+        return {
+          id: subscription.id,
+          update: updated,
+        };
+      }),
+    );
+
+    for (const { id, update } of updates) {
+      const { error: updateError } = await supabase
+        .from("subscriptions")
+        .update(update)
+        .eq("id", id)
+        .eq("user_id", userId);
+
+      if (updateError) {
+        throw new Error(`Failed to encrypt subscription ${id}: ${updateError.message}`);
+      }
+    }
+
+    return { count: updates.length };
+  }
 
   /**
    * Check if a renewal can be attempted based on cooldown period.
@@ -780,6 +1192,38 @@ export class SubscriptionService {
     }
 
     return data || [];
+  }
+
+  /**
+   * Recover all stealth addresses for a user by re-deriving them from their
+   * stored indices. Useful for wallet recovery without on-chain scanning.
+   *
+   * For each subscription with a stealth_index, computes:
+   *   Address = HMAC-SHA256(metaAddress, `${subscription.id}:${stealth_index}`)
+   *
+   * @param userId - Owner whose subscriptions to re-derive.
+   * @param metaAddress - The user's stealth meta-address (wallet-level secret).
+   * @returns Array of { subscriptionId, stealthIndex, stealthAddress }.
+   */
+  async recoverStealthAddresses(
+    userId: string,
+    metaAddress: string,
+  ): Promise<{ subscriptionId: string; stealthIndex: number; stealthAddress: string }[]> {
+    const { data: rows, error } = await supabase
+      .from("subscriptions")
+      .select("id, stealth_index")
+      .eq("user_id", userId)
+      .order("stealth_index", { ascending: true });
+
+    if (error) {
+      throw new Error(`Failed to fetch subscriptions for recovery: ${error.message}`);
+    }
+
+    return (rows ?? []).map((row) => ({
+      subscriptionId: row.id as string,
+      stealthIndex: row.stealth_index as number,
+      stealthAddress: deriveStealthAddress(metaAddress, row.id as string, row.stealth_index as number),
+    }));
   }
 
   /**

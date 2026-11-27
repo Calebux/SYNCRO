@@ -25,6 +25,7 @@ describe('RateLimitRedisStore', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    (RateLimitRedisStore as any).instance = undefined;
     
     mockRedisClient = {
       connect: jest.fn().mockResolvedValue(undefined),
@@ -75,22 +76,16 @@ describe('RateLimitRedisStore', () => {
     });
 
     it('should skip initialization when Redis is disabled', async () => {
-      // Mock disabled Redis config
-      jest.doMock('../src/config/rate-limit', () => ({
-        rateLimitConfig: {
-          redis: {
-            enabled: false,
-            url: null,
-          },
-        },
-      }));
+      const { rateLimitConfig } = require('../src/config/rate-limit');
+      const originalEnabled = rateLimitConfig.redis.enabled;
+      rateLimitConfig.redis.enabled = false;
 
-      const { RateLimitRedisStore: DisabledStore } = await import('../src/lib/redis-store');
-      const store = DisabledStore.getInstance();
-
+      const store = RateLimitRedisStore.getInstance();
       await store.initialize();
 
       expect(mockCreateClient).not.toHaveBeenCalled();
+      
+      rateLimitConfig.redis.enabled = originalEnabled;
     });
   });
 
@@ -143,6 +138,7 @@ describe('RateLimitRedisStore', () => {
 
       expect(status).toEqual({
         connected: false,
+        degraded: true,
         reconnectAttempts: 0,
         error: 'Redis connection unavailable',
       });
@@ -160,6 +156,7 @@ describe('RateLimitRedisStore', () => {
 
       expect(status).toEqual({
         connected: true,
+        degraded: false,
         reconnectAttempts: 0,
         error: undefined,
       });
@@ -190,6 +187,93 @@ describe('RateLimitRedisStore', () => {
 
       // Test delay capping
       expect(reconnectStrategy(4)).toBe(30000); // Capped at 30 seconds
+    });
+  });
+
+  describe('outage scenarios', () => {
+    it('isDegraded returns false when redis is not configured', () => {
+      const { rateLimitConfig } = require('../src/config/rate-limit');
+      const savedEnabled = rateLimitConfig.redis.enabled;
+      rateLimitConfig.redis.enabled = false;
+
+      const store = RateLimitRedisStore.getInstance();
+      expect(store.isDegraded()).toBe(false);
+
+      rateLimitConfig.redis.enabled = savedEnabled;
+    });
+
+    it('isDegraded returns true when redis is configured but disconnected', () => {
+      const store = RateLimitRedisStore.getInstance();
+      // Store is configured (mocked config has enabled: true) but not yet connected
+      expect(store.isDegraded()).toBe(true);
+    });
+
+    it('isDegraded returns false after successful connection', async () => {
+      const store = RateLimitRedisStore.getInstance();
+      await store.initialize();
+
+      // Simulate connect event
+      const connectHandler = mockRedisClient.on.mock.calls.find((c: any[]) => c[0] === 'connect')[1];
+      connectHandler();
+
+      expect(store.isDegraded()).toBe(false);
+    });
+
+    it('falls back to memory store and is marked degraded on connection failure', async () => {
+      mockRedisClient.connect.mockRejectedValue(new Error('ECONNREFUSED'));
+      const store = RateLimitRedisStore.getInstance();
+
+      await expect(store.initialize()).rejects.toThrow('ECONNREFUSED');
+
+      expect(store.isAvailable()).toBe(false);
+      expect(store.getStore()).toBeNull();
+    });
+
+    it('falls back silently via createRedisStore when redis is unreachable', async () => {
+      const mockStoreInstance = {
+        initialize: jest.fn().mockRejectedValue(new Error('timeout')),
+        getStore: jest.fn().mockReturnValue(null),
+      };
+      jest.spyOn(RateLimitRedisStore, 'getInstance').mockReturnValue(mockStoreInstance as any);
+
+      const result = await createRedisStore();
+
+      expect(result).toBeUndefined();
+    });
+
+    it('getHealthStatus includes degraded flag', async () => {
+      const store = RateLimitRedisStore.getInstance();
+      await store.initialize();
+
+      const status = store.getHealthStatus();
+      expect(status).toHaveProperty('degraded');
+      expect(typeof status.degraded).toBe('boolean');
+    });
+
+    it('transitions from degraded to healthy on reconnect event', async () => {
+      const store = RateLimitRedisStore.getInstance();
+      await store.initialize();
+
+      expect(store.isDegraded()).toBe(true);
+
+      const connectHandler = mockRedisClient.on.mock.calls.find((c: any[]) => c[0] === 'connect')[1];
+      connectHandler();
+
+      expect(store.isDegraded()).toBe(false);
+      expect(store.getHealthStatus().degraded).toBe(false);
+    });
+
+    it('transitions back to degraded after disconnect event', async () => {
+      const store = RateLimitRedisStore.getInstance();
+      await store.initialize();
+
+      const connectHandler = mockRedisClient.on.mock.calls.find((c: any[]) => c[0] === 'connect')[1];
+      connectHandler();
+      expect(store.isDegraded()).toBe(false);
+
+      const disconnectHandler = mockRedisClient.on.mock.calls.find((c: any[]) => c[0] === 'disconnect')[1];
+      disconnectHandler();
+      expect(store.isDegraded()).toBe(true);
     });
   });
 });

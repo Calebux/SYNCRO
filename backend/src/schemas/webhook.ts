@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { validateOutboundUrlSync } from '../utils/ssrf-protection';
 
 const webhookEventSchema = z.enum([
   'subscription.renewal_due',
@@ -15,14 +16,13 @@ const webhookUrlSchema = z
   .url('Must be a valid URL')
   .refine(
     (val) => {
-      try {
-        const { protocol } = new URL(val);
-        return protocol === 'http:' || protocol === 'https:';
-      } catch {
-        return false;
-      }
+      const result = validateOutboundUrlSync(val);
+      return result.valid;
     },
-    { message: 'URL must use http or https protocol' },
+    (val) => {
+      const result = validateOutboundUrlSync(val);
+      return { message: result.reason ?? 'URL is not permitted as a webhook target' };
+    },
   );
 
 export const createWebhookSchema = z.object({

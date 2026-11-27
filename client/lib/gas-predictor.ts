@@ -14,6 +14,9 @@
  *   if (estimate.congestion === 'high') { …warn user… }
  */
 
+import { RpcClient } from '@syncro/shared/rpc-client';
+import { toDecimalAmount } from '@syncro/shared/format-amount';
+
 export type CongestionLevel = "low" | "medium" | "high" | "severe";
 
 export interface FeeStats {
@@ -76,7 +79,7 @@ export interface GasEstimate {
   exceedsThreshold: boolean;
 }
 
-const STROOPS_PER_XLM = 10_000_000;
+const XLM_ASSET = { symbol: 'XLM', decimals: 7 } as const;
 
 /** Default RPC endpoints by network. */
 const RPC_ENDPOINTS: Record<string, string> = {
@@ -99,6 +102,17 @@ class GasPredictorService {
   private cache: { stats: FeeStats; fetchedAt: number } | null = null;
   private readonly CACHE_TTL_MS = 15_000; // 15 seconds
   private thresholdXlm = 0.5; // default alert threshold
+  private rpcClient: RpcClient;
+
+  constructor() {
+    this.rpcClient = new RpcClient({
+      maxRetries: 3,
+      baseRetryDelayMs: 500,
+      timeoutMs: 10000,
+      circuitBreakerThreshold: 3,
+      circuitBreakerResetTimeoutMs: 15000,
+    });
+  }
 
   /** Set the alert threshold in XLM. */
   setThreshold(xlm: number): void {
@@ -110,7 +124,18 @@ class GasPredictorService {
   }
 
   private getRpcUrl(): string {
-    const network = process.env.NEXT_PUBLIC_STELLAR_NETWORK ?? "testnet";
+    const network = process.env.NEXT_PUBLIC_STELLAR_NETWORK ?? '';
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    // In production, NEXT_PUBLIC_SOROBAN_RPC_URL must be explicitly set.
+    // We never silently fall back to the testnet RPC in a production build.
+    if (isProduction && !process.env.NEXT_PUBLIC_SOROBAN_RPC_URL) {
+      throw new Error(
+        '[gas-predictor] NEXT_PUBLIC_SOROBAN_RPC_URL must be set in production. ' +
+          'Refusing to fall back to the testnet RPC endpoint.',
+      );
+    }
+
     return (
       process.env.NEXT_PUBLIC_SOROBAN_RPC_URL ??
       RPC_ENDPOINTS[network] ??
@@ -130,7 +155,7 @@ class GasPredictorService {
 
     const rpcUrl = this.getRpcUrl();
 
-    const response = await fetch(rpcUrl, {
+    const response = await this.rpcClient.fetch(rpcUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -263,9 +288,9 @@ class GasPredictorService {
     );
 
     const totalStroops = adjustedBaseFee + resourceFeeStroops;
-    const baseFeeXlm = adjustedBaseFee / STROOPS_PER_XLM;
-    const resourceFeeXlm = resourceFeeStroops / STROOPS_PER_XLM;
-    const totalXlm = totalStroops / STROOPS_PER_XLM;
+    const baseFeeXlm = toDecimalAmount(adjustedBaseFee, XLM_ASSET);
+    const resourceFeeXlm = toDecimalAmount(resourceFeeStroops, XLM_ASSET);
+    const totalXlm = toDecimalAmount(totalStroops, XLM_ASSET);
 
     const congestion = this.getCongestion(stats.ledgerCapacityUsage);
     const exceedsThreshold = totalXlm > this.thresholdXlm;
@@ -300,7 +325,7 @@ class GasPredictorService {
             : 1;
 
     const totalStroops = Math.round(baseFeeStroops * congestionMultiplier);
-    const totalXlm = totalStroops / STROOPS_PER_XLM;
+    const totalXlm = toDecimalAmount(totalStroops, XLM_ASSET);
     const congestion = this.getCongestion(stats.ledgerCapacityUsage);
     const exceedsThreshold = totalXlm > this.thresholdXlm;
     const warning = this.buildWarning(congestion, totalXlm, exceedsThreshold);

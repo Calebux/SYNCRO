@@ -1,0 +1,27 @@
+{
+  "name": "SYNCRO",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      "NODE_VERSION": "20.18.1",
+      "RUST_VERSION": "1.91.0",
+      "SOROBAN_CLI_VERSION": "23.0.0"
+    }
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode"
+      ]
+    }
+  },
+  "forwardPorts": [3000, 3001, 54321, 54323],
+  "postCreateCommand": "npm run bootstrap",
+  "remoteUser": "vscode"
+}

@@ -17,6 +17,7 @@ jest.mock('../src/config/database', () => ({
 
 jest.mock('../src/config/logger', () => ({
   info: jest.fn(),
+  warn: jest.fn(),
   error: jest.fn(),
   debug: jest.fn(),
 }));
@@ -31,9 +32,9 @@ describe('ReminderEngine Batch Optimization', () => {
 
   it('should batch fetch process and batch upsert reminders', async () => {
     const mockSubscriptions = [
-      { id: 'sub1', user_id: 'user1', active_until: '2026-04-01T00:00:00Z' },
-      { id: 'sub2', user_id: 'user1', active_until: '2026-04-01T00:00:00Z' },
-      { id: 'sub3', user_id: 'user2', active_until: '2026-04-01T00:00:00Z' },
+      { id: 'sub1', user_id: 'user1', active_until: '2026-06-15T00:00:00Z' },
+      { id: 'sub2', user_id: 'user1', active_until: '2026-06-15T00:00:00Z' },
+      { id: 'sub3', user_id: 'user2', active_until: '2026-06-15T00:00:00Z' },
     ];
 
     const mockPreferences = [
