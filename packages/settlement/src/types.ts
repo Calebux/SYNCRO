@@ -24,18 +24,54 @@ export interface Channel {
 export type ChannelStatus = 'open' | 'closing' | 'closed';
 
 /**
- * The signed off-chain state of a channel.
+ * The full v3 channel state that is encoded and signed.
  *
- * This is the payload that peers exchange and sign; it carries the
- * monotonically increasing nonce and the balances each peer is owed.
+ * Both the TypeScript settlement layer and the Rust `syncro-channel-state`
+ * crate use this exact field set when producing the canonical encoding:
+ *
+ * ```
+ * v3-channel-state|{contractVersion}|{contractAddress}|{channelId}|{nonce}|{payerBalance}|{payeeBalance}|{windowStart}|{windowEnd}
+ * ```
+ *
+ * `contractVersion` is a string because the on-chain contract stores it as a
+ * string; callers should pass `"1"`, `"2"`, etc.
+ */
+export interface ChannelState {
+  /** Unique channel identifier. */
+  channelId: string;
+  /** Stellar address of the payment-channel contract. */
+  contractAddress: string;
+  /**
+   * Version of the payment-channel contract.
+   * Stored and encoded as a string (e.g. `"1"`).
+   */
+  contractVersion: string;
+  /** Monotonically increasing state version; resets to 0 when a channel is re-opened. */
+  nonce: number;
+  /** Token units owed to the payer (unsigned). */
+  payerBalance: bigint;
+  /** Token units owed to the payee (unsigned). */
+  payeeBalance: bigint;
+  /** Window start in milliseconds since Unix epoch. */
+  windowStart: number;
+  /** Window end in milliseconds since Unix epoch. */
+  windowEnd: number;
+}
+
+/**
+ * A channel state together with its HMAC-SHA-256 signature.
+ *
+ * The signature is `HMAC-SHA-256(key, encodeChannelState(state))` and is
+ * represented as a lowercase hex string.
  */
 export interface SignedChannelState {
-  /** Channel this state belongs to. */
-  channelId: string;
-  /** Monotonically increasing version of the state. */
-  nonce: number;
-  /** Balance owed to each peer, keyed by peer address. */
-  balances: Record<string, bigint>;
+  /** The raw channel state that was signed. */
+  state: ChannelState;
+  /**
+   * HMAC-SHA-256 of the encoded state, hex-encoded.
+   * Produced by `signChannelState` and verified on-chain by the contract.
+   */
+  signature: string;
 }
 
 /**

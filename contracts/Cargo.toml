@@ -20,6 +20,11 @@ members = [
   "contracts/fx-oracle",
   "contracts/payment-splitter",
   "contracts/stealth-announcement",
+  # ── Host-side crates (not compiled to WASM) ───────────────────────────────
+  # These are path-local crates; they are excluded from the WASM build targets
+  # via their own [lib] settings and are never listed in stellar.toml.
+  "crates/channel-state",
+  "crates/syncro-client",
 ]
 
 [workspace.dependencies]

@@ -1,0 +1,41 @@
+[package]
+name = "syncro-channel-state"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = """
+no_std-friendly encoding of Syncro v3 channel states.
+Shared between the payment-channel contract and the Rust client crate
+so that serialisation bugs are impossible by construction.
+"""
+
+[lib]
+crate-type = ["rlib"]
+
+# ── Feature flags ─────────────────────────────────────────────────────────────
+# `signing` pulls in sha2 + hmac and exposes the HMAC-SHA-256 signer.
+# Keep it optional so the WASM contract can depend on this crate
+# with signing disabled (the contract never needs to sign client-side states).
+[features]
+default = ["signing"]
+signing = ["dep:sha2", "dep:hmac"]
+# Enable when compiling for host (std) targets.
+std = []
+
+# ── Dependencies ──────────────────────────────────────────────────────────────
+# Pin to 0.10 / 0.12 — these versions are in the local registry cache and do
+# NOT transitively require `ctutils`, which is not available offline.
+# (The workspace bumped sha2→0.11 and hmac→0.13 for the contracts; those
+# versions are only used as dev-deps in the WASM builds where compilation
+# proceeds in CI with a full network.  Here we stay on the proven, cached
+# versions that are used in host-side tests and the client crate.)
+[dependencies]
+sha2 = { version = "0.10", default-features = false, optional = true }
+hmac  = { version = "0.12", default-features = false, optional = true }
+
+[dev-dependencies]
+sha2        = { version = "0.10" }
+hmac        = { version = "0.12" }
+hex         = { version = "0.4" }
+serde       = { version = "1.0", features = ["derive"] }
+serde_json  = { version = "1.0" }
